@@ -133,6 +133,31 @@ export class InvertedIndex {
     return out
   }
 
+  searchScored(bits: number[], topK: number, minOverlap: number): Array<[string, number]> {
+    // SIMPLE IMPLEMENTATION: count overlaps by iterating all matching doc IDs across all bitmaps.
+    // FULL IMPLEMENTATION: match Rust heuristics (rarity-based pruning / max_bits / thread-local sparse buffer).
+    if (bits.length === 0) return []
+
+    const counts = new Map<number, number>()
+    for (const b of bits) {
+      const bm = this.bitToDocs.get(b & 0xffff)
+      if (!bm) continue
+      for (const docId of bm.toArray()) {
+        counts.set(docId, (counts.get(docId) ?? 0) + 1)
+      }
+    }
+
+    const out: Array<[string, number]> = []
+    for (const [docId, c] of counts.entries()) {
+      if (c < minOverlap) continue
+      const ext = this.reverseMap.get(docId)
+      if (ext !== undefined) out.push([ext, c])
+    }
+    out.sort((a, b) => b[1] - a[1])
+    if (topK > 0 && out.length > topK) out.length = topK
+    return out
+  }
+
   private getOrCreateDocId(externalId: string): number {
     const existing = this.idMap.get(externalId)
     if (existing !== undefined) return existing

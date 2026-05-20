@@ -23,7 +23,9 @@
       "@aura/platform-node": ["packages/platform-node/src/index.ts"],
       "@aura/platform-node/*": ["packages/platform-node/src/*"],
       "@aura/indexing": ["packages/indexing/src/index.ts"],
-      "@aura/indexing/*": ["packages/indexing/src/*"]
+      "@aura/indexing/*": ["packages/indexing/src/*"],
+      "@aura/recall": ["packages/recall/src/index.ts"],
+      "@aura/recall/*": ["packages/recall/src/*"]
     }
   },
   "include": [

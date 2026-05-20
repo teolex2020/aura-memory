@@ -1,6 +1,6 @@
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
-import { BinaryWriter } from "../../codec/src/Binary"
+import { BinaryWriter } from "@aura/codec"
 import { decodeCognitiveLog } from "./Cognitive"
 
 function crc32(buf: Uint8Array): number {

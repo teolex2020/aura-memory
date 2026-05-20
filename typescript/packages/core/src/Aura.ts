@@ -1,15 +1,18 @@
-import * as fs from "node:fs"
-import * as path from "node:path"
-import { readBrainAuraFile, type BrainAuraRecord } from "../../storage/src/BrainAura"
+import { Effect } from "effect"
+import { FileRead } from "@aura/contract"
+import { readBrainAuraFile, type BrainAuraRecord } from "@aura/storage"
 
 export class Aura {
   private constructor(private readonly records: BrainAuraRecord[]) {}
 
-  static async open(brainPath: string): Promise<Aura> {
-    const brainAuraPath = path.join(brainPath, "brain.aura")
-    const buf = new Uint8Array(fs.readFileSync(brainAuraPath))
-    const parsed = readBrainAuraFile(buf)
-    return new Aura(parsed.records)
+  static open(brainPath: string): Effect.Effect<Aura, unknown, FileRead> {
+    const brainAuraPath = `${brainPath}/brain.aura`
+    return Effect.gen(function* () {
+      const fs = yield* Effect.service(FileRead)
+      const buf = yield* fs.readFile(brainAuraPath)
+      const parsed = readBrainAuraFile(buf)
+      return new Aura(parsed.records)
+    })
   }
 
   listRecords(): BrainAuraRecord[] {

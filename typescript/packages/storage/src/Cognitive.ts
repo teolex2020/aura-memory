@@ -1,4 +1,4 @@
-import { BinaryReader } from "../../codec/src/Binary"
+import { BinaryReader } from "@aura/codec"
 
 export type CognitiveOp =
   | { _tag: "Store"; record: unknown }

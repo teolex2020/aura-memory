@@ -1,7 +1,7 @@
-import * as fs from "node:fs"
-import * as path from "node:path"
-import { BinaryReader, BinaryWriter } from "../../codec/src/Binary"
-import { encryptData } from "../../codec/src/Crypto"
+import { Effect } from "effect"
+import { Clock, Crypto, FileRead, FileWrite } from "@aura/contract"
+import { BinaryReader, BinaryWriter } from "@aura/codec"
+import { fixedBytes } from "@aura/utils"
 
 export type BrainAuraFileAppendRecord = {
   id: string
@@ -19,13 +19,6 @@ export type BrainAuraFileAppendRecord = {
 const te = new TextEncoder()
 const td = new TextDecoder()
 
-function fixedBytes(s: string, len: number): Uint8Array {
-  const out = new Uint8Array(len)
-  const b = te.encode(s)
-  out.set(b.subarray(0, len), 0)
-  return out
-}
-
 function headerBytes(createdSecF64: number, count: bigint): Uint8Array {
   const w = new BinaryWriter()
   w.bytes(te.encode("AURA"))
@@ -38,91 +31,105 @@ function headerBytes(createdSecF64: number, count: bigint): Uint8Array {
 
 export class BrainAuraFile {
   private constructor(
-    private readonly fd: number,
     private readonly filePath: string,
     private readonly key32: Uint8Array | undefined,
     private count: bigint,
     private endOff: number
   ) {}
 
-  static open(dir: string, key32?: Uint8Array): BrainAuraFile {
-    const filePath = path.join(dir, "brain.aura")
-    if (!fs.existsSync(filePath)) {
-      const fd = fs.openSync(filePath, "w+")
-      const created = Date.now() / 1000
-      const header = headerBytes(created, 0n)
-      fs.writeSync(fd, header, 0, header.byteLength, 0)
-      return new BrainAuraFile(fd, filePath, key32, 0n, header.byteLength)
-    }
+  static open(
+    dir: string,
+    key32?: Uint8Array
+  ): Effect.Effect<BrainAuraFile, unknown, FileRead | FileWrite | Clock> {
+    const filePath = `${dir}/brain.aura`
+    return Effect.gen(function* () {
+      const fr = yield* Effect.service(FileRead)
+      const fw = yield* Effect.service(FileWrite)
+      const clock = yield* Effect.service(Clock)
+      yield* fw.mkdirp(dir)
 
-    const fd = fs.openSync(filePath, "r+")
-    const headerBuf = new Uint8Array(64)
-    const n = fs.readSync(fd, headerBuf, 0, headerBuf.byteLength, 0)
-    if (n !== headerBuf.byteLength) {
-      throw new Error("invalid brain.aura header")
-    }
-    const r = new BinaryReader(headerBuf)
-    const magic = td.decode(r.bytes(4))
-    if (magic !== "AURA") {
-      throw new Error("invalid brain.aura magic")
-    }
-    r.u32le()
-    const count = r.u64leAsBigInt()
-    const endOff = fs.fstatSync(fd).size
-    return new BrainAuraFile(fd, filePath, key32, count, endOff)
+      const exists = yield* fr.exists(filePath)
+      if (!exists) {
+        const created = yield* clock.nowSeconds()
+        const header = headerBytes(created, 0n)
+        yield* fw.writeFile(filePath, header)
+        return new BrainAuraFile(filePath, key32, 0n, header.byteLength)
+      }
+
+      const stat = yield* fr.stat(filePath)
+      const buf = yield* fr.readFile(filePath)
+      if (buf.byteLength < 64) {
+        throw new Error("invalid brain.aura header")
+      }
+      const r = new BinaryReader(buf.subarray(0, 64))
+      const magic = td.decode(r.bytes(4))
+      if (magic !== "AURA") {
+        throw new Error("invalid brain.aura magic")
+      }
+      r.u32le()
+      const count = r.u64leAsBigInt()
+      return new BrainAuraFile(filePath, key32, count, stat.size)
+    })
   }
 
-  append(record: BrainAuraFileAppendRecord): void {
+  append(record: BrainAuraFileAppendRecord): Effect.Effect<void, unknown, FileWrite | Crypto> {
     const encrypted_flag = record.encrypted_flag === 1 ? 1 : 0
-    const plaintext = te.encode(record.text)
-    const textBytes =
-      encrypted_flag === 1
-        ? (() => {
-            if (!this.key32) {
-              throw new Error("missing key32 for encryption")
-            }
-            return encryptData(plaintext, this.key32)
-          })()
-        : plaintext
+    const self = this
+    return Effect.gen(function* () {
+      const fw = yield* Effect.service(FileWrite)
+      const crypto = yield* Effect.service(Crypto)
 
-    const sdr_count = record.sdr_indices.length
-    if (sdr_count > 0xffff) {
-      throw new Error("sdr_indices too large")
-    }
+      const plaintext: Uint8Array = te.encode(record.text)
+      let textBytes: Uint8Array = plaintext
+      if (encrypted_flag === 1) {
+        if (!self.key32) {
+          throw new Error("missing key32 for encryption")
+        }
+        const enc: Uint8Array = yield* crypto.encryptData(plaintext, self.key32)
+        textBytes = enc
+      }
 
-    const w = new BinaryWriter()
-    w.bytes(fixedBytes(record.id, 32))
-    w.bytes(fixedBytes(record.dna, 16))
-    w.f64le(record.timestamp)
-    w.f32le(record.intensity)
-    w.f32le(record.stability)
-    w.f32le(record.decay_velocity)
-    w.f32le(record.entropy)
-    w.u16le(sdr_count)
-    w.u32le(textBytes.byteLength)
-    w.u8(encrypted_flag)
-    for (const idx of record.sdr_indices) {
-      w.u16le(idx)
-    }
-    w.bytes(textBytes)
+      const sdr_count = record.sdr_indices.length
+      if (sdr_count > 0xffff) {
+        throw new Error("sdr_indices too large")
+      }
 
-    const buf = w.toUint8Array()
-    fs.writeSync(this.fd, buf, 0, buf.byteLength, this.endOff)
-    this.endOff += buf.byteLength
-    this.count += 1n
+      const w = new BinaryWriter()
+      w.bytes(fixedBytes(record.id, 32))
+      w.bytes(fixedBytes(record.dna, 16))
+      w.f64le(record.timestamp)
+      w.f32le(record.intensity)
+      w.f32le(record.stability)
+      w.f32le(record.decay_velocity)
+      w.f32le(record.entropy)
+      w.u16le(sdr_count)
+      w.u32le(textBytes.byteLength)
+      w.u8(encrypted_flag)
+      for (const idx of record.sdr_indices) {
+        w.u16le(idx)
+      }
+      w.bytes(textBytes)
+
+      const buf = w.toUint8Array()
+      yield* fw.appendFile(self.filePath, buf)
+      self.endOff += buf.byteLength
+      self.count += 1n
+    })
   }
 
-  flush(): void {
-    const w = new BinaryWriter()
-    w.u64leFromBigInt(this.count)
-    const buf = w.toUint8Array()
-    fs.writeSync(this.fd, buf, 0, buf.byteLength, 8)
-    fs.fsyncSync(this.fd)
+  flush(): Effect.Effect<void, unknown, FileWrite> {
+    const self = this
+    return Effect.gen(function* () {
+      const fw = yield* Effect.service(FileWrite)
+      const w = new BinaryWriter()
+      w.u64leFromBigInt(self.count)
+      const buf = w.toUint8Array()
+      yield* fw.writeAt(self.filePath, 8, buf)
+      yield* fw.fsync(self.filePath)
+    })
   }
 
-  close(): void {
-    try {
-      fs.closeSync(this.fd)
-    } catch {}
+  close(): Effect.Effect<void> {
+    return Effect.succeed(undefined)
   }
 }

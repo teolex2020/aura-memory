@@ -1,5 +1,5 @@
 {
-  "name": "@aura/core",
+  "name": "@aura/contract",
   "private": true,
   "type": "module",
   "exports": {

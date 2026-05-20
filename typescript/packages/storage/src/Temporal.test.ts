@@ -1,7 +1,6 @@
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
-import { BinaryWriter } from "../../codec/src/Binary"
-import { bincodeEncodeStringMap } from "../../codec/src/Bincode"
+import { BinaryWriter, bincodeEncodeStringMap } from "@aura/codec"
 import { decodeTemporalBin } from "./Temporal"
 
 it("decode temporal.bin", () => {

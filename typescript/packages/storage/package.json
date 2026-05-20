@@ -1,5 +1,8 @@
 {
   "name": "@aura/storage",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

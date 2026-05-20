@@ -1,5 +1,4 @@
-import { BinaryReader } from "../../codec/src/Binary"
-import { decryptData } from "../../codec/src/Crypto"
+import { BinaryReader, decryptData } from "@aura/codec"
 
 export type BrainAuraHeader = {
   magic: "AURA"

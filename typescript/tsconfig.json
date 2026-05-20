@@ -10,9 +10,18 @@
     "types": ["node", "vitest/globals"],
     "baseUrl": ".",
     "paths": {
+      "@aura/codec": ["packages/codec/src/index.ts"],
       "@aura/codec/*": ["packages/codec/src/*"],
+      "@aura/storage": ["packages/storage/src/index.ts"],
       "@aura/storage/*": ["packages/storage/src/*"],
-      "@aura/core/*": ["packages/core/src/*"]
+      "@aura/core": ["packages/core/src/index.ts"],
+      "@aura/core/*": ["packages/core/src/*"],
+      "@aura/contract": ["packages/contract/src/index.ts"],
+      "@aura/contract/*": ["packages/contract/src/*"],
+      "@aura/utils": ["packages/utils/src/index.ts"],
+      "@aura/utils/*": ["packages/utils/src/*"],
+      "@aura/platform-node": ["packages/platform-node/src/index.ts"],
+      "@aura/platform-node/*": ["packages/platform-node/src/*"]
     }
   },
   "include": [

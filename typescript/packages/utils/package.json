@@ -1,0 +1,5 @@
+{
+  "name": "@aura/utils",
+  "private": true,
+  "type": "module"
+}

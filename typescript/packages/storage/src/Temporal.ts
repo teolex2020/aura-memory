@@ -1,5 +1,4 @@
-import { BinaryReader } from "../../codec/src/Binary"
-import { bincodeDecodeStringMap } from "../../codec/src/Bincode"
+import { BinaryReader, bincodeDecodeStringMap } from "@aura/codec"
 
 const td = new TextDecoder()
 

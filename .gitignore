@@ -60,7 +60,9 @@ ROADMAP.md
 
 # Internal docs (not for public)
 SPEC.md
-docs/
+docs/*
+!docs/superpowers/
+!docs/superpowers/**
 design/
 research/
 notes/
@@ -83,6 +85,8 @@ MONETIZATION.md
 RELEASE_PROTOCOL_PRIVATE.md
 POSITIONING_PRIVATE.md
 plans/
+!docs/superpowers/plans/
+!docs/superpowers/plans/**
 reports/
 tests/
 
@@ -95,3 +99,7 @@ ci_smoke_brain/
 
 # Claude Code local config
 .claude/
+
+# Node/Bun dependencies
+node_modules/
+typescript/node_modules/

@@ -9,6 +9,7 @@
         "@noble/hashes": "^1.5.0",
         "argon2-wasm-edge": "^1.0.23",
         "effect": "4.0.0-beta.68",
+        "roaring-wasm": "^1.1.0",
       },
       "devDependencies": {
         "@types/node": "^22.0.0",
@@ -19,19 +20,39 @@
     "packages/codec": {
       "name": "@aura/codec",
     },
+    "packages/contract": {
+      "name": "@aura/contract",
+    },
     "packages/core": {
       "name": "@aura/core",
     },
+    "packages/indexing": {
+      "name": "@aura/indexing",
+    },
+    "packages/platform-node": {
+      "name": "@aura/platform-node",
+    },
     "packages/storage": {
       "name": "@aura/storage",
+    },
+    "packages/utils": {
+      "name": "@aura/utils",
     },
   },
   "packages": {
     "@aura/codec": ["@aura/codec@workspace:packages/codec"],
 
+    "@aura/contract": ["@aura/contract@workspace:packages/contract"],
+
     "@aura/core": ["@aura/core@workspace:packages/core"],
 
+    "@aura/indexing": ["@aura/indexing@workspace:packages/indexing"],
+
+    "@aura/platform-node": ["@aura/platform-node@workspace:packages/platform-node"],
+
     "@aura/storage": ["@aura/storage@workspace:packages/storage"],
+
+    "@aura/utils": ["@aura/utils@workspace:packages/utils"],
 
     "@effect/vitest": ["@effect/vitest@4.0.0-beta.68", "", { "peerDependencies": { "effect": "^4.0.0-beta.68", "vitest": "^3.0.0 || ^4.0.0" } }, "sha512-7B3OZ7e6dnWTbvuQvF/YpIf5YPN6F4KCF5ITevy3Ge5UulaEpjNGoON9sW1eYn0KtOyyji2XQWDAxGT5vAVOXw=="],
 
@@ -230,6 +251,8 @@
     "postcss": ["postcss@8.5.15", "", { "dependencies": { "nanoid": "^3.3.12", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A=="],
 
     "pure-rand": ["pure-rand@8.4.0", "", {}, "sha512-IoM8YF/jY0hiugFo/wOWqfmarlE6J0wc6fDK1PhftMk7MGhVZl88sZimmqBBFomLOCSmcCCpsfj7wXASCpvK9A=="],
+
+    "roaring-wasm": ["roaring-wasm@1.1.0", "", {}, "sha512-mhNqA0BOqIW7k4ZYSYe3kCyvn5T3VWT+2661G7fZH0C6XcVkGoTDLAqne7b47xCNQE6LhuYviMKBnzbOiBXkdw=="],
 
     "rollup": ["rollup@4.60.4", "", { "dependencies": { "@types/estree": "1.0.8" }, "optionalDependencies": { "@rollup/rollup-android-arm-eabi": "4.60.4", "@rollup/rollup-android-arm64": "4.60.4", "@rollup/rollup-darwin-arm64": "4.60.4", "@rollup/rollup-darwin-x64": "4.60.4", "@rollup/rollup-freebsd-arm64": "4.60.4", "@rollup/rollup-freebsd-x64": "4.60.4", "@rollup/rollup-linux-arm-gnueabihf": "4.60.4", "@rollup/rollup-linux-arm-musleabihf": "4.60.4", "@rollup/rollup-linux-arm64-gnu": "4.60.4", "@rollup/rollup-linux-arm64-musl": "4.60.4", "@rollup/rollup-linux-loong64-gnu": "4.60.4", "@rollup/rollup-linux-loong64-musl": "4.60.4", "@rollup/rollup-linux-ppc64-gnu": "4.60.4", "@rollup/rollup-linux-ppc64-musl": "4.60.4", "@rollup/rollup-linux-riscv64-gnu": "4.60.4", "@rollup/rollup-linux-riscv64-musl": "4.60.4", "@rollup/rollup-linux-s390x-gnu": "4.60.4", "@rollup/rollup-linux-x64-gnu": "4.60.4", "@rollup/rollup-linux-x64-musl": "4.60.4", "@rollup/rollup-openbsd-x64": "4.60.4", "@rollup/rollup-openharmony-arm64": "4.60.4", "@rollup/rollup-win32-arm64-msvc": "4.60.4", "@rollup/rollup-win32-ia32-msvc": "4.60.4", "@rollup/rollup-win32-x64-gnu": "4.60.4", "@rollup/rollup-win32-x64-msvc": "4.60.4", "fsevents": "~2.3.2" }, "bin": { "rollup": "dist/bin/rollup" } }, "sha512-WHeFSbZYsPu3+bLoNRUuAO+wavNlocOPf3wSHTP7hcFKVnJeWsYlCDbr3mTS14FCizf9ccIxXA8sGL8zKeQN3g=="],
 

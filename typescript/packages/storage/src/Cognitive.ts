@@ -1,4 +1,5 @@
 import { BinaryReader } from "@aura/codec"
+import { crc32 } from "@aura/utils"
 
 export type CognitiveOp =
   | { _tag: "Store"; record: unknown }
@@ -6,18 +7,6 @@ export type CognitiveOp =
   | { _tag: "Delete"; id: string }
 
 const td = new TextDecoder()
-
-function crc32(buf: Uint8Array): number {
-  let crc = 0xffffffff
-  for (const b of buf) {
-    crc ^= b
-    for (let i = 0; i < 8; i++) {
-      const mask = -(crc & 1)
-      crc = (crc >>> 1) ^ (0xedb88320 & mask)
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0
-}
 
 function decodeFixedString(bytes: Uint8Array): string {
   return td.decode(bytes).replaceAll("\u0000", "")

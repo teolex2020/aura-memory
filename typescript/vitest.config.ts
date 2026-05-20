@@ -19,7 +19,8 @@ export default defineConfig({
       "@aura/core": pkg("core"),
       "@aura/contract": pkg("contract"),
       "@aura/utils": pkg("utils"),
-      "@aura/platform-node": pkg("platform-node")
+      "@aura/platform-node": pkg("platform-node"),
+      "@aura/indexing": pkg("indexing")
     }
   }
 })

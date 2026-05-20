@@ -9,5 +9,6 @@ export class FileWrite extends Tag("aura.contract.FileWrite")<
     appendFile: (path: string, data: Uint8Array) => Effect.Effect<void>
     writeAt: (path: string, offset: number, data: Uint8Array) => Effect.Effect<void>
     fsync: (path: string) => Effect.Effect<void>
+    rename: (from: string, to: string) => Effect.Effect<void>
   }
 >() {}

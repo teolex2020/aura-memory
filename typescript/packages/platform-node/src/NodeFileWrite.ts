@@ -23,6 +23,6 @@ export const NodeFileWriteLive = Layer.succeed(FileWrite, {
       } finally {
         await fd.close()
       }
-    })
+    }),
+  rename: (from, to) => Effect.tryPromise(() => fs.rename(from, to).then(() => undefined))
 })
-

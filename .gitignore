@@ -60,9 +60,6 @@ ROADMAP.md
 
 # Internal docs (not for public)
 SPEC.md
-docs/*
-!docs/superpowers/
-!docs/superpowers/**
 design/
 research/
 notes/
@@ -85,8 +82,6 @@ MONETIZATION.md
 RELEASE_PROTOCOL_PRIVATE.md
 POSITIONING_PRIVATE.md
 plans/
-!docs/superpowers/plans/
-!docs/superpowers/plans/**
 reports/
 tests/
 

@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "types": ["node", "vitest/globals"],
+    "baseUrl": ".",
+    "paths": {
+      "@aura/codec/*": ["packages/codec/src/*"],
+      "@aura/storage/*": ["packages/storage/src/*"],
+      "@aura/core/*": ["packages/core/src/*"]
+    }
+  },
+  "include": [
+    "packages/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

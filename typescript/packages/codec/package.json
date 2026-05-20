@@ -1,0 +1,5 @@
+{
+  "name": "@aura/codec",
+  "private": true,
+  "type": "module"
+}

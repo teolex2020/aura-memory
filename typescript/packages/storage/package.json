@@ -1,0 +1,5 @@
+{
+  "name": "@aura/storage",
+  "private": true,
+  "type": "module"
+}

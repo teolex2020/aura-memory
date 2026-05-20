@@ -1,4 +1,5 @@
 import { BinaryReader } from "../../codec/src/Binary"
+import { decryptData } from "../../codec/src/Crypto"
 
 export type BrainAuraHeader = {
   magic: "AURA"
@@ -27,7 +28,10 @@ function decodeFixedString(bytes: Uint8Array): string {
   return td.decode(bytes).replaceAll("\u0000", "")
 }
 
-export function readBrainAuraFile(buf: Uint8Array): { header: BrainAuraHeader; records: BrainAuraRecord[] } {
+export function readBrainAuraFile(
+  buf: Uint8Array,
+  key32?: Uint8Array
+): { header: BrainAuraHeader; records: BrainAuraRecord[] } {
   const r = new BinaryReader(buf)
   const magic = td.decode(r.bytes(4))
   if (magic !== "AURA") {
@@ -92,7 +96,20 @@ export function readBrainAuraFile(buf: Uint8Array): { header: BrainAuraHeader; r
       break
     }
 
-    const text = encrypted_flag === 1 ? "<encrypted - no key>" : td.decode(textBytes)
+    let text: string
+    if (encrypted_flag === 1) {
+      if (!key32) {
+        text = "<encrypted - no key>"
+      } else {
+        try {
+          text = td.decode(decryptData(textBytes, key32))
+        } catch {
+          text = "<decryption failed>"
+        }
+      }
+    } else {
+      text = td.decode(textBytes)
+    }
     records.push({
       id,
       dna,
@@ -110,4 +127,3 @@ export function readBrainAuraFile(buf: Uint8Array): { header: BrainAuraHeader; r
 
   return { header, records }
 }
-

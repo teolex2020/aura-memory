@@ -19,6 +19,7 @@ fn main() -> anyhow::Result<()> {
         entropy: 0.2,
         sdr_indices: vec![1, 10, 100, 2000],
         text: "Hello TS Fixture".to_string(),
+        encrypted_flag: 0,
         offset: 0,
     };
     storage.append(&record)?;

@@ -914,6 +914,7 @@ impl Aura {
             entropy: 0.0,
             sdr_indices: sdr_indices.clone(),
             text: content.to_string(),
+            encrypted_flag: 0,
             offset: 0,
         };
         self.storage.append(&stored_record)?;
@@ -1313,6 +1314,7 @@ impl Aura {
             entropy: 0.0,
             sdr_indices: Vec::new(),
             text: rec.content.clone(),
+            encrypted_flag: 0,
             offset: 0,
         }
     }
@@ -7632,6 +7634,7 @@ impl Aura {
                 entropy: h.entropy(),
                 sdr_indices: h.sdr_indices.clone(),
                 text: h.text.clone(),
+                encrypted_flag: 0,
                 offset: 0,
             })
             .collect();
@@ -7696,6 +7699,7 @@ impl Aura {
                 entropy: next.entropy(),
                 sdr_indices: next.sdr_indices.clone(),
                 text: next.text.clone(),
+                encrypted_flag: 0,
                 offset: 0,
             }))
     }

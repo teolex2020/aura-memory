@@ -29,6 +29,7 @@ pub struct StoredRecord {
     pub entropy: f32,        // 4 bytes
     pub sdr_indices: Vec<u16>,
     pub text: String,
+    pub encrypted_flag: u8,
     pub offset: u64,
 }
 
@@ -44,6 +45,7 @@ impl StoredRecord {
             entropy: syn.flux.entropy,
             sdr_indices: syn.sdr_indices.clone(),
             text: syn.text.clone(),
+            encrypted_flag: 0,
             offset: 0,
         }
     }
@@ -212,6 +214,7 @@ impl StoredRecord {
             entropy,
             sdr_indices,
             text,
+            encrypted_flag,
             offset,
         })
     }
@@ -1013,6 +1016,7 @@ mod tests {
             entropy: 0.0,
             sdr_indices: vec![],
             text: "text".to_string(),
+            encrypted_flag: 0,
             offset: 0,
         }
     }
@@ -1032,6 +1036,7 @@ mod tests {
             entropy: 0.2,
             sdr_indices: vec![1, 10, 100, 2000],
             text: "Hello Rust Storage".to_string(),
+            encrypted_flag: 0,
             offset: 0,
         };
 

@@ -47,6 +47,26 @@ impl NGramIndex {
         }
     }
 
+    pub fn with_seed(num_hashes: Option<usize>, synonym_ring: Option<SynonymRing>, seed: u64) -> Self {
+        use rand::{Rng, SeedableRng};
+
+        let num_hashes = num_hashes.unwrap_or(DEFAULT_NUM_HASHES);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let a: Vec<u64> = (0..num_hashes).map(|_| rng.gen_range(1..PRIME)).collect();
+        let b: Vec<u64> = (0..num_hashes).map(|_| rng.gen_range(0..PRIME)).collect();
+
+        let buckets = (0..num_hashes).map(|_| AHashMap::new()).collect();
+
+        Self {
+            num_hashes,
+            a,
+            b,
+            signatures: AHashMap::new(),
+            buckets,
+            synonym_ring,
+        }
+    }
+
     /// Tokenize text into character trigram hashes.
     fn tokenize(text: &str) -> Vec<u64> {
         let clean: String = text
@@ -272,5 +292,20 @@ mod tests {
         assert_eq!(idx.len(), 1);
         idx.remove("r1");
         assert_eq!(idx.len(), 0);
+    }
+
+    #[test]
+    fn test_seeded_is_deterministic() {
+        let mut a = NGramIndex::with_seed(Some(32), None, 0);
+        a.add("r1", "alpha");
+        a.add("r2", "alpha zeta");
+
+        let mut b = NGramIndex::with_seed(Some(32), None, 0);
+        b.add("r1", "alpha");
+        b.add("r2", "alpha zeta");
+
+        let qa = a.query("alpha", 10);
+        let qb = b.query("alpha", 10);
+        assert_eq!(qa, qb);
     }
 }

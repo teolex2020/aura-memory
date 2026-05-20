@@ -741,6 +741,7 @@ impl AuraMemory {
                 entropy: 0.2,
                 sdr_indices: sdr_indices.clone(),
                 text,
+                encrypted_flag: 0,
                 offset: 0, // Will be set by storage
             };
 
@@ -847,6 +848,7 @@ impl AuraMemory {
                 ),
                 sdr_indices: next_header.sdr_indices.clone(),
                 text: next_header.text.clone(),
+                encrypted_flag: 0,
                 offset: 0,
             };
             Ok(Some(record))
@@ -1001,6 +1003,7 @@ impl AuraMemory {
                     entropy: header.entropy(),
                     sdr_indices: header.sdr_indices.clone(),
                     text: header.text.clone(),
+                    encrypted_flag: 0,
                     offset: 0,
                 };
                 if let Err(e) = self.storage.append(&record) {
@@ -1125,6 +1128,7 @@ impl AuraMemory {
                     entropy: header.entropy(),
                     sdr_indices: header.sdr_indices.clone(),
                     text: header.text.clone(),
+                    encrypted_flag: 0,
                     offset: 0,
                 };
                 if let Err(e) = self.storage.append(&record) {
@@ -1161,6 +1165,7 @@ impl AuraMemory {
                     entropy: header.entropy(),
                     sdr_indices: header.sdr_indices.clone(),
                     text,
+                    encrypted_flag: 0,
                     offset: 0,
                 };
                 (record, rrf_score)
@@ -1478,6 +1483,7 @@ impl AuraMemory {
                 entropy: h.entropy(),
                 sdr_indices: h.sdr_indices.clone(),
                 text: h.text.clone(),
+                encrypted_flag: 0,
                 offset: 0,
             })
             .collect();

@@ -1,3 +1,4 @@
 export * from "./Bytes"
 export * from "./Crc32"
 export * from "./Hex"
+export * from "./Id12"

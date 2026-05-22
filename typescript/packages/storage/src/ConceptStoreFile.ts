@@ -1,8 +1,6 @@
 import { Effect } from "effect"
 import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
-
-const te = new TextEncoder()
-const td = new TextDecoder()
+import { CogJsonSnapshotFile } from "./CogJsonSnapshotFile"
 
 export class ConceptStoreFile {
   private constructor(private readonly dir: string) {}
@@ -17,17 +15,7 @@ export class ConceptStoreFile {
 
   load(): Effect.Effect<unknown, FileReadError | JsonParseError, FileRead> {
     const filePath = `${this.dir}/concepts.cog`
-    return Effect.gen(function* () {
-      const fr = yield* Effect.service(FileRead)
-      const exists = yield* fr.exists(filePath)
-      if (!exists) return ConceptStoreFile.empty_engine()
-      const bytes = yield* fr.readFile(filePath)
-      if (bytes.byteLength === 0) return ConceptStoreFile.empty_engine()
-      return yield* Effect.try({
-        try: () => JSON.parse(td.decode(bytes)) as unknown,
-        catch: (cause) => new JsonParseError({ path: filePath, cause })
-      })
-    })
+    return CogJsonSnapshotFile.load(filePath, ConceptStoreFile.empty_engine)
   }
 
   save(_engine: unknown): Effect.Effect<void, FileWriteError, FileWrite> {
@@ -37,9 +25,7 @@ export class ConceptStoreFile {
     return Effect.gen(function* () {
       const fw = yield* Effect.service(FileWrite)
       yield* fw.mkdirp(dir)
-      const bytes = te.encode(JSON.stringify(engine))
-      yield* fw.writeFile(filePath, bytes)
-      yield* fw.fsync(filePath)
+      yield* CogJsonSnapshotFile.save(filePath, engine)
     })
   }
 }

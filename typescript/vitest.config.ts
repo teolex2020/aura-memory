@@ -1,7 +1,7 @@
 import * as path from "node:path"
 import { defineConfig } from "vitest/config"
 
-const root = path.dirname(new URL(import.meta.url).pathname)
+const root = __dirname
 
 function pkg(name: string): string {
   return path.resolve(root, "packages", name, "src", "index.ts")

@@ -60,7 +60,6 @@ ROADMAP.md
 
 # Internal docs (not for public)
 SPEC.md
-docs/
 design/
 research/
 notes/
@@ -95,3 +94,7 @@ ci_smoke_brain/
 
 # Claude Code local config
 .claude/
+
+# Node/Bun dependencies
+node_modules/
+typescript/node_modules/

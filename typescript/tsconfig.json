@@ -25,7 +25,17 @@
       "@aura/indexing": ["packages/indexing/src/index.ts"],
       "@aura/indexing/*": ["packages/indexing/src/*"],
       "@aura/recall": ["packages/recall/src/index.ts"],
-      "@aura/recall/*": ["packages/recall/src/*"]
+      "@aura/recall/*": ["packages/recall/src/*"],
+      "@aura/belief": ["packages/belief/src/index.ts"],
+      "@aura/belief/*": ["packages/belief/src/*"],
+      "@aura/concept": ["packages/concept/src/index.ts"],
+      "@aura/concept/*": ["packages/concept/src/*"],
+      "@aura/causal": ["packages/causal/src/index.ts"],
+      "@aura/causal/*": ["packages/causal/src/*"],
+      "@aura/policy": ["packages/policy/src/index.ts"],
+      "@aura/policy/*": ["packages/policy/src/*"],
+      "@aura/epistemic-runtime": ["packages/epistemic-runtime/src/index.ts"],
+      "@aura/epistemic-runtime/*": ["packages/epistemic-runtime/src/*"]
     }
   },
   "include": [

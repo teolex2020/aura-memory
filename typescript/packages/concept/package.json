@@ -1,0 +1,9 @@
+{
+  "name": "@aura/concept",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
+

@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { FileRead, FileWrite } from "@aura/contract"
+import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
 
 const te = new TextEncoder()
 const td = new TextDecoder()
@@ -15,7 +15,7 @@ export class PolicyStoreFile {
     return {}
   }
 
-  load(): Effect.Effect<unknown, unknown, FileRead> {
+  load(): Effect.Effect<unknown, FileReadError | JsonParseError, FileRead> {
     const filePath = `${this.dir}/policies.cog`
     return Effect.gen(function* () {
       const fr = yield* Effect.service(FileRead)
@@ -23,11 +23,14 @@ export class PolicyStoreFile {
       if (!exists) return PolicyStoreFile.empty_engine()
       const bytes = yield* fr.readFile(filePath)
       if (bytes.byteLength === 0) return PolicyStoreFile.empty_engine()
-      return JSON.parse(td.decode(bytes)) as unknown
+      return yield* Effect.try({
+        try: () => JSON.parse(td.decode(bytes)) as unknown,
+        catch: (cause) => new JsonParseError({ path: filePath, cause })
+      })
     })
   }
 
-  save(_engine: unknown): Effect.Effect<void, unknown, FileWrite> {
+  save(_engine: unknown): Effect.Effect<void, FileWriteError, FileWrite> {
     const engine = _engine
     const filePath = `${this.dir}/policies.cog`
     const dir = this.dir

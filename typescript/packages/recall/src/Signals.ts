@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { RecallView } from "@aura/contract"
+import { EmbeddingQueryError, type RecallView } from "@aura/contract"
 import type { RankedList, RecallRecord } from "./Types"
 import { SDRInterpreter } from "./SDRInterpreter"
 
@@ -7,9 +7,9 @@ const DEFAULT_NAMESPACE = "default"
 
 function asRecord(raw: unknown): RecallRecord | undefined {
   if (!raw || typeof raw !== "object") return undefined
-  const o = raw as any
+  const o = raw as Record<string, unknown>
   if (typeof o.id !== "string") return undefined
-  return o as RecallRecord
+  return o as unknown as RecallRecord
 }
 
 function getNamespace(rec: RecallRecord): string {
@@ -140,12 +140,12 @@ export function collectTags(
 export function collectEmbedding(
   view: RecallView,
   embedding: {
-    query: (text: string, topK: number) => Effect.Effect<Array<[string, number]>>
+    query: (text: string, topK: number) => Effect.Effect<Array<[string, number]>, EmbeddingQueryError>
   },
   query: string,
   topK: number,
   namespaces: ReadonlyArray<string>
-): Effect.Effect<RankedList> {
+): Effect.Effect<RankedList, EmbeddingQueryError> {
   // SIMPLE IMPLEMENTATION: 直接透传可选 embedding 服务的 ranked list，并做 namespace filter。
   // FULL IMPLEMENTATION: 对齐 Rust 侧 embedding 信号的归一化、阈值过滤、以及与 SDR/NGram/Tags 的融合权重策略。
   return embedding.query(query, topK).pipe(

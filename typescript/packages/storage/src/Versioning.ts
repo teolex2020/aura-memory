@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { FileRead, FileWrite } from "@aura/contract"
+import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError, UnimplementedError } from "@aura/contract"
 
 export type SnapshotId = string
 export type SnapshotHash = string
@@ -61,7 +61,9 @@ export class VersionManager {
     private index: VersionIndex
   ) {}
 
-  static open(storageDir: string): Effect.Effect<VersionManager, unknown, FileRead | FileWrite> {
+  static open(
+    storageDir: string
+  ): Effect.Effect<VersionManager, FileReadError | FileWriteError | JsonParseError, FileRead | FileWrite> {
     const versionsDir = `${storageDir}/versions`
     const indexPath = `${versionsDir}/index.json`
     return Effect.gen(function* () {
@@ -73,7 +75,10 @@ export class VersionManager {
       const hasIndex = yield* fr.exists(indexPath)
       if (hasIndex) {
         const bytes = yield* fr.readFile(indexPath)
-        index = JSON.parse(td.decode(bytes)) as VersionIndex
+        index = yield* Effect.try({
+          try: () => JSON.parse(td.decode(bytes)) as VersionIndex,
+          catch: (cause) => new JsonParseError({ path: indexPath, cause })
+        })
       }
       if (!index.branches) {
         index.branches = {}
@@ -98,7 +103,7 @@ export class VersionManager {
     return this.index
   }
 
-  saveIndex(): Effect.Effect<void, unknown, FileWrite> {
+  saveIndex(): Effect.Effect<void, FileWriteError, FileWrite> {
     const self = this
     const indexPath = `${this.versionsDir}/index.json`
     return Effect.gen(function* () {
@@ -109,11 +114,14 @@ export class VersionManager {
     })
   }
 
-  createSnapshot(_records: ReadonlyArray<VersionedRecord>, _message: string): Effect.Effect<Snapshot> {
-    return Effect.die(new Error("TODO: implement versions snapshot format + hashing + delta"))
+  createSnapshot(
+    _records: ReadonlyArray<VersionedRecord>,
+    _message: string
+  ): Effect.Effect<Snapshot, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "VersionManager.createSnapshot" }))
   }
 
-  loadSnapshot(_id: SnapshotId): Effect.Effect<ReadonlyArray<VersionedRecord>> {
-    return Effect.die(new Error("TODO: implement versions snapshot loading"))
+  loadSnapshot(_id: SnapshotId): Effect.Effect<ReadonlyArray<VersionedRecord>, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "VersionManager.loadSnapshot" }))
   }
 }

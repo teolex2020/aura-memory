@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { FileRead, FileWrite } from "@aura/contract"
+import { FileFormatError, FileRead, FileReadError, FileWrite, FileWriteError } from "@aura/contract"
 import { loadPersistenceManifestWithValidation, readBrainAuraFile, type BrainAuraRecord } from "@aura/storage"
 import type { RecallPipelineOptions } from "@aura/recall"
 import { recallRecords as recallRecordsEffect, recallScored as recallScoredEffect } from "./Recall"
@@ -7,13 +7,22 @@ import { recallRecords as recallRecordsEffect, recallScored as recallScoredEffec
 export class Aura {
   private constructor(private readonly records: BrainAuraRecord[]) {}
 
-  static open(brainPath: string): Effect.Effect<Aura, unknown, FileRead | FileWrite> {
+  static open(
+    brainPath: string
+  ): Effect.Effect<Aura, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
     const brainAuraPath = `${brainPath}/brain.aura`
     return Effect.gen(function* () {
       const fs = yield* Effect.service(FileRead)
       yield* loadPersistenceManifestWithValidation(brainPath)
       const buf = yield* fs.readFile(brainAuraPath)
-      const parsed = readBrainAuraFile(buf)
+      const parsed = yield* Effect.try({
+        try: () => readBrainAuraFile(buf),
+        catch: (cause) =>
+          new FileFormatError({
+            path: brainAuraPath,
+            message: cause instanceof Error ? cause.message : String(cause)
+          })
+      })
       return new Aura(parsed.records)
     })
   }

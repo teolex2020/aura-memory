@@ -1,17 +1,16 @@
 import { Effect, Layer } from "effect"
-import { PolicyEngine } from "@aura/contract"
+import { PolicyEngine, UnimplementedError } from "@aura/contract"
 
 export type PolicyState = "Candidate" | "Stable" | "Suppressed" | "Rejected"
 
 export class PolicyEngineImpl {
-  discover(..._args: any[]): Effect.Effect<any> {
-    return Effect.die(new Error("TODO: PolicyEngineImpl.discover"))
+  discover(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "PolicyEngineImpl.discover" }))
   }
 
-  retract_hint(_id: string): Effect.Effect<void> {
-    return Effect.die(new Error("TODO: PolicyEngineImpl.retract_hint"))
+  retract_hint(_id: string): Effect.Effect<void, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "PolicyEngineImpl.retract_hint" }))
   }
 }
 
 export const PolicyEngineLive = Layer.succeed(PolicyEngine, new PolicyEngineImpl())
-

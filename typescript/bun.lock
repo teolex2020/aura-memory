@@ -18,8 +18,17 @@
         "vitest": "^2.0.0",
       },
     },
+    "packages/belief": {
+      "name": "@aura/belief",
+    },
+    "packages/causal": {
+      "name": "@aura/causal",
+    },
     "packages/codec": {
       "name": "@aura/codec",
+    },
+    "packages/concept": {
+      "name": "@aura/concept",
     },
     "packages/contract": {
       "name": "@aura/contract",
@@ -27,11 +36,17 @@
     "packages/core": {
       "name": "@aura/core",
     },
+    "packages/epistemic-runtime": {
+      "name": "@aura/epistemic-runtime",
+    },
     "packages/indexing": {
       "name": "@aura/indexing",
     },
     "packages/platform-node": {
       "name": "@aura/platform-node",
+    },
+    "packages/policy": {
+      "name": "@aura/policy",
     },
     "packages/recall": {
       "name": "@aura/recall",
@@ -44,15 +59,25 @@
     },
   },
   "packages": {
+    "@aura/belief": ["@aura/belief@workspace:packages/belief"],
+
+    "@aura/causal": ["@aura/causal@workspace:packages/causal"],
+
     "@aura/codec": ["@aura/codec@workspace:packages/codec"],
+
+    "@aura/concept": ["@aura/concept@workspace:packages/concept"],
 
     "@aura/contract": ["@aura/contract@workspace:packages/contract"],
 
     "@aura/core": ["@aura/core@workspace:packages/core"],
 
+    "@aura/epistemic-runtime": ["@aura/epistemic-runtime@workspace:packages/epistemic-runtime"],
+
     "@aura/indexing": ["@aura/indexing@workspace:packages/indexing"],
 
     "@aura/platform-node": ["@aura/platform-node@workspace:packages/platform-node"],
+
+    "@aura/policy": ["@aura/policy@workspace:packages/policy"],
 
     "@aura/recall": ["@aura/recall@workspace:packages/recall"],
 

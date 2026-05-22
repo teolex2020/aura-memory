@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { FileRead, FileWrite } from "@aura/contract"
+import { FileRead, FileReadError, FileWrite, FileWriteError } from "@aura/contract"
 
 export type PersistenceManifest = {
   schema_version: number
@@ -28,7 +28,7 @@ export function currentPersistenceManifest(): PersistenceManifest {
 export function savePersistenceManifest(
   rootDir: string,
   manifest: PersistenceManifest
-): Effect.Effect<void, unknown, FileWrite> {
+): Effect.Effect<void, FileWriteError, FileWrite> {
   const path = `${rootDir}/${PERSISTENCE_MANIFEST_FILE}`
   return Effect.gen(function* () {
     const fw = yield* Effect.service(FileWrite)
@@ -40,7 +40,7 @@ export function savePersistenceManifest(
 
 export function loadPersistenceManifestWithValidation(
   rootDir: string
-): Effect.Effect<PersistenceManifest, unknown, FileRead | FileWrite> {
+): Effect.Effect<PersistenceManifest, FileReadError | FileWriteError, FileRead | FileWrite> {
   const path = `${rootDir}/${PERSISTENCE_MANIFEST_FILE}`
   return Effect.gen(function* () {
     const fr = yield* Effect.service(FileRead)
@@ -71,7 +71,7 @@ export function loadPersistenceManifestWithValidation(
         normalized.schema_version = manifest.schema_version
       }
       for (const [k, v] of Object.entries(current.surfaces)) {
-        const actual = (manifest.surfaces as any)[k]
+        const actual = (manifest.surfaces as Record<string, unknown>)[k]
         if (typeof actual === "number") {
           normalized.surfaces[k] = v
         } else {
@@ -84,4 +84,3 @@ export function loadPersistenceManifestWithValidation(
     return normalized
   })
 }
-

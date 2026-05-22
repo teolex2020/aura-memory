@@ -1,6 +1,13 @@
 import { Effect, Layer } from "effect"
-import { FileRead, RecallViewTag, type RecallView as ContractRecallView } from "@aura/contract"
-import { InvertedIndex } from "@aura/indexing"
+import {
+  FileFormatError,
+  FileRead,
+  FileReadError,
+  JsonParseError,
+  RecallViewTag,
+  type RecallView as ContractRecallView
+} from "@aura/contract"
+import { IndexFormatError, InvertedIndex } from "@aura/indexing"
 import { readBrainAuraFile } from "./BrainAura"
 import { CognitiveRecord, loadCognitiveRecords } from "./CognitiveRecord"
 
@@ -82,7 +89,13 @@ function buildAuraIndex(records: ReadonlyMap<string, CognitiveRecord>): Readonly
   return auraIndex
 }
 
-export function buildRecallView(dir: string): Effect.Effect<ContractRecallView, unknown, FileRead> {
+export function buildRecallView(
+  dir: string
+): Effect.Effect<
+  ContractRecallView,
+  FileReadError | JsonParseError | FileFormatError | IndexFormatError,
+  FileRead
+> {
   const indexDir = `${dir}/index`
   const auraPath = `${dir}/brain.aura`
 
@@ -95,7 +108,14 @@ export function buildRecallView(dir: string): Effect.Effect<ContractRecallView, 
     const hasAura = yield* fr.exists(auraPath)
     if (hasAura) {
       const buf = yield* fr.readFile(auraPath)
-      const parsed = readBrainAuraFile(buf)
+      const parsed = yield* Effect.try({
+        try: () => readBrainAuraFile(buf),
+        catch: (cause) =>
+          new FileFormatError({
+            path: auraPath,
+            message: cause instanceof Error ? cause.message : String(cause)
+          })
+      })
       for (const rec of parsed.records) {
         auraHeaders.set(rec.id, { sdr_indices: rec.sdr_indices })
       }
@@ -121,7 +141,9 @@ export function buildRecallView(dir: string): Effect.Effect<ContractRecallView, 
   })
 }
 
-export function RecallViewLive(dir: string): Layer.Layer<RecallViewTag, unknown, FileRead> {
+export function RecallViewLive(
+  dir: string
+): Layer.Layer<RecallViewTag, FileReadError | JsonParseError | FileFormatError | IndexFormatError, FileRead> {
   // SIMPLE IMPLEMENTATION: build a single in-memory RecallView at startup.
   // FULL IMPLEMENTATION: add incremental refresh/update hooks so finalize can mutate without full reload.
   return Layer.effect(RecallViewTag, buildRecallView(dir))

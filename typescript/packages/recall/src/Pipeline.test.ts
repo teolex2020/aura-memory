@@ -16,7 +16,7 @@ async function makeView(query: string): Promise<RecallView> {
   const sdr = await SDRInterpreter.default()
   const bits = sdr.textToSdr(query, false)
 
-  const records = new Map<string, any>()
+  const records = new Map<string, unknown>()
   records.set("r1", {
     id: "r1",
     content: "hello alpha",
@@ -66,6 +66,17 @@ async function makeView(query: string): Promise<RecallView> {
   return view
 }
 
+function setTimestamp(view: RecallView, id: string, iso: string): void {
+  const raw = view.records.get(id)
+  if (!raw || typeof raw !== "object") return
+  const o = raw as Record<string, unknown>
+  const mRaw = o.metadata
+  const m =
+    mRaw && typeof mRaw === "object" ? (mRaw as Record<string, unknown>) : ({} as Record<string, unknown>)
+  m.timestamp = iso
+  o.metadata = m
+}
+
 function fixedClock(nowUnixSec: number) {
   const iso = new Date(nowUnixSec * 1000).toISOString()
   return {
@@ -78,9 +89,9 @@ it("pipeline works without optional services and expands graph/causal", async ()
   const query = "alpha"
   const view = await makeView(query)
   const { clock, iso } = fixedClock(1_700_000_000)
-  view.records.get("r1")!.metadata.timestamp = iso
-  view.records.get("r2")!.metadata.timestamp = iso
-  view.records.get("r3")!.metadata.timestamp = iso
+  setTimestamp(view, "r1", iso)
+  setTimestamp(view, "r2", iso)
+  setTimestamp(view, "r3", iso)
 
   const program = recallPipeline(query, { topK: 10, expandConnections: true }).pipe(
     Effect.provideService(RecallViewTag, view),
@@ -98,8 +109,8 @@ it("embedding is skipped when missing, used when present", async () => {
   const query = "alpha"
   const view = await makeView(query)
   const { clock, iso } = fixedClock(1_700_000_000)
-  view.records.get("r1")!.metadata.timestamp = iso
-  view.records.get("r3")!.metadata.timestamp = iso
+  setTimestamp(view, "r1", iso)
+  setTimestamp(view, "r3", iso)
 
   const base = await Effect.runPromise(
     recallPipeline(query, { topK: 10, expandConnections: false }).pipe(
@@ -125,8 +136,8 @@ it("reranker is skipped when missing, used when present", async () => {
   const query = "alpha"
   const view = await makeView(query)
   const { clock, iso } = fixedClock(1_700_000_000)
-  view.records.get("r1")!.metadata.timestamp = iso
-  view.records.get("r3")!.metadata.timestamp = iso
+  setTimestamp(view, "r1", iso)
+  setTimestamp(view, "r3", iso)
 
   const program = recallPipeline(query, { topK: 10, expandConnections: false }).pipe(
     Effect.provideService(RecallViewTag, view),
@@ -147,7 +158,7 @@ it("finalizer is skipped when missing, called when present", async () => {
   const query = "alpha"
   const view = await makeView(query)
   const { clock, iso } = fixedClock(1_700_000_000)
-  view.records.get("r1")!.metadata.timestamp = iso
+  setTimestamp(view, "r1", iso)
 
   let called = 0
 
@@ -171,7 +182,7 @@ it("trust config is skipped when missing, used when present", async () => {
   const query = "alpha"
   const view = await makeView(query)
   const { clock, iso } = fixedClock(1_700_000_000)
-  view.records.get("r1")!.metadata.timestamp = iso
+  setTimestamp(view, "r1", iso)
 
   const noConfig = await Effect.runPromise(
     recallPipeline(query, { topK: 10, expandConnections: false }).pipe(

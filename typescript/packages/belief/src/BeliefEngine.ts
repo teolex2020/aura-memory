@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect"
-import { BeliefEngine } from "@aura/contract"
+import { BeliefEngine, UnimplementedError } from "@aura/contract"
 
 export type CoarseKeyMode =
   | "Standard"
@@ -18,51 +18,54 @@ export type CoarseKeyMode =
 export type BeliefState = "Resolved" | "Unresolved" | "Singleton" | "Empty"
 
 export class BeliefEngineImpl {
-  with_coarse_key_mode(_mode: CoarseKeyMode): Effect.Effect<void> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.with_coarse_key_mode"))
+  with_coarse_key_mode(_mode: unknown): Effect.Effect<void, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.with_coarse_key_mode" }))
   }
 
-  claim_key(_namespace: string, _tags: ReadonlyArray<string>, _semantic_type: string): Effect.Effect<string> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.claim_key"))
+  claim_key(
+    _namespace: string,
+    _tags: ReadonlyArray<string>,
+    _semantic_type: string
+  ): Effect.Effect<string, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.claim_key" }))
   }
 
   claim_key_with_mode(
     _namespace: string,
     _tags: ReadonlyArray<string>,
     _semantic_type: string,
-    _mode: CoarseKeyMode
-  ): Effect.Effect<string> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.claim_key_with_mode"))
+    _mode: unknown
+  ): Effect.Effect<string, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.claim_key_with_mode" }))
   }
 
-  update(..._args: any[]): Effect.Effect<any> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.update"))
+  update(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.update" }))
   }
 
-  update_with_sdr(..._args: any[]): Effect.Effect<any> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.update_with_sdr"))
+  update_with_sdr(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.update_with_sdr" }))
   }
 
-  belief_for_record(_record_id: string): Effect.Effect<any> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.belief_for_record"))
+  belief_for_record(_record_id: string): Effect.Effect<unknown, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.belief_for_record" }))
   }
 
-  deprecate_belief(_belief_id: string): Effect.Effect<void> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.deprecate_belief"))
+  deprecate_belief(_belief_id: string): Effect.Effect<void, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.deprecate_belief" }))
   }
 
-  apply_layer_feedback(..._args: any[]): Effect.Effect<any> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.apply_layer_feedback"))
+  apply_layer_feedback(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.apply_layer_feedback" }))
   }
 
-  unresolved_beliefs(): Effect.Effect<any> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.unresolved_beliefs"))
+  unresolved_beliefs(): Effect.Effect<unknown, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.unresolved_beliefs" }))
   }
 
-  stats(): Effect.Effect<any> {
-    return Effect.die(new Error("TODO: BeliefEngineImpl.stats"))
+  stats(): Effect.Effect<unknown, UnimplementedError> {
+    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.stats" }))
   }
 }
 
 export const BeliefEngineLive = Layer.succeed(BeliefEngine, new BeliefEngineImpl())
-

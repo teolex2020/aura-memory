@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { Clock, Crypto, FileRead, FileWrite } from "@aura/contract"
+import { Clock, Crypto, CryptoError, FileRead, FileReadError, FileWrite, FileWriteError } from "@aura/contract"
 import { BinaryReader, BinaryWriter } from "@aura/codec"
 import { fixedBytes } from "@aura/utils"
 
@@ -40,7 +40,7 @@ export class BrainAuraFile {
   static open(
     dir: string,
     key32?: Uint8Array
-  ): Effect.Effect<BrainAuraFile, unknown, FileRead | FileWrite | Clock> {
+  ): Effect.Effect<BrainAuraFile, FileReadError | FileWriteError, FileRead | FileWrite | Clock> {
     const filePath = `${dir}/brain.aura`
     return Effect.gen(function* () {
       const fr = yield* Effect.service(FileRead)
@@ -72,7 +72,7 @@ export class BrainAuraFile {
     })
   }
 
-  append(record: BrainAuraFileAppendRecord): Effect.Effect<void, unknown, FileWrite | Crypto> {
+  append(record: BrainAuraFileAppendRecord): Effect.Effect<void, FileWriteError | CryptoError, FileWrite | Crypto> {
     const encrypted_flag = record.encrypted_flag === 1 ? 1 : 0
     const self = this
     return Effect.gen(function* () {
@@ -117,7 +117,7 @@ export class BrainAuraFile {
     })
   }
 
-  flush(): Effect.Effect<void, unknown, FileWrite> {
+  flush(): Effect.Effect<void, FileWriteError, FileWrite> {
     const self = this
     return Effect.gen(function* () {
       const fw = yield* Effect.service(FileWrite)

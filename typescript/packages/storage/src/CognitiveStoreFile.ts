@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { FileRead, FileWrite } from "@aura/contract"
+import { FileRead, FileReadError, FileWrite, FileWriteError } from "@aura/contract"
 import { BinaryReader, BinaryWriter } from "@aura/codec"
 import { crc32, fixedBytes } from "@aura/utils"
 
@@ -25,7 +25,9 @@ export class CognitiveStoreFile {
     private readonly snapPath: string
   ) {}
 
-  static open(dir: string): Effect.Effect<CognitiveStoreFile, unknown, FileRead | FileWrite> {
+  static open(
+    dir: string
+  ): Effect.Effect<CognitiveStoreFile, FileReadError | FileWriteError, FileRead | FileWrite> {
     const logPath = `${dir}/brain.cog`
     const snapPath = `${dir}/brain.snap`
     return Effect.gen(function* () {
@@ -46,19 +48,19 @@ export class CognitiveStoreFile {
     })
   }
 
-  appendStore(record: unknown): Effect.Effect<void, unknown, FileWrite> {
+  appendStore(record: unknown): Effect.Effect<void, FileWriteError, FileWrite> {
     return this.appendEntry(OP_STORE, te.encode(JSON.stringify(record)))
   }
 
-  appendUpdate(record: unknown): Effect.Effect<void, unknown, FileWrite> {
+  appendUpdate(record: unknown): Effect.Effect<void, FileWriteError, FileWrite> {
     return this.appendEntry(OP_UPDATE, te.encode(JSON.stringify(record)))
   }
 
-  appendDelete(id: string): Effect.Effect<void, unknown, FileWrite> {
+  appendDelete(id: string): Effect.Effect<void, FileWriteError, FileWrite> {
     return this.appendEntry(OP_DELETE, fixedBytes(id, 12))
   }
 
-  flush(): Effect.Effect<void, unknown, FileWrite> {
+  flush(): Effect.Effect<void, FileWriteError, FileWrite> {
     const self = this
     return Effect.gen(function* () {
       const fw = yield* Effect.service(FileWrite)
@@ -66,7 +68,9 @@ export class CognitiveStoreFile {
     })
   }
 
-  writeSnapshot(records: ReadonlyArray<unknown>): Effect.Effect<void, unknown, FileRead | FileWrite> {
+  writeSnapshot(
+    records: ReadonlyArray<unknown>
+  ): Effect.Effect<void, FileReadError | FileWriteError, FileRead | FileWrite> {
     const self = this
     return Effect.gen(function* () {
       const fr = yield* Effect.service(FileRead)
@@ -94,7 +98,7 @@ export class CognitiveStoreFile {
     })
   }
 
-  loadAll(): Effect.Effect<Map<string, unknown>, unknown, FileRead> {
+  loadAll(): Effect.Effect<Map<string, unknown>, FileReadError, FileRead> {
     const self = this
     return Effect.gen(function* () {
       const fr = yield* Effect.service(FileRead)
@@ -186,7 +190,7 @@ export class CognitiveStoreFile {
     })
   }
 
-  private appendEntry(op: number, payload: Uint8Array): Effect.Effect<void, unknown, FileWrite> {
+  private appendEntry(op: number, payload: Uint8Array): Effect.Effect<void, FileWriteError, FileWrite> {
     const self = this
     return Effect.gen(function* () {
       const fw = yield* Effect.service(FileWrite)
@@ -199,4 +203,3 @@ export class CognitiveStoreFile {
     })
   }
 }
-

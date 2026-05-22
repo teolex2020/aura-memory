@@ -1,5 +1,5 @@
-import { Effect } from "effect"
-import { FileRead, FileWrite } from "@aura/contract"
+import { Data, Effect } from "effect"
+import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
 import { BinaryReader, BinaryWriter } from "@aura/codec"
 import { RoaringBitmap } from "./Roaring"
 
@@ -10,6 +10,11 @@ export type IndexManifest = {
 
 const te = new TextEncoder()
 const td = new TextDecoder()
+
+export class IndexFormatError extends Data.TaggedError("IndexFormatError")<{
+  readonly path: string
+  readonly message: string
+}> {}
 
 export class InvertedIndex {
   private constructor(
@@ -23,7 +28,7 @@ export class InvertedIndex {
     return new InvertedIndex(1, new Map(), new Map(), new Map())
   }
 
-  static load(dir: string): Effect.Effect<InvertedIndex, unknown, FileRead> {
+  static load(dir: string): Effect.Effect<InvertedIndex, FileReadError | JsonParseError | IndexFormatError, FileRead> {
     const manifestPath = `${dir}/index_manifest.json`
     const sdrPath = `${dir}/sdr.idx`
     return Effect.gen(function* () {
@@ -35,7 +40,10 @@ export class InvertedIndex {
       }
 
       const manifestBytes = yield* fr.readFile(manifestPath)
-      const manifest = JSON.parse(td.decode(manifestBytes)) as IndexManifest
+      const manifest = (yield* Effect.try({
+        try: () => JSON.parse(td.decode(manifestBytes)) as IndexManifest,
+        catch: (cause) => new JsonParseError({ path: manifestPath, cause })
+      })) as IndexManifest
 
       const idMap = new Map<string, number>()
       for (const [k, v] of Object.entries(manifest.id_map)) {
@@ -53,7 +61,9 @@ export class InvertedIndex {
         const bit = r.u16le()
         const size = r.u64leAsBigInt()
         if (size > BigInt(Number.MAX_SAFE_INTEGER)) {
-          throw new Error("sdr.idx entry too large")
+          return yield* Effect.fail(
+            new IndexFormatError({ path: sdrPath, message: "sdr.idx entry too large" })
+          )
         }
         const payload = r.bytes(Number(size))
         bitToDocs.set(bit, RoaringBitmap.deserialize(payload))
@@ -63,7 +73,7 @@ export class InvertedIndex {
     })
   }
 
-  save(dir: string): Effect.Effect<void, unknown, FileWrite> {
+  save(dir: string): Effect.Effect<void, FileWriteError, FileWrite> {
     const self = this
     const manifestPath = `${dir}/index_manifest.json`
     const sdrPath = `${dir}/sdr.idx`

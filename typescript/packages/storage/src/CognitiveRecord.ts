@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { FileRead } from "@aura/contract"
+import { FileFormatError, FileRead, FileReadError } from "@aura/contract"
 import { BinaryReader } from "@aura/codec"
 import { crc32 } from "@aura/utils"
 
@@ -28,7 +28,7 @@ export function normalizeCognitiveRecord(raw: unknown): CognitiveRecord | undefi
   const aura_id =
     typeof o.aura_id === "string" ? o.aura_id : o.aura_id === null ? null : undefined
 
-  const rec: CognitiveRecord = { ...(o as any), id, content, tags }
+  const rec: CognitiveRecord = { ...(o as Record<string, unknown>), id, content, tags }
   if (aura_id !== undefined) {
     rec.aura_id = aura_id
   }
@@ -54,7 +54,7 @@ const SNAP_MAGIC = "CSN1"
 
 export function loadCognitiveRecords(
   dir: string
-): Effect.Effect<Map<string, CognitiveRecord>, unknown, FileRead> {
+): Effect.Effect<Map<string, CognitiveRecord>, FileReadError | FileFormatError, FileRead> {
   const logPath = `${dir}/brain.cog`
   const snapPath = `${dir}/brain.snap`
   return Effect.gen(function* () {
@@ -73,22 +73,24 @@ export function loadCognitiveRecords(
         const r = new BinaryReader(snapBytes)
         const magic = td.decode(r.bytes(4))
         if (magic !== SNAP_MAGIC) {
-          throw new Error("invalid brain.snap magic")
-        }
-        r.u8()
-        const logPos = r.u64leAsBigInt()
-        const recordCount = r.u32le()
-        for (let i = 0; i < recordCount; i++) {
-          const len = r.u32le()
-          const payload = r.bytes(len)
-          try {
-            const parsed = JSON.parse(td.decode(payload))
-            const rec = normalizeCognitiveRecord(parsed)
-            if (rec) records.set(rec.id, rec)
-          } catch {}
-        }
-        if (logPos <= BigInt(Number.MAX_SAFE_INTEGER)) {
-          snapPos = Number(logPos)
+          records.clear()
+          snapPos = 5
+        } else {
+          r.u8()
+          const logPos = r.u64leAsBigInt()
+          const recordCount = r.u32le()
+          for (let i = 0; i < recordCount; i++) {
+            const len = r.u32le()
+            const payload = r.bytes(len)
+            try {
+              const parsed = JSON.parse(td.decode(payload))
+              const rec = normalizeCognitiveRecord(parsed)
+              if (rec) records.set(rec.id, rec)
+            } catch {}
+          }
+          if (logPos <= BigInt(Number.MAX_SAFE_INTEGER)) {
+            snapPos = Number(logPos)
+          }
         }
       } catch {
         records.clear()
@@ -104,11 +106,13 @@ export function loadCognitiveRecords(
     const header = new BinaryReader(logBytes.subarray(0, 5))
     const logMagic = td.decode(header.bytes(4))
     if (logMagic !== LOG_MAGIC) {
-      throw new Error("invalid brain.cog magic")
+      return yield* Effect.fail(new FileFormatError({ path: logPath, message: "invalid brain.cog magic" }))
     }
     const version = header.u8()
     if (version !== LOG_VERSION) {
-      throw new Error("unsupported brain.cog version")
+      return yield* Effect.fail(
+        new FileFormatError({ path: logPath, message: "unsupported brain.cog version" })
+      )
     }
 
     if (snapPos > logBytes.byteLength) {

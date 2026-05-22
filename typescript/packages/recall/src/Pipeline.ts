@@ -2,9 +2,12 @@ import { Effect, Option } from "effect"
 import {
   BoundedReranker,
   Clock,
+  EmbeddingQueryError,
   EmbeddingStore,
+  FinalizeError,
   RecallFinalizer,
   RecallViewTag,
+  RerankError,
   TrustConfigTag,
   serviceOption,
   type RecallScored,
@@ -17,21 +20,25 @@ import { causalWalk } from "./CausalWalk"
 import { graphWalk } from "./GraphWalk"
 import { collectEmbedding, collectNgram, collectSdr, collectTags } from "./Signals"
 import { computeEffectiveTrust, defaultTrustConfig } from "./Trust"
+import { SdrInterpreterError } from "./Errors"
 
 const DEFAULT_NAMESPACE = "default"
 
 let defaultSdrPromise: Promise<SDRInterpreter> | undefined
 
-function getDefaultSdr(): Effect.Effect<SDRInterpreter> {
+function getDefaultSdr(): Effect.Effect<SDRInterpreter, SdrInterpreterError> {
   defaultSdrPromise ??= SDRInterpreter.default()
-  return Effect.promise(() => defaultSdrPromise!)
+  return Effect.tryPromise({
+    try: () => defaultSdrPromise!,
+    catch: (cause) => new SdrInterpreterError({ cause })
+  })
 }
 
 function asRecord(raw: unknown): RecallRecord | undefined {
   if (!raw || typeof raw !== "object") return undefined
-  const o = raw as any
+  const o = raw as Record<string, unknown>
   if (typeof o.id !== "string") return undefined
-  return o as RecallRecord
+  return o as unknown as RecallRecord
 }
 
 function strengthOf(rec: RecallRecord): number {
@@ -111,7 +118,11 @@ function filterByStrengthAndNamespace(
 export function recallPipeline(
   query: string,
   options?: Partial<RecallPipelineOptions>
-): Effect.Effect<RecallScored, unknown, RecallViewTag | Clock> {
+): Effect.Effect<
+  RecallScored,
+  SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
+  RecallViewTag | Clock
+> {
   // SIMPLE IMPLEMENTATION: Signals(SDR/NGram/Tags + optional Embedding) → RRF → GraphWalk/CausalWalk → trust scoring → optional rerank/finalize。
   // FULL IMPLEMENTATION: 对齐 Rust [recall_pipeline](file:///workspace/src/recall.rs#L725-L792) 的 trace、性能与更多信号/策略（belief/concept/causal/policy）。
   const opts = normalizeOptions(options)

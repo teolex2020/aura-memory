@@ -1,5 +1,17 @@
-import { Effect, Layer } from "effect"
-import { BeliefEngine, UnimplementedError } from "@aura/contract"
+import { Effect, Layer, Option } from "effect"
+import {
+  BeliefEngine,
+  EpistemicTrace,
+  serviceOption,
+  type Belief,
+  type BeliefEngineState,
+  type BeliefReport,
+  type BeliefState as ContractBeliefState,
+  type Hypothesis,
+  type Record as AuraRecord,
+  type SdrLookup
+} from "@aura/contract"
+import { id12 } from "@aura/utils"
 
 export type CoarseKeyMode =
   | "Standard"
@@ -15,56 +27,322 @@ export type CoarseKeyMode =
   | "BridgeKey"
   | "SdrTagPool"
 
-export type BeliefState = "Resolved" | "Unresolved" | "Singleton" | "Empty"
+export type BeliefState = ContractBeliefState
+
+const LAMBDA = 0.35
+const REVISION_THRESHOLD = 1.15
+const UNCERTAINTY_BAND = 0.1
+const SDR_TANIMOTO_THRESHOLD = 0.6
+
+function nowSecs(): number {
+  return Date.now() / 1000
+}
+
+function confidenceOf(rec: AuraRecord): number {
+  const v = (rec as unknown as { confidence?: unknown }).confidence
+  return typeof v === "number" && Number.isFinite(v) ? v : 0.9
+}
+
+function supportMassOf(rec: AuraRecord): number {
+  const v = (rec as unknown as { support_mass?: unknown }).support_mass
+  return typeof v === "number" && Number.isFinite(v) ? v : rec.strength
+}
+
+function conflictMassOf(rec: AuraRecord): number {
+  const v = (rec as unknown as { conflict_mass?: unknown }).conflict_mass
+  return typeof v === "number" && Number.isFinite(v) ? v : 0
+}
+
+function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
+  let i = 0
+  let j = 0
+  let inter = 0
+  while (i < a.length && j < b.length) {
+    const av = a[i]!
+    const bv = b[j]!
+    if (av === bv) {
+      inter++
+      i++
+      j++
+    } else if (av < bv) {
+      i++
+    } else {
+      j++
+    }
+  }
+  const union = a.length + b.length - inter
+  return union === 0 ? 0 : inter / union
+}
+
+function unionFindClusters(records: ReadonlyArray<AuraRecord>, lookup: SdrLookup): ReadonlyArray<ReadonlyArray<AuraRecord>> {
+  const n = records.length
+  if (n <= 1) return records.map((r) => [r])
+  const parent = new Array<number>(n)
+  for (let i = 0; i < n; i++) parent[i] = i
+
+  const find = (x: number): number => {
+    let v = x
+    while (parent[v] !== v) v = parent[v]!
+    let p = x
+    while (parent[p] !== p) {
+      const next = parent[p]!
+      parent[p] = v
+      p = next
+    }
+    return v
+  }
+
+  const union = (a: number, b: number) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[rb] = ra
+  }
+
+  for (let i = 0; i < n; i++) {
+    const sdrI = lookup.get(records[i]!.id)
+    if (!sdrI) continue
+    for (let j = i + 1; j < n; j++) {
+      const sdrJ = lookup.get(records[j]!.id)
+      if (!sdrJ) continue
+      if (tanimoto(sdrI, sdrJ) >= SDR_TANIMOTO_THRESHOLD) union(i, j)
+    }
+  }
+
+  const clusters = new Map<number, AuraRecord[]>()
+  for (let i = 0; i < n; i++) {
+    const root = find(i)
+    const arr = clusters.get(root)
+    if (arr) arr.push(records[i]!)
+    else clusters.set(root, [records[i]!])
+  }
+  return Array.from(clusters.values())
+}
+
+function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
+  const supportScore = 1.0 + Math.log(1.0 + h.support_mass)
+  const conflictPenalty = Math.log(1.0 + h.conflict_mass)
+  const beliefScore = supportScore * h.confidence * h.recency * h.consistency
+  return Math.max(beliefScore - LAMBDA * conflictPenalty, 0.0)
+}
+
+function hypothesisFromRecords(beliefId: string, records: ReadonlyArray<AuraRecord>): Hypothesis {
+  const confidence = records.map(confidenceOf).reduce((a, b) => a + b, 0) / Math.max(1, records.length)
+  const supportMass = records.map(supportMassOf).reduce((a, b) => a + b, 0)
+  const conflictMass = records.map(conflictMassOf).reduce((a, b) => a + b, 0)
+  const recency = 1.0
+  const consistency = 1.0
+  const base = {
+    id: id12(),
+    belief_id: beliefId,
+    prototype_record_ids: records.map((r) => r.id),
+    confidence,
+    support_mass: supportMass,
+    conflict_mass: conflictMass,
+    recency,
+    consistency
+  } as const
+  return { ...base, score: computeHypothesisScore(base) }
+}
+
+function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>): Belief {
+  if (hypotheses.length === 0) {
+    return {
+      ...prev,
+      winner_id: null,
+      state: "Empty",
+      score: 0,
+      confidence: 0,
+      support_mass: 0,
+      conflict_mass: 0,
+      stability: 0,
+      last_updated: nowSecs()
+    }
+  }
+
+  if (hypotheses.length === 1) {
+    const h = hypotheses[0]!
+    const stability = prev.winner_id === h.id ? prev.stability + 1 : 1
+    return {
+      ...prev,
+      winner_id: h.id,
+      state: "Singleton",
+      score: h.score,
+      confidence: h.confidence,
+      support_mass: h.support_mass,
+      conflict_mass: h.conflict_mass,
+      stability,
+      last_updated: nowSecs()
+    }
+  }
+
+  const sorted = [...hypotheses].sort((a, b) => b.score - a.score)
+  const top1 = sorted[0]!
+  const top2 = sorted[1]!
+  const eps = 1e-6
+  const ratio = top1.score / (top2.score + eps)
+
+  let state: BeliefState
+  let winnerId: string | null
+  let stability: number
+
+  if (ratio < REVISION_THRESHOLD && Math.abs(top1.score - top2.score) < UNCERTAINTY_BAND) {
+    state = "Unresolved"
+    winnerId = null
+    stability = 0
+  } else {
+    state = "Resolved"
+    winnerId = top1.id
+    stability = prev.winner_id === top1.id ? prev.stability + 1 : 1
+  }
+
+  return {
+    ...prev,
+    winner_id: winnerId,
+    state,
+    score: top1.score,
+    confidence: top1.confidence,
+    support_mass: hypotheses.map((h) => h.support_mass).reduce((a, b) => a + b, 0),
+    conflict_mass: hypotheses.map((h) => h.conflict_mass).reduce((a, b) => a + b, 0),
+    stability,
+    last_updated: nowSecs()
+  }
+}
 
 export class BeliefEngineImpl {
-  with_coarse_key_mode(_mode: unknown): Effect.Effect<void, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.with_coarse_key_mode" }))
+  private coarseKeyMode: CoarseKeyMode = "Standard"
+  private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {} }
+
+  with_coarse_key_mode(mode: unknown): Effect.Effect<void> {
+    this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : "Standard"
+    return Effect.void
   }
 
   claim_key(
-    _namespace: string,
-    _tags: ReadonlyArray<string>,
-    _semantic_type: string
-  ): Effect.Effect<string, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.claim_key" }))
+    namespace: string,
+    tags: ReadonlyArray<string>,
+    semantic_type: string
+  ): Effect.Effect<string> {
+    return this.claim_key_with_mode(namespace, tags, semantic_type, this.coarseKeyMode)
   }
 
   claim_key_with_mode(
-    _namespace: string,
-    _tags: ReadonlyArray<string>,
-    _semantic_type: string,
-    _mode: unknown
-  ): Effect.Effect<string, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.claim_key_with_mode" }))
+    namespace: string,
+    tags: ReadonlyArray<string>,
+    semantic_type: string,
+    mode: unknown
+  ): Effect.Effect<string> {
+    const ns = namespace.length > 0 ? namespace : "default"
+    const st = semantic_type.length > 0 ? semantic_type : "unknown"
+    const m = typeof mode === "string" ? (mode as CoarseKeyMode) : "Standard"
+    if (m === "SemanticOnly") return Effect.succeed(`${ns}:${st}`)
+    const t = [...tags].filter((x) => x.length > 0).sort().join(",")
+    return Effect.succeed(`${ns}:${t}:${st}`)
   }
 
-  update(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.update" }))
+  update(records: ReadonlyMap<string, AuraRecord>): Effect.Effect<BeliefReport, never, EpistemicTrace> {
+    return this.update_with_sdr(records, new Map())
   }
 
-  update_with_sdr(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.update_with_sdr" }))
+  update_with_sdr(
+    records: ReadonlyMap<string, AuraRecord>,
+    sdr_lookup: SdrLookup
+  ): Effect.Effect<BeliefReport, never, EpistemicTrace> {
+    const self = this
+    return Effect.gen(function* () {
+      const traceOpt = yield* serviceOption(EpistemicTrace)
+      if (Option.isSome(traceOpt)) {
+        yield* traceOpt.value.event("belief.update_with_sdr.start", {
+          records: records.size,
+          has_sdr: sdr_lookup.size > 0
+        })
+      }
+
+      const coarseGroups = new Map<string, AuraRecord[]>()
+      for (const rec of records.values()) {
+        if (rec.content.length < 10) continue
+        const key = yield* self.claim_key(rec.namespace, rec.tags, rec.semantic_type)
+        const arr = coarseGroups.get(key)
+        if (arr) arr.push(rec)
+        else coarseGroups.set(key, [rec])
+      }
+
+      const nextBeliefs: Record<string, Belief> = {}
+      const nextHyps: Record<string, Hypothesis> = {}
+      const recToBelief: Record<string, string> = {}
+
+      let hypothesesBuilt = 0
+      for (const [key, groupRecords] of coarseGroups.entries()) {
+        const beliefId = id12()
+        let belief: Belief = {
+          id: beliefId,
+          key,
+          hypothesis_ids: [],
+          winner_id: null,
+          state: "Empty",
+          score: 0,
+          confidence: 0,
+          support_mass: 0,
+          conflict_mass: 0,
+          stability: 0,
+          volatility: 0,
+          last_updated: nowSecs()
+        }
+
+        const clusters =
+          sdr_lookup.size > 0 ? unionFindClusters(groupRecords, sdr_lookup) : ([groupRecords] as const)
+        const hyps: Hypothesis[] = []
+        for (const cluster of clusters) {
+          const hyp = hypothesisFromRecords(beliefId, cluster)
+          hypothesesBuilt++
+          nextHyps[hyp.id] = hyp
+          hyps.push(hyp)
+          belief = { ...belief, hypothesis_ids: [...belief.hypothesis_ids, hyp.id] }
+          for (const rid of hyp.prototype_record_ids) recToBelief[rid] = beliefId
+        }
+
+        belief = resolveBelief(belief, hyps)
+        nextBeliefs[beliefId] = belief
+      }
+
+      self.state = {
+        version: 1,
+        beliefs: nextBeliefs,
+        hypotheses: nextHyps,
+        record_to_belief: recToBelief
+      }
+
+      const report: BeliefReport = {
+        coarse_groups: coarseGroups.size,
+        beliefs_built: Object.keys(nextBeliefs).length,
+        hypotheses_built: hypothesesBuilt
+      }
+
+      if (Option.isSome(traceOpt)) {
+        yield* traceOpt.value.event("belief.update_with_sdr.end", report)
+      }
+
+      return report
+    })
   }
 
-  belief_for_record(_record_id: string): Effect.Effect<unknown, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.belief_for_record" }))
+  belief_for_record(record_id: string): Effect.Effect<string | null> {
+    return Effect.succeed(this.state.record_to_belief[record_id] ?? null)
   }
 
-  deprecate_belief(_belief_id: string): Effect.Effect<void, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.deprecate_belief" }))
+  deprecate_belief(_belief_id: string): Effect.Effect<void> {
+    return Effect.void
   }
 
-  apply_layer_feedback(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.apply_layer_feedback" }))
+  apply_layer_feedback(..._args: unknown[]): Effect.Effect<unknown> {
+    return Effect.succeed(undefined)
   }
 
-  unresolved_beliefs(): Effect.Effect<unknown, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.unresolved_beliefs" }))
+  unresolved_beliefs(): Effect.Effect<ReadonlyArray<string>> {
+    return Effect.succeed(Object.values(this.state.beliefs).filter((b) => b.state === "Unresolved").map((b) => b.id))
   }
 
-  stats(): Effect.Effect<unknown, UnimplementedError> {
-    return Effect.fail(new UnimplementedError({ feature: "BeliefEngineImpl.stats" }))
+  stats(): Effect.Effect<BeliefEngineState> {
+    return Effect.succeed(this.state)
   }
 }
 

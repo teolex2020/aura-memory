@@ -19,6 +19,9 @@ export type Record = {
   metadata: { readonly [k: string]: string }
   aura_id?: string | null
   caused_by_id?: string | null
+  confidence?: number
+  support_mass?: number
+  conflict_mass?: number
 }
 
 export type StoreOptions = {

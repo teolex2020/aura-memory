@@ -16,7 +16,7 @@ it("BeliefStoreFile load/save roundtrip", async () => {
   )
   assert.deepStrictEqual(empty, BeliefStoreFile.empty_engine())
 
-  const engine = { _tag: "BeliefEngine", beliefs: {} }
+  const engine = { ...BeliefStoreFile.empty_engine(), record_to_belief: { r1: "b1" } }
   await Effect.runPromise(file.save(engine).pipe(Effect.provide(NodeFileWriteLive)))
 
   const loaded = await Effect.runPromise(
@@ -24,4 +24,3 @@ it("BeliefStoreFile load/save roundtrip", async () => {
   )
   assert.deepStrictEqual(loaded, engine)
 })
-

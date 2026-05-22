@@ -1,0 +1,18 @@
+{
+  "r_epistemic_1": {
+    "id": "r_epistemic_1",
+    "content": "The sky is blue.",
+    "level": "Working",
+    "strength": 1,
+    "activation_count": 0,
+    "created_at": 1700000000,
+    "last_activated": 1700000000,
+    "tags": ["epistemic", "belief", "v1"],
+    "connections": {},
+    "content_type": "text/plain",
+    "source_type": "unit_test",
+    "namespace": "test",
+    "semantic_type": "EpistemicBeliefV1",
+    "metadata": {}
+  }
+}

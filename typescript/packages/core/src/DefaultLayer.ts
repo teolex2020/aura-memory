@@ -4,7 +4,7 @@ import { BeliefEngineLive, BeliefStoreLive } from "@aura/belief"
 import { ConceptEngineLive, ConceptStoreLive } from "@aura/concept"
 import { CausalEngineLive, CausalStoreLive } from "@aura/causal"
 import { PolicyEngineLive, PolicyStoreLive } from "@aura/policy"
-import { EpistemicRuntimeLive } from "@aura/epistemic-runtime"
+import { EpistemicRuntimeLive, EpistemicTraceLive } from "@aura/epistemic-runtime"
 
 export function DefaultLayer(brainDir: string) {
   return Layer.mergeAll(
@@ -17,7 +17,7 @@ export function DefaultLayer(brainDir: string) {
     CausalEngineLive,
     PolicyStoreLive(brainDir),
     PolicyEngineLive,
-    EpistemicRuntimeLive
+    EpistemicRuntimeLive,
+    EpistemicTraceLive
   )
 }
-

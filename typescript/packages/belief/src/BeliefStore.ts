@@ -1,5 +1,5 @@
 import { Layer } from "effect"
-import { BeliefStore } from "@aura/contract"
+import { BeliefStore, type BeliefEngineState } from "@aura/contract"
 import { BeliefStoreFile } from "@aura/storage"
 
 export class BeliefStoreImpl {
@@ -13,7 +13,7 @@ export class BeliefStoreImpl {
     return this.file.load()
   }
 
-  save(engine: unknown) {
+  save(engine: BeliefEngineState) {
     return this.file.save(engine)
   }
 }
@@ -21,4 +21,3 @@ export class BeliefStoreImpl {
 export function BeliefStoreLive(dir: string) {
   return Layer.succeed(BeliefStore, new BeliefStoreImpl(dir))
 }
-

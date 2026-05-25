@@ -11,6 +11,7 @@ import {
   type Record as AuraRecord,
   type SdrLookup
 } from "@aura/contract"
+import { nowSecs } from "@aura/utils"
 import { ConceptEngineImpl } from "./ConceptEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -30,7 +31,7 @@ function makeRecord(
     level: Level.Working,
     strength: 1,
     activation_count: 0,
-    created_at: Date.now() / 1000,
+    created_at: nowSecs(),
     last_activated: 0,
     tags,
     connections: {},
@@ -80,7 +81,7 @@ it("ConceptEngine: unresolved beliefs should not seed concepts", async () => {
         conflict_mass: 2,
         stability: 0,
         volatility: 0,
-        last_updated: Date.now() / 1000
+        last_updated: nowSecs()
       }
     },
     hypotheses: {
@@ -126,7 +127,7 @@ it("ConceptEngine: candidates form from resolved/singleton beliefs and provenanc
         conflict_mass: 0,
         stability: 2,
         volatility: 0,
-        last_updated: Date.now() / 1000
+        last_updated: nowSecs()
       },
       b2: {
         id: "b2",
@@ -140,7 +141,7 @@ it("ConceptEngine: candidates form from resolved/singleton beliefs and provenanc
         conflict_mass: 0,
         stability: 2,
         volatility: 0,
-        last_updated: Date.now() / 1000
+        last_updated: nowSecs()
       }
     },
     hypotheses: {
@@ -212,7 +213,7 @@ it("ConceptEngine: stable across replay (same inputs -> same report metrics)", a
         conflict_mass: 0,
         stability: 2,
         volatility: 0,
-        last_updated: Date.now() / 1000
+        last_updated: nowSecs()
       },
       b2: {
         id: "b2",
@@ -226,7 +227,7 @@ it("ConceptEngine: stable across replay (same inputs -> same report metrics)", a
         conflict_mass: 0,
         stability: 2,
         volatility: 0,
-        last_updated: Date.now() / 1000
+        last_updated: nowSecs()
       }
     },
     hypotheses: {

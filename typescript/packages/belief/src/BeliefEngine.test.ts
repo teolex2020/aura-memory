@@ -11,6 +11,7 @@ import {
   type EpistemicTraceImpl,
   type Record as AuraRecord
 } from "@aura/contract"
+import { nowSecs } from "@aura/utils"
 import { BeliefEngineImpl } from "./BeliefEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -44,7 +45,7 @@ it("BeliefEngine.update_with_sdr resolves singleton", async () => {
         level: Level.Working,
         strength: 1,
         activation_count: 0,
-        created_at: Date.now() / 1000,
+        created_at: nowSecs(),
         last_activated: 0,
         tags: ["editor", "preferences"],
         connections: {},
@@ -83,7 +84,7 @@ it("BeliefEngine.update_with_sdr resolves competing hypotheses", async () => {
         level: Level.Working,
         strength: 1,
         activation_count: 0,
-        created_at: Date.now() / 1000,
+        created_at: nowSecs(),
         last_activated: 0,
         tags: ["ui", "theme"],
         connections: {},
@@ -107,7 +108,7 @@ it("BeliefEngine.update_with_sdr resolves competing hypotheses", async () => {
         level: Level.Working,
         strength: 1,
         activation_count: 0,
-        created_at: Date.now() / 1000,
+        created_at: nowSecs(),
         last_activated: 0,
         tags: ["ui", "theme"],
         connections: {},

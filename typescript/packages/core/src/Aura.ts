@@ -21,7 +21,7 @@ import {
 } from "@aura/storage"
 import type { RecallPipelineOptions } from "@aura/recall"
 import { recallRecords as recallRecordsEffect, recallScored as recallScoredEffect } from "./Recall"
-import { id12 } from "@aura/utils"
+import { id12, nowSecs } from "@aura/utils"
 
 export class Aura {
   private constructor(
@@ -88,7 +88,7 @@ export class Aura {
     // 简化实现：仅追加写入 brain.cog 并 fsync；不维护 brain.aura 与 index/。
     // Rust reference: Aura::store / Aura::store_with_channel (aura.rs)
     const dir = this.brainDir
-    const nowSec = Date.now() / 1000
+    const nowSec = nowSecs()
     const nowIso = new Date().toISOString()
     const id = id12()
 
@@ -136,7 +136,7 @@ export class Aura {
       const records = yield* loadCognitiveRecords(dir)
       const existing = records.get(record_id)
       const base = existing ? toRecordLike(existing) : undefined
-      const nowSec = Date.now() / 1000
+      const nowSec = nowSecs()
       const nowIso = new Date().toISOString()
 
       const next: AuraRecord = {
@@ -203,7 +203,7 @@ export class Aura {
       const records = yield* loadCognitiveRecords(dir)
       const existing = records.get(from_id)
       const base = existing ? toRecordLike(existing) : undefined
-      const nowSec = Date.now() / 1000
+      const nowSec = nowSecs()
       const nowIso = new Date().toISOString()
 
       const connections: { [k: string]: number } = { ...(base?.connections ?? {}) }
@@ -332,8 +332,8 @@ function toRecordLike(rec: CognitiveRecord): AuraRecord | undefined {
     level,
     strength: typeof o.strength === "number" ? o.strength : 1,
     activation_count: typeof o.activation_count === "number" ? o.activation_count : 0,
-    created_at: typeof o.created_at === "number" ? o.created_at : Date.now() / 1000,
-    last_activated: typeof o.last_activated === "number" ? o.last_activated : Date.now() / 1000,
+    created_at: typeof o.created_at === "number" ? o.created_at : nowSecs(),
+    last_activated: typeof o.last_activated === "number" ? o.last_activated : nowSecs(),
     tags,
     connections,
     content_type: typeof o.content_type === "string" ? o.content_type : "text",

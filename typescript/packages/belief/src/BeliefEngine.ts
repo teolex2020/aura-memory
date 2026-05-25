@@ -11,7 +11,7 @@ import {
   type Record as AuraRecord,
   type SdrLookup
 } from "@aura/contract"
-import { id12 } from "@aura/utils"
+import { id12, nowSecs } from "@aura/utils"
 
 /**
  * The belief engine — maintains the full belief state.
@@ -63,11 +63,6 @@ const UNCERTAINTY_BAND = 0.1
  * 相似度 ≥ 阈值视为在讨论同一个 claim（合并为同簇）。
  */
 const SDR_TANIMOTO_THRESHOLD = 0.6
-
-/** 当前时间（秒）。 */
-function nowSecs(): number {
-  return Date.now() / 1000
-}
 
 /**
  * 取 record 的置信度（缺省为 0.9）。

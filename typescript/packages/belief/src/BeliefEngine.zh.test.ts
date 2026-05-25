@@ -2,6 +2,7 @@ import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import { BeliefState, EpistemicTrace, Level, type EpistemicTraceImpl, type Record as AuraRecord } from "@aura/contract"
+import { nowSecs } from "@aura/utils"
 import { BeliefEngineImpl } from "./BeliefEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -23,7 +24,7 @@ function makeRecord(
     level: Level.Working,
     strength: 1,
     activation_count: 0,
-    created_at: Date.now() / 1000,
+    created_at: nowSecs(),
     last_activated: 0,
     tags,
     connections: {},

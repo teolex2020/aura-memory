@@ -17,6 +17,7 @@ import {
   type Record as AuraRecord,
   type SdrLookup
 } from "@aura/contract"
+import { nowSecs } from "@aura/utils"
 
 /**
  * Concept Discovery Layer — finds stable abstractions over beliefs.
@@ -101,10 +102,6 @@ let hasherPromise: Promise<Hasher> | undefined
 function getHasher(): Promise<Hasher> {
   hasherPromise ??= xxhash().then((h) => ({ h64: h.h64, h64Raw: h.h64Raw }))
   return hasherPromise
-}
-
-function nowSecs(): number {
-  return Date.now() / 1000
 }
 
 function tanimotoSorted(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {

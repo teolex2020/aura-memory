@@ -259,6 +259,7 @@ export class BeliefEngineImpl {
 
       const coarseGroups = new Map<string, AuraRecord[]>()
       for (const rec of records.values()) {
+        // TODO: NON-PARITY IMPLEMENTATION: content.length is a poor proxy for "trivial content" across languages (e.g., Chinese vs English). Consider using Intl.Segmenter token count (or equivalent) to match Rust's intent more robustly.
         if (rec.content.length < 10) continue
         const key = yield* self.claim_key(rec.namespace, rec.tags, rec.semantic_type)
         const arr = coarseGroups.get(key)

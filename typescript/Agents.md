@@ -34,6 +34,11 @@
 - 文件系统服务必须拆分为：
   - `FileRead`：只读能力
   - `FileWrite`：写入能力（包含原子写所需的 rename/fsync 等）
+- Rust enum 映射策略：本项目中 Rust 的枚举在 TS 侧统一用 TypeScript `enum`（string enum）表达，而非 string union type：
+  - 目的：提供运行期值对象（如 `Level.Working`），便于跨包引用与测试断言。
+  - 要求：枚举值必须与 Rust 侧字符串表示一致；发现不一致应以 Rust 为准修正（例如 `Level`）。
+  - 校验：解析/归一化外部输入时，需先用 `Object.values(Enum).includes(x)` 验证再 cast，避免把任意字符串塞进 enum（示例见 `core/Aura.toRecordLike`）。
+  - 测试：`packages/contract/src/Enums.test.ts` 断言枚举具备运行期值并与字符串一致。
 - 错误通道必须可枚举且具体：
   - 不要在入参/返回值以及 `Effect.Effect<_, E, _>` 的 `E` 使用 `unknown/any`（除非确实就是 unknown）。
   - 正常错误使用 `Effect.fail(new Err)`，并采用 TaggedError 风格（现有 codebase 使用 `Data.TaggedError`）。
@@ -78,6 +83,7 @@
   - 所有 node:* 仅允许出现在这里。
 - `packages/utils`
   - 纯函数工具（bytes/hex/crc32 等），无 IO、无 Effect 依赖（或极少）。
+  - 约定：秒级时间戳获取统一用 `nowSecs()`（`packages/utils/src/Time.ts`），避免散落 `Date.now() / 1000`。
 - `packages/codec`
   - 二进制编解码与 crypto 原语（Binary/Bincode/Crypto）。
   - 目标是字节级对齐 Rust（磁盘格式互通）。
@@ -258,19 +264,22 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ## 8. 工作记忆（当前状态）
 
-### 7.1 已完成（以可验证为准）
+### 8.1 已完成（以可验证为准）
 
 - 已按包分层完成召回主链路：`storage/RecallView` → `recall/Pipeline` → `core/Recall` → `Aura.recall*`。
 - 已实现并接入可选服务：EmbeddingStore / BoundedReranker / RecallFinalizer / TrustConfig（缺失即跳过），并由测试覆盖缺失/存在两种路径。
 - 已建立 Rust/TS parity 测试与确定性 reference：Rust verifier 使用固定 seed 的 NGramIndex 构造，TS 侧对齐输出 ids。
+- 已完成维护链路 Phase 1/2 的核心骨架与实现：Record → Belief → Concept（含 EpistemicTrace、BeliefEngine/Store、ConceptEngine/Store），并通过全量测试回归。
+- 已将 Rust 枚举在 TS 侧从 string union type 统一迁移为 TypeScript string enum，并同步修复字面量赋值/比较/默认值；提供运行期枚举值测试。
+- 已将 `nowSecs()` 抽取到 `packages/utils` 并替换代码库内同算法表达式，避免时间戳计算分散与不一致。
 
-### 7.2 当前差异与风险（下一步优先级）
+### 8.2 当前差异与风险（下一步优先级）
 
 - 高优先级对齐项：NGramIndex（MinHash+LSH）、InvertedIndex.search 语义与剪枝、Trust/Recency 公式。
 - 中优先级对齐项：SDR overlap 权重/排序细节、Record schema 的默认值与校验、graph/causal 扩展所需字段的写入侧闭环。
 - 低-中优先级对齐项：召回缓存与 trace/可观测性。
 
-### 7.3 下一步建议（推进顺序）
+### 8.3 下一步建议（推进顺序）
 
 1) 把 Trust/Recency 公式改为与 Rust 等价，并补充对应 parity 断言。  
 2) 在 TS 侧实现 Rust 等价的 MinHash+LSH NGramIndex，再用 parity fixture 对齐 query 输出。  

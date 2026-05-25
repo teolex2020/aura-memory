@@ -27,14 +27,24 @@ export function defaultTrustConfig(): TrustConfig {
   }
 }
 
+/**
+ * 计算有效信任分（effective trust），用于召回排序。
+ *
+ * 公式与 Rust [trust.rs](file:///workspace/src/trust.rs) 的 `compute_effective_trust` 对齐：
+ *   effective = (trust + recency_boost) * authority * source_type_factor
+ * 其中 recency_boost 采用线性衰减：
+ *   recency_boost = max(0, recency_boost_max * (1 - age_days / half_life_days))
+ * 最终结果被 clamp 到 [0.05, 1.0]。
+ *
+ * timestamp 解析优先通过 `Date.parse` 处理（可兼容 RFC3339 / ISO8601），
+ * 解析失败时回退为 "14 天前"，与 Rust 的回退策略一致。
+ */
 export function computeEffectiveTrust(
   metadata: Record<string, string>,
   nowUnixSec: number,
   config: TrustConfig,
   sourceType: string
 ): number {
-  // SIMPLE IMPLEMENTATION: 复刻 Rust 的关键信号（base trust + authority + recency boost + source_type factor），但解析 timestamp 的容错更宽松。
-  // FULL IMPLEMENTATION: 与 Rust [trust.rs](file:///workspace/src/trust.rs) 的字段名/解析规则/数值边界逐字节对齐，并补齐来源分布与审计日志。
   const trustRaw = Number.parseFloat(metadata["trust_score"] ?? "0.5")
   const trust = Number.isFinite(trustRaw) ? trustRaw : 0.5
 
@@ -46,8 +56,10 @@ export function computeEffectiveTrust(
   const tsUnix = Number.isFinite(parsedMs) ? parsedMs / 1000 : nowUnixSec - 86400 * 14
 
   const ageDays = Math.max(0, (nowUnixSec - tsUnix) / 86400)
-  const decay = Math.pow(0.5, ageDays / Math.max(0.0001, config.recency_half_life_days))
-  const recencyBoost = config.recency_boost_max * decay
+  const recencyBoost = Math.max(
+    0,
+    config.recency_boost_max * (1 - ageDays / config.recency_half_life_days)
+  )
 
   const sourceTypeFactor =
     sourceType === "recorded"
@@ -63,4 +75,3 @@ export function computeEffectiveTrust(
   const effective = (trust + recencyBoost) * authority * sourceTypeFactor
   return Math.min(1.0, Math.max(0.05, effective))
 }
-

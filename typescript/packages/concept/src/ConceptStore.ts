@@ -1,5 +1,5 @@
 import { Layer } from "effect"
-import { ConceptStore } from "@aura/contract"
+import { type ConceptEngineState, ConceptStore } from "@aura/contract"
 import { ConceptStoreFile } from "@aura/storage"
 
 export class ConceptStoreImpl {
@@ -13,7 +13,7 @@ export class ConceptStoreImpl {
     return this.file.load()
   }
 
-  save(engine: unknown) {
+  save(engine: ConceptEngineState) {
     return this.file.save(engine)
   }
 }
@@ -21,4 +21,3 @@ export class ConceptStoreImpl {
 export function ConceptStoreLive(dir: string) {
   return Layer.succeed(ConceptStore, new ConceptStoreImpl(dir))
 }
-

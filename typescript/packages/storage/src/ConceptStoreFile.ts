@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
+import { type ConceptEngineState, FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
 import { CogJsonSnapshotFile } from "./CogJsonSnapshotFile"
 
 export class ConceptStoreFile {
@@ -9,16 +9,24 @@ export class ConceptStoreFile {
     return new ConceptStoreFile(dir)
   }
 
-  static empty_engine(): unknown {
-    return {}
+  static empty_engine(): ConceptEngineState {
+    return {
+      version: 1,
+      concepts: {},
+      key_index: {},
+      seed_mode: "Standard",
+      similarity_mode: "SdrTanimoto",
+      partition_mode: "Standard",
+      union_mode: "Standard"
+    }
   }
 
-  load(): Effect.Effect<unknown, FileReadError | JsonParseError, FileRead> {
+  load(): Effect.Effect<ConceptEngineState, FileReadError | JsonParseError, FileRead> {
     const filePath = `${this.dir}/concepts.cog`
     return CogJsonSnapshotFile.load(filePath, ConceptStoreFile.empty_engine)
   }
 
-  save(_engine: unknown): Effect.Effect<void, FileWriteError, FileWrite> {
+  save(_engine: ConceptEngineState): Effect.Effect<void, FileWriteError, FileWrite> {
     const engine = _engine
     const filePath = `${this.dir}/concepts.cog`
     const dir = this.dir

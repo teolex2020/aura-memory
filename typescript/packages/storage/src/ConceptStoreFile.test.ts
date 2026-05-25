@@ -16,7 +16,15 @@ it("ConceptStoreFile load/save roundtrip", async () => {
   )
   assert.deepStrictEqual(empty, ConceptStoreFile.empty_engine())
 
-  const engine = { _tag: "ConceptEngine", concepts: {} }
+  const engine = {
+    version: 1,
+    concepts: {},
+    key_index: {},
+    seed_mode: "Standard",
+    similarity_mode: "SdrTanimoto",
+    partition_mode: "Standard",
+    union_mode: "Standard"
+  } as const
   await Effect.runPromise(file.save(engine).pipe(Effect.provide(NodeFileWriteLive)))
 
   const loaded = await Effect.runPromise(
@@ -24,4 +32,3 @@ it("ConceptStoreFile load/save roundtrip", async () => {
   )
   assert.deepStrictEqual(loaded, engine)
 })
-

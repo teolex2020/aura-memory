@@ -121,7 +121,7 @@ export function recallPipeline(
 ): Effect.Effect<
   RecallScored,
   SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
-  RecallViewTag | Clock
+  RecallViewTag
 > {
   // SIMPLE IMPLEMENTATION: Signals(SDR/NGram/Tags + optional Embedding) → RRF → GraphWalk/CausalWalk → trust scoring → optional rerank/finalize。
   // FULL IMPLEMENTATION: 对齐 Rust [recall_pipeline](file:///workspace/src/recall.rs#L725-L792) 的 trace、性能与更多信号/策略（belief/concept/causal/policy）。
@@ -130,7 +130,7 @@ export function recallPipeline(
   return Effect.gen(function* () {
     const view = yield* Effect.service(RecallViewTag)
     const clock = yield* Effect.service(Clock)
-    const nowUnixSec = yield* clock.nowSeconds()
+    const nowUnixSec = clock.nowSeconds()
 
     const sdr = yield* getDefaultSdr()
 

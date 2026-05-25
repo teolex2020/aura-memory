@@ -15,9 +15,9 @@ import {
   type ConceptEngineState,
   type ConceptReport,
   type Record as AuraRecord,
-  type SdrLookup
+  type SdrLookup,
+  Clock
 } from "@aura/contract"
-import { nowSecs } from "@aura/utils"
 
 /**
  * Concept Discovery Layer — finds stable abstractions over beliefs.
@@ -697,7 +697,7 @@ export class ConceptEngineImpl {
           cohesion,
           abstraction_score: abstractionScore,
           state,
-          last_updated: nowSecs()
+          last_updated: yield* Clock.nowSeconds()
         }
 
         if (state === ConceptState.Stable) stableCount++

@@ -40,7 +40,7 @@ export class BrainAuraFile {
   static open(
     dir: string,
     key32?: Uint8Array
-  ): Effect.Effect<BrainAuraFile, FileReadError | FileWriteError, FileRead | FileWrite | Clock> {
+  ): Effect.Effect<BrainAuraFile, FileReadError | FileWriteError, FileRead | FileWrite> {
     const filePath = `${dir}/brain.aura`
     return Effect.gen(function* () {
       const fr = yield* Effect.service(FileRead)
@@ -50,7 +50,7 @@ export class BrainAuraFile {
 
       const exists = yield* fr.exists(filePath)
       if (!exists) {
-        const created = yield* clock.nowSeconds()
+        const created = clock.nowSeconds()
         const header = headerBytes(created, 0n)
         yield* fw.writeFile(filePath, header)
         return new BrainAuraFile(filePath, key32, 0n, header.byteLength)

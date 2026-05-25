@@ -1,6 +1,5 @@
 import { Effect } from "effect"
 import {
-  type Clock,
   EmbeddingQueryError,
   FileFormatError,
   FileReadError,
@@ -31,7 +30,7 @@ export function recallScored(
   | EmbeddingQueryError
   | RerankError
   | FinalizeError,
-  FileRead | Clock
+  FileRead
 > {
   // SIMPLE IMPLEMENTATION: 使用 storage/RecallViewLive 提供 RecallViewTag，然后直接运行 @aura/recall 的 recallPipeline。
   // FULL IMPLEMENTATION: 加入可选 trace/telemetry 注入点，以及对齐 Rust recall_service 的错误类型与可观测性字段。
@@ -52,7 +51,7 @@ export function recallRecords<TRecord = unknown>(
   | EmbeddingQueryError
   | RerankError
   | FinalizeError,
-  FileRead | Clock
+  FileRead
 > {
   // SIMPLE IMPLEMENTATION: 在同一 Effect 上下文内读取 RecallViewTag，将 recallPipeline 的 recordId 映射为 view.records 的对象。
   // FULL IMPLEMENTATION: 支持返回结构化 DTO（包含命中信号/解释）、并对齐 Rust recall 输出的字段与排序稳定性。

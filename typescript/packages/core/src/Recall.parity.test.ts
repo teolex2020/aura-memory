@@ -9,10 +9,6 @@ import { Clock } from "@aura/contract"
 import { NodeFileReadLive } from "@aura/platform-node"
 import { Aura } from "./index"
 
-function fixedClock(nowUnixSec: number) {
-  return { nowSeconds: () => Effect.succeed(nowUnixSec) }
-}
-
 it("Rust recall verifier parity with TS Aura.recallScored (SDR+tags+ngram)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-recall-parity-"))
   const repoRoot = path.join(process.cwd(), "..")
@@ -32,7 +28,7 @@ it("Rust recall verifier parity with TS Aura.recallScored (SDR+tags+ngram)", asy
   assert.strictEqual(rust.status, 0, rust.stderr)
   const rustIds: string[] = JSON.parse(rust.stdout.trim())
 
-  const clock = fixedClock(1_700_000_000)
+  const clock = Clock.fixed(1_700_000_000)
   const scored = await Effect.runPromise(
     Aura.recallScored(dir, query, { topK: 10, expandConnections: false }).pipe(
       Effect.provide(NodeFileReadLive),

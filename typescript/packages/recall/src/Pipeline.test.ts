@@ -80,7 +80,7 @@ function setTimestamp(view: RecallView, id: string, iso: string): void {
 function fixedClock(nowUnixSec: number) {
   const iso = new Date(nowUnixSec * 1000).toISOString()
   return {
-    clock: { nowSeconds: () => Effect.succeed(nowUnixSec) },
+    clock: Clock.fixed(nowUnixSec),
     iso
   }
 }

@@ -9,10 +9,6 @@ import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } fr
 import { BrainAuraFile, CognitiveStoreFile } from "@aura/storage"
 import { Aura, recallRecords, recallScored } from "./index"
 
-function fixedClock(nowUnixSec: number) {
-  return { nowSeconds: () => Effect.succeed(nowUnixSec) }
-}
-
 it("core recallScored + recallRecords work via RecallViewLive + recallPipeline", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-core-recall-"))
   const indexDir = path.join(dir, "index")
@@ -63,7 +59,7 @@ it("core recallScored + recallRecords work via RecallViewLive + recallPipeline",
     }).pipe(Effect.provide(NodeFileReadLive), Effect.provide(NodeFileWriteLive))
   )
 
-  const clock = fixedClock(1_700_000_000)
+  const clock = Clock.fixed(1_700_000_000)
 
   const scored = await Effect.runPromise(
     recallScored(dir, "ts", { topK: 10, expandConnections: false }).pipe(
@@ -128,7 +124,7 @@ it("Aura.recall* facade delegates to core Recall.ts", async () => {
     }).pipe(Effect.provide(NodeFileReadLive), Effect.provide(NodeFileWriteLive))
   )
 
-  const clock = fixedClock(1_700_000_000)
+  const clock = Clock.fixed(1_700_000_000)
 
   const scored = await Effect.runPromise(
     Aura.recallScored(dir, "ts", { topK: 10, expandConnections: false }).pipe(

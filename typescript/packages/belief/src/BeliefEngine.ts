@@ -9,9 +9,10 @@ import {
   type BeliefReport,
   type Hypothesis,
   type Record as AuraRecord,
-  type SdrLookup
+  type SdrLookup,
+  Clock
 } from "@aura/contract"
-import { id12, nowSecs } from "@aura/utils"
+import { id12 } from "@aura/utils"
 
 /**
  * The belief engine — maintains the full belief state.
@@ -212,7 +213,7 @@ function hypothesisFromRecords(beliefId: string, records: ReadonlyArray<AuraReco
  * 从多个 hypotheses 中决出 winner（或在证据接近时进入 Unresolved），并更新 belief 聚合字段
  *（score/confidence/support/conflict/stability）。
  */
-function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>): Belief {
+function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>, nowSecs: () => number): Belief {
   if (hypotheses.length === 0) {
     return {
       ...prev,
@@ -345,6 +346,7 @@ export class BeliefEngineImpl {
   ): Effect.Effect<BeliefReport, never, EpistemicTrace> {
     const self = this
     return Effect.gen(function* () {
+      const { nowSeconds } = yield* Effect.service(Clock)
       const traceOpt = yield* serviceOption(EpistemicTrace)
       if (Option.isSome(traceOpt)) {
         yield* traceOpt.value.event("belief.update_with_sdr.start", {
@@ -387,7 +389,7 @@ export class BeliefEngineImpl {
           conflict_mass: 0,
           stability: 0,
           volatility: 0,
-          last_updated: nowSecs()
+          last_updated: nowSeconds()
         }
 
         const clusters =
@@ -402,7 +404,7 @@ export class BeliefEngineImpl {
           for (const rid of hyp.prototype_record_ids) recToBelief[rid] = beliefId
         }
 
-        belief = resolveBelief(belief, hyps)
+        belief = resolveBelief(belief, hyps, nowSeconds)
         nextBeliefs[beliefId] = belief
       }
 

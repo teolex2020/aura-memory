@@ -32,6 +32,8 @@ export class Aura {
   static open(
     brainPath: string
   ): Effect.Effect<Aura, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+    // Create a new Aura instance at the given path.
+    // 在给定路径创建 Aura 实例。
     const brainAuraPath = `${brainPath}/brain.aura`
     return Effect.gen(function* () {
       const fs = yield* Effect.service(FileRead)
@@ -53,8 +55,10 @@ export class Aura {
     brainPath: string,
     _password?: string
   ): Effect.Effect<Aura, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+    // Create a new Aura instance with optional encryption.
+    // 创建 Aura 实例（可选加密）。
     // NON-PARITY IMPLEMENTATION: password/encryption is not wired yet.
-    // Reason: TS core currently uses FileRead/FileWrite abstraction without AuraStorage encryption pipeline.
+    // 差异说明：TS core 目前只使用 FileRead/FileWrite 抽象，尚未接入 Rust AuraStorage 的加密管线。
     // Rust reference: Aura::open_with_password (aura.rs)
     return Aura.open(brainPath)
   }
@@ -77,8 +81,11 @@ export class Aura {
       readonly auto_promote?: boolean
     }
   ): Effect.Effect<AuraRecord, FileReadError | FileWriteError, FileRead | FileWrite> {
+    // Store with explicit channel for provenance stamping.
+    // `auto_promote`: if Some(false), disables surprise-based level promotion.
+    // 带显式 channel 的存储，用于 provenance 标记；auto_promote 为 false 时关闭基于“surprise”的 level 晋升。
     // SIMPLE IMPLEMENTATION: only appends to brain.cog (CognitiveStoreFile) and fsyncs.
-    // Reason: keep open→store→recall working without introducing brain.aura / index parity work.
+    // 简化实现：仅追加写入 brain.cog 并 fsync；不维护 brain.aura 与 index/。
     // Rust reference: Aura::store / Aura::store_with_channel (aura.rs)
     const dir = this.brainDir
     const nowSec = Date.now() / 1000
@@ -119,8 +126,10 @@ export class Aura {
     record_id: string,
     patch?: UpdateOptions
   ): Effect.Effect<AuraRecord, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+    // Update a record.
+    // 更新一条 record。
     // SIMPLE IMPLEMENTATION: load current in-memory view (from brain.cog/brain.snap) and append an Update record.
-    // Reason: update/connect must write a full record; partial updates would overwrite content during loadCognitiveRecords normalization.
+    // 简化实现：从 brain.cog/brain.snap 回放得到当前视图，再追加写入一条 Update 记录。
     // Rust reference: Aura::update (aura.rs)
     const dir = this.brainDir
     return Effect.gen(function* () {
@@ -157,8 +166,10 @@ export class Aura {
   }
 
   delete(record_id: string): Effect.Effect<boolean, FileReadError | FileWriteError, FileRead | FileWrite> {
+    // Delete a record.
+    // 删除一条 record。
     // SIMPLE IMPLEMENTATION: append delete op to brain.cog and return true.
-    // Reason: keep delete available for the main write path; later parity may return "existed?" after loading state.
+    // 简化实现：追加写入 delete 操作并返回 true（后续 parity 可返回 existed?）。
     // Rust reference: Aura::delete (aura.rs)
     const dir = this.brainDir
     return Effect.gen(function* () {
@@ -174,8 +185,17 @@ export class Aura {
     to_id: string,
     weight?: number
   ): Effect.Effect<void, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+    // Connect two records with optional relationship type.
+    //
+    // Relationship types (inspired by molecular reasoning bonds):
+    // - `"causal"` — A caused/led to B
+    // - `"reflective"` — B validates/corrects A
+    // - `"associative"` — A and B are thematically related
+    // - `"coactivation"` — A and B were recalled together in a session
+    // - Any custom string
+    // 连接两条 records（Rust 支持 relationship 类型；TS 当前仅支持权重）。
     // SIMPLE IMPLEMENTATION: load record, mutate connections, appendUpdate full record.
-    // Reason: partial updates would overwrite content during loadCognitiveRecords normalization.
+    // 简化实现：加载记录、更新 connections、追加写入完整 record。
     // Rust reference: Aura::connect (aura.rs)
     const dir = this.brainDir
     const w = typeof weight === "number" && Number.isFinite(weight) ? weight : 1
@@ -216,7 +236,7 @@ export class Aura {
 
   recall(query: string, options?: Partial<RecallPipelineOptions>) {
     // NON-PARITY IMPLEMENTATION: returns RecallScored rather than Rust's richer RecallItem.
-    // Reason: TS recall pipeline currently provides scored IDs; structured/explainability are not implemented yet.
+    // 差异说明：TS recall pipeline 目前返回 scored IDs；structured/explainability 尚未实现。
     // Rust reference: Aura::recall (aura.rs)
     return recallScoredEffect(this.brainDir, query, options)
   }

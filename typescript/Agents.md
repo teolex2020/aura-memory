@@ -138,19 +138,19 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
   - 在 TS 侧实现一个与 Rust 相同的 MinHash+LSH NGramIndex，并通过 parity fixture 校验 query 输出一致。
   - 同时明确 seed/系数生成的确定性（用于测试可复现）。
 
-### 5.2 InvertedIndex 搜索语义不一致（高影响）
+### 5.2 InvertedIndex 搜索语义不一致（高影响）—— ✅ 已完成
 
 - Rust reference
   - `InvertedIndex::search(query_indices, top_k, min_overlap)` 有一套性能与剪枝策略（`src/index.rs`）。
 - TS 当前实现
-  - TS 原 `search(bits)` 返回交集后的外部 id，不包含 overlap。
-  - 为 recall 对齐，新增了 `searchScored(bits, topK, minOverlap)`，当前是“简单计数 overlap 并按 overlap 排序”的实现：
-    - `packages/indexing/src/InvertedIndex.ts`
-  - 并在 `storage/RecallView` 把 contract 的 `invertedIndex.search` 映射到 `searchScored`。
-- 影响
-  - 候选集合、topK 截断与 Rust 在大数据量下会明显不同（Rust 有 rarity-based pruning 与计数 buffer 优化）。
-- 后续对齐建议
-  - 在 TS 侧实现与 Rust 同语义的 search（包含 rarity sort、max_bits 选择、计数 buffer 的稀疏清理策略），并增加数据量较大的性能/正确性对照测试。
+  - `searchScored(bits, topK, minOverlap)`（`packages/indexing/src/InvertedIndex.ts`）已与 Rust 语义对齐：
+    - max_bits 选择：top_k ≤ 10 → 128，≤ 50 → 256，else → 512
+    - rarity sort：bitmaps 数量超过 max_bits 时按 bitmap 长度升序（最稀有的优先）
+    - 只处理前 `min(bitmaps.length, max_bits)` 个 bitmaps
+    - 结果截断到 `limit = min(top_k * 10, 500)` 后再 resolve external IDs
+  - 并补充了 `InvertedIndex.searchScored.test.ts` 覆盖边界条件（含 rarity sort + max_bits 剪枝）。
+- 影响（已消除）
+  - 候选集合、topK 截断与 Rust 在大数据量下的差异已消除。
 
 ### 5.3 SDR collect_sdr 的细节差异（中-高影响）
 
@@ -163,20 +163,19 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - 后续对齐建议
   - 把 overlap 引入打分/排序策略，或至少在 tie-break 中使用 overlap，确保对齐 Rust 行为。
 
-### 5.4 Trust/Recency 计算公式不一致（高影响，且隐蔽）
+### 5.4 Trust/Recency 计算公式不一致（高影响，且隐蔽）—— ✅ 已完成
 
 - Rust reference
   - `compute_effective_trust`（`src/trust.rs`）：
     - recency_boost = max * (1 - age_days/half_life_days)，下限 0
     - effective = (trust + recency_boost) * authority * source_type_factor，clamp(0.05, 1.0)
 - TS 当前实现
-  - `computeEffectiveTrust`（`packages/recall/src/Trust.ts`）：
-    - 使用指数衰减：recency_boost = max * 0.5^(age_days/half_life_days)
-    - 其余结构保持类似
-- 影响
-  - 时间越久远，TS/Rust 的 recency 曲线差异越大，最终 recall score 会偏离；当候选分数接近时会改变排序。
-- 后续对齐建议
-  - 将 TS 公式改为与 Rust 相同的线性衰减版本，并对 timestamp 解析规则做一致化（Rust 用 rfc3339 解析，失败则当作 14 天前）。
+  - `computeEffectiveTrust`（`packages/recall/src/Trust.ts`）已改为线性衰减：
+    - `recencyBoost = max * max(0, 1 - ageDays / halfLifeDays)`
+    - 移除旧代码中多余的 `0.0001` 除零防护（JS 浮点除零行为与 Rust f32 一致，均自然回落到 0）
+  - 补充了 `Trust.test.ts`（10 个测试），覆盖边界条件：age=0、age=halfLife、age>halfLife、timestamp 缺失/不可解析回退 14 天、source_type factor、clamp、默认值等。
+- 影响（已消除）
+  - recency 曲线已与 Rust 一致。
 
 ### 5.5 可选服务导致的行为差异（中影响）
 
@@ -275,13 +274,13 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ### 8.2 当前差异与风险（下一步优先级）
 
-- 高优先级对齐项：NGramIndex（MinHash+LSH）、InvertedIndex.search 语义与剪枝、Trust/Recency 公式。
+- 高优先级对齐项：NGramIndex（MinHash+LSH）。
 - 中优先级对齐项：SDR overlap 权重/排序细节、Record schema 的默认值与校验、graph/causal 扩展所需字段的写入侧闭环。
 - 低-中优先级对齐项：召回缓存与 trace/可观测性。
 
 ### 8.3 下一步建议（推进顺序）
 
-1) 把 Trust/Recency 公式改为与 Rust 等价，并补充对应 parity 断言。  
-2) 在 TS 侧实现 Rust 等价的 MinHash+LSH NGramIndex，再用 parity fixture 对齐 query 输出。  
-3) 补齐 InvertedIndex.search 的 Rust 等价语义（含剪枝策略），并用更大规模 fixture 验证 topK 与候选集一致性。  
-4) 在 core 层补齐默认 bounded rerank/finalize 的 Live Layer（或明确区分 recallRaw/recallCore），再推进写入侧对照测试。  
+1) 在 TS 侧实现 Rust 等价的 MinHash+LSH NGramIndex，再用 parity fixture 对齐 query 输出。  
+2) 把 SDR overlap 权重/排序细节补齐（InvertedIndex 已返回 overlap count，需在 `collectSdr` 中引入权重参与排序）。  
+3) 在 core 层补齐默认 bounded rerank/finalize 的 Live Layer（或明确区分 recallRaw/recallCore），再推进写入侧对照测试。  
+4) 完整实现 Record schema 的默认值与校验逻辑。  

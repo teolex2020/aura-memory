@@ -144,27 +144,63 @@ export class InvertedIndex {
   }
 
   searchScored(bits: number[], topK: number, minOverlap: number): Array<[string, number]> {
-    // SIMPLE IMPLEMENTATION: count overlaps by iterating all matching doc IDs across all bitmaps.
-    // FULL IMPLEMENTATION: match Rust heuristics (rarity-based pruning / max_bits / thread-local sparse buffer).
+    // 与 Rust `index.rs` 的 `InvertedIndex::search` 语义对齐：
+    // - max_bits 选择（128/256/512）控制处理的 query bit 数量
+    // - rarity sort：当 bit 数量超过 max_bits 时，按 bitmap 长度升序（最稀有的优先）
+    // - 只处理前 processing_count 个 bitmaps
+    // - 结果先截断到 limit = (topK * 10).min(500)，再 resolve external IDs
     if (bits.length === 0) return []
 
-    const counts = new Map<number, number>()
+    const maxBits = topK <= 10 ? 128 : topK <= 50 ? 256 : 512
+
+    // Collect bitmaps for each query bit
+    const bitmaps: RoaringBitmap[] = []
     for (const b of bits) {
       const bm = this.bitToDocs.get(b & 0xffff)
-      if (!bm) continue
-      for (const docId of bm.toArray()) {
+      if (bm) bitmaps.push(bm)
+    }
+    if (bitmaps.length === 0) return []
+
+    // Rarity sort: smallest bitmaps first = most selective
+    const processingCount = Math.min(bitmaps.length, maxBits)
+    if (bitmaps.length > maxBits) {
+      bitmaps.sort((a, b) => a.size - b.size)
+    }
+
+    // Count overlaps (sparse Map is semantically equivalent to Rust's thread-local array buffer)
+    const counts = new Map<number, number>()
+    for (let i = 0; i < processingCount; i++) {
+      for (const docId of bitmaps[i]!.toArray()) {
         counts.set(docId, (counts.get(docId) ?? 0) + 1)
       }
     }
 
-    const out: Array<[string, number]> = []
-    for (const [docId, c] of counts.entries()) {
-      if (c < minOverlap) continue
-      const ext = this.reverseMap.get(docId)
-      if (ext !== undefined) out.push([ext, c])
+    // Filter by minOverlap
+    const candidates: Array<[number, number]> = []
+    for (const [docId, count] of counts.entries()) {
+      if (count >= minOverlap) {
+        candidates.push([docId, count])
+      }
     }
-    out.sort((a, b) => b[1] - a[1])
-    if (topK > 0 && out.length > topK) out.length = topK
+
+    if (candidates.length === 0) return []
+
+    // Sort by overlap count descending
+    candidates.sort((a, b) => b[1] - a[1])
+
+    // Truncate to limit before resolving IDs
+    const limit = Math.min(topK * 10, 500)
+    if (candidates.length > limit) {
+      candidates.length = limit
+    }
+
+    // Resolve external IDs
+    const out: Array<[string, number]> = []
+    for (const [docId, count] of candidates) {
+      const ext = this.reverseMap.get(docId)
+      if (ext !== undefined) out.push([ext, count])
+    }
+
     return out
   }
 

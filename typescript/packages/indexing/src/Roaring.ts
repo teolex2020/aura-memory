@@ -38,4 +38,8 @@ export class RoaringBitmap {
   toArray(): number[] {
     return this.inner.toArray()
   }
+
+  get size(): number {
+    return this.inner.size
+  }
 }

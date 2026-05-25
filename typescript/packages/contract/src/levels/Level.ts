@@ -1,2 +1,6 @@
-export type Level = "Working" | "LongTerm" | "Core"
-
+export enum Level {
+  Working = "Working",
+  Decisions = "Decisions",
+  Domain = "Domain",
+  Identity = "Identity"
+}

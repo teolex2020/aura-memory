@@ -6,6 +6,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
 import { NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
+import { Level } from "@aura/contract"
 import { CognitiveStoreFile } from "./CognitiveStoreFile"
 
 it("write brain.cog + brain.snap and verify with Rust", async () => {
@@ -14,7 +15,7 @@ it("write brain.cog + brain.snap and verify with Rust", async () => {
   const record = {
     id: "cog_fixture_1",
     content: "hello cognitive",
-    level: "Working",
+    level: Level.Working,
     strength: 1.0,
     activation_count: 0,
     created_at: 123.0,
@@ -44,4 +45,3 @@ it("write brain.cog + brain.snap and verify with Rust", async () => {
   assert.deepStrictEqual(out.ids, ["cog_fixture_1"])
   assert.strictEqual(out.first_content, "hello cognitive")
 })
-

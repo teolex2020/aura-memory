@@ -1,5 +1,16 @@
 import { Effect } from "effect"
-import { type ConceptEngineState, FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
+import {
+  ConceptPartitionMode,
+  ConceptSeedMode,
+  ConceptSimilarityMode,
+  ConceptUnionMode,
+  type ConceptEngineState,
+  FileRead,
+  FileReadError,
+  FileWrite,
+  FileWriteError,
+  JsonParseError
+} from "@aura/contract"
 import { CogJsonSnapshotFile } from "./CogJsonSnapshotFile"
 
 export class ConceptStoreFile {
@@ -14,10 +25,10 @@ export class ConceptStoreFile {
       version: 1,
       concepts: {},
       key_index: {},
-      seed_mode: "Standard",
-      similarity_mode: "SdrTanimoto",
-      partition_mode: "Standard",
-      union_mode: "Standard"
+      seed_mode: ConceptSeedMode.Standard,
+      similarity_mode: ConceptSimilarityMode.SdrTanimoto,
+      partition_mode: ConceptPartitionMode.Standard,
+      union_mode: ConceptUnionMode.Standard
     }
   }
 

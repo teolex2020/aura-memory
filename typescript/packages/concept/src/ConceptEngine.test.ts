@@ -1,7 +1,16 @@
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
-import { EpistemicTrace, type BeliefEngineImpl, type BeliefEngineState, type EpistemicTraceImpl, type Record as AuraRecord, type SdrLookup } from "@aura/contract"
+import {
+  BeliefState,
+  EpistemicTrace,
+  Level,
+  type BeliefEngineImpl,
+  type BeliefEngineState,
+  type EpistemicTraceImpl,
+  type Record as AuraRecord,
+  type SdrLookup
+} from "@aura/contract"
 import { ConceptEngineImpl } from "./ConceptEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -18,7 +27,7 @@ function makeRecord(
   return {
     id,
     content,
-    level: "Working",
+    level: Level.Working,
     strength: 1,
     activation_count: 0,
     created_at: Date.now() / 1000,
@@ -49,7 +58,7 @@ function fakeBeliefEngine(state: BeliefEngineState): BeliefEngineImpl {
     deprecate_belief: () => Effect.void,
     apply_layer_feedback: () => Effect.succeed(undefined),
     unresolved_beliefs: () =>
-      Effect.succeed(Object.values(state.beliefs).filter((b) => b.state === "Unresolved").map((b) => b.id)),
+      Effect.succeed(Object.values(state.beliefs).filter((b) => b.state === BeliefState.Unresolved).map((b) => b.id)),
     stats: () => Effect.succeed(state)
   }
 }
@@ -64,7 +73,7 @@ it("ConceptEngine: unresolved beliefs should not seed concepts", async () => {
         key: "default:ui,theme:preference",
         hypothesis_ids: ["h1"],
         winner_id: null,
-        state: "Unresolved",
+        state: BeliefState.Unresolved,
         score: 0.5,
         confidence: 0.6,
         support_mass: 2,
@@ -110,7 +119,7 @@ it("ConceptEngine: candidates form from resolved/singleton beliefs and provenanc
         key: "default:ui,theme:preference",
         hypothesis_ids: ["h1"],
         winner_id: "h1",
-        state: "Resolved",
+        state: BeliefState.Resolved,
         score: 1.2,
         confidence: 0.9,
         support_mass: 10,
@@ -124,7 +133,7 @@ it("ConceptEngine: candidates form from resolved/singleton beliefs and provenanc
         key: "default:ui,theme:preference",
         hypothesis_ids: ["h2"],
         winner_id: "h2",
-        state: "Singleton",
+        state: BeliefState.Singleton,
         score: 1.0,
         confidence: 0.9,
         support_mass: 8,
@@ -196,7 +205,7 @@ it("ConceptEngine: stable across replay (same inputs -> same report metrics)", a
         key: "default:ui,theme:preference",
         hypothesis_ids: ["h1"],
         winner_id: "h1",
-        state: "Resolved",
+        state: BeliefState.Resolved,
         score: 1.2,
         confidence: 0.9,
         support_mass: 10,
@@ -210,7 +219,7 @@ it("ConceptEngine: stable across replay (same inputs -> same report metrics)", a
         key: "default:ui,theme:preference",
         hypothesis_ids: ["h2"],
         winner_id: "h2",
-        state: "Singleton",
+        state: BeliefState.Singleton,
         score: 1.0,
         confidence: 0.9,
         support_mass: 8,

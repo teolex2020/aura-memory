@@ -1,7 +1,10 @@
 import { Effect } from "effect"
 import { FileRead, FileWrite, UnimplementedError } from "@aura/contract"
 
-export type BackupType = "Full" | "Incremental"
+export enum BackupType {
+  Full = "Full",
+  Incremental = "Incremental"
+}
 
 export type BackupHeader = {
   created_at: number

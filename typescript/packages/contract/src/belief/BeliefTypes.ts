@@ -3,7 +3,12 @@ export type HypothesisId = string
 
 // Resolution state of a belief.
 // 信念（Belief）的决议状态。
-export type BeliefState = "Resolved" | "Unresolved" | "Singleton" | "Empty"
+export enum BeliefState {
+  Resolved = "Resolved",
+  Unresolved = "Unresolved",
+  Singleton = "Singleton",
+  Empty = "Empty"
+}
 
 // An aggregated epistemic position on a claim.
 // 对某个 claim 的聚合认识立场（将多个 hypotheses 组织起来，可能决议出 winner，也可能保持不确定）。

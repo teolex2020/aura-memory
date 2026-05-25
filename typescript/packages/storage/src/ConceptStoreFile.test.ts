@@ -5,6 +5,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
 import { NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
+import { ConceptPartitionMode, ConceptSeedMode, ConceptSimilarityMode, ConceptUnionMode } from "@aura/contract"
 import { ConceptStoreFile } from "./ConceptStoreFile"
 
 it("ConceptStoreFile load/save roundtrip", async () => {
@@ -20,10 +21,10 @@ it("ConceptStoreFile load/save roundtrip", async () => {
     version: 1,
     concepts: {},
     key_index: {},
-    seed_mode: "Standard",
-    similarity_mode: "SdrTanimoto",
-    partition_mode: "Standard",
-    union_mode: "Standard"
+    seed_mode: ConceptSeedMode.Standard,
+    similarity_mode: ConceptSimilarityMode.SdrTanimoto,
+    partition_mode: ConceptPartitionMode.Standard,
+    union_mode: ConceptUnionMode.Standard
   } as const
   await Effect.runPromise(file.save(engine).pipe(Effect.provide(NodeFileWriteLive)))
 

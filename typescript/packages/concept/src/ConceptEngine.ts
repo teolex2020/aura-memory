@@ -1,18 +1,19 @@
 import xxhash from "xxhash-wasm"
 import { Effect, Layer, Option } from "effect"
 import {
+  BeliefState,
   type BeliefEngineImpl,
   ConceptEngine,
+  ConceptPartitionMode,
+  ConceptSeedMode,
+  ConceptSimilarityMode,
+  ConceptState,
+  ConceptUnionMode,
   EpistemicTrace,
   serviceOption,
   type ConceptCandidate,
   type ConceptEngineState,
-  type ConceptPartitionMode,
   type ConceptReport,
-  type ConceptSeedMode,
-  type ConceptSimilarityMode,
-  type ConceptState,
-  type ConceptUnionMode,
   type Record as AuraRecord,
   type SdrLookup
 } from "@aura/contract"
@@ -347,10 +348,10 @@ export class ConceptEngineImpl {
     version: 1,
     concepts: {},
     key_index: {},
-    seed_mode: "Standard",
-    similarity_mode: "SdrTanimoto",
-    partition_mode: "Standard",
-    union_mode: "Standard"
+    seed_mode: ConceptSeedMode.Standard,
+    similarity_mode: ConceptSimilarityMode.SdrTanimoto,
+    partition_mode: ConceptPartitionMode.Standard,
+    union_mode: ConceptUnionMode.Standard
   }
 
   /** 设置 seed 选择模式。 */
@@ -361,9 +362,18 @@ export class ConceptEngineImpl {
 
   private selectSeeds(beliefs: ReadonlyArray<import("@aura/contract").Belief>, mode: ConceptSeedMode): string[] {
     const [minStability, minConfidence] =
-      mode === "Warmup" ? [1.0, MIN_BELIEF_CONFIDENCE] : mode === "Relaxed" ? [1.0, 0.4] : [MIN_BELIEF_STABILITY, MIN_BELIEF_CONFIDENCE]
+      mode === ConceptSeedMode.Warmup
+        ? [1.0, MIN_BELIEF_CONFIDENCE]
+        : mode === ConceptSeedMode.Relaxed
+          ? [1.0, 0.4]
+          : [MIN_BELIEF_STABILITY, MIN_BELIEF_CONFIDENCE]
     return beliefs
-      .filter((b) => (b.state === "Resolved" || b.state === "Singleton") && b.stability >= minStability && b.confidence >= minConfidence)
+      .filter(
+        (b) =>
+          (b.state === BeliefState.Resolved || b.state === BeliefState.Singleton) &&
+          b.stability >= minStability &&
+          b.confidence >= minConfidence
+      )
       .map((b) => b.id)
   }
 
@@ -424,7 +434,7 @@ export class ConceptEngineImpl {
       const b = beliefs[bid]
       if (!b) continue
       const [ns, st] = parseBeliefKeyNsSt(b.key)
-      const key = mode === "NamespaceOnly" ? ns : `${ns}:${st}`
+      const key = mode === ConceptPartitionMode.NamespaceOnly ? ns : `${ns}:${st}`
       const arr = out.get(key)
       if (arr) arr.push(bid)
       else out.set(key, [bid])
@@ -663,10 +673,10 @@ export class ConceptEngineImpl {
 
         const state: ConceptState =
           abstractionScore >= STABLE_THRESHOLD
-            ? "Stable"
+            ? ConceptState.Stable
             : abstractionScore >= CANDIDATE_THRESHOLD
-              ? "Candidate"
-              : "Rejected"
+              ? ConceptState.Candidate
+              : ConceptState.Rejected
 
         const clusterCentroids = clusterBeliefIds.map((bid) => centroids.get(bid) ?? [])
         const centroidSig = yield* Effect.tryPromise(() => centroidSignatureU32Hex(hasher, clusterCentroids)).pipe(Effect.orDie)
@@ -693,8 +703,8 @@ export class ConceptEngineImpl {
           last_updated: nowSecs()
         }
 
-        if (state === "Stable") stableCount++
-        else if (state === "Rejected") rejectedCount++
+        if (state === ConceptState.Stable) stableCount++
+        else if (state === ConceptState.Rejected) rejectedCount++
 
         newKeyIndex[key] = id
         newConcepts[id] = candidate
@@ -746,12 +756,16 @@ export class ConceptEngineImpl {
 
   /** 返回 Stable concepts 的 id 列表。 */
   stable_concepts(): Effect.Effect<ReadonlyArray<string>> {
-    return Effect.succeed(Object.values(this.state.concepts).filter((c) => c.state === "Stable").map((c) => c.id))
+    return Effect.succeed(Object.values(this.state.concepts).filter((c) => c.state === ConceptState.Stable).map((c) => c.id))
   }
 
   /** 返回 Candidate concepts 的 id 列表。 */
   active_candidates(): Effect.Effect<ReadonlyArray<string>> {
-    return Effect.succeed(Object.values(this.state.concepts).filter((c) => c.state !== "Rejected").map((c) => c.id))
+    return Effect.succeed(
+      Object.values(this.state.concepts)
+        .filter((c) => c.state !== ConceptState.Rejected)
+        .map((c) => c.id)
+    )
   }
 
   /** 返回当前引擎状态快照。 */

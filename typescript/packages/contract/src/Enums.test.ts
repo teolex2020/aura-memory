@@ -12,8 +12,9 @@ import {
 
 it("enums are runtime values", () => {
   assert.strictEqual(Level.Working, "Working")
-  assert.strictEqual(Level.LongTerm, "LongTerm")
-  assert.strictEqual(Level.Core, "Core")
+  assert.strictEqual(Level.Decisions, "Decisions")
+  assert.strictEqual(Level.Domain, "Domain")
+  assert.strictEqual(Level.Identity, "Identity")
 
   assert.strictEqual(BeliefState.Resolved, "Resolved")
   assert.strictEqual(BeliefState.Unresolved, "Unresolved")
@@ -37,4 +38,3 @@ it("enums are runtime values", () => {
   assert.strictEqual(ConceptUnionMode.Standard, "Standard")
   assert.strictEqual(ConceptUnionMode.SingleTagFactDecisionBridge, "SingleTagFactDecisionBridge")
 })
-

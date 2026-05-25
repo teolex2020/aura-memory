@@ -1,12 +1,12 @@
 import { Effect, Layer, Option } from "effect"
 import {
   BeliefEngine,
+  BeliefState,
   EpistemicTrace,
   serviceOption,
   type Belief,
   type BeliefEngineState,
   type BeliefReport,
-  type BeliefState as ContractBeliefState,
   type Hypothesis,
   type Record as AuraRecord,
   type SdrLookup
@@ -19,21 +19,20 @@ import { id12 } from "@aura/utils"
  * Belief 引擎——维护完整的信念层状态（Belief/Hypothesis/索引），用于在 maintenance 周期中从 records
  * 构建更稳定的“主张层”。
  */
-export type CoarseKeyMode =
-  | "Standard"
-  | "TopOneTag"
-  | "SemanticOnly"
-  | "TagFamily"
-  | "TagFamilyAdaptive"
-  | "TagFamilyBackoff"
-  | "TagFamilyPairBackoff"
-  | "TagFamilyDenseBackoff"
-  | "DualKey"
-  | "NeighborhoodPool"
-  | "BridgeKey"
-  | "SdrTagPool"
-
-export type BeliefState = ContractBeliefState
+export enum CoarseKeyMode {
+  Standard = "Standard",
+  TopOneTag = "TopOneTag",
+  SemanticOnly = "SemanticOnly",
+  TagFamily = "TagFamily",
+  TagFamilyAdaptive = "TagFamilyAdaptive",
+  TagFamilyBackoff = "TagFamilyBackoff",
+  TagFamilyPairBackoff = "TagFamilyPairBackoff",
+  TagFamilyDenseBackoff = "TagFamilyDenseBackoff",
+  DualKey = "DualKey",
+  NeighborhoodPool = "NeighborhoodPool",
+  BridgeKey = "BridgeKey",
+  SdrTagPool = "SdrTagPool"
+}
 
 /**
  * Conflict penalty weight in hypothesis scoring.
@@ -223,7 +222,7 @@ function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>): Bel
     return {
       ...prev,
       winner_id: null,
-      state: "Empty",
+      state: BeliefState.Empty,
       score: 0,
       confidence: 0,
       support_mass: 0,
@@ -239,7 +238,7 @@ function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>): Bel
     return {
       ...prev,
       winner_id: h.id,
-      state: "Singleton",
+      state: BeliefState.Singleton,
       score: h.score,
       confidence: h.confidence,
       support_mass: h.support_mass,
@@ -260,11 +259,11 @@ function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>): Bel
   let stability: number
 
   if (ratio < REVISION_THRESHOLD && Math.abs(top1.score - top2.score) < UNCERTAINTY_BAND) {
-    state = "Unresolved"
+    state = BeliefState.Unresolved
     winnerId = null
     stability = 0
   } else {
-    state = "Resolved"
+    state = BeliefState.Resolved
     winnerId = top1.id
     stability = prev.winner_id === top1.id ? prev.stability + 1 : 1
   }
@@ -283,7 +282,7 @@ function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>): Bel
 }
 
 export class BeliefEngineImpl {
-  private coarseKeyMode: CoarseKeyMode = "Standard"
+  private coarseKeyMode: CoarseKeyMode = CoarseKeyMode.Standard
   private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {} }
 
   /**
@@ -292,7 +291,7 @@ export class BeliefEngineImpl {
    * 设置 coarse key 的构造模式（在 SDR 子聚类前，先按 key 分桶）。
    */
   with_coarse_key_mode(mode: unknown): Effect.Effect<void> {
-    this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : "Standard"
+    this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
     return Effect.void
   }
 
@@ -322,8 +321,8 @@ export class BeliefEngineImpl {
   ): Effect.Effect<string> {
     const ns = namespace.length > 0 ? namespace : "default"
     const st = semantic_type.length > 0 ? semantic_type : "unknown"
-    const m = typeof mode === "string" ? (mode as CoarseKeyMode) : "Standard"
-    if (m === "SemanticOnly") return Effect.succeed(`${ns}:${st}`)
+    const m = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
+    if (m === CoarseKeyMode.SemanticOnly) return Effect.succeed(`${ns}:${st}`)
     const t = [...tags].filter((x) => x.length > 0).sort().join(",")
     return Effect.succeed(`${ns}:${t}:${st}`)
   }
@@ -386,7 +385,7 @@ export class BeliefEngineImpl {
           key,
           hypothesis_ids: [],
           winner_id: null,
-          state: "Empty",
+          state: BeliefState.Empty,
           score: 0,
           confidence: 0,
           support_mass: 0,
@@ -466,7 +465,11 @@ export class BeliefEngineImpl {
    * 返回当前所有 Unresolved beliefs（用于提示“证据不足/冲突未解”的区域）。
    */
   unresolved_beliefs(): Effect.Effect<ReadonlyArray<string>> {
-    return Effect.succeed(Object.values(this.state.beliefs).filter((b) => b.state === "Unresolved").map((b) => b.id))
+    return Effect.succeed(
+      Object.values(this.state.beliefs)
+        .filter((b) => b.state === BeliefState.Unresolved)
+        .map((b) => b.id)
+    )
   }
 
   /**

@@ -3,28 +3,41 @@
  *
  * 控制 belief 如何聚类形成 concept。
  */
-export type ConceptSimilarityMode = "SdrTanimoto" | "CanonicalFeature"
+export enum ConceptSimilarityMode {
+  SdrTanimoto = "SdrTanimoto",
+  CanonicalFeature = "CanonicalFeature"
+}
 
 /**
  * Controls concept seed selection gates.
  *
  * 控制 concept 的 seed（belief）筛选阈值。
  */
-export type ConceptSeedMode = "Standard" | "Warmup" | "Relaxed"
+export enum ConceptSeedMode {
+  Standard = "Standard",
+  Warmup = "Warmup",
+  Relaxed = "Relaxed"
+}
 
 /**
  * Controls how belief seeds are partitioned before concept clustering.
  *
  * 控制 concept 聚类前如何对 seed beliefs 分区。
  */
-export type ConceptPartitionMode = "Standard" | "NamespaceOnly"
+export enum ConceptPartitionMode {
+  Standard = "Standard",
+  NamespaceOnly = "NamespaceOnly"
+}
 
 /**
  * Controls comparison-only union relaxations inside concept clustering.
  *
  * 控制 concept 聚类时的“合并放宽策略”（实验性）。
  */
-export type ConceptUnionMode = "Standard" | "SingleTagFactDecisionBridge"
+export enum ConceptUnionMode {
+  Standard = "Standard",
+  SingleTagFactDecisionBridge = "SingleTagFactDecisionBridge"
+}
 
 export type ConceptId = string
 
@@ -33,7 +46,11 @@ export type ConceptId = string
  *
  * concept 候选的生命周期状态。
  */
-export type ConceptState = "Stable" | "Candidate" | "Rejected"
+export enum ConceptState {
+  Stable = "Stable",
+  Candidate = "Candidate",
+  Rejected = "Rejected"
+}
 
 /**
  * A discovered concept candidate.
@@ -107,4 +124,3 @@ export type ConceptReport = {
   readonly avg_centroid_size: number
   readonly seeds_capped: number
 }
-

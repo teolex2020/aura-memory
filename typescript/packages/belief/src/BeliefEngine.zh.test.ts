@@ -1,7 +1,7 @@
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
-import { EpistemicTrace, type EpistemicTraceImpl, type Record as AuraRecord } from "@aura/contract"
+import { BeliefState, EpistemicTrace, Level, type EpistemicTraceImpl, type Record as AuraRecord } from "@aura/contract"
 import { BeliefEngineImpl } from "./BeliefEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -20,7 +20,7 @@ function makeRecord(
   return {
     id,
     content,
-    level: "Working",
+    level: Level.Working,
     strength: 1,
     activation_count: 0,
     created_at: Date.now() / 1000,
@@ -128,7 +128,7 @@ it("中文用例：两组假设分数接近时应进入Unresolved（不产生win
   const state = await Effect.runPromise(engine.stats())
   const beliefs = Object.values(state.beliefs)
   assert.strictEqual(beliefs.length, 1)
-  assert.strictEqual(beliefs[0]!.state, "Unresolved")
+  assert.strictEqual(beliefs[0]!.state, BeliefState.Unresolved)
   assert.strictEqual(beliefs[0]!.winner_id, null)
 })
 
@@ -148,7 +148,7 @@ it("中文用例：明显更强的假设应Resolved且winner来自更高support_
   const state = await Effect.runPromise(engine.stats())
   const beliefs = Object.values(state.beliefs)
   assert.strictEqual(beliefs.length, 1)
-  assert.strictEqual(beliefs[0]!.state, "Resolved")
+  assert.strictEqual(beliefs[0]!.state, BeliefState.Resolved)
   assert.ok(beliefs[0]!.winner_id !== null)
   const winner = state.hypotheses[beliefs[0]!.winner_id!]
   assert.ok(winner !== undefined)

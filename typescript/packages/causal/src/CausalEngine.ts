@@ -1,7 +1,12 @@
 import { Effect, Layer } from "effect"
 import { CausalEngine, UnimplementedError } from "@aura/contract"
 
-export type CausalState = "Candidate" | "Stable" | "Rejected" | "Invalidated"
+export enum CausalState {
+  Candidate = "Candidate",
+  Stable = "Stable",
+  Rejected = "Rejected",
+  Invalidated = "Invalidated"
+}
 
 export class CausalEngineImpl {
   discover(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {

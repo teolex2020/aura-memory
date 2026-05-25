@@ -1,7 +1,12 @@
 import { Effect, Layer } from "effect"
 import { PolicyEngine, UnimplementedError } from "@aura/contract"
 
-export type PolicyState = "Candidate" | "Stable" | "Suppressed" | "Rejected"
+export enum PolicyState {
+  Candidate = "Candidate",
+  Stable = "Stable",
+  Suppressed = "Suppressed",
+  Rejected = "Rejected"
+}
 
 export class PolicyEngineImpl {
   discover(..._args: unknown[]): Effect.Effect<unknown, UnimplementedError> {

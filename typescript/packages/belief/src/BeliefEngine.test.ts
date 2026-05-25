@@ -3,7 +3,14 @@ import * as path from "node:path"
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
-import { EpistemicTrace, type BeliefReport, type EpistemicTraceImpl, type Record as AuraRecord } from "@aura/contract"
+import {
+  BeliefState,
+  EpistemicTrace,
+  Level,
+  type BeliefReport,
+  type EpistemicTraceImpl,
+  type Record as AuraRecord
+} from "@aura/contract"
 import { BeliefEngineImpl } from "./BeliefEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -34,7 +41,7 @@ it("BeliefEngine.update_with_sdr resolves singleton", async () => {
       {
         id: "r1",
         content: "user uses vim keybindings always",
-        level: "Working",
+        level: Level.Working,
         strength: 1,
         activation_count: 0,
         created_at: Date.now() / 1000,
@@ -61,7 +68,7 @@ it("BeliefEngine.update_with_sdr resolves singleton", async () => {
   const state = await Effect.runPromise(engine.stats())
   const beliefs = Object.values(state.beliefs)
   assert.strictEqual(beliefs.length, 1)
-  assert.strictEqual(beliefs[0]!.state, "Singleton")
+  assert.strictEqual(beliefs[0]!.state, BeliefState.Singleton)
   assert.ok(beliefs[0]!.winner_id !== null)
 })
 
@@ -73,7 +80,7 @@ it("BeliefEngine.update_with_sdr resolves competing hypotheses", async () => {
       {
         id: "r1",
         content: "user prefers dark mode absolutely",
-        level: "Working",
+        level: Level.Working,
         strength: 1,
         activation_count: 0,
         created_at: Date.now() / 1000,
@@ -97,7 +104,7 @@ it("BeliefEngine.update_with_sdr resolves competing hypotheses", async () => {
       {
         id: "r2",
         content: "user sometimes uses light mode",
-        level: "Working",
+        level: Level.Working,
         strength: 1,
         activation_count: 0,
         created_at: Date.now() / 1000,
@@ -127,7 +134,7 @@ it("BeliefEngine.update_with_sdr resolves competing hypotheses", async () => {
   const state = await Effect.runPromise(engine.stats())
   const beliefs = Object.values(state.beliefs)
   assert.strictEqual(beliefs.length, 1)
-  assert.strictEqual(beliefs[0]!.state, "Resolved")
+  assert.strictEqual(beliefs[0]!.state, BeliefState.Resolved)
   assert.ok(beliefs[0]!.winner_id !== null)
   const winner = state.hypotheses[beliefs[0]!.winner_id!]
   assert.ok(winner !== undefined)

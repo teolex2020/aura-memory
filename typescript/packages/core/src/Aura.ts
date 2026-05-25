@@ -5,7 +5,7 @@ import {
   FileReadError,
   FileWrite,
   FileWriteError,
-  type Level,
+  Level,
   type Record as AuraRecord,
   type StoreOptions,
   type UpdateOptions,
@@ -99,7 +99,7 @@ export class Aura {
     const record: AuraRecord = {
       id,
       content,
-      level: (options?.level ?? "Working") as Level,
+      level: options?.level ?? Level.Working,
       strength: 1,
       activation_count: 0,
       created_at: nowSec,
@@ -142,7 +142,7 @@ export class Aura {
       const next: AuraRecord = {
         id: record_id,
         content: patch?.content ?? base?.content ?? "",
-        level: (base?.level ?? "Working") as Level,
+        level: base?.level ?? Level.Working,
         strength: patch?.strength ?? base?.strength ?? 1,
         activation_count: base?.activation_count ?? 0,
         created_at: base?.created_at ?? nowSec,
@@ -212,7 +212,7 @@ export class Aura {
       const next: AuraRecord = {
         id: from_id,
         content: base?.content ?? "",
-        level: (base?.level ?? "Working") as Level,
+        level: base?.level ?? Level.Working,
         strength: base?.strength ?? 1,
         activation_count: base?.activation_count ?? 0,
         created_at: base?.created_at ?? nowSec,
@@ -321,10 +321,15 @@ function toRecordLike(rec: CognitiveRecord): AuraRecord | undefined {
   const metadata: { [k: string]: string } =
     o.metadata && typeof o.metadata === "object" ? { ...(o.metadata as { [k: string]: string }) } : {}
 
+  const level =
+    typeof o.level === "string" && (Object.values(Level) as ReadonlyArray<string>).includes(o.level)
+      ? (o.level as Level)
+      : Level.Working
+
   return {
     id,
     content,
-    level: (typeof o.level === "string" ? o.level : "Working") as Level,
+    level,
     strength: typeof o.strength === "number" ? o.strength : 1,
     activation_count: typeof o.activation_count === "number" ? o.activation_count : 0,
     created_at: typeof o.created_at === "number" ? o.created_at : Date.now() / 1000,

@@ -284,3 +284,37 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 2) 把 SDR overlap 权重/排序细节补齐（InvertedIndex 已返回 overlap count，需在 `collectSdr` 中引入权重参与排序）。  
 3) 在 core 层补齐默认 bounded rerank/finalize 的 Live Layer（或明确区分 recallRaw/recallCore），再推进写入侧对照测试。  
 4) 完整实现 Record schema 的默认值与校验逻辑。  
+
+### 8.4 维护流程分阶段状态（Phase 3+）
+
+本项目的维护链路按 `Record → Belief → Concept → Causal → Policy` 推进；为避免上下文漂移，本节固定记录 Phase 3 及之后的“实现现状 + 缺口”。
+
+#### Phase 3：Causal（未实现）
+
+- contract 状态：`CausalEngineImpl` 与 `CausalStoreImpl` 仍为 `unknown + UnimplementedError` 占位：
+  - `packages/contract/src/Causal.ts`
+- storage 状态：`causal.cog` 的 load/save 已存在，但 engine schema 仍为 `unknown`：
+  - `packages/storage/src/CausalStoreFile.ts`
+- engine 状态：`CausalEngineImpl` 仍为 Unimplemented（当前仅为骨架 Layer）：
+  - `packages/causal/src/CausalEngine.ts`
+- 目标缺口（来自维护设计 spec）：实现 record-level edge 提取 → belief-level pattern 聚合 → score/gates → fingerprint skip，并提供与 Rust 高一致的单测与 fixtures：
+  - `docs/superpowers/specs/2026-05-22-typescript-maintenance-belief-concept-causal-policy-design.md`
+
+#### Phase 4：Policy（未实现）
+
+- contract 状态：`PolicyEngineImpl` 与 `PolicyStoreImpl` 仍为 `unknown + UnimplementedError` 占位：
+  - `packages/contract/src/Policy.ts`
+- storage 状态：`policies.cog` 的 load/save 已存在，但 engine schema 仍为 `unknown`：
+  - `packages/storage/src/PolicyStoreFile.ts`
+- engine 状态：`PolicyEngineImpl` 仍为 Unimplemented（当前仅为骨架 Layer）：
+  - `packages/policy/src/PolicyEngine.ts`
+- 目标缺口（来自维护设计 spec）：从 causal patterns seeds → polarity/action mapping → hints → suppression → state classify，并提供与 Rust 高一致的单测与 fixtures。
+
+#### Phase 5：端到端维护编排（未实现）
+
+- MaintenanceService：尚未在 `@aura/core` 中实现“写入后自动维护 + 四层落盘”的编排服务（spec 中定义为核心入口）。
+- EpistemicRuntime：contract 与 runtime 层已存在，但仍为 Unimplemented（用于缓存与提供当前 states 给 rerank/explain 等）：
+  - `packages/contract/src/EpistemicRuntime.ts`
+  - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
+- BoundedRerankerLive：`recallPipeline` 已支持可选注入 `BoundedReranker`，但目前缺少与 Rust 对齐的 live 实现（四阶段 belief/concept/causal/policy bounded rerank + guardrails）。
+- Aura 写入触发：`Aura.store/update/delete/connect` 目前只负责写入 `brain.cog`（以及 snapshot），尚未触发维护服务（Phase 5 完成后应默认开启，可配置关闭）。

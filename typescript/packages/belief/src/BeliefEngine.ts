@@ -13,8 +13,12 @@ import {
 } from "@aura/contract"
 import { id12 } from "@aura/utils"
 
-// The belief engine — maintains the full belief state.
-// Belief 引擎——维护完整的信念层状态（Belief/Hypothesis/索引），用于在 maintenance 周期中从 records 构建更稳定的“主张层”。
+/**
+ * The belief engine — maintains the full belief state.
+ *
+ * Belief 引擎——维护完整的信念层状态（Belief/Hypothesis/索引），用于在 maintenance 周期中从 records
+ * 构建更稳定的“主张层”。
+ */
 export type CoarseKeyMode =
   | "Standard"
   | "TopOneTag"
@@ -31,42 +35,77 @@ export type CoarseKeyMode =
 
 export type BeliefState = ContractBeliefState
 
-// Conflict penalty weight in hypothesis scoring.
-// 假设评分中的冲突惩罚权重。
+/**
+ * Conflict penalty weight in hypothesis scoring.
+ *
+ * 假设评分中的冲突惩罚权重。
+ */
 const LAMBDA = 0.35
 
-// Belief revision threshold — opposing must exceed current by this factor.
-// 信念修正阈值——如果对立假设必须至少强到该倍率，才会推翻/压制当前领先假设。
+/**
+ * Belief revision threshold — opposing must exceed current by this factor.
+ *
+ * 信念修正阈值——如果对立假设必须至少强到该倍率，才会推翻/压制当前领先假设。
+ */
 const REVISION_THRESHOLD = 1.15
 
-// Uncertainty band — if top two scores are within this range, belief is unresolved.
-// 不确定带——如果前两名假设的分数差在该范围内，则 belief 进入 Unresolved（不产生 winner）。
+/**
+ * Uncertainty band — if top two scores are within this range, belief is unresolved.
+ *
+ * 不确定带——如果前两名假设的分数差在该范围内，则 belief 进入 Unresolved（不产生 winner）。
+ */
 const UNCERTAINTY_BAND = 0.1
 
-// Maximum SDR Tanimoto distance to split records within a coarse tag-group into separate beliefs.
-// Records with Tanimoto ≥ this threshold are considered to address the same claim.
-// 在同一 coarse 分桶内，用 SDR 的 Tanimoto/Jaccard 相似度进一步拆分子簇；相似度 ≥ 阈值视为在讨论同一个 claim（合并为同簇）。
+/**
+ * Maximum SDR Tanimoto distance to split records within a coarse tag-group into separate beliefs.
+ * Records with Tanimoto ≥ this threshold are considered to address the same claim.
+ *
+ * 在同一 coarse 分桶内，用 SDR 的 Tanimoto/Jaccard 相似度进一步拆分子簇；
+ * 相似度 ≥ 阈值视为在讨论同一个 claim（合并为同簇）。
+ */
 const SDR_TANIMOTO_THRESHOLD = 0.6
 
+/** 当前时间（秒）。 */
 function nowSecs(): number {
   return Date.now() / 1000
 }
 
+/**
+ * 取 record 的置信度（缺省为 0.9）。
+ *
+ * Rust 侧 `Record::default_confidence_for_source` 会按 source_type 给默认值；
+ * TS 维护流程后续会进一步对齐该行为。
+ */
 function confidenceOf(rec: AuraRecord): number {
   const v = (rec as unknown as { confidence?: unknown }).confidence
   return typeof v === "number" && Number.isFinite(v) ? v : 0.9
 }
 
+/**
+ * 取 record 的支持质量（缺省为 strength）。
+ *
+ * Rust 侧 belief 引擎会用 record.support_mass 做聚合；TS 目前向后兼容，
+ * 若缺失则回退到 strength。
+ */
 function supportMassOf(rec: AuraRecord): number {
   const v = (rec as unknown as { support_mass?: unknown }).support_mass
   return typeof v === "number" && Number.isFinite(v) ? v : rec.strength
 }
 
+/**
+ * 取 record 的冲突质量（缺省为 0）。
+ *
+ * Rust 侧冲突质量来自矛盾/反证路径的聚合；TS 目前先保留字段并允许外部写入。
+ */
 function conflictMassOf(rec: AuraRecord): number {
   const v = (rec as unknown as { conflict_mass?: unknown }).conflict_mass
   return typeof v === "number" && Number.isFinite(v) ? v : 0
 }
 
+/**
+ * Tanimoto/Jaccard 相似度（稀疏集合）：
+ * `|A∩B| / |A∪B|`，适合 SDR（稀疏离散特征）对比。
+ */
 function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
   let i = 0
   let j = 0
@@ -88,8 +127,11 @@ function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
   return union === 0 ? 0 : inter / union
 }
 
-// Split records into SDR sub-clusters using Union-Find (disjoint set).
-// 使用并查集（Union-Find）按 SDR 相似度把同一 coarse group 里的 records 进一步拆成子簇。
+/**
+ * Split records into SDR sub-clusters using Union-Find (disjoint set).
+ *
+ * 使用并查集（Union-Find）按 SDR 相似度把同一 coarse group 里的 records 进一步拆成子簇。
+ */
 function unionFindClusters(records: ReadonlyArray<AuraRecord>, lookup: SdrLookup): ReadonlyArray<ReadonlyArray<AuraRecord>> {
   const n = records.length
   if (n <= 1) return records.map((r) => [r])
@@ -134,8 +176,11 @@ function unionFindClusters(records: ReadonlyArray<AuraRecord>, lookup: SdrLookup
   return Array.from(clusters.values())
 }
 
-// Composite hypothesis score (higher = stronger hypothesis).
-// 假设综合评分（越高越强）。
+/**
+ * Composite hypothesis score (higher = stronger hypothesis).
+ *
+ * 假设综合评分（越高越强）。
+ */
 function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
   const supportScore = 1.0 + Math.log(1.0 + h.support_mass)
   const conflictPenalty = Math.log(1.0 + h.conflict_mass)
@@ -143,8 +188,11 @@ function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
   return Math.max(beliefScore - LAMBDA * conflictPenalty, 0.0)
 }
 
-// Build one hypothesis from a record cluster.
-// 从一个 record 簇构建一个 hypothesis（原型 record ids、置信度/支持度/冲突度等聚合后计算 score）。
+/**
+ * Build one hypothesis from a record cluster.
+ *
+ * 从一个 record 簇构建一个 hypothesis（原型 record ids、置信度/支持度/冲突度等聚合后计算 score）。
+ */
 function hypothesisFromRecords(beliefId: string, records: ReadonlyArray<AuraRecord>): Hypothesis {
   const confidence = records.map(confidenceOf).reduce((a, b) => a + b, 0) / Math.max(1, records.length)
   const supportMass = records.map(supportMassOf).reduce((a, b) => a + b, 0)
@@ -164,8 +212,12 @@ function hypothesisFromRecords(beliefId: string, records: ReadonlyArray<AuraReco
   return { ...base, score: computeHypothesisScore(base) }
 }
 
-// Resolve winner from a set of hypotheses.
-// 从多个 hypotheses 中决出 winner（或在证据接近时进入 Unresolved），并更新 belief 聚合字段（score/confidence/support/conflict/stability）。
+/**
+ * Resolve winner from a set of hypotheses.
+ *
+ * 从多个 hypotheses 中决出 winner（或在证据接近时进入 Unresolved），并更新 belief 聚合字段
+ *（score/confidence/support/conflict/stability）。
+ */
 function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>): Belief {
   if (hypotheses.length === 0) {
     return {
@@ -234,11 +286,21 @@ export class BeliefEngineImpl {
   private coarseKeyMode: CoarseKeyMode = "Standard"
   private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {} }
 
+  /**
+   * Controls how the coarse belief key is constructed before SDR subclustering.
+   *
+   * 设置 coarse key 的构造模式（在 SDR 子聚类前，先按 key 分桶）。
+   */
   with_coarse_key_mode(mode: unknown): Effect.Effect<void> {
     this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : "Standard"
     return Effect.void
   }
 
+  /**
+   * Canonical claim key for a record (using current coarseKeyMode).
+   *
+   * 生成 claim key（使用当前 coarseKeyMode）。
+   */
   claim_key(
     namespace: string,
     tags: ReadonlyArray<string>,
@@ -247,6 +309,11 @@ export class BeliefEngineImpl {
     return this.claim_key_with_mode(namespace, tags, semantic_type, this.coarseKeyMode)
   }
 
+  /**
+   * Canonical claim key for a record (explicit mode).
+   *
+   * 生成 claim key（显式传入 mode）。
+   */
   claim_key_with_mode(
     namespace: string,
     tags: ReadonlyArray<string>,
@@ -261,10 +328,23 @@ export class BeliefEngineImpl {
     return Effect.succeed(`${ns}:${t}:${st}`)
   }
 
+  /**
+   * Run a full belief update cycle over all records (without SDR data).
+   *
+   * 跑一轮 belief 全量更新（无 SDR 时的 fallback 路径）。
+   */
   update(records: ReadonlyMap<string, AuraRecord>): Effect.Effect<BeliefReport, never, EpistemicTrace> {
     return this.update_with_sdr(records, new Map())
   }
 
+  /**
+   * Run a full belief update cycle with SDR-backed claim grouping.
+   *
+   * 跑一轮 belief 全量更新（带 SDR 分组）：
+   * 1) 先按 claim key 分桶（namespace + tags + semantic_type）
+   * 2) 在桶内按 SDR Tanimoto ≥ threshold 合并成子簇（Union-Find）
+   * 3) 每个子簇构建 hypothesis，并在同一 belief 内 resolve winner / unresolved
+   */
   update_with_sdr(
     records: ReadonlyMap<string, AuraRecord>,
     sdr_lookup: SdrLookup
@@ -281,8 +361,12 @@ export class BeliefEngineImpl {
 
       const coarseGroups = new Map<string, AuraRecord[]>()
       for (const rec of records.values()) {
-        // TODO: NON-PARITY IMPLEMENTATION: content.length is a poor proxy for "trivial content" across languages (e.g., Chinese vs English).
-        // 待办：用 Intl.Segmenter 的 token/词数（或等价实现）替代字符长度阈值，以更稳健地表达 Rust “跳过 trivial content” 的意图。
+        /**
+         * TODO: NON-PARITY IMPLEMENTATION: content.length is a poor proxy for "trivial content" across languages (e.g., Chinese vs English).
+         *
+         * 待办：用 Intl.Segmenter 的 token/词数（或等价实现）替代字符长度阈值，
+         * 以更稳健地表达 Rust “跳过 trivial content” 的意图。
+         */
         if (rec.content.length < 10) continue
         const key = yield* self.claim_key(rec.namespace, rec.tags, rec.semantic_type)
         const arr = coarseGroups.get(key)
@@ -349,22 +433,47 @@ export class BeliefEngineImpl {
     })
   }
 
+  /**
+   * Lookup belief id for a given record id.
+   *
+   * 查询 record 属于哪个 belief（用于下游索引/解释/rerank）。
+   */
   belief_for_record(record_id: string): Effect.Effect<string | null> {
     return Effect.succeed(this.state.record_to_belief[record_id] ?? null)
   }
 
+  /**
+   * Deprecate a belief (tombstone / lifecycle control).
+   *
+   * 标记某个 belief 过期（当前实现为 no-op；后续 parity 会引入 tombstone/invalidated 状态）。
+   */
   deprecate_belief(_belief_id: string): Effect.Effect<void> {
     return Effect.void
   }
 
+  /**
+   * Apply higher-layer feedback (corrections/policy pressure).
+   *
+   * 应用来自更高层的反馈（纠错/策略压力）。当前实现为占位 no-op，用于保持方法面与 Rust 对齐。
+   */
   apply_layer_feedback(..._args: unknown[]): Effect.Effect<unknown> {
     return Effect.succeed(undefined)
   }
 
+  /**
+   * List belief ids currently in Unresolved state.
+   *
+   * 返回当前所有 Unresolved beliefs（用于提示“证据不足/冲突未解”的区域）。
+   */
   unresolved_beliefs(): Effect.Effect<ReadonlyArray<string>> {
     return Effect.succeed(Object.values(this.state.beliefs).filter((b) => b.state === "Unresolved").map((b) => b.id))
   }
 
+  /**
+   * Return current engine state snapshot.
+   *
+   * 返回引擎当前状态快照（用于持久化与下游层）。
+   */
   stats(): Effect.Effect<BeliefEngineState> {
     return Effect.succeed(this.state)
   }

@@ -1,6 +1,8 @@
 import { Tag } from "./Context"
 import { EmbeddingQueryError, FinalizeError, RerankError } from "./Errors"
 
+import type { Effect } from "effect"
+
 export class RecallViewTag extends Tag("aura.contract.RecallView")<
   RecallViewTag,
   RecallView
@@ -24,21 +26,21 @@ export type RecallView = {
 export class EmbeddingStore extends Tag("aura.contract.EmbeddingStore")<
   EmbeddingStore,
   {
-    query: (text: string, topK: number) => import("effect").Effect.Effect<Array<[string, number]>, EmbeddingQueryError>
+    query: (text: string, topK: number) => Effect.Effect<Array<[string, number]>, EmbeddingQueryError>
   }
 >() {}
 
 export class BoundedReranker extends Tag("aura.contract.BoundedReranker")<
   BoundedReranker,
   {
-    rerank: (scored: RecallScored, query: string) => import("effect").Effect.Effect<RecallScored, RerankError>
+    rerank: (scored: RecallScored, query: string) => Effect.Effect<RecallScored, RerankError>
   }
 >() {}
 
 export class RecallFinalizer extends Tag("aura.contract.RecallFinalizer")<
   RecallFinalizer,
   {
-    finalize: (scored: RecallScored, sessionId?: string) => import("effect").Effect.Effect<void, FinalizeError>
+    finalize: (scored: RecallScored, sessionId?: string) => Effect.Effect<void, FinalizeError>
   }
 >() {}
 

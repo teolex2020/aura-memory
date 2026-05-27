@@ -1,6 +1,6 @@
 import { Tag } from "./Context"
 import { FileReadError, FileWriteError, JsonParseError } from "./Errors"
-import type { BeliefEngineImpl } from "./Belief"
+import type { BeliefEngine } from "./Belief"
 import type { EpistemicTrace } from "./EpistemicTrace"
 import type { ConceptEngineState, ConceptReport, ConceptSeedMode } from "./concept/ConceptTypes"
 import type { SdrLookup } from "./sdr/Sdr"
@@ -13,7 +13,7 @@ import type { Effect } from "effect"
 export type ConceptEngineImpl = {
   with_seed_mode: (mode: ConceptSeedMode) => Effect.Effect<void>
   discover: (
-    belief_engine: BeliefEngineImpl,
+    belief_engine: BeliefEngine.Interface,
     records: ReadonlyMap<string, AuraRecord>,
     sdr_lookup: SdrLookup
   ) => Effect.Effect<ConceptReport, never, EpistemicTrace>

@@ -5,7 +5,7 @@ import {
   BeliefState,
   EpistemicTrace,
   Level,
-  type BeliefEngineImpl,
+  type BeliefEngine,
   type BeliefEngineState,
   type EpistemicTraceImpl,
   type Record as AuraRecord,
@@ -48,7 +48,7 @@ function makeRecord(
   }
 }
 
-function fakeBeliefEngine(state: BeliefEngineState): BeliefEngineImpl {
+function fakeBeliefEngine(state: BeliefEngineState): BeliefEngine.Interface {
   return {
     with_coarse_key_mode: () => Effect.void,
     claim_key: () => Effect.succeed(""),

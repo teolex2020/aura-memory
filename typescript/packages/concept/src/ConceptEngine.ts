@@ -2,7 +2,7 @@ import xxhash from "xxhash-wasm"
 import { Effect, Layer, Option } from "effect"
 import {
   BeliefState,
-  type BeliefEngineImpl,
+  type BeliefEngine,
   ConceptEngine,
   ConceptPartitionMode,
   ConceptSeedMode,
@@ -488,7 +488,7 @@ export class ConceptEngineImpl {
    * 跑一轮 concept 全量发现：基于 belief 状态全量重建 concepts。
    */
   discover(
-    belief_engine: BeliefEngineImpl,
+    belief_engine: BeliefEngine.Interface,
     records: ReadonlyMap<string, AuraRecord>,
     sdr_lookup: SdrLookup
   ): Effect.Effect<ConceptReport, never, EpistemicTrace> {

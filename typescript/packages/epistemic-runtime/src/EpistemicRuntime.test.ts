@@ -7,7 +7,6 @@ import {
   CausalEngine,
   PolicyEngine,
   EpistemicTrace,
-  type BeliefEngineImpl,
   type ConceptEngineImpl,
   type CausalEngineImpl,
   type PolicyEngineImpl,
@@ -38,7 +37,7 @@ const emptyConceptReport: ConceptReport = {
 const emptyCausalReport: CausalReport = { patterns_found: 0, patterns_active: 0, patterns_invalidated: 0, avg_confidence: 0, avg_lift: 0 }
 const emptyPolicyReport: PolicyReport = { hints_found: 0, hints_active: 0, hints_suppressed: 0, avg_confidence: 0 }
 
-function mockBeliefEngine(): BeliefEngineImpl {
+function mockBeliefEngine(): BeliefEngine.Interface {
   return {
     update_with_sdr: (_records: ReadonlyMap<string, any>, _sdr: any) => Effect.succeed(emptyBeliefReport),
     stats: () => Effect.succeed({ version: 1 as const, beliefs: {}, hypotheses: {}, record_to_belief: {} }),
@@ -55,7 +54,7 @@ function mockBeliefEngine(): BeliefEngineImpl {
 
 function mockConceptEngine(): ConceptEngineImpl {
   return {
-    discover: (_be: BeliefEngineImpl, _records: ReadonlyMap<string, any>, _sdr: any) => Effect.succeed(emptyConceptReport),
+    discover: (_be: BeliefEngine.Interface, _records: ReadonlyMap<string, any>, _sdr: any) => Effect.succeed(emptyConceptReport),
     stats: () => Effect.succeed({
       version: 1 as const, concepts: {}, key_index: {},
       seed_mode: "Standard" as const, similarity_mode: "SdrTanimoto" as const,

@@ -72,7 +72,12 @@ const SDR_TANIMOTO_THRESHOLD = 0.6
  */
 const MIN_CONTENT_TOKENS = 5
 
-/** Record source-type → default confidence map (Rust-aligned). */
+/**
+ * Record source-type → default confidence map.
+ *
+ * Rust 侧 `Record::default_confidence_for_source` 按 source_type 给默认值；
+ * TS 侧对齐该行为，提供 recorded/observed/inferred/manual/feedback 五类默认置信度。
+ */
 const DEFAULT_CONFIDENCE_BY_SOURCE: Record<string, number> = {
   recorded: 0.9,
   observed: 0.85,
@@ -81,11 +86,19 @@ const DEFAULT_CONFIDENCE_BY_SOURCE: Record<string, number> = {
   feedback: 0.8
 }
 
-/** Exponential-decay half-life for recency (7 days in seconds). */
+/**
+ * Exponential-decay half-life for recency (7 days in seconds).
+ *
+ * 新近度指数衰减半衰期（7 天，秒数）。
+ */
 const RECENCY_HALF_LIFE_SECS = 7 * 24 * 3600
 
 /**
  * Estimate token count — uses Intl.Segmenter when available, falls back to heuristic.
+ *
+ * SIMPLE IMPLEMENTATION: Intl.Segmenter 可能在某些运行时不可用（如旧版 Bun）；
+ * 此时回退为字符长度启发式：CJK 约 1.5 字符/token，拉丁语系约 6 字符/词。
+ * Rust 侧使用 unicode-segmentation crate 做 grapheme/word 切分。
  *
  * 估算内容 token 数：优先使用 Intl.Segmenter 分词，不可用时回退到字符长度启发式估算。
  */
@@ -97,29 +110,55 @@ function estimateTokens(content: string): number {
       for (const _ of seg.segment(content)) count++
       if (count > 0) return count
     }
-  } catch { /* fall through to heuristic */ }
-  // Heuristic: ~6 chars per word for Latin, ~1.5 chars per token for CJK
+  } catch { /* Intl.Segmenter unavailable — fall through to heuristic */ }
+  /**
+   * Heuristic fallback: ~6 chars per word for Latin, ~1.5 chars per token for CJK.
+   *
+   * 启发式回退：CJK 约 1.5 字符/token，拉丁语系约 6 字符/词。
+   */
   const cjkCount = (content.match(/[一-鿿㐀-䶿]/g) || []).length
   const latinLen = content.length - cjkCount
   return Math.floor(cjkCount / 1.5 + latinLen / 6)
 }
 
+/**
+ * Get record confidence — explicit value or source-type default.
+ *
+ * 取 record 的置信度：优先取显式值，缺失时按 source_type 查默认置信度表。
+ */
 function confidenceOf(rec: AuraRecord): number {
   const v = (rec as unknown as { confidence?: unknown }).confidence
   if (typeof v === "number" && Number.isFinite(v)) return v
   return DEFAULT_CONFIDENCE_BY_SOURCE[rec.source_type] ?? 0.9
 }
 
+/**
+ * Get record support mass — explicit value or fallback to strength.
+ *
+ * 取 record 的支持质量：优先取显式 support_mass，缺失时回退到 strength。
+ */
 function supportMassOf(rec: AuraRecord): number {
   const v = (rec as unknown as { support_mass?: unknown }).support_mass
   return typeof v === "number" && Number.isFinite(v) ? v : rec.strength
 }
 
+/**
+ * Get record conflict mass — explicit value or default 0.
+ *
+ * 取 record 的冲突质量：优先取显式 conflict_mass，缺失时默认为 0。
+ */
 function conflictMassOf(rec: AuraRecord): number {
   const v = (rec as unknown as { conflict_mass?: unknown }).conflict_mass
   return typeof v === "number" && Number.isFinite(v) ? v : 0
 }
 
+/**
+ * Tanimoto/Jaccard similarity for sparse sets.
+ * `|A∩B| / |A∪B|`, suitable for SDR (sparse discrete feature) comparison.
+ *
+ * Tanimoto/Jaccard 相似度（稀疏集合）：
+ * `|A∩B| / |A∪B|`，适合 SDR（稀疏离散特征）对比。
+ */
 function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
   let i = 0
   let j = 0
@@ -193,6 +232,12 @@ function unionFindClusters(
   return Array.from(clusters.values())
 }
 
+/**
+ * Composite hypothesis score (higher = stronger hypothesis).
+ *
+ * 假设综合评分（越高越强）：综合支持度对数、置信度、新近度、一致性，
+ * 减去带权重的冲突惩罚项。
+ */
 function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
   const supportScore = 1.0 + Math.log(1.0 + h.support_mass)
   const conflictPenalty = Math.log(1.0 + h.conflict_mass)
@@ -200,7 +245,12 @@ function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
   return Math.max(beliefScore - LAMBDA * conflictPenalty, 0.0)
 }
 
-/** Exponential-decay recency factor from record timestamps. */
+/**
+ * Exponential-decay recency factor from record timestamps.
+ * Decays from 1.0 with configurable half-life (default 7 days).
+ *
+ * 指数衰减新近度因子：基于 record 时间戳计算，以半衰期衰减（默认 7 天）。
+ */
 function computeRecency(recordTimestamps: ReadonlyArray<number>, now: number): number {
   if (recordTimestamps.length === 0) return 1.0
   const maxTs = Math.max(...recordTimestamps)
@@ -208,7 +258,11 @@ function computeRecency(recordTimestamps: ReadonlyArray<number>, now: number): n
   return Math.pow(0.5, age / RECENCY_HALF_LIFE_SECS)
 }
 
-/** Internal consistency: 1/(1+stddev of confidences). Higher variance → weaker hypothesis. */
+/**
+ * Internal consistency: 1/(1+stddev of confidences). Higher variance → weaker hypothesis.
+ *
+ * 内部一致性：1/(1+置信度标准差)，方差越大一致性越低、假设越弱。
+ */
 function computeConsistency(confidences: ReadonlyArray<number>): number {
   if (confidences.length <= 1) return 1.0
   const mean = confidences.reduce((a, b) => a + b, 0) / confidences.length
@@ -319,7 +373,7 @@ function resolveBelief(
   }
 }
 
-export class BeliefEngineImpl {
+export class BeliefEngineImpl implements BeliefEngine.Interface {
   private coarseKeyMode: CoarseKeyMode = CoarseKeyMode.Standard
   private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {} }
 
@@ -336,11 +390,6 @@ export class BeliefEngineImpl {
     return this.claim_key_with_mode(namespace, tags, semantic_type, this.coarseKeyMode)
   }
 
-  /**
-   * Canonical claim key builder — dispatches on CoarseKeyMode.
-   *
-   * 规范化 claim key 构建器——根据 CoarseKeyMode 分派不同策略。
-   */
   claim_key_with_mode(
     namespace: string,
     tags: ReadonlyArray<string>,
@@ -390,11 +439,6 @@ export class BeliefEngineImpl {
 
   /**
    * Full belief update cycle with SDR-backed claim grouping.
-   *
-   * 跑一轮 belief 全量更新（带 SDR 分组）：
-   * 1) 按 claim key 分桶（namespace + tags + semantic_type）
-   * 2) 在桶内按 SDR Tanimoto ≥ threshold 合并成子簇（Union-Find）
-   * 3) 每个子簇构建 hypothesis，并在同一 belief 内 resolve winner / unresolved
    */
   update_with_sdr(
     records: ReadonlyMap<string, AuraRecord>,
@@ -485,11 +529,6 @@ export class BeliefEngineImpl {
     return Effect.succeed(this.state.record_to_belief[record_id] ?? null)
   }
 
-  /**
-   * Deprecate a belief — removes belief, its hypotheses, and record mappings from state.
-   *
-   * 废弃指定 belief：从状态中移除 belief、其 hypotheses 及 record 映射。
-   */
   deprecate_belief(belief_id: string): Effect.Effect<void> {
     const self = this
     return Effect.sync(() => {
@@ -506,12 +545,6 @@ export class BeliefEngineImpl {
     })
   }
 
-  /**
-   * Apply higher-layer feedback (corrections/policy pressure).
-   * Accepts: { belief_id, action: "boost"|"suppress"|"deprecate", factor?: number }
-   *
-   * 应用更高层反馈：接受 { belief_id, action, factor? }，对目标 belief 施加修正。
-   */
   apply_layer_feedback(...args: unknown[]): Effect.Effect<unknown> {
     const self = this
     return Effect.sync(() => {

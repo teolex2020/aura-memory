@@ -7,11 +7,17 @@ import {
   CausalEngine,
   PolicyEngine,
   EpistemicTrace,
+  type BeliefEngineImpl,
+  type ConceptEngineImpl,
+  type CausalEngineImpl,
+  type PolicyEngineImpl,
   type BeliefReport,
   type ConceptReport,
   type CausalReport,
   type PolicyReport,
-  type EpistemicReport
+  type EpistemicReport,
+  type ConceptEngineState,
+  type CausalEngineState
 } from "@aura/contract"
 import { EpistemicRuntimeImpl } from "./EpistemicRuntime"
 
@@ -32,49 +38,49 @@ const emptyConceptReport: ConceptReport = {
 const emptyCausalReport: CausalReport = { patterns_found: 0, patterns_active: 0, patterns_invalidated: 0, avg_confidence: 0, avg_lift: 0 }
 const emptyPolicyReport: PolicyReport = { hints_found: 0, hints_active: 0, hints_suppressed: 0, avg_confidence: 0 }
 
-function mockBeliefEngine() {
+function mockBeliefEngine(): BeliefEngineImpl {
   return {
-    update_with_sdr: (): Effect.Effect<BeliefReport, never> => Effect.succeed(emptyBeliefReport),
+    update_with_sdr: (_records: ReadonlyMap<string, any>, _sdr: any) => Effect.succeed(emptyBeliefReport),
     stats: () => Effect.succeed({ version: 1 as const, beliefs: {}, hypotheses: {}, record_to_belief: {} }),
-    belief_for_record: () => Effect.succeed(null as string | null),
-    update: () => Effect.succeed(emptyBeliefReport),
-    with_coarse_key_mode: () => Effect.void,
-    claim_key: () => Effect.succeed(""),
-    claim_key_with_mode: () => Effect.succeed(""),
-    deprecate_belief: () => Effect.void,
-    apply_layer_feedback: () => Effect.succeed({}),
+    belief_for_record: (_id: string) => Effect.succeed(null as string | null),
+    update: (_records: ReadonlyMap<string, any>) => Effect.succeed(emptyBeliefReport),
+    with_coarse_key_mode: (_mode: unknown) => Effect.void,
+    claim_key: (_ns: string, _tags: ReadonlyArray<string>, _st: string) => Effect.succeed(""),
+    claim_key_with_mode: (_ns: string, _tags: ReadonlyArray<string>, _st: string, _mode: unknown) => Effect.succeed(""),
+    deprecate_belief: (_id: string) => Effect.void,
+    apply_layer_feedback: (..._args: unknown[]) => Effect.succeed({}),
     unresolved_beliefs: () => Effect.succeed([] as ReadonlyArray<string>)
   }
 }
 
-function mockConceptEngine() {
+function mockConceptEngine(): ConceptEngineImpl {
   return {
-    discover: (): Effect.Effect<ConceptReport, never> => Effect.succeed(emptyConceptReport),
+    discover: (_be: BeliefEngineImpl, _records: ReadonlyMap<string, any>, _sdr: any) => Effect.succeed(emptyConceptReport),
     stats: () => Effect.succeed({
       version: 1 as const, concepts: {}, key_index: {},
       seed_mode: "Standard" as const, similarity_mode: "SdrTanimoto" as const,
       partition_mode: "Standard" as const, union_mode: "Standard" as const
-    }),
-    with_seed_mode: () => Effect.void,
+    } as ConceptEngineState),
+    with_seed_mode: (_mode: any) => Effect.void,
     stable_concepts: () => Effect.succeed([] as ReadonlyArray<string>),
     active_candidates: () => Effect.succeed([] as ReadonlyArray<string>)
   }
 }
 
-function mockCausalEngine() {
+function mockCausalEngine(): CausalEngineImpl {
   return {
-    discover: (): Effect.Effect<CausalReport, never> => Effect.succeed(emptyCausalReport),
-    stats: () => Effect.succeed({ version: 1 as const, patterns: {}, discovery_mode: "Standard" as const }),
-    invalidate_pattern: () => Effect.void,
-    retract_pattern: () => Effect.void
+    discover: (_cs: any, _records: ReadonlyMap<string, any>, _sdr: any) => Effect.succeed(emptyCausalReport),
+    stats: () => Effect.succeed({ version: 1 as const, patterns: {}, discovery_mode: "Standard" as const } as CausalEngineState),
+    invalidate_pattern: (_id: string) => Effect.void,
+    retract_pattern: (_id: string) => Effect.void
   }
 }
 
-function mockPolicyEngine() {
+function mockPolicyEngine(): PolicyEngineImpl {
   return {
-    discover: (): Effect.Effect<PolicyReport, never> => Effect.succeed(emptyPolicyReport),
+    discover: (_cs: any, _records: ReadonlyMap<string, any>) => Effect.succeed(emptyPolicyReport),
     stats: () => Effect.succeed({ version: 1 as const, hints: {}, metadata: {} }),
-    retract_hint: () => Effect.void
+    retract_hint: (_id: string) => Effect.void
   }
 }
 

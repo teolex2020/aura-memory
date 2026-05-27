@@ -101,10 +101,10 @@ export class CausalEngineImpl {
         if (conceptIds.length < 2) continue
         for (let i = 0; i < conceptIds.length; i++) {
           for (let j = i + 1; j < conceptIds.length; j++) {
-            const [a, b] = conceptIds[i] < conceptIds[j]
-              ? [conceptIds[i], conceptIds[j]]
-              : [conceptIds[j], conceptIds[i]]
-            const key = `${a}|${b}`
+            const a = conceptIds[i]!
+            const b = conceptIds[j]!
+            const [first, second] = a < b ? [a, b] as const : [b, a] as const
+            const key = `${first}|${second}`
             const entry = pairSharedRecords.get(key)
             if (entry) entry.records.add(recordId)
             else pairSharedRecords.set(key, { a, b, records: new Set([recordId]) })

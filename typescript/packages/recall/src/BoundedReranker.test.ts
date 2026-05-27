@@ -9,7 +9,7 @@ describe("BoundedReranker", () => {
     const scored: Array<readonly [number, string]> = [[0.8, "r1"]]
     const result = await Effect.runPromise(reranker.rerank(scored, "test"))
     assert.strictEqual(result.length, 1)
-    assert.strictEqual(result[0][1], "r1")
+    assert.strictEqual(result[0]![1], "r1")
   })
 
   it("re-ranks with inverse-position boost", async () => {
@@ -21,7 +21,7 @@ describe("BoundedReranker", () => {
     ]
     const result = await Effect.runPromise(reranker.rerank(scored, "test"))
     // r3 had highest score (0.9), should still be top after boost
-    assert.strictEqual(result[0][1], "r3")
+    assert.strictEqual(result[0]![1], "r3")
     assert.strictEqual(result.length, 3)
   })
 

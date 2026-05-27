@@ -24,7 +24,8 @@ export class BoundedRerankerImpl {
       // Inverse-position boost: position 0 gets +0.1, each subsequent position gets less
       const reranked = [...scored]
       for (let i = 0; i < depth; i++) {
-        const [score, recordId] = reranked[i]
+        const item = reranked[i]!
+        const [score, recordId] = item
         const positionBoost = 0.1 * (1 - i / depth)
         reranked[i] = [score * (1 + positionBoost), recordId] as const
       }

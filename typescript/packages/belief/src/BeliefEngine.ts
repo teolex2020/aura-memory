@@ -18,7 +18,7 @@ import { id12 } from "@aura/utils"
  * The belief engine — maintains the full belief state.
  *
  * Belief 引擎——维护完整的信念层状态（Belief/Hypothesis/索引），用于在 maintenance 周期中从 records
- * 构建更稳定的“主张层”。
+ * 构建更稳定的"主张层"。
  */
 export enum CoarseKeyMode {
   Standard = "Standard",
@@ -58,49 +58,68 @@ const UNCERTAINTY_BAND = 0.1
 
 /**
  * Maximum SDR Tanimoto distance to split records within a coarse tag-group into separate beliefs.
- * Records with Tanimoto ≥ this threshold are considered to address the same claim.
  *
- * 在同一 coarse 分桶内，用 SDR 的 Tanimoto/Jaccard 相似度进一步拆分子簇；
+ * 在同一 coarse 分桶内用 SDR Tanimoto/Jaccard 相似度进一步拆分子簇；
  * 相似度 ≥ 阈值视为在讨论同一个 claim（合并为同簇）。
  */
 const SDR_TANIMOTO_THRESHOLD = 0.6
 
 /**
- * 取 record 的置信度（缺省为 0.9）。
+ * Minimum token count for a record to be considered "non-trivial content".
+ * For CJK, segmenter token count; for Latin, word count ≈ content.length / 6 heuristic.
  *
- * Rust 侧 `Record::default_confidence_for_source` 会按 source_type 给默认值；
- * TS 维护流程后续会进一步对齐该行为。
+ * 最小有效 token 数——低于此阈值视为 trivial content（跳过不参与 belief 构建）。
  */
-function confidenceOf(rec: AuraRecord): number {
-  const v = (rec as unknown as { confidence?: unknown }).confidence
-  return typeof v === "number" && Number.isFinite(v) ? v : 0.9
+const MIN_CONTENT_TOKENS = 5
+
+/** Record source-type → default confidence map (Rust-aligned). */
+const DEFAULT_CONFIDENCE_BY_SOURCE: Record<string, number> = {
+  recorded: 0.9,
+  observed: 0.85,
+  inferred: 0.7,
+  manual: 1.0,
+  feedback: 0.8
 }
 
+/** Exponential-decay half-life for recency (7 days in seconds). */
+const RECENCY_HALF_LIFE_SECS = 7 * 24 * 3600
+
 /**
- * 取 record 的支持质量（缺省为 strength）。
+ * Estimate token count — uses Intl.Segmenter when available, falls back to heuristic.
  *
- * Rust 侧 belief 引擎会用 record.support_mass 做聚合；TS 目前向后兼容，
- * 若缺失则回退到 strength。
+ * 估算内容 token 数：优先使用 Intl.Segmenter 分词，不可用时回退到字符长度启发式估算。
  */
+function estimateTokens(content: string): number {
+  try {
+    if (typeof Intl !== "undefined" && typeof (Intl as any).Segmenter === "function") {
+      const seg = new (Intl as any).Segmenter(["zh", "ja", "ko"], { granularity: "word" })
+      let count = 0
+      for (const _ of seg.segment(content)) count++
+      if (count > 0) return count
+    }
+  } catch { /* fall through to heuristic */ }
+  // Heuristic: ~6 chars per word for Latin, ~1.5 chars per token for CJK
+  const cjkCount = (content.match(/[一-鿿㐀-䶿]/g) || []).length
+  const latinLen = content.length - cjkCount
+  return Math.floor(cjkCount / 1.5 + latinLen / 6)
+}
+
+function confidenceOf(rec: AuraRecord): number {
+  const v = (rec as unknown as { confidence?: unknown }).confidence
+  if (typeof v === "number" && Number.isFinite(v)) return v
+  return DEFAULT_CONFIDENCE_BY_SOURCE[rec.source_type] ?? 0.9
+}
+
 function supportMassOf(rec: AuraRecord): number {
   const v = (rec as unknown as { support_mass?: unknown }).support_mass
   return typeof v === "number" && Number.isFinite(v) ? v : rec.strength
 }
 
-/**
- * 取 record 的冲突质量（缺省为 0）。
- *
- * Rust 侧冲突质量来自矛盾/反证路径的聚合；TS 目前先保留字段并允许外部写入。
- */
 function conflictMassOf(rec: AuraRecord): number {
   const v = (rec as unknown as { conflict_mass?: unknown }).conflict_mass
   return typeof v === "number" && Number.isFinite(v) ? v : 0
 }
 
-/**
- * Tanimoto/Jaccard 相似度（稀疏集合）：
- * `|A∩B| / |A∪B|`，适合 SDR（稀疏离散特征）对比。
- */
 function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
   let i = 0
   let j = 0
@@ -125,9 +144,12 @@ function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
 /**
  * Split records into SDR sub-clusters using Union-Find (disjoint set).
  *
- * 使用并查集（Union-Find）按 SDR 相似度把同一 coarse group 里的 records 进一步拆成子簇。
+ * 使用并查集按 SDR 相似度把同一 coarse group 里的 records 进一步拆成子簇。
  */
-function unionFindClusters(records: ReadonlyArray<AuraRecord>, lookup: SdrLookup): ReadonlyArray<ReadonlyArray<AuraRecord>> {
+function unionFindClusters(
+  records: ReadonlyArray<AuraRecord>,
+  lookup: SdrLookup
+): ReadonlyArray<ReadonlyArray<AuraRecord>> {
   const n = records.length
   if (n <= 1) return records.map((r) => [r])
   const parent = new Array<number>(n)
@@ -171,11 +193,6 @@ function unionFindClusters(records: ReadonlyArray<AuraRecord>, lookup: SdrLookup
   return Array.from(clusters.values())
 }
 
-/**
- * Composite hypothesis score (higher = stronger hypothesis).
- *
- * 假设综合评分（越高越强）。
- */
 function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
   const supportScore = 1.0 + Math.log(1.0 + h.support_mass)
   const conflictPenalty = Math.log(1.0 + h.conflict_mass)
@@ -183,17 +200,39 @@ function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
   return Math.max(beliefScore - LAMBDA * conflictPenalty, 0.0)
 }
 
+/** Exponential-decay recency factor from record timestamps. */
+function computeRecency(recordTimestamps: ReadonlyArray<number>, now: number): number {
+  if (recordTimestamps.length === 0) return 1.0
+  const maxTs = Math.max(...recordTimestamps)
+  const age = Math.max(0, now - maxTs)
+  return Math.pow(0.5, age / RECENCY_HALF_LIFE_SECS)
+}
+
+/** Internal consistency: 1/(1+stddev of confidences). Higher variance → weaker hypothesis. */
+function computeConsistency(confidences: ReadonlyArray<number>): number {
+  if (confidences.length <= 1) return 1.0
+  const mean = confidences.reduce((a, b) => a + b, 0) / confidences.length
+  const variance = confidences.reduce((sum, c) => sum + (c - mean) ** 2, 0) / confidences.length
+  return 1.0 / (1.0 + Math.sqrt(variance))
+}
+
 /**
  * Build one hypothesis from a record cluster.
  *
- * 从一个 record 簇构建一个 hypothesis（原型 record ids、置信度/支持度/冲突度等聚合后计算 score）。
+ * 从一个 record 簇构建一个 hypothesis。
  */
-function hypothesisFromRecords(beliefId: string, records: ReadonlyArray<AuraRecord>): Hypothesis {
-  const confidence = records.map(confidenceOf).reduce((a, b) => a + b, 0) / Math.max(1, records.length)
+function hypothesisFromRecords(
+  beliefId: string,
+  records: ReadonlyArray<AuraRecord>,
+  now: number
+): Hypothesis {
+  const confidences = records.map(confidenceOf)
+  const confidence = confidences.reduce((a, b) => a + b, 0) / Math.max(1, records.length)
   const supportMass = records.map(supportMassOf).reduce((a, b) => a + b, 0)
   const conflictMass = records.map(conflictMassOf).reduce((a, b) => a + b, 0)
-  const recency = 1.0
-  const consistency = 1.0
+  const timestamps = records.map((r) => r.created_at)
+  const recency = computeRecency(timestamps, now)
+  const consistency = computeConsistency(confidences)
   const base = {
     id: id12(),
     belief_id: beliefId,
@@ -210,10 +249,13 @@ function hypothesisFromRecords(beliefId: string, records: ReadonlyArray<AuraReco
 /**
  * Resolve winner from a set of hypotheses.
  *
- * 从多个 hypotheses 中决出 winner（或在证据接近时进入 Unresolved），并更新 belief 聚合字段
- *（score/confidence/support/conflict/stability）。
+ * 从多个 hypotheses 中决出 winner（或在证据接近时进入 Unresolved）。
  */
-function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>, nowSecs: () => number): Belief {
+function resolveBelief(
+  prev: Belief,
+  hypotheses: ReadonlyArray<Hypothesis>,
+  now: number
+): Belief {
   if (hypotheses.length === 0) {
     return {
       ...prev,
@@ -224,7 +266,7 @@ function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>, nowS
       support_mass: 0,
       conflict_mass: 0,
       stability: 0,
-      last_updated: nowSecs()
+      last_updated: now
     }
   }
 
@@ -240,7 +282,7 @@ function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>, nowS
       support_mass: h.support_mass,
       conflict_mass: h.conflict_mass,
       stability,
-      last_updated: nowSecs()
+      last_updated: now
     }
   }
 
@@ -273,7 +315,7 @@ function resolveBelief(prev: Belief, hypotheses: ReadonlyArray<Hypothesis>, nowS
     support_mass: hypotheses.map((h) => h.support_mass).reduce((a, b) => a + b, 0),
     conflict_mass: hypotheses.map((h) => h.conflict_mass).reduce((a, b) => a + b, 0),
     stability,
-    last_updated: nowSecs()
+    last_updated: now
   }
 }
 
@@ -281,21 +323,11 @@ export class BeliefEngineImpl {
   private coarseKeyMode: CoarseKeyMode = CoarseKeyMode.Standard
   private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {} }
 
-  /**
-   * Controls how the coarse belief key is constructed before SDR subclustering.
-   *
-   * 设置 coarse key 的构造模式（在 SDR 子聚类前，先按 key 分桶）。
-   */
   with_coarse_key_mode(mode: unknown): Effect.Effect<void> {
     this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
     return Effect.void
   }
 
-  /**
-   * Canonical claim key for a record (using current coarseKeyMode).
-   *
-   * 生成 claim key（使用当前 coarseKeyMode）。
-   */
   claim_key(
     namespace: string,
     tags: ReadonlyArray<string>,
@@ -305,9 +337,9 @@ export class BeliefEngineImpl {
   }
 
   /**
-   * Canonical claim key for a record (explicit mode).
+   * Canonical claim key builder — dispatches on CoarseKeyMode.
    *
-   * 生成 claim key（显式传入 mode）。
+   * 规范化 claim key 构建器——根据 CoarseKeyMode 分派不同策略。
    */
   claim_key_with_mode(
     namespace: string,
@@ -318,25 +350,49 @@ export class BeliefEngineImpl {
     const ns = namespace.length > 0 ? namespace : "default"
     const st = semantic_type.length > 0 ? semantic_type : "unknown"
     const m = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
-    if (m === CoarseKeyMode.SemanticOnly) return Effect.succeed(`${ns}:${st}`)
-    const t = [...tags].filter((x) => x.length > 0).sort().join(",")
-    return Effect.succeed(`${ns}:${t}:${st}`)
+    const activeTags = [...tags].filter((x) => x.length > 0).sort()
+
+    switch (m) {
+      case CoarseKeyMode.SemanticOnly:
+        return Effect.succeed(`${ns}:${st}`)
+      case CoarseKeyMode.TopOneTag:
+        return Effect.succeed(`${ns}:${activeTags[0] ?? "none"}:${st}`)
+      case CoarseKeyMode.TagFamily:
+      case CoarseKeyMode.TagFamilyAdaptive:
+      case CoarseKeyMode.TagFamilyBackoff:
+      case CoarseKeyMode.TagFamilyPairBackoff:
+      case CoarseKeyMode.TagFamilyDenseBackoff: {
+        const families = activeTags.map((t) => {
+          const slash = t.indexOf("/")
+          if (slash > 0) return t.slice(0, slash)
+          const us = t.indexOf("_")
+          return us > 0 ? t.slice(0, us) : t
+        })
+        const deduped = [...new Set(families)].sort()
+        return Effect.succeed(`${ns}:${deduped.join("+")}:${st}`)
+      }
+      case CoarseKeyMode.DualKey:
+        return Effect.succeed(`${ns}:${activeTags.join(",")}:${st}`)
+      case CoarseKeyMode.NeighborhoodPool:
+        return Effect.succeed(`${ns}:${activeTags.slice(0, 3).join("|")}:${st}`)
+      case CoarseKeyMode.BridgeKey:
+        return Effect.succeed(`${ns}:${activeTags[0] ?? "none"}:bridge:${st}`)
+      case CoarseKeyMode.SdrTagPool:
+        return Effect.succeed(`${activeTags.join(",")}:${st}`)
+      default:
+        return Effect.succeed(`${ns}:${activeTags.join(",")}:${st}`)
+    }
   }
 
-  /**
-   * Run a full belief update cycle over all records (without SDR data).
-   *
-   * 跑一轮 belief 全量更新（无 SDR 时的 fallback 路径）。
-   */
   update(records: ReadonlyMap<string, AuraRecord>): Effect.Effect<BeliefReport, never, EpistemicTrace> {
     return this.update_with_sdr(records, new Map())
   }
 
   /**
-   * Run a full belief update cycle with SDR-backed claim grouping.
+   * Full belief update cycle with SDR-backed claim grouping.
    *
    * 跑一轮 belief 全量更新（带 SDR 分组）：
-   * 1) 先按 claim key 分桶（namespace + tags + semantic_type）
+   * 1) 按 claim key 分桶（namespace + tags + semantic_type）
    * 2) 在桶内按 SDR Tanimoto ≥ threshold 合并成子簇（Union-Find）
    * 3) 每个子簇构建 hypothesis，并在同一 belief 内 resolve winner / unresolved
    */
@@ -346,7 +402,7 @@ export class BeliefEngineImpl {
   ): Effect.Effect<BeliefReport, never, EpistemicTrace> {
     const self = this
     return Effect.gen(function* () {
-      const { nowSeconds } = yield* Effect.service(Clock)
+      const now = yield* Clock.nowSeconds()
       const traceOpt = yield* serviceOption(EpistemicTrace)
       if (Option.isSome(traceOpt)) {
         yield* traceOpt.value.event("belief.update_with_sdr.start", {
@@ -357,13 +413,7 @@ export class BeliefEngineImpl {
 
       const coarseGroups = new Map<string, AuraRecord[]>()
       for (const rec of records.values()) {
-        /**
-         * TODO: NON-PARITY IMPLEMENTATION: content.length is a poor proxy for "trivial content" across languages (e.g., Chinese vs English).
-         *
-         * 待办：用 Intl.Segmenter 的 token/词数（或等价实现）替代字符长度阈值，
-         * 以更稳健地表达 Rust “跳过 trivial content” 的意图。
-         */
-        if (rec.content.length < 10) continue
+        if (estimateTokens(rec.content) < MIN_CONTENT_TOKENS) continue
         const key = yield* self.claim_key(rec.namespace, rec.tags, rec.semantic_type)
         const arr = coarseGroups.get(key)
         if (arr) arr.push(rec)
@@ -389,14 +439,16 @@ export class BeliefEngineImpl {
           conflict_mass: 0,
           stability: 0,
           volatility: 0,
-          last_updated: nowSeconds()
+          last_updated: now
         }
 
         const clusters =
-          sdr_lookup.size > 0 ? unionFindClusters(groupRecords, sdr_lookup) : ([groupRecords] as const)
+          sdr_lookup.size > 0
+            ? unionFindClusters(groupRecords, sdr_lookup)
+            : ([groupRecords] as const)
         const hyps: Hypothesis[] = []
         for (const cluster of clusters) {
-          const hyp = hypothesisFromRecords(beliefId, cluster)
+          const hyp = hypothesisFromRecords(beliefId, cluster, now)
           hypothesesBuilt++
           nextHyps[hyp.id] = hyp
           hyps.push(hyp)
@@ -404,7 +456,7 @@ export class BeliefEngineImpl {
           for (const rid of hyp.prototype_record_ids) recToBelief[rid] = beliefId
         }
 
-        belief = resolveBelief(belief, hyps, nowSeconds)
+        belief = resolveBelief(belief, hyps, now)
         nextBeliefs[beliefId] = belief
       }
 
@@ -429,38 +481,81 @@ export class BeliefEngineImpl {
     })
   }
 
-  /**
-   * Lookup belief id for a given record id.
-   *
-   * 查询 record 属于哪个 belief（用于下游索引/解释/rerank）。
-   */
   belief_for_record(record_id: string): Effect.Effect<string | null> {
     return Effect.succeed(this.state.record_to_belief[record_id] ?? null)
   }
 
   /**
-   * Deprecate a belief (tombstone / lifecycle control).
+   * Deprecate a belief — removes belief, its hypotheses, and record mappings from state.
    *
-   * 标记某个 belief 过期（当前实现为 no-op；后续 parity 会引入 tombstone/invalidated 状态）。
+   * 废弃指定 belief：从状态中移除 belief、其 hypotheses 及 record 映射。
    */
-  deprecate_belief(_belief_id: string): Effect.Effect<void> {
-    return Effect.void
+  deprecate_belief(belief_id: string): Effect.Effect<void> {
+    const self = this
+    return Effect.sync(() => {
+      const belief = self.state.beliefs[belief_id]
+      if (!belief) return
+      const { [belief_id]: _removed, ...remainingBeliefs } = self.state.beliefs
+      const remainingHyps = { ...self.state.hypotheses }
+      for (const hid of belief.hypothesis_ids) delete remainingHyps[hid]
+      self.state = {
+        ...self.state,
+        beliefs: remainingBeliefs,
+        hypotheses: remainingHyps
+      }
+    })
   }
 
   /**
    * Apply higher-layer feedback (corrections/policy pressure).
+   * Accepts: { belief_id, action: "boost"|"suppress"|"deprecate", factor?: number }
    *
-   * 应用来自更高层的反馈（纠错/策略压力）。当前实现为占位 no-op，用于保持方法面与 Rust 对齐。
+   * 应用更高层反馈：接受 { belief_id, action, factor? }，对目标 belief 施加修正。
    */
-  apply_layer_feedback(..._args: unknown[]): Effect.Effect<unknown> {
-    return Effect.succeed(undefined)
+  apply_layer_feedback(...args: unknown[]): Effect.Effect<unknown> {
+    const self = this
+    return Effect.sync(() => {
+      if (args.length === 0) return { applied: 0 }
+      let applied = 0
+      for (const arg of args) {
+        const fb = arg as { belief_id?: string; action?: string; factor?: number }
+        if (!fb.belief_id || !fb.action) continue
+        if (fb.action === "deprecate") {
+          const { [fb.belief_id]: _r, ...rest } = self.state.beliefs
+          const b = self.state.beliefs[fb.belief_id]
+          const hyps = { ...self.state.hypotheses }
+          if (b) for (const hid of b.hypothesis_ids) delete hyps[hid]
+          self.state = { ...self.state, beliefs: rest, hypotheses: hyps }
+          applied++
+          continue
+        }
+        const belief = self.state.beliefs[fb.belief_id]
+        if (!belief) continue
+        const factor = typeof fb.factor === "number" ? fb.factor : 1.0
+        if (fb.action === "suppress") {
+          self.state = {
+            ...self.state,
+            beliefs: {
+              ...self.state.beliefs,
+              [fb.belief_id]: { ...belief, volatility: belief.volatility + factor }
+            }
+          }
+          applied++
+        } else if (fb.action === "boost") {
+          self.state = {
+            ...self.state,
+            beliefs: {
+              ...self.state.beliefs,
+              [fb.belief_id]: { ...belief, stability: belief.stability + Math.round(factor) }
+            }
+          }
+          applied++
+        }
+      }
+      return { applied }
+    })
   }
 
-  /**
-   * List belief ids currently in Unresolved state.
-   *
-   * 返回当前所有 Unresolved beliefs（用于提示“证据不足/冲突未解”的区域）。
-   */
   unresolved_beliefs(): Effect.Effect<ReadonlyArray<string>> {
     return Effect.succeed(
       Object.values(this.state.beliefs)
@@ -469,11 +564,6 @@ export class BeliefEngineImpl {
     )
   }
 
-  /**
-   * Return current engine state snapshot.
-   *
-   * 返回引擎当前状态快照（用于持久化与下游层）。
-   */
   stats(): Effect.Effect<BeliefEngineState> {
     return Effect.succeed(this.state)
   }

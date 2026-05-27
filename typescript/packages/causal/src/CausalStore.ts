@@ -1,5 +1,6 @@
 import { Layer } from "effect"
 import { CausalStore } from "@aura/contract"
+import type { CausalEngineState } from "@aura/contract"
 import { CausalStoreFile } from "@aura/storage"
 
 export class CausalStoreImpl {
@@ -13,7 +14,7 @@ export class CausalStoreImpl {
     return this.file.load()
   }
 
-  save(engine: unknown) {
+  save(engine: CausalEngineState) {
     return this.file.save(engine)
   }
 }

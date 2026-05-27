@@ -6,6 +6,8 @@ import * as path from "node:path"
 import { Effect } from "effect"
 import { NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import { CausalStoreFile } from "./CausalStoreFile"
+import type { CausalEngineState } from "@aura/contract"
+import { CausalDiscoveryMode } from "@aura/contract"
 
 it("CausalStoreFile load/save roundtrip", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-causal-store-"))
@@ -16,7 +18,7 @@ it("CausalStoreFile load/save roundtrip", async () => {
   )
   assert.deepStrictEqual(empty, CausalStoreFile.empty_engine())
 
-  const engine = { _tag: "CausalEngine", patterns: {} }
+  const engine: CausalEngineState = { version: 1, patterns: {}, discovery_mode: CausalDiscoveryMode.Standard }
   await Effect.runPromise(file.save(engine).pipe(Effect.provide(NodeFileWriteLive)))
 
   const loaded = await Effect.runPromise(

@@ -6,6 +6,7 @@ import * as path from "node:path"
 import { Effect } from "effect"
 import { NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import { PolicyStoreFile } from "./PolicyStoreFile"
+import type { PolicyEngineState } from "@aura/contract"
 
 it("PolicyStoreFile load/save roundtrip", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-policy-store-"))
@@ -16,7 +17,7 @@ it("PolicyStoreFile load/save roundtrip", async () => {
   )
   assert.deepStrictEqual(empty, PolicyStoreFile.empty_engine())
 
-  const engine = { _tag: "PolicyEngine", hints: {} }
+  const engine: PolicyEngineState = { version: 1, hints: {}, metadata: {} }
   await Effect.runPromise(file.save(engine).pipe(Effect.provide(NodeFileWriteLive)))
 
   const loaded = await Effect.runPromise(

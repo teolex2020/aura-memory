@@ -1,5 +1,6 @@
 import { Layer } from "effect"
 import { PolicyStore } from "@aura/contract"
+import type { PolicyEngineState } from "@aura/contract"
 import { PolicyStoreFile } from "@aura/storage"
 
 export class PolicyStoreImpl {
@@ -13,7 +14,7 @@ export class PolicyStoreImpl {
     return this.file.load()
   }
 
-  save(engine: unknown) {
+  save(engine: PolicyEngineState) {
     return this.file.save(engine)
   }
 }

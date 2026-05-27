@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
+import type { PolicyEngineState } from "@aura/contract"
 import { CogJsonSnapshotFile } from "./CogJsonSnapshotFile"
 
 export class PolicyStoreFile {
@@ -9,17 +10,16 @@ export class PolicyStoreFile {
     return new PolicyStoreFile(dir)
   }
 
-  static empty_engine(): unknown {
-    return {}
+  static empty_engine(): PolicyEngineState {
+    return { version: 1 as const, hints: {}, metadata: {} }
   }
 
-  load(): Effect.Effect<unknown, FileReadError | JsonParseError, FileRead> {
+  load(): Effect.Effect<PolicyEngineState, FileReadError | JsonParseError, FileRead> {
     const filePath = `${this.dir}/policies.cog`
     return CogJsonSnapshotFile.load(filePath, PolicyStoreFile.empty_engine)
   }
 
-  save(_engine: unknown): Effect.Effect<void, FileWriteError, FileWrite> {
-    const engine = _engine
+  save(engine: PolicyEngineState): Effect.Effect<void, FileWriteError, FileWrite> {
     const filePath = `${this.dir}/policies.cog`
     const dir = this.dir
     return Effect.gen(function* () {

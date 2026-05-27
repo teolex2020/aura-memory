@@ -16,6 +16,11 @@ export default defineConfig({
     alias: {
       "@aura/codec": pkg("codec"),
       "@aura/storage": pkg("storage"),
+      "@aura/concept": pkg("concept"),
+      "@aura/belief": pkg("belief"),
+      "@aura/policy": pkg("policy"),
+      "@aura/causal": pkg("causal"),
+      "@aura/epistemic-runtime": pkg("epistemic-runtime"),
       "@aura/core": pkg("core"),
       "@aura/contract": pkg("contract"),
       "@aura/utils": pkg("utils"),

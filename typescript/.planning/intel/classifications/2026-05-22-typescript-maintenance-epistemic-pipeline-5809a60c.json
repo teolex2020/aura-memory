@@ -1,0 +1,18 @@
+{
+  "source_path": "docs/superpowers/plans/2026-05-22-typescript-maintenance-epistemic-pipeline.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Maintenance Epistemic Pipeline Implementation Plan",
+  "summary": "Phase 1 trace and belief layer with schema engine store",
+  "scope": [
+    "maintenance",
+    "phase1",
+    "trace",
+    "belief"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

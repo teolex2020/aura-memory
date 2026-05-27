@@ -1,0 +1,19 @@
+{
+  "source_path": "docs/superpowers/specs/2026-05-22-aura-typescript-epistemic-layer-skeleton-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Aura TypeScript Epistemic Layer Skeleton Design",
+  "summary": "Epistemic layer skeleton with belief concept causal policy modules",
+  "scope": [
+    "epistemic",
+    "belief",
+    "concept",
+    "causal",
+    "policy"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

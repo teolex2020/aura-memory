@@ -1,0 +1,19 @@
+{
+  "source_path": "docs/superpowers/specs/2026-05-20-aura-typescript-recall-first-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Aura TypeScript Port Recall-First Design",
+  "summary": "Recall pipeline design with optional embedding reranking finalize services",
+  "scope": [
+    "recall",
+    "pipeline",
+    "embedding",
+    "rerank",
+    "finalize"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

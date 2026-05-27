@@ -1,0 +1,18 @@
+{
+  "source_path": "docs/superpowers/plans/2026-05-20-typescript-codec-crypto.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "TypeScript Codec Crypto Implementation Plan",
+  "summary": "Crypto tools for Argon2id ChaCha20-Poly1305 HMAC-SHA256 with Rust oracle tests",
+  "scope": [
+    "codec",
+    "crypto",
+    "argon2id",
+    "chacha20"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

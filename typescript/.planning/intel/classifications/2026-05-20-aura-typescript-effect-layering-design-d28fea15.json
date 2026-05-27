@@ -1,0 +1,18 @@
+{
+  "source_path": "docs/superpowers/specs/2026-05-20-aura-typescript-effect-layering-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Aura TypeScript 重写工程分层纠偏设计",
+  "summary": "effect-smol style layering design for TypeScript port",
+  "scope": [
+    "effect-smol",
+    "layering",
+    "context",
+    "dependency-injection"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

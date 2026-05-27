@@ -1,0 +1,18 @@
+{
+  "source_path": "docs/superpowers/specs/2026-05-20-aura-typescript-port-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Aura 核心 TypeScript 1:1 重写设计",
+  "summary": "TypeScript 1:1 rewrite of Rust core with full disk format compatibility",
+  "scope": [
+    "typescript",
+    "rust",
+    "disk-format",
+    "compatibility"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

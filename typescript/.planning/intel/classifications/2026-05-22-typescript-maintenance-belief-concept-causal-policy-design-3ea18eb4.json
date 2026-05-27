@@ -1,0 +1,20 @@
+{
+  "source_path": "docs/superpowers/specs/2026-05-22-typescript-maintenance-belief-concept-causal-policy-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "TypeScript 维护流程端到端对齐设计",
+  "summary": "Maintenance pipeline design for belief concept causal policy",
+  "scope": [
+    "maintenance",
+    "belief",
+    "concept",
+    "causal",
+    "policy",
+    "finalize"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@aura/code-extraction",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ignore": "^7.0.5",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "0.25.10"
+  }
+}

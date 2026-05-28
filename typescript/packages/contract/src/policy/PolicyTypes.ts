@@ -72,6 +72,8 @@ export type PolicyHint = {
   readonly cause_key: string
   /** Record IDs on the effect side — used for polarity signal extraction. 效果侧record ID列表。 */
   readonly effect_keys: ReadonlyArray<string>
+  /** Record IDs on the cause side — used for suppression conflict detection. 原因侧record ID列表。 */
+  readonly cause_record_ids: ReadonlyArray<string>
 }
 
 /**

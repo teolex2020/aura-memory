@@ -11,7 +11,7 @@ import type {
   SdrLookup,
   ConceptEngineState,
 } from "@aura/contract"
-import { PolicyEngineImpl, computePolicyStrength, generateRecommendation } from "./PolicyEngine"
+import { PolicyEngineImpl, computePolicyStrength, generateRecommendation, applySuppression } from "./PolicyEngine"
 
 const NoopTrace = {
   event: (): Effect.Effect<void> => Effect.void,
@@ -569,5 +569,144 @@ describe("PolicyEngine P2 — Scoring + Recommendations", () => {
     assert.ok(hint.recommendation.length > 0)
     assert.ok(hint.utilityScore !== undefined)
     assert.ok(hint.policyStrength !== undefined)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 2 RED Tests: Suppression phase + surface alignment
+// ═══════════════════════════════════════════════════════════════════════════
+
+import type { PolicyHint } from "@aura/contract"
+import { PolicyState } from "@aura/contract"
+
+function makeTestHint(overrides: Partial<PolicyHint> & { id: string }): PolicyHint {
+  return {
+    id: overrides.id,
+    pattern_id: "cp-test",
+    condition: "test condition",
+    action: "test",
+    priority: 5,
+    confidence: 0.8,
+    state: PolicyState.Stable,
+    last_updated: 1000,
+    actionKind: PolicyActionKind.Recommend,
+    policyStrength: 0.8,
+    riskScore: 0.2,
+    namespace: "ns1",
+    domain: "backend",
+    polarity: "Positive",
+    recommendation: "Test recommendation",
+    utilityScore: 0.6,
+    cause_key: "ns1:cause:effect:hash",
+    effect_keys: ["r-eff-1"],
+    cause_record_ids: ["r-cause-1", "r-cause-2"],
+    ...overrides,
+  }
+}
+
+describe("PolicyEngine P2 — Suppression", () => {
+  it("applySuppression: detects conflict — same namespace+domain + opposite polarity + overlapping cause_record_ids", () => {
+    const hintA = makeTestHint({
+      id: "h-positive",
+      namespace: "ns1",
+      domain: "backend",
+      polarity: "Positive",
+      actionKind: PolicyActionKind.Recommend,
+      policyStrength: 0.8,
+      cause_record_ids: ["r-cause-1", "r-cause-2"],
+    })
+    const hintB = makeTestHint({
+      id: "h-negative",
+      namespace: "ns1",
+      domain: "backend",
+      polarity: "Negative",
+      actionKind: PolicyActionKind.Avoid,
+      policyStrength: 0.5,
+      cause_record_ids: ["r-cause-2", "r-cause-3"],
+    })
+    const result = applySuppression([hintA, hintB])
+    // Hint B should be suppressed (lower strength) — stub returns both Stable
+    const suppressed = result.filter(h => false) // stub: no suppression
+    assert.strictEqual(suppressed.length, 0)
+    // RED: this assertion will fail against stub that doesn't suppress
+    const suppressedHint = result.find(h => h.id === "h-negative")
+    assert.strictEqual(suppressedHint!.state, PolicyState.Suppressed)
+  })
+
+  it("applySuppression: suppresses lower policy_strength hint when conflict detected", () => {
+    const hintA = makeTestHint({
+      id: "h-strong",
+      namespace: "ns1",
+      domain: "backend",
+      polarity: "Positive",
+      actionKind: PolicyActionKind.Prefer,
+      policyStrength: 0.9,
+      cause_record_ids: ["r-cause-1"],
+    })
+    const hintB = makeTestHint({
+      id: "h-weak",
+      namespace: "ns1",
+      domain: "backend",
+      polarity: "Negative",
+      actionKind: PolicyActionKind.Avoid,
+      policyStrength: 0.3,
+      cause_record_ids: ["r-cause-1"],
+    })
+    const result = applySuppression([hintA, hintB])
+    // RED: stub doesn't suppress, so the weak hint stays Stable
+    const weakHint = result.find(h => h.id === "h-weak")
+    assert.strictEqual(weakHint!.state, PolicyState.Suppressed)
+    const strongHint = result.find(h => h.id === "h-strong")
+    assert.strictEqual(strongHint!.state, PolicyState.Stable)
+  })
+
+  it("applySuppression: does not suppress hints with overlapping cause_record_ids but same polarity", () => {
+    const hintA = makeTestHint({
+      id: "h-pos1",
+      namespace: "ns1",
+      domain: "backend",
+      polarity: "Positive",
+      actionKind: PolicyActionKind.Recommend,
+      policyStrength: 0.8,
+      cause_record_ids: ["r-cause-1"],
+    })
+    const hintB = makeTestHint({
+      id: "h-pos2",
+      namespace: "ns1",
+      domain: "backend",
+      polarity: "Positive",
+      actionKind: PolicyActionKind.Prefer,
+      policyStrength: 0.9,
+      cause_record_ids: ["r-cause-1"],
+    })
+    const result = applySuppression([hintA, hintB])
+    // Both should remain Stable — same polarity means no conflict
+    assert.strictEqual(result.find(h => h.id === "h-pos1")!.state, PolicyState.Stable)
+    assert.strictEqual(result.find(h => h.id === "h-pos2")!.state, PolicyState.Stable)
+  })
+
+  it("applySuppression: does not suppress hints in different namespace", () => {
+    const hintA = makeTestHint({
+      id: "h-ns1",
+      namespace: "ns1",
+      domain: "backend",
+      polarity: "Positive",
+      actionKind: PolicyActionKind.Recommend,
+      policyStrength: 0.9,
+      cause_record_ids: ["r-cause-1"],
+    })
+    const hintB = makeTestHint({
+      id: "h-ns2",
+      namespace: "ns2",
+      domain: "backend",
+      polarity: "Negative",
+      actionKind: PolicyActionKind.Avoid,
+      policyStrength: 0.3,
+      cause_record_ids: ["r-cause-1"],
+    })
+    const result = applySuppression([hintA, hintB])
+    // Different namespaces — no conflict, both stay Stable
+    assert.strictEqual(result.find(h => h.id === "h-ns1")!.state, PolicyState.Stable)
+    assert.strictEqual(result.find(h => h.id === "h-ns2")!.state, PolicyState.Stable)
   })
 })

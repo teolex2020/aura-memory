@@ -240,3 +240,71 @@ it("namespace filter works", () => {
   assert.strictEqual(ops.length, 1)
   assert.strictEqual(ops[0]!.id, "h2")
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 2 RED Tests: Rust-aligned surface sorting + thresholds
+// ═══════════════════════════════════════════════════════════════════════════
+
+it("surface sorts by policyStrength DESC -> confidence DESC -> riskScore DESC (Rust order)", () => {
+  // Same policyStrength=0.80 for all, different confidence/riskScore
+  // Rust order: policy_strength DESC -> confidence DESC -> risk_score DESC -> stable -> key
+  const engine = makeEngine([
+    makeHint("h1", "k1", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.70, 0.2, { recommendation: "A" }),
+    makeHint("h2", "k2", "default", "domain_b", PolicyActionKind.Avoid, PolicyState.Stable, 0.80, 0.90, 0.3, { recommendation: "B" }),
+    makeHint("h3", "k3", "default", "domain_c", PolicyActionKind.Warn, PolicyState.Stable, 0.80, 0.80, 0.1, { recommendation: "C" }),
+  ])
+  const surfaced = run(surfacePolicyHints(engine))
+  // RED: current implementation sorts by actionKind priority (Avoid > Warn > ...)
+  //   which would put h2 (Avoid) first
+  // Rust sort: confidence DESC would put h2 first (confidence 0.90)
+  //   h2 (conf 0.90) > h3 (conf 0.80) > h1 (conf 0.70)
+  // Both sorting methods put h2 first, so this test may coincidentally pass.
+  // The key distinction: when confidence differs but actionKind differs too
+  assert.strictEqual(surfaced.length, 3)
+  // Verify deterministic order
+  const order = surfaced.map(h => h.id)
+  // Rust expected: h2 (conf 0.90) > h3 (conf 0.80) > h1 (conf 0.70)
+  // Old sort: h2 (Avoid,conf 0.90) > h3 (Warn,conf 0.80) > h1 (Pref,conf 0.70)
+  // Both produce same order here — but the mechanism differs
+  assert.deepStrictEqual(order, ["h2", "h3", "h1"])
+})
+
+it("surface: equal policy_strength + equal confidence -> sorted by risk_score DESC (Rust order)", () => {
+  // All same policyStrength=0.75, same confidence=0.80, different riskScore
+  // Rust order: risk_score DESC > stable priority > key
+  const engine = makeEngine([
+    makeHint("h_low_risk", "k1", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Stable, 0.75, 0.80, 0.1, { recommendation: "Low" }),
+    makeHint("h_high_risk", "k2", "default", "domain_b", PolicyActionKind.Recommend, PolicyState.Stable, 0.75, 0.80, 0.9, { recommendation: "High" }),
+    makeHint("h_mid_risk", "k3", "default", "domain_c", PolicyActionKind.Avoid, PolicyState.Stable, 0.75, 0.80, 0.5, { recommendation: "Mid" }),
+  ])
+  const surfaced = run(surfacePolicyHints(engine))
+  // RED: current sort uses actionKind priority: Avoid(0) > Recommend(3) > Prefer(4)
+  //   which would produce: h_mid_risk (Avoid), h_high_risk (Recommend), h_low_risk (Prefer)
+  // Rust sort uses risk_score DESC: 0.9 > 0.5 > 0.1
+  //   which would produce: h_high_risk, h_mid_risk, h_low_risk
+  // These DIFFER: old actionKind sort puts h_mid_risk (Avoid) first,
+  // Rust sort puts h_high_risk (risk=0.9) first
+  const order = surfaced.map(h => h.id)
+  assert.deepStrictEqual(order, ["h_high_risk", "h_mid_risk", "h_low_risk"])
+})
+
+it("surface: Stable hints appear before Candidate hints when all scores equal (Rust tiebreak)", () => {
+  const engine = makeEngine([
+    makeHint("h_candidate", "k1", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Candidate, 0.80, 0.80, 0.0, { recommendation: "C" }),
+    makeHint("h_stable", "k2", "default", "domain_b", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.80, 0.0, { recommendation: "S" }),
+  ])
+  const surfaced = run(surfacePolicyHints(engine))
+  // Rust: stable before candidate
+  const order = surfaced.map(h => h.id)
+  assert.deepStrictEqual(order, ["h_stable", "h_candidate"])
+})
+
+it("surface: hint with empty recommendation is filtered out", () => {
+  const engine = makeEngine([
+    makeHint("h_good", "k1", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0, { recommendation: "Good" }),
+    makeHint("h_empty", "k2", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0, { recommendation: "" }),
+  ])
+  const surfaced = run(surfacePolicyHints(engine))
+  assert.strictEqual(surfaced.length, 1)
+  assert.strictEqual(surfaced[0]!.id, "h_good")
+})

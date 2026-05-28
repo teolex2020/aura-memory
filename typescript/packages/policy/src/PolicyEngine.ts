@@ -682,9 +682,26 @@ function buildHints(
       utilityScore,
       cause_key: key,
       effect_keys: [...pattern.effect_record_ids],
+      cause_record_ids: [...pattern.cause_record_ids],
     }
     hints.push(hint)
   }
 
+  return hints
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Suppression (Rust-aligned policy.rs apply_suppression lines 727-786)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Apply suppression: detect conflicting hints in same namespace+domain
+ * with opposite polarity + overlapping cause_record_ids, and suppress
+ * the lower-strength hint. Equal strengths (within 0.01) suppress neither.
+ *
+ * Matches Rust policy.rs apply_suppression.
+ */
+export function applySuppression(hints: PolicyHint[]): PolicyHint[] {
+  // RED stub: returns hints unchanged (no suppression)
   return hints
 }

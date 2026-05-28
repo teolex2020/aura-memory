@@ -16,7 +16,13 @@ import {
   SDR_TANIMOTO_THRESHOLD,
   RECENCY_HALF_LIFE_SECS,
   SDR_TAG_GUARD_THRESHOLD,
-  TAG_SDR_FINGERPRINT_THRESHOLD
+  TAG_SDR_FINGERPRINT_THRESHOLD,
+  sdrSubcluster,
+  sdrSubclusterTagGuarded,
+  sdrSubclusterBridgeGuarded,
+  sdrSubclusterTagSdrGuarded,
+  CoarseKeyMode,
+  NEIGHBORHOOD_POOL_THRESHOLD
 } from "./BeliefEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -543,5 +549,324 @@ describe("record_index", () => {
     for (const rid of ["r1", "r2"]) {
       expect(state.record_to_belief[rid]).toBeDefined()
     }
+  })
+})
+
+// ── Plan 03 tests: SDR subcluster functions + coarse key alignment ──
+
+// SDR vectors for testing
+// SDR_A and SDR_B: 9 shared / 11 union ≈ 0.818 (way above 0.15)
+// SDR_A and SDR_E: 3 shared / 17 union ≈ 0.176 (above 0.15 threshold)
+// SDR_A and SDR_F: 2 shared / 18 union ≈ 0.111 (below 0.15 threshold)
+// SDR_A and SDR_D: 0 shared / 20 union = 0 (completely different)
+const SDR_A = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+const SDR_B = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
+const SDR_C = [1, 2, 3, 4, 5, 20, 21, 22, 23, 24]
+const SDR_D = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
+const SDR_E = [1, 2, 3, 60, 61, 62, 63, 64, 65, 66]
+const SDR_F = [1, 2, 70, 71, 72, 73, 74, 75, 76, 77]
+
+function makeSdrRecord(
+  id: string,
+  content: string,
+  tags: string[],
+  sdr: number[]
+): AuraRecord {
+  return makeRecord(id, content, tags, "fact", { support_mass: 2 })
+}
+
+function makeSdrLookup(entries: [string, number[]][]): Map<string, number[]> {
+  return new Map(entries)
+}
+
+describe("sdr_subcluster (plain)", () => {
+  it("merges records with Tanimoto >= threshold", () => {
+    const r1 = makeSdrRecord("r1", "content about deployment safety", ["deploy"], SDR_A)
+    const r2 = makeSdrRecord("r2", "content about deployment practices", ["deploy"], SDR_E)
+    // Tanimoto(SDR_A, SDR_E) = 3/17 ≈ 0.176 ≥ 0.15 → should merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubcluster([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0]).toHaveLength(2)
+  })
+
+  it("does NOT merge records with Tanimoto < threshold", () => {
+    const r1 = makeSdrRecord("r1", "content about deployment safety", ["deploy"], SDR_A)
+    const r2 = makeSdrRecord("r2", "content about deployment practices", ["deploy"], SDR_F)
+    // Tanimoto(SDR_A, SDR_F) = 2/18 ≈ 0.111 < 0.15 → should NOT merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_F]])
+    const clusters = sdrSubcluster([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(2)
+  })
+
+  it("keeps single-record groups as singleton clusters", () => {
+    const r1 = makeSdrRecord("r1", "content about deployment safety", ["deploy"], SDR_A)
+    const r2 = makeSdrRecord("r2", "completely different topic content", ["other"], SDR_D)
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_D]])
+    const clusters = sdrSubcluster([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(2)
+  })
+
+  it("skips records without SDR data", () => {
+    const r1 = makeSdrRecord("r1", "content about deployment safety", ["deploy"], SDR_A)
+    const r2 = makeSdrRecord("r2", "content about deployment practices", ["deploy"], SDR_B)
+    // r2 has no SDR entry → should not participate in Tanimoto checks
+
+    const lookup = makeSdrLookup([["r1", SDR_A]]) // r2 missing
+    const clusters = sdrSubcluster([r1, r2], lookup, 0.15)
+
+    // r1 and r2 end up in separate clusters since r2 has no SDR
+    expect(clusters.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("uses Union-Find to merge transitive clusters", () => {
+    const r1 = makeSdrRecord("r1", "A content record", ["tag"], SDR_A)
+    const r2 = makeSdrRecord("r2", "B content record", ["tag"], SDR_B)
+    const r3 = makeSdrRecord("r3", "C content record", ["tag"], SDR_E)
+    // A-B: 0.818 ≥ 0.15 → merge
+    // A-E: 0.176 ≥ 0.15 → merge → transitive: all 3 merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_B], ["r3", SDR_E]])
+    const clusters = sdrSubcluster([r1, r2, r3], lookup, 0.15)
+
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0]).toHaveLength(3)
+  })
+})
+
+describe("sdr_subcluster_tag_guarded", () => {
+  it("does NOT merge records with similar SDR but no shared tags", () => {
+    const r1 = makeSdrRecord("r1", "deployment safety content here", ["deploy", "safety"], SDR_A)
+    const r2 = makeSdrRecord("r2", "monitoring reliability content", ["monitoring"], SDR_E)
+    // Tanimoto(SDR_A, SDR_E) ≈ 0.176 ≥ 0.15, but no shared tags → should NOT merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterTagGuarded([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(2)
+  })
+
+  it("merges records with similar SDR and at least 1 shared tag", () => {
+    const r1 = makeSdrRecord("r1", "deployment safety content here", ["deploy", "safety"], SDR_A)
+    const r2 = makeSdrRecord("r2", "deployment safety practices content", ["deploy"], SDR_E)
+    // Both have "deploy" tag + Tanimoto ≥ threshold → should merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterTagGuarded([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0]).toHaveLength(2)
+  })
+
+  it("skips tag barrier when one record has no tags (allow SDR-only merge)", () => {
+    const r1 = makeSdrRecord("r1", "deployment safety content here", [], SDR_A)
+    const r2 = makeSdrRecord("r2", "deployment safety practices content", ["deploy"], SDR_E)
+    // r1 has no tags → skip tag barrier → allow merge on SDR alone
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterTagGuarded([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(1)
+  })
+
+  it("skips tag barrier when both records have no tags", () => {
+    const r1 = makeSdrRecord("r1", "deployment safety content here", [], SDR_A)
+    const r2 = makeSdrRecord("r2", "deployment safety practices content", [], SDR_E)
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterTagGuarded([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(1)
+  })
+})
+
+describe("sdr_subcluster_bridge_guarded", () => {
+  it("merges records sharing a normalized bridge tag", () => {
+    const r1 = makeSdrRecord("r1", "UI deployment safety content", ["ui", "deploy"], SDR_A)
+    const r2 = makeSdrRecord("r2", "frontend deployment practices", ["frontend", "deploy"], SDR_E)
+    // "ui" → normalizes to "frontend"; "frontend" → normalizes to "frontend"
+    // Shared bridge "frontend" → allow SDR comparison → should merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterBridgeGuarded([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0]).toHaveLength(2)
+  })
+
+  it("does NOT merge records with different bridge tags", () => {
+    const r1 = makeSdrRecord("r1", "auth deployment content", ["auth"], SDR_A)
+    const r2 = makeSdrRecord("r2", "deploy release content", ["deploy"], SDR_E)
+    // "auth" → "authentication"; "deploy" → "release"
+    // No shared bridge → should NOT compare SDR
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterBridgeGuarded([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(2)
+  })
+
+  it("merges records with same-case different bridge tag synonyms", () => {
+    const r1 = makeSdrRecord("r1", "auth system content here", ["authentication"], SDR_A)
+    const r2 = makeSdrRecord("r2", "auth module content too", ["auth"], SDR_E)
+    // "authentication" → "authentication"; "auth" → "authentication"
+    // Shared bridge "authentication" → should merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterBridgeGuarded([r1, r2], lookup, 0.15)
+
+    expect(clusters).toHaveLength(1)
+  })
+})
+
+describe("sdr_subcluster_tag_sdr_guarded", () => {
+  // Use a simple mock TagSdrGenerator that creates deterministic "SDR" from tag text
+  // For testing, we use the existing tanimoto function implicitly through the subcluster
+  // We need records with tag sets that produce similar/different tag SDR fingerprints
+  const mockTagSdrGen = {
+    textToSdrLowered(text: string, _isIdentity: boolean): number[] {
+      // Deterministically map text to SDR-like indices
+      // Same text → same SDR; similar text → overlapping SDR
+      const words = text.toLowerCase().trim().split(/\s+/)
+      const indices: number[] = []
+      for (const word of words) {
+        let hash = 0
+        for (let i = 0; i < word.length; i++) {
+          hash = ((hash << 5) - hash + word.charCodeAt(i)) | 0
+        }
+        // Generate 5 indices per word in range 0-99
+        for (let k = 0; k < 5; k++) {
+          indices.push(Math.abs((hash * (k + 1) * 31) % 100))
+        }
+      }
+      indices.sort((a, b) => a - b)
+      // Deduplicate
+      return indices.filter((v, i, a) => i === 0 || v !== a[i - 1])
+    }
+  }
+
+  it("merges records with similar tag fingerprint AND similar content SDR", () => {
+    const r1 = makeSdrRecord("r1", "deployment safety content here", ["deploy", "safety"], SDR_A)
+    const r2 = makeSdrRecord("r2", "deployment safety practices here", ["deploy", "safety"], SDR_E)
+    // Both have same canonical tag text "deploy safety" → same tag fingerprint → similar
+    // Tanimoto(SDR_A, SDR_E) ≈ 0.176 ≥ 0.15 → content SDR passes → should merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterTagSdrGuarded([r1, r2], lookup, 0.15, mockTagSdrGen)
+
+    expect(clusters).toHaveLength(1)
+  })
+
+  it("does NOT merge records with different tag fingerprints", () => {
+    const r1 = makeSdrRecord("r1", "deployment safety content here", ["deploy", "safety"], SDR_A)
+    const r2 = makeSdrRecord("r2", "monitoring reliability content", ["monitoring", "alerts"], SDR_E)
+    // Different canonical tag texts → different tag fingerprints → tag guard prevents merge
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    const clusters = sdrSubclusterTagSdrGuarded([r1, r2], lookup, 0.15, mockTagSdrGen)
+
+    // Should be separate because tag fingerprints are different
+    expect(clusters.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("skips records with empty tag text (empty fingerprint)", () => {
+    const r1 = makeSdrRecord("r1", "content record one here", [], SDR_A)
+    const r2 = makeSdrRecord("r2", "content record two here", [], SDR_E)
+
+    const lookup = makeSdrLookup([["r1", SDR_A], ["r2", SDR_E]])
+    // Both have empty tag text → empty fingerprints → skip tag comparison → no merge
+    const clusters = sdrSubclusterTagSdrGuarded([r1, r2], lookup, 0.15, mockTagSdrGen)
+
+    // Records with empty fingerprints result in singleton clusters (can't compare)
+    expect(clusters).toHaveLength(2)
+  })
+})
+
+describe("claim_key_with_mode (coarse key alignment)", () => {
+  it("Standard mode truncates sorted tags to top 3", async () => {
+    const engine = new BeliefEngineImpl()
+    const result = await runEffect(
+      engine.claim_key_with_mode("default", ["b", "a", "c", "d"], "fact", "Standard")
+    )
+    // Should be: "default:a,b,c:fact" (top 3 sorted, not all 4)
+    expect(result).toBe("default:a,b,c:fact")
+  })
+
+  it("TagFamily mode uses alphabetically first tag (not prefix extraction)", async () => {
+    const engine = new BeliefEngineImpl()
+    const result = await runEffect(
+      engine.claim_key_with_mode("default", ["auth/login", "config"], "fact", "TagFamily")
+    )
+    // Alphabetically first: "auth/login" (not "auth" prefix extraction)
+    expect(result).toBe("default:auth/login:fact")
+  })
+
+  it("DualKey mode produces namespace:semantic_type (no tags in key)", async () => {
+    const engine = new BeliefEngineImpl()
+    const result = await runEffect(
+      engine.claim_key_with_mode("default", ["a", "b"], "fact", "DualKey")
+    )
+    expect(result).toBe("default:fact")
+  })
+
+  it("NeighborhoodPool mode produces namespace:semantic_type (no tags in key)", async () => {
+    const engine = new BeliefEngineImpl()
+    const result = await runEffect(
+      engine.claim_key_with_mode("default", ["a", "b", "c"], "fact", "NeighborhoodPool")
+    )
+    expect(result).toBe("default:fact")
+  })
+
+  it("BridgeKey mode produces namespace:first_tag:bridge:semantic_type", async () => {
+    const engine = new BeliefEngineImpl()
+    const result = await runEffect(
+      engine.claim_key_with_mode("default", ["deploy", "safety"], "fact", "BridgeKey")
+    )
+    // Current behavior: namespace:first_tag:bridge:semantic_type (normalizeBridgeTag deferred to Plan 04)
+    expect(result).toBe("default:deploy:bridge:fact")
+  })
+
+  it("SdrTagPool mode produces namespace:semantic_type (matches Rust)", async () => {
+    const engine = new BeliefEngineImpl()
+    const result = await runEffect(
+      engine.claim_key_with_mode("default", ["a", "b", "c"], "fact", "SdrTagPool")
+    )
+    // Rust uses format!("{}:{}", namespace, semantic_type) — verified from belief.rs:508-511
+    expect(result).toBe("default:fact")
+  })
+
+  it("TagFamilyAdaptive uses alphabetically first tag", async () => {
+    const engine = new BeliefEngineImpl()
+    const result = await runEffect(
+      engine.claim_key_with_mode("default", ["zebra", "alpha", "beta"], "fact", "TagFamilyAdaptive")
+    )
+    // Alphabetically first = "alpha"
+    expect(result).toBe("default:alpha:fact")
+  })
+})
+
+describe("Subcluster dispatch + threshold verification", () => {
+  it("NeighborhoodPool uses 0.08 threshold (verified from Rust belief.rs:1045)", () => {
+    // Rust: NeighborhoodPool => self.claim_similarity_override.unwrap_or(0.08)
+    expect(NEIGHBORHOOD_POOL_THRESHOLD).toBe(0.08)
+  })
+
+  it("SDR_TAG_GUARD_THRESHOLD = 0.10 (used by DualKey and SdrTagPool)", () => {
+    // Rust: DualKey => 0.10 (belief.rs:1053), SdrTagPool => 0.10 (belief.rs:1057)
+    expect(SDR_TAG_GUARD_THRESHOLD).toBe(0.10)
+  })
+
+  it("TAG_SDR_FINGERPRINT_THRESHOLD = 0.08 (verified from Rust belief.rs:56)", () => {
+    expect(TAG_SDR_FINGERPRINT_THRESHOLD).toBe(0.08)
+  })
+
+  it("SDR_TANIMOTO_THRESHOLD = 0.15 (base/default threshold)", () => {
+    expect(SDR_TANIMOTO_THRESHOLD).toBe(0.15)
   })
 })

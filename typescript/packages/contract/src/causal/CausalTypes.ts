@@ -111,10 +111,26 @@ export type CausalPattern = {
   readonly support_count: number
   /** Explicit-only edge count (non-temporal). */
   readonly explicit_support_count: number
+  /** Temporal-only edge count. */
+  readonly temporal_support_count: number
   /** Number of edges that contradict the causal direction. */
   readonly counterevidence_count: number
   /** Unique temporal windows observed. */
   readonly temporal_windows: number
+
+  // ── Rust-aligned counter/gate fields (populated by aggregateToPatterns) ──
+  /** Total explicit support across all explicit effect variants for this cause. */
+  readonly explicit_support_total_for_cause: number
+  /** Number of distinct explicit effect variants seen for this cause. */
+  readonly explicit_effect_variants_for_cause: number
+
+  // ── Scoring-computed fields (populated by scorePattern) ──
+  /** Number of distinct effect-record signature variants inside this pattern. */
+  readonly effect_record_signature_variants: number
+  /** Positive outcome signals observed across effect-side records. */
+  readonly positive_effect_signals: number
+  /** Negative outcome signals observed across effect-side records. */
+  readonly negative_effect_signals: number
 
   // ── Metadata ──
   /** Namespace for scope isolation. 命名空间（范围隔离）。 */

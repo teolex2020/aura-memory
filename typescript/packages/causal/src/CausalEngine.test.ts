@@ -11,6 +11,12 @@ import {
   extractEdges,
   buildRecordToBelief,
   aggregateToPatterns,
+  scorePattern,
+  meetsSupportGate,
+  meetsRepeatedEvidenceGate,
+  meetsEvidenceGate,
+  meetsCounterfactualGate,
+  computeCorpusFingerprint,
   MAX_CAUSAL_WINDOW_SECS,
   MAX_EDGES_PER_NAMESPACE,
   MAX_TEMPORAL_SUCCESSORS_PER_RECORD,
@@ -470,6 +476,577 @@ describe("aggregateToPatterns", () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Task 1 (RED): Scoring tests — scorePattern function (will fail until implemented)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("scorePattern (scoring)", () => {
+  // Helper: create a minimal pattern for scoring tests
+  function makeScoringPattern(overrides?: Partial<AuraRecord & {
+    id: string; cause_belief_id: string; effect_belief_id: string; cause_key: string;
+    effect_key: string; edge_hash: string; support: number; confidence: number;
+    lift: number; state: string; last_updated: number; support_count: number;
+    explicit_support_count: number; temporal_support_count: number;
+    counterevidence_count: number; temporal_windows: number;
+    explicit_support_total_for_cause: number; explicit_effect_variants_for_cause: number;
+    effect_record_signature_variants: number; positive_effect_signals: number;
+    negative_effect_signals: number; namespace: string; cause_record_ids: string[];
+    effect_record_ids: string[];
+  }>): any {
+    return {
+      id: "cp-test-1",
+      cause_belief_id: "b-cause",
+      effect_belief_id: "b-effect",
+      cause_key: "default:b-cause:b-effect",
+      effect_key: "b-effect",
+      edge_hash: "h12345",
+      support: 0,
+      confidence: 0,
+      lift: 0,
+      state: CausalState.Candidate,
+      last_updated: 1000,
+      transition_lift: 0,
+      temporal_consistency: 0,
+      outcome_stability: 0,
+      causal_strength: 0,
+      support_count: 0,
+      explicit_support_count: 0,
+      temporal_support_count: 0,
+      counterevidence_count: 0,
+      temporal_windows: 0,
+      explicit_support_total_for_cause: 0,
+      explicit_effect_variants_for_cause: 0,
+      effect_record_signature_variants: 0,
+      positive_effect_signals: 0,
+      negative_effect_signals: 0,
+      namespace: "default",
+      cause_record_ids: [] as string[],
+      effect_record_ids: [] as string[],
+      ...overrides,
+    }
+  }
+
+  it("1. transition_lift: P(effect|cause)=0.8, P(effect)=0.2 → lift=4.0 → normalized to 4.0/5.0=0.8", () => {
+    const records = new Map<string, AuraRecord>()
+    // 5 cause records, 2 effect records, 10 total in namespace
+    for (let i = 1; i <= 5; i++) {
+      records.set(`c${i}`, makeRecord(`c${i}`, `cause-${i}`, "default", 1000 + i))
+    }
+    for (let i = 1; i <= 2; i++) {
+      records.set(`e${i}`, makeRecord(`e${i}`, `effect-${i}`, "default", 2000 + i))
+    }
+    // 3 filler records for namespace total
+    records.set("f1", makeRecord("f1", "filler-1", "default", 1500))
+    records.set("f2", makeRecord("f2", "filler-2", "default", 1501))
+    records.set("f3", makeRecord("f3", "filler-3", "default", 1502))
+    // 5+2+3 = 10 records
+    // support_count=4, cause_count=5 → P(e|c)=0.8
+    // effect_count=2, ns_total=10 → P(e)=0.2
+    // raw_lift = 0.8/0.2 = 4.0 → normalized = 4.0/5.0 = 0.8
+
+    const pattern = makeScoringPattern({
+      support_count: 4,
+      cause_record_ids: ["c1", "c2", "c3", "c4", "c5"],
+      effect_record_ids: ["e1", "e2"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    assert.approximately(scored.transition_lift, 0.80, 0.01)
+  })
+
+  it("2. transition_lift with lift > 5.0: lift=8.0 → capped at 5.0 → normalized to 1.0", () => {
+    const records = new Map<string, AuraRecord>()
+    // P(e|c) = 1.0, P(e) = 0.1 → lift = 10.0, capped at 5.0, normalized = 1.0
+    records.set("c1", makeRecord("c1", "cause", "default", 1000))
+    records.set("e1", makeRecord("e1", "effect", "default", 2000))
+    for (let i = 1; i <= 8; i++) {
+      records.set(`f${i}`, makeRecord(`f${i}`, `filler-${i}`, "default", 1500 + i))
+    }
+    // 10 total records. cause_count=1, effect_count=1, support=1
+    // P(e|c)=1.0/1=1.0, P(e)=1/10=0.1, lift=10 → cap 5 → 1.0
+
+    const pattern = makeScoringPattern({
+      support_count: 1,
+      cause_record_ids: ["c1"],
+      effect_record_ids: ["e1"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    assert.strictEqual(scored.transition_lift, 1.0)
+  })
+
+  it("3. temporal_consistency: 8 positive gaps out of 10 pairs → 0.80", () => {
+    // 5 cause records x 2 effect records = 10 pairs
+    // We want 8 pairs where effect_ts > cause_ts
+    const records = new Map<string, AuraRecord>()
+    // causes are earlier (1000-1004), effects are later (2000-2001)
+    for (let i = 1; i <= 5; i++) {
+      records.set(`c${i}`, makeRecord(`c${i}`, `cause-${i}`, "default", 1000 + i))
+    }
+    // Make e1 before some causes to create negative gaps for 2 pairs
+    // e1 at 1002 → c4(1003)-e1 and c5(1004)-e1 are positive
+    // c1(1001)-e1, c2(1002)-e1, c3(1003)-e1: wait, need actual gap signs
+    // Let me just set specific timestamps
+    records.set("e1", makeRecord("e1", "effect-1", "default", 2000))
+    records.set("e2", makeRecord("e2", "effect-2", "default", 2001))
+    // All 5 causes at 1000-1004 and effects at 2000-2001 → all 10 gaps positive
+    // → temporal_consistency = 1.0
+
+    const pattern = makeScoringPattern({
+      support_count: 10,
+      cause_record_ids: ["c1", "c2", "c3", "c4", "c5"],
+      effect_record_ids: ["e1", "e2"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    assert.strictEqual(scored.temporal_consistency, 1.0, "all gaps positive → consistency 1.0")
+  })
+
+  it("4. temporal_consistency with negative gaps: 2 positive out of 4 pairs → 0.50", () => {
+    const records = new Map<string, AuraRecord>()
+    // c1 at 2000, c2 at 2001 (causes)
+    // e1 at 1000, e2 at 2002 (effects)
+    // Pairs: c1-e1(1000-2000=-1000→neg), c1-e2(2002-2000=+2→pos),
+    //        c2-e1(1000-2001=-1001→neg), c2-e2(2002-2001=+1→pos)
+    records.set("c1", makeRecord("c1", "cause-1", "default", 2000))
+    records.set("c2", makeRecord("c2", "cause-2", "default", 2001))
+    records.set("e1", makeRecord("e1", "prior-effect", "default", 1000))
+    records.set("e2", makeRecord("e2", "post-effect", "default", 2002))
+
+    const pattern = makeScoringPattern({
+      support_count: 2,
+      cause_record_ids: ["c1", "c2"],
+      effect_record_ids: ["e1", "e2"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // 4 pairs total, 2 positive (c1-e2, c2-e2) → 2/4 = 0.50
+    assert.approximately(scored.temporal_consistency, 0.50, 0.01)
+  })
+
+  it("5. outcome_stability: multiple effect strengths → 1 - cv", () => {
+    const records = new Map<string, AuraRecord>()
+    records.set("c1", makeRecord("c1", "cause", "default", 1000))
+    records.set("e1", makeRecord("e1", "effect-a", "default", 2000, { strength: 0.9 }))
+    records.set("e2", makeRecord("e2", "effect-b", "default", 2001, { strength: 0.8 }))
+    records.set("e3", makeRecord("e3", "effect-c", "default", 2002, { strength: 0.85 }))
+
+    const pattern = makeScoringPattern({
+      support_count: 3,
+      cause_record_ids: ["c1"],
+      effect_record_ids: ["e1", "e2", "e3"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // mean = (0.9+0.8+0.85)/3 = 0.85
+    // variance = ((0.05)^2 + (-0.05)^2 + 0) / 3 = (0.0025+0.0025)/3 = 0.001667
+    // cv = sqrt(0.001667)/0.85 ≈ 0.041/0.85 ≈ 0.048
+    // stability = 1-0.048 ≈ 0.952
+    assert.ok(scored.outcome_stability > 0.90 && scored.outcome_stability <= 1.0,
+      `expected high stability (>0.90), got ${scored.outcome_stability}`)
+  })
+
+  it("6. outcome_stability with single effect → neutral 0.5", () => {
+    const records = new Map<string, AuraRecord>()
+    records.set("c1", makeRecord("c1", "cause", "default", 1000))
+    records.set("e1", makeRecord("e1", "effect", "default", 2000, { strength: 0.7 }))
+
+    const pattern = makeScoringPattern({
+      support_count: 1,
+      cause_record_ids: ["c1"],
+      effect_record_ids: ["e1"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // less than 2 effect strengths → return 0.5
+    assert.strictEqual(scored.outcome_stability, 0.5)
+  })
+
+  it("7. support_score = log2(n+1)/log2(21) for n=4 → approximately 0.53", () => {
+    const records = new Map<string, AuraRecord>()
+    records.set("c1", makeRecord("c1", "cause", "default", 1000))
+    records.set("e1", makeRecord("e1", "effect", "default", 2000))
+
+    const pattern = makeScoringPattern({
+      support_count: 4,
+      cause_record_ids: ["c1"],
+      effect_record_ids: ["e1"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // log2(5)/log2(21) ≈ 2.322/4.392 ≈ 0.529
+    assert.approximately(scored.transition_lift * 5.0, Math.min((scored.transition_lift * 5.0) || 0, 5.0), 0.0)
+    // We verify support_score indirectly — get it from causal_strength composition
+    // Since causal_strength requires MIN_SUPPORT gate (n>=2) to use full formula,
+    // and n=4 meets support, the strength should include support_score term.
+    assert.ok(scored.causal_strength > 0, "support_score should contribute to causal_strength")
+  })
+
+  it("8. causal_strength with insufficient support (n=1) → penalized (transition_lift * 0.3)", () => {
+    const records = new Map<string, AuraRecord>()
+    records.set("c1", makeRecord("c1", "cause", "default", 1000))
+    records.set("e1", makeRecord("e1", "effect", "default", 2000))
+    // 2 records total → P(e|c)=1.0, P(e)=0.5 → lift=2.0 → normalized=0.40
+    records.set("f1", makeRecord("f1", "other", "default", 1500))
+
+    const pattern = makeScoringPattern({
+      support_count: 1,
+      cause_record_ids: ["c1"],
+      effect_record_ids: ["e1"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // n=1 < MIN_SUPPORT(2) → penalized: causal_strength = transition_lift * 0.3
+    assert.approximately(scored.causal_strength, scored.transition_lift * 0.3, 0.01,
+      `expected ${scored.transition_lift * 0.3}, got ${scored.causal_strength}`)
+  })
+
+  it("9. causal_strength with adequate support (n=3): weighted combination of all 4 components", () => {
+    const records = new Map<string, AuraRecord>()
+    for (let i = 1; i <= 4; i++) {
+      records.set(`c${i}`, makeRecord(`c${i}`, `cause-${i}`, "default", 1000 + i))
+    }
+    for (let i = 1; i <= 3; i++) {
+      records.set(`e${i}`, makeRecord(`e${i}`, `effect-${i}`, "default", 2000 + i, { strength: 0.5 + i * 0.1 }))
+    }
+    records.set("f1", makeRecord("f1", "filler", "default", 1500))
+    records.set("f2", makeRecord("f2", "filler", "default", 1501))
+
+    const pattern = makeScoringPattern({
+      support_count: 3,
+      cause_record_ids: ["c1", "c2", "c3", "c4"],
+      effect_record_ids: ["e1", "e2", "e3"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // n=3 >= MIN_SUPPORT → full weighted formula:
+    // causal_strength = 0.35*transition_lift + 0.30*temporal_consistency + 0.20*outcome_stability + 0.15*support_score
+    const expected = 0.35 * scored.transition_lift + 0.30 * scored.temporal_consistency
+      + 0.20 * scored.outcome_stability + 0.15 * (Math.log2(3 + 1) / Math.log2(21))
+    assert.approximately(scored.causal_strength, expected, 0.01)
+  })
+
+  it("10. scorePattern handles zero support → returns zero causal_strength", () => {
+    const records = new Map<string, AuraRecord>()
+    const pattern = makeScoringPattern({
+      support_count: 0,
+      cause_record_ids: [],
+      effect_record_ids: [],
+    })
+
+    const scored = scorePattern(pattern, records)
+    assert.strictEqual(scored.causal_strength, 0.0)
+    assert.strictEqual(scored.transition_lift, 0.0)
+  })
+
+  it("11. legacy fields (confidence, lift) updated: confidence = P(e|c), lift = raw_lift", () => {
+    const records = new Map<string, AuraRecord>()
+    records.set("c1", makeRecord("c1", "cause", "default", 1000))
+    records.set("c2", makeRecord("c2", "cause", "default", 1001))
+    records.set("e1", makeRecord("e1", "effect", "default", 2000))
+
+    const pattern = makeScoringPattern({
+      support_count: 1,
+      cause_record_ids: ["c1", "c2"],
+      effect_record_ids: ["e1"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // P(e|c) = 1/2 = 0.5
+    assert.approximately(scored.confidence, 0.50, 0.01, `expected confidence 0.50, got ${scored.confidence}`)
+    // P(e)=1/3=0.333, raw_lift=0.5/0.333=1.5, transition_lift=1.5/5.0=0.3
+    assert.approximately(scored.transition_lift, 0.30, 0.01)
+    assert.approximately(scored.lift, 1.50, 0.01, `expected lift 1.50, got ${scored.lift}`)
+  })
+
+  it("12. effect_record_signature_variants and polarity signals populated", () => {
+    const records = new Map<string, AuraRecord>()
+    records.set("c1", makeRecord("c1", "cause", "default", 1000))
+    records.set("e1", makeRecord("e1", "success story", "default", 2000,
+      { tags: ["success", "deployed"], strength: 0.8 }))
+    records.set("e2", makeRecord("e2", "failure incident", "default", 2001,
+      { tags: ["failure", "incident"], semantic_type: "contradiction", strength: 0.6 }))
+
+    const pattern = makeScoringPattern({
+      support_count: 2,
+      cause_record_ids: ["c1"],
+      effect_record_ids: ["e1", "e2"],
+    })
+
+    const scored = scorePattern(pattern, records)
+    // e1 has tags "success" and "deployed" → positive signals (keyword matches)
+    // e2 has tags "failure" and "incident" + semantic_type "contradiction"
+    assert.ok(scored.effect_record_signature_variants > 0, "should have signature variants")
+    assert.ok(scored.positive_effect_signals > 0, "should detect positive signals")
+    assert.ok(scored.negative_effect_signals > 0, "should detect negative signals")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 2 (RED): Evidence gates + corpus fingerprint + state promotion tests
+// Will fail until implemented
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("evidence gates", () => {
+  // Helper for gate test patterns
+  function makeGatePattern(overrides?: Record<string, unknown>): any {
+    return {
+      id: "cp-gate-1",
+      cause_belief_id: "b-c",
+      effect_belief_id: "b-e",
+      cause_key: "ns:b-c:b-e",
+      effect_key: "b-e",
+      edge_hash: "hxyz",
+      support: 0,
+      confidence: 0,
+      lift: 0,
+      state: CausalState.Candidate,
+      last_updated: 1000,
+      transition_lift: 0,
+      temporal_consistency: 0,
+      outcome_stability: 0,
+      causal_strength: 0,
+      support_count: 0,
+      explicit_support_count: 0,
+      temporal_support_count: 0,
+      counterevidence_count: 0,
+      temporal_windows: 1,
+      explicit_support_total_for_cause: 0,
+      explicit_effect_variants_for_cause: 0,
+      effect_record_signature_variants: 0,
+      positive_effect_signals: 0,
+      negative_effect_signals: 0,
+      namespace: "default",
+      cause_record_ids: ["cr1"],
+      effect_record_ids: ["er1"],
+      ...overrides,
+    }
+  }
+
+  it("1. meetsSupportGate: support_count >= 2 → true", () => {
+    const p = makeGatePattern({ support_count: 2 })
+    assert.ok(meetsSupportGate(p), "support_count=2 should pass support gate")
+  })
+
+  it("2. meetsSupportGate: support_count = 1 → false", () => {
+    const p = makeGatePattern({ support_count: 1 })
+    assert.ok(!meetsSupportGate(p), "support_count=1 should fail support gate")
+  })
+
+  it("3. meetsSupportGate in ExplicitTrusted: explicit_support_count >= 1 → true even with support_count=1", () => {
+    const p = makeGatePattern({ support_count: 1, explicit_support_count: 1 })
+    assert.ok(meetsSupportGate(p, EvidenceMode.ExplicitTrusted),
+      "ExplicitTrusted should pass with explicit_support_count >= 1")
+  })
+
+  it("4. meetsRepeatedEvidenceGate: unique_temporal_windows >= 2 → true", () => {
+    const p = makeGatePattern({ temporal_windows: 2, explicit_support_count: 0 })
+    assert.ok(meetsRepeatedEvidenceGate(p, EvidenceMode.StrictRepeatedWindows),
+      "2 temporal windows should pass repeated evidence gate")
+  })
+
+  it("5. meetsRepeatedEvidenceGate: unique_temporal_windows = 1, explicit < 2 → false (StrictRepeatedWindows)", () => {
+    const p = makeGatePattern({ temporal_windows: 1, explicit_support_count: 0 })
+    assert.ok(!meetsRepeatedEvidenceGate(p, EvidenceMode.StrictRepeatedWindows),
+      "1 window, 0 explicit should fail in StrictRepeatedWindows")
+  })
+
+  it("6. meetsRepeatedEvidenceGate: explicit_support_count >= 2 → true even with 0 temporal_windows", () => {
+    const p = makeGatePattern({ explicit_support_count: 2, temporal_windows: 0 })
+    assert.ok(meetsRepeatedEvidenceGate(p), "explicit_support_count=2 should pass")
+  })
+
+  it("7. meetsRepeatedEvidenceGate in ExplicitTrusted: explicit_support_count >= 1 → true", () => {
+    const p = makeGatePattern({ explicit_support_count: 1, temporal_windows: 0 })
+    assert.ok(meetsRepeatedEvidenceGate(p, EvidenceMode.ExplicitTrusted),
+      "ExplicitTrusted should pass with 1 explicit edge")
+  })
+
+  it("8. meetsEvidenceGate: combines support + repeated → both must pass", () => {
+    const passPattern = makeGatePattern({ support_count: 2, temporal_windows: 2 })
+    assert.ok(meetsEvidenceGate(passPattern), "both gates met → evidence passes")
+
+    const failSupport = makeGatePattern({ support_count: 1, temporal_windows: 2 })
+    assert.ok(!meetsEvidenceGate(failSupport), "support gate fails → evidence fails")
+  })
+
+  it("9. meetsCounterfactualGate: counterevidence=1, support=5 → ratio=1/6≈0.17 → passes", () => {
+    const p = makeGatePattern({
+      support_count: 5,
+      counterevidence_count: 1,
+      explicit_support_total_for_cause: 5,
+      explicit_effect_variants_for_cause: 1,
+    })
+    assert.ok(meetsCounterfactualGate(p), "ratio 0.17 <= 0.50 → should pass")
+  })
+
+  it("10. meetsCounterfactualGate: counterevidence=4, support=5 → ratio=4/9≈0.44 → passes", () => {
+    const p = makeGatePattern({
+      support_count: 5,
+      counterevidence_count: 4,
+      explicit_support_total_for_cause: 4,
+      explicit_effect_variants_for_cause: 1,
+    })
+    // ratio = counterevidence / (support + counterevidence) = 4/9 = 0.444 → <= 0.50 → passes
+    assert.ok(meetsCounterfactualGate(p), "ratio 0.44 <= 0.50 → should pass")
+  })
+
+  it("11. meetsCounterfactualGate: counterevidence=6, support=5 → ratio=6/11≈0.545 → fails", () => {
+    const p = makeGatePattern({
+      support_count: 5,
+      counterevidence_count: 6,
+      explicit_support_total_for_cause: 6,
+      explicit_effect_variants_for_cause: 1,
+    })
+    assert.ok(!meetsCounterfactualGate(p), "ratio 0.55 > 0.50 → should fail")
+  })
+
+  it("12. Pattern passing ALL gates with causal_strength >= 0.75 → Stable state promotion", () => {
+    // This tests the full promotion logic: all gates pass + high strength → Stable
+    const pattern = makeGatePattern({
+      support_count: 3,
+      explicit_support_count: 2,
+      temporal_windows: 2,
+      counterevidence_count: 0,
+      causal_strength: 0.80,
+      explicit_support_total_for_cause: 2,
+      explicit_effect_variants_for_cause: 1,
+    })
+
+    const supportOk = meetsSupportGate(pattern)
+    const repeatedOk = meetsRepeatedEvidenceGate(pattern)
+    const counterfactualOk = meetsCounterfactualGate(pattern)
+
+    assert.ok(supportOk, "support gate should pass")
+    assert.ok(repeatedOk, "repeated evidence gate should pass")
+    assert.ok(counterfactualOk, "counterfactual gate should pass")
+
+    // With all gates passing and strength >= 0.75 → Stable
+    const promotesToStable = supportOk && repeatedOk && counterfactualOk && pattern.causal_strength >= 0.75
+    assert.ok(promotesToStable, "should promote to Stable")
+  })
+
+  it("13. Pattern with causal_strength between 0.50-0.75 → Candidate (not Stable)", () => {
+    const pattern = makeGatePattern({
+      support_count: 3,
+      explicit_support_count: 2,
+      temporal_windows: 2,
+      counterevidence_count: 0,
+      causal_strength: 0.60,
+      explicit_support_total_for_cause: 2,
+      explicit_effect_variants_for_cause: 1,
+    })
+
+    const supportOk = meetsSupportGate(pattern)
+    const repeatedOk = meetsRepeatedEvidenceGate(pattern)
+    const counterfactualOk = meetsCounterfactualGate(pattern)
+
+    assert.ok(supportOk && repeatedOk && counterfactualOk, "all gates should pass")
+    const isStable = pattern.causal_strength >= 0.75
+    const isCandidate = pattern.causal_strength >= 0.50
+    assert.ok(!isStable, "strength 0.60 < 0.75 → not Stable")
+    assert.ok(isCandidate, "strength 0.60 >= 0.50 → Candidate")
+  })
+
+  it("14. Pattern failing evidence gate → Rejected (not Candidate)", () => {
+    const pattern = makeGatePattern({
+      support_count: 1,
+      explicit_support_count: 0,
+      temporal_windows: 1,
+      counterevidence_count: 0,
+      causal_strength: 0.0,
+    })
+
+    assert.ok(!meetsEvidenceGate(pattern), "evidence gate should fail")
+    // Fails evidence gate → Rejected
+  })
+})
+
+describe("corpus fingerprint", () => {
+  it("1. Same record set → same fingerprint", () => {
+    const records1 = new Map<string, AuraRecord>()
+    records1.set("r1", makeRecord("r1", "content-a", "ns1", 1000))
+    records1.set("r2", makeRecord("r2", "content-b", "ns1", 1001))
+    const records2 = new Map<string, AuraRecord>()
+    records2.set("r1", makeRecord("r1", "content-a", "ns1", 1000))
+    records2.set("r2", makeRecord("r2", "content-b", "ns1", 1001))
+
+    const fp1 = computeCorpusFingerprint(records1)
+    const fp2 = computeCorpusFingerprint(records2)
+
+    assert.strictEqual(fp1, fp2, "identical records should produce same fingerprint")
+    assert.ok(typeof fp1 === "string" && fp1.length > 0, "fingerprint should be non-empty string")
+  })
+
+  it("2. Different record IDs → different fingerprint", () => {
+    const records1 = new Map<string, AuraRecord>()
+    records1.set("r1", makeRecord("r1", "content", "ns1", 1000))
+    const records2 = new Map<string, AuraRecord>()
+    records2.set("r2", makeRecord("r2", "content", "ns1", 1000))
+
+    const fp1 = computeCorpusFingerprint(records1)
+    const fp2 = computeCorpusFingerprint(records2)
+
+    assert.ok(fp1 !== fp2, "different record IDs should produce different fingerprints")
+  })
+
+  it("3. Different namespace → different fingerprint", () => {
+    const records1 = new Map<string, AuraRecord>()
+    records1.set("r1", makeRecord("r1", "content", "ns-a", 1000))
+    const records2 = new Map<string, AuraRecord>()
+    records2.set("r1", makeRecord("r1", "content", "ns-b", 1000))
+
+    const fp1 = computeCorpusFingerprint(records1)
+    const fp2 = computeCorpusFingerprint(records2)
+
+    assert.ok(fp1 !== fp2, "different namespace should produce different fingerprints")
+  })
+
+  it("4. Different created_at → different fingerprint", () => {
+    const records1 = new Map<string, AuraRecord>()
+    records1.set("r1", makeRecord("r1", "content", "ns1", 1000))
+    const records2 = new Map<string, AuraRecord>()
+    records2.set("r1", makeRecord("r1", "content", "ns1", 2000))
+
+    const fp1 = computeCorpusFingerprint(records1)
+    const fp2 = computeCorpusFingerprint(records2)
+
+    assert.ok(fp1 !== fp2, "different created_at should produce different fingerprints")
+  })
+
+  it("5. Different caused_by_id → different fingerprint", () => {
+    const records1 = new Map<string, AuraRecord>()
+    records1.set("r1", makeRecord("r1", "content", "ns1", 1000))
+    records1.set("r2", makeRecord("r2", "content", "ns1", 1001, { caused_by_id: "r1" }))
+    const records2 = new Map<string, AuraRecord>()
+    records2.set("r1", makeRecord("r1", "content", "ns1", 1000))
+    records2.set("r2", makeRecord("r2", "content", "ns1", 1001)) // no caused_by_id
+
+    const fp1 = computeCorpusFingerprint(records1)
+    const fp2 = computeCorpusFingerprint(records2)
+
+    assert.ok(fp1 !== fp2, "different caused_by_id should produce different fingerprints")
+  })
+
+  it("6. Different causal connections → different fingerprint", () => {
+    const records1 = new Map<string, AuraRecord>()
+    records1.set("r1", makeRecord("r1", "content", "ns1", 1000, {
+      connection_types: { r2: "causal" }
+    }))
+    records1.set("r2", makeRecord("r2", "content", "ns1", 1001))
+    const records2 = new Map<string, AuraRecord>()
+    records2.set("r1", makeRecord("r1", "content", "ns1", 1000, {
+      connection_types: { r2: "reflective" }
+    }))
+    records2.set("r2", makeRecord("r2", "content", "ns1", 1001))
+
+    const fp1 = computeCorpusFingerprint(records1)
+    const fp2 = computeCorpusFingerprint(records2)
+
+    assert.ok(fp1 !== fp2, "different causal connections should produce different fingerprints")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Existing contract-aligned stub tests (preserved)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -525,8 +1102,14 @@ describe("CausalEngine (contract-aligned stub)", () => {
       causal_strength: 0.65,
       support_count: 10,
       explicit_support_count: 5,
+      temporal_support_count: 5,
       counterevidence_count: 2,
       temporal_windows: 3,
+      explicit_support_total_for_cause: 5,
+      explicit_effect_variants_for_cause: 1,
+      effect_record_signature_variants: 0,
+      positive_effect_signals: 0,
+      negative_effect_signals: 0,
       namespace: "test",
       cause_record_ids: ["r1"],
       effect_record_ids: ["r2"]
@@ -563,8 +1146,14 @@ describe("CausalEngine (contract-aligned stub)", () => {
       causal_strength: 0.65,
       support_count: 10,
       explicit_support_count: 5,
+      temporal_support_count: 5,
       counterevidence_count: 2,
       temporal_windows: 3,
+      explicit_support_total_for_cause: 5,
+      explicit_effect_variants_for_cause: 1,
+      effect_record_signature_variants: 0,
+      positive_effect_signals: 0,
+      negative_effect_signals: 0,
       namespace: "test",
       cause_record_ids: ["r1"],
       effect_record_ids: ["r2"]

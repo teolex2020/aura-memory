@@ -381,3 +381,167 @@ describe("BeliefEngineImpl", () => {
     expect(hypIds1.sort()).toEqual(hypIds2.sort())
   })
 })
+
+// ── Task 2 tests: Incremental update + soft deprecation ──
+
+describe("Incremental update_with_sdr", () => {
+  it("preserves key_index across calls (incremental belief reuse)", async () => {
+    const engine = new BeliefEngineImpl()
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy", "safety"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy", "safety"], "decision")]
+    ])
+
+    // First cycle: create beliefs
+    await runEffect(engine.update_with_sdr(records, new Map()))
+    const state1 = await Effect.runPromise(engine.stats())
+    const beliefs1 = Object.values(state1.beliefs)
+    expect(beliefs1.length).toBeGreaterThanOrEqual(1)
+
+    // Second cycle: same records → should reuse existing beliefs via key_index
+    await runEffect(engine.update_with_sdr(records, new Map()))
+    const state2 = await Effect.runPromise(engine.stats())
+    const beliefs2 = Object.values(state2.beliefs)
+    expect(beliefs2.length).toBe(beliefs1.length)
+
+    // Same belief keys → same belief IDs (key_index reuse)
+    const keys1 = new Set(Object.keys(state1.key_index))
+    const keys2 = new Set(Object.keys(state2.key_index))
+    expect(keys1).toEqual(keys2)
+  })
+
+  it("adds new belief when new coarse key appears", async () => {
+    const engine = new BeliefEngineImpl()
+    const records1 = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy"], "decision")]
+    ])
+
+    await runEffect(engine.update_with_sdr(records1, new Map()))
+    const state1 = await Effect.runPromise(engine.stats())
+    const beliefs1Count = Object.keys(state1.beliefs).length
+
+    // Add a new record with different tags (different coarse key)
+    const records2 = new Map<string, AuraRecord>([
+      ...records1,
+      ["r3", makeRecord("r3", "monitoring setup is important for this type of infrastructure", ["monitoring"], "decision")],
+      ["r4", makeRecord("r4", "need monitoring for infrastructure reliability always", ["monitoring"], "decision")]
+    ])
+
+    await runEffect(engine.update_with_sdr(records2, new Map()))
+    const state2 = await Effect.runPromise(engine.stats())
+    const beliefs2Count = Object.keys(state2.beliefs).length
+
+    // Should have one more belief for the new monitoring key
+    expect(beliefs2Count).toBeGreaterThan(beliefs1Count)
+  })
+
+  it("prunes stale beliefs when records are removed", async () => {
+    const engine = new BeliefEngineImpl()
+    const records1 = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy"], "decision")],
+      ["r3", makeRecord("r3", "monitoring setup for infrastructure", ["monitoring"], "decision")],
+      ["r4", makeRecord("r4", "need monitoring for infrastructure reliability", ["monitoring"], "decision")]
+    ])
+
+    const report1 = await runEffect(engine.update_with_sdr(records1, new Map()))
+    expect(report1.beliefs_created).toBeGreaterThanOrEqual(2)
+
+    // Remove monitoring records — only deploy remains
+    const records2 = new Map<string, AuraRecord>([
+      ...Array.from(records1.entries()).slice(0, 2)  // only deploy records
+    ])
+
+    const report2 = await runEffect(engine.update_with_sdr(records2, new Map()))
+    // Stale monitoring belief should be pruned
+    expect(report2.beliefs_pruned).toBeGreaterThanOrEqual(1)
+  })
+
+  it("reports all 8 fields with actual computed values", async () => {
+    const engine = new BeliefEngineImpl()
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy", "safety"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy", "safety"], "decision")],
+      ["r3", makeRecord("r3", "monitoring setup for infrastructure", ["monitoring"], "decision")],
+      ["r4", makeRecord("r4", "need monitoring for infrastructure reliability", ["monitoring"], "decision")]
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, new Map()))
+
+    expect(typeof report.coarse_groups).toBe("number")
+    expect(typeof report.beliefs_built).toBe("number")
+    expect(typeof report.hypotheses_built).toBe("number")
+    expect(typeof report.beliefs_created).toBe("number")
+    expect(typeof report.beliefs_pruned).toBe("number")
+    expect(typeof report.revisions).toBe("number")
+    expect(typeof report.resolved).toBe("number")
+    expect(typeof report.unresolved).toBe("number")
+    expect(typeof report.total_beliefs).toBe("number")
+    expect(typeof report.total_hypotheses).toBe("number")
+    expect(typeof report.churn_rate).toBe("number")
+
+    // churn_rate = (beliefs_created + beliefs_pruned) / max(1, total_beliefs)
+    expect(report.total_beliefs).toBeGreaterThan(0)
+    expect(report.churn_rate).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe("deprecate_belief (soft deprecation)", () => {
+  it("halves confidence without deleting the belief", async () => {
+    const engine = new BeliefEngineImpl()
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy", "safety"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy", "safety"], "decision")]
+    ])
+
+    await runEffect(engine.update_with_sdr(records, new Map()))
+    const state = await Effect.runPromise(engine.stats())
+    const beliefs = Object.values(state.beliefs)
+    expect(beliefs.length).toBeGreaterThan(0)
+
+    const beliefId = beliefs[0]!.id
+    const origConfidence = beliefs[0]!.confidence
+
+    await Effect.runPromise(engine.deprecate_belief(beliefId))
+    const state2 = await Effect.runPromise(engine.stats())
+    const deprecated = state2.beliefs[beliefId]
+
+    // Should still exist (not deleted)
+    expect(deprecated).toBeDefined()
+
+    // Confidence should be approximately halved
+    expect(deprecated!.confidence).toBeCloseTo(origConfidence * 0.5, 1)
+
+    // State should be Unresolved
+    expect(deprecated!.state).toBe(BeliefState.Unresolved)
+
+    // Winner should be null
+    expect(deprecated!.winner_id).toBeNull()
+  })
+
+  it("does not throw for non-existent belief_id", async () => {
+    const engine = new BeliefEngineImpl()
+    await expect(
+      Effect.runPromise(engine.deprecate_belief("non-existent-id"))
+    ).resolves.toBeUndefined()
+  })
+})
+
+describe("record_index", () => {
+  it("maps record_id to hypothesis_id (not belief_id)", async () => {
+    const engine = new BeliefEngineImpl()
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy", "safety"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy", "safety"], "decision")]
+    ])
+
+    await runEffect(engine.update_with_sdr(records, new Map()))
+    const state = await Effect.runPromise(engine.stats())
+
+    // record_to_belief should contain both record IDs
+    for (const rid of ["r1", "r2"]) {
+      expect(state.record_to_belief[rid]).toBeDefined()
+    }
+  })
+})

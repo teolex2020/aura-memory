@@ -127,10 +127,10 @@ it("hints without provenance are not surfaced", () => {
 
 // ── 7. Surface sorting is deterministic with actionKind tiebreaker ──
 
-it("surface sorting is deterministic with actionKind tiebreaker", () => {
-  // Same policyStrength for all, so actionKind priority is the differentiator
-  // Avoid > Warn > VerifyFirst > Recommend > Prefer
-  // Use different domains to avoid per-domain cap (MAX_SURFACED_PER_DOMAIN=3)
+it("surface sorting is deterministic — policyStrength -> confidence -> riskScore -> key", () => {
+  // Same policyStrength=0.80 for all, same confidence=0.70, same riskScore=0.0
+  // Rust sort: policy_strength DESC -> confidence DESC -> risk_score DESC -> stable -> key ASC
+  // Final tiebreak is key alphabetical
   const engine = makeEngine([
     makeHint("h_prefer", "k_prefer", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.70, 0.0, { recommendation: "Prefer approach A" }),
     makeHint("h_recommend", "k_recommend", "default", "domain_b", PolicyActionKind.Recommend, PolicyState.Stable, 0.80, 0.70, 0.0, { recommendation: "Recommend approach B" }),
@@ -143,16 +143,17 @@ it("surface sorting is deterministic with actionKind tiebreaker", () => {
   const s2 = run(surfacePolicyHints(engine))
 
   assert.strictEqual(s1.length, 5)
-  // Deterministic: both calls produce same order
+  // Deterministic: both calls produce same key-ordered output
   for (let i = 0; i < s1.length; i++) {
     assert.strictEqual(s1[i]!.id, s2[i]!.id)
   }
-  // ActionKind priority: Avoid > Warn > VerifyFirst > Recommend > Prefer
+  // Key alphabetical order (final tiebreak when all scores equal):
+  // k_avoid, k_prefer, k_recommend, k_verify, k_warn
   assert.strictEqual(s1[0]!.id, "h_avoid")
-  assert.strictEqual(s1[1]!.id, "h_warn")
-  assert.strictEqual(s1[2]!.id, "h_verify")
-  assert.strictEqual(s1[3]!.id, "h_recommend")
-  assert.strictEqual(s1[4]!.id, "h_prefer")
+  assert.strictEqual(s1[1]!.id, "h_prefer")
+  assert.strictEqual(s1[2]!.id, "h_recommend")
+  assert.strictEqual(s1[3]!.id, "h_verify")
+  assert.strictEqual(s1[4]!.id, "h_warn")
 })
 
 // ── 8. Surface limit is enforced ──

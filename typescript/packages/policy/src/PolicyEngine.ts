@@ -255,11 +255,6 @@ export class PolicyEngineImpl {
       yield* concept_engine.stats() // validate concept engine connectivity
       const hints = buildHints(seeds, belief_engine, records)
       const hintsFound = hints.length
-      let stableHints = 0
-      let suppressedHints = 0
-      let rejectedHints = 0
-      let strengthSum = 0
-      let confidenceSum = 0
 
       // ── Classify state + store hints ──
       const newHints: Record<string, PolicyHint> = { ...self.state.hints }
@@ -274,12 +269,24 @@ export class PolicyEngineImpl {
         }
         newHints[classifiedHint.id] = classifiedHint
         newKeyIndex[classifiedHint.cause_key] = classifiedHint.id
-        if (classifiedHint.state === PolicyState.Stable) stableHints++
-        strengthSum += classifiedHint.policyStrength
-        confidenceSum += classifiedHint.confidence
       }
 
-      self.state = { ...self.state, hints: newHints, key_index: newKeyIndex }
+      // ── Phase E: Suppression (Rust lines 727-786) ──
+      const hintValues = Object.values(newHints)
+      const suppressed = applySuppression(hintValues)
+      let finalStableHints = 0
+      let finalSuppressed = 0
+      let strengthSum = 0
+      let confidenceSum = 0
+      const finalHints: Record<string, PolicyHint> = {}
+      for (const hint of suppressed) {
+        finalHints[hint.id] = hint
+        if (hint.state === PolicyState.Stable) finalStableHints++
+        if (hint.state === PolicyState.Suppressed) finalSuppressed++
+        strengthSum += hint.policyStrength
+        confidenceSum += hint.confidence
+      }
+      self.state = { ...self.state, hints: finalHints, key_index: newKeyIndex }
 
       if (trace) {
         yield* trace.event("policy.discover.end", {
@@ -293,13 +300,13 @@ export class PolicyEngineImpl {
 
       const report: PolicyReport = {
         hints_found: hintsFound,
-        hints_active: stableHints,
-        hints_suppressed: suppressedHints,
+        hints_active: finalStableHints,
+        hints_suppressed: finalSuppressed,
         avg_confidence: avgConfidence,
         seeds_found: seedsFound,
-        stable_hints: stableHints,
-        suppressed_hints: suppressedHints,
-        rejected_hints: rejectedHints,
+        stable_hints: finalStableHints,
+        suppressed_hints: finalSuppressed,
+        rejected_hints: 0,
         avg_policy_strength: avgPolicyStrength,
       }
 
@@ -702,6 +709,49 @@ function buildHints(
  * Matches Rust policy.rs apply_suppression.
  */
 export function applySuppression(hints: PolicyHint[]): PolicyHint[] {
-  // RED stub: returns hints unchanged (no suppression)
-  return hints
+  const result = [...hints]
+  const toSuppress = new Set<number>()
+
+  for (let i = 0; i < result.length; i++) {
+    for (let j = i + 1; j < result.length; j++) {
+      const a = result[i]!
+      const b = result[j]!
+
+      // Same namespace + domain
+      if (a.namespace !== b.namespace || a.domain !== b.domain) continue
+
+      // Check opposite polarity: one positive (Prefer/Recommend), one negative (Avoid/VerifyFirst)
+      const aPositive = a.actionKind === "prefer" || a.actionKind === "recommend"
+      const bPositive = b.actionKind === "prefer" || b.actionKind === "recommend"
+
+      if (aPositive === bPositive) continue // same direction — no conflict
+
+      // Check overlapping cause_record_ids
+      const aCauses = new Set(a.cause_record_ids)
+      const overlap = b.cause_record_ids.filter(id => aCauses.has(id))
+      if (overlap.length === 0) continue // no shared cause records — not a real conflict
+
+      // Both must be Candidate or Stable (not already Suppressed/Rejected)
+      if (
+        (a.state !== PolicyState.Stable && a.state !== PolicyState.Candidate) ||
+        (b.state !== PolicyState.Stable && b.state !== PolicyState.Candidate)
+      ) continue
+
+      // Suppress the weaker one; equal within 0.01 → suppress neither (conservative)
+      if (Math.abs(a.policyStrength - b.policyStrength) < 0.01) continue
+
+      if (a.policyStrength < b.policyStrength) {
+        toSuppress.add(i)
+      } else {
+        toSuppress.add(j)
+      }
+    }
+  }
+
+  // Apply suppression
+  for (const idx of toSuppress) {
+    result[idx] = { ...result[idx]!, state: PolicyState.Suppressed }
+  }
+
+  return result
 }

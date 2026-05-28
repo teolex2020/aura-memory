@@ -26,15 +26,6 @@ const MAX_SURFACED_PER_DOMAIN = 3
 
 // ── Types ──
 
-/** ActionKind priority for tiebreaking: lower number = higher surface priority. */
-const ACTION_KIND_PRIORITY: Record<PolicyActionKind, number> = {
-  [PolicyActionKind.Avoid]: 0,
-  [PolicyActionKind.Warn]: 1,
-  [PolicyActionKind.VerifyFirst]: 2,
-  [PolicyActionKind.Recommend]: 3,
-  [PolicyActionKind.Prefer]: 4,
-}
-
 /** Maps PolicyState to its external string representation. */
 function stateString(state: PolicyState): SurfacedPolicyHint["state"] {
   if (state === PolicyState.Stable) return "stable"
@@ -124,8 +115,8 @@ function toSurfaced(hint: PolicyHint): SurfacedPolicyHint {
  * Surface policy hints for external consumption.
  *
  * Filters eligible hints (Stable or strong Candidate with provenance),
- * sorts by policyStrength descending with actionKind priority tiebreaking
- * (Avoid > Warn > VerifyFirst > Recommend > Prefer), enforces per-domain
+ * sorts by Rust-aligned order (policyStrength DESC → confidence DESC →
+ * risk_score DESC → stable priority → key ASC), enforces per-domain
  * and global caps, and deduplicates by key and recommendation text.
  */
 export function surfacePolicyHints(
@@ -156,19 +147,20 @@ export function surfacePolicyHintsFiltered(
     }
   }
 
-  // Phase C: sort — primary by policyStrength desc,
-  // tiebreak by actionKind priority (higher priority = lower number = first),
-  // final tiebreak by key for determinism
+  // Phase C: sort — Rust policy.rs surface_policy_hints sort (lines 978-999)
+  // policy_strength DESC → confidence DESC → risk_score DESC → stable before candidate → key ASC
   eligible.sort((a, b) => {
     // Primary: policyStrength descending
     const strengthDiff = b.policyStrength - a.policyStrength
     if (strengthDiff !== 0) return strengthDiff
 
-    // Tiebreak: actionKind priority (Avoid > Warn > VerifyFirst > Recommend > Prefer)
-    const aPriority = ACTION_KIND_PRIORITY[a.actionKind]
-    const bPriority = ACTION_KIND_PRIORITY[b.actionKind]
-    const priorityDiff = aPriority - bPriority
-    if (priorityDiff !== 0) return priorityDiff
+    // Secondary: confidence descending
+    const confDiff = b.confidence - a.confidence
+    if (confDiff !== 0) return confDiff
+
+    // Tertiary: riskScore descending
+    const riskDiff = b.riskScore - a.riskScore
+    if (riskDiff !== 0) return riskDiff
 
     // Tiebreak: Stable before Candidate
     if (a.state === "Stable" && b.state !== "Stable") return -1

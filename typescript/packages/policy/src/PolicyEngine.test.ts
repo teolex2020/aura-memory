@@ -11,7 +11,7 @@ import type {
   SdrLookup,
   ConceptEngineState,
 } from "@aura/contract"
-import { PolicyEngineImpl } from "./PolicyEngine"
+import { PolicyEngineImpl, computePolicyStrength, generateRecommendation } from "./PolicyEngine"
 
 const NoopTrace = {
   event: (): Effect.Effect<void> => Effect.void,
@@ -461,5 +461,113 @@ describe("PolicyEngine (contract-aligned)", () => {
     assert.strictEqual(r1.hints_found, r2.hints_found)
     assert.strictEqual(r1.hints_active, r2.hints_active)
     assert.strictEqual(r1.avg_confidence, r2.avg_confidence)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 1 RED Tests: 4-dim policy strength scoring + recommendation templates
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { PolicyActionKind } from "@aura/contract"
+
+describe("PolicyEngine P2 — Scoring + Recommendations", () => {
+  it("computePolicyStrength: 0.35*0.8 + 0.25*0.9 + 0.20*0.7 + 0.20*0.6 = 0.765", () => {
+    const score = computePolicyStrength({
+      causal_strength: 0.8,
+      confidence: 0.9,
+      utilityScore: 0.7,
+      stability: 0.6,
+    })
+    // Expected: 0.35*0.8=0.28 + 0.25*0.9=0.225 + 0.20*0.7=0.14 + 0.20*0.6=0.12 = 0.765
+    assert.strictEqual(score, 0.765)
+  })
+
+  it("computePolicyStrength: all zeros -> 0", () => {
+    const score = computePolicyStrength({
+      causal_strength: 0,
+      confidence: 0,
+      utilityScore: 0,
+      stability: 0,
+    })
+    assert.strictEqual(score, 0)
+  })
+
+  it("computePolicyStrength: all 1.0 -> 1.0", () => {
+    const score = computePolicyStrength({
+      causal_strength: 1.0,
+      confidence: 1.0,
+      utilityScore: 1.0,
+      stability: 1.0,
+    })
+    assert.strictEqual(score, 1.0)
+  })
+
+  it("generateRecommendation: Avoid template matches Rust exact string", () => {
+    const text = generateRecommendation(PolicyActionKind.Avoid, "error", "infra")
+    // Rust exact: "Avoid: '{}' in domain [{}] has been associated with negative outcomes."
+    const expected = "Avoid: 'error' in domain [infra] has been associated with negative outcomes."
+    assert.strictEqual(text, expected)
+  })
+
+  it("generateRecommendation: VerifyFirst template matches Rust exact string", () => {
+    const text = generateRecommendation(PolicyActionKind.VerifyFirst, "timeout", "api")
+    // Rust exact: "Verify first: '{}' in domain [{}] has shown risk signals — check before proceeding."
+    const expected = "Verify first: 'timeout' in domain [api] has shown risk signals — check before proceeding."
+    assert.strictEqual(text, expected)
+  })
+
+  it("generateRecommendation: Prefer template matches Rust exact string", () => {
+    const text = generateRecommendation(PolicyActionKind.Prefer, "optimized", "backend")
+    // Rust exact: "Prefer: '{}' in domain [{}] has consistently led to positive outcomes."
+    const expected = "Prefer: 'optimized' in domain [backend] has consistently led to positive outcomes."
+    assert.strictEqual(text, expected)
+  })
+
+  it("generateRecommendation: Recommend template matches Rust exact string", () => {
+    const text = generateRecommendation(PolicyActionKind.Recommend, "stable", "frontend")
+    // Rust exact: "Recommend: '{}' in domain [{}] has shown positive signals."
+    const expected = "Recommend: 'stable' in domain [frontend] has shown positive signals."
+    assert.strictEqual(text, expected)
+  })
+
+  it("generateRecommendation: Warn template matches Rust exact string", () => {
+    const text = generateRecommendation(PolicyActionKind.Warn, "pattern", "system")
+    // Rust exact: "Warning: '{}' in domain [{}] has a strong causal pattern but unclear polarity."
+    const expected = "Warning: 'pattern' in domain [system] has a strong causal pattern but unclear polarity."
+    assert.strictEqual(text, expected)
+  })
+
+  it("PolicyHint has recommendation, utilityScore, policyStrength fields populated after discover", async () => {
+    const engine = new PolicyEngineImpl()
+    const pattern = makePattern({
+      id: "cp-p2-1",
+      state: CausalState.Stable,
+      causal_strength: 0.80,
+      support_count: 3,
+      cause_record_ids: ["r-cause-1"],
+      effect_record_ids: ["r-effect-1"],
+      outcome_stability: 0.6,
+      temporal_consistency: 0.7,
+      namespace: "ns-p2",
+    })
+    const cEng = mockCausalEngine([pattern])
+    const ctEng = mockConceptEngine()
+    const bEng = mockBeliefEngine({ "b-cause": { state: "Resolved", confidence: 0.85 } })
+    const records = makeRecords()
+
+    const report = await runWithClock(engine.discover(cEng, ctEng, bEng, records))
+    // P2: hints should be built from seeds
+    assert.strictEqual(report.seeds_found, 1)
+    assert.strictEqual(report.hints_found, 1)
+
+    // Verify hint state
+    const state = await Effect.runPromise(engine.stats())
+    const hintIds = Object.keys(state.hints)
+    assert.strictEqual(hintIds.length, 1)
+    const hint = state.hints[hintIds[0]!]!
+    assert.strictEqual(typeof hint.recommendation, "string")
+    assert.ok(hint.recommendation.length > 0)
+    assert.ok(hint.utilityScore !== undefined)
+    assert.ok(hint.policyStrength !== undefined)
   })
 })

@@ -439,3 +439,65 @@ export function mapActionKind(
       return PolicyActionKind.Warn
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Policy strength scoring (Rust-aligned policy.rs lines 33-37, 589-604)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Scoring weights (Rust policy.rs lines 34-37).
+const W_CAUSAL = 0.35
+const W_CONFIDENCE = 0.25
+const W_UTILITY = 0.20
+const W_STABILITY = 0.20
+
+/**
+ * Compute 4-dimension policy strength score.
+ *
+ * Formula: 0.35*causal_strength + 0.25*confidence + 0.20*utilityScore + 0.20*stability
+ * Clamped to [0, 1].
+ *
+ * Matches Rust policy.rs build_hint lines 601-604.
+ */
+export function computePolicyStrength(params: {
+  causal_strength: number
+  confidence: number
+  utilityScore: number
+  stability: number
+}): number {
+  // RED stub: always returns 0
+  return 0
+}
+
+/// State thresholds (Rust policy.rs lines 40-41).
+const STABLE_THRESHOLD = 0.75
+const CANDIDATE_THRESHOLD = 0.50
+
+/**
+ * Generate deterministic recommendation text from template.
+ *
+ * 5 templates matching Rust policy.rs generate_recommendation (lines 694-719).
+ */
+export function generateRecommendation(
+  actionKind: import("@aura/contract").PolicyActionKind,
+  causeSummary: string,
+  domain: string
+): string {
+  // RED stub: always returns empty string
+  return ""
+}
+
+/**
+ * Aggregate confidence from resolved beliefs.
+ *
+ * Averages confidence of Resolved/Singleton beliefs from the belief engine,
+ * with fallback to record-level confidence or 0.50 neutral default.
+ *
+ * Matches Rust policy.rs aggregate_belief_confidence (lines 654-677).
+ */
+function aggregateBeliefConfidence(
+  beliefIds: string[],
+  beliefEngine: BeliefEngine.Interface
+): number {
+  // RED stub: always returns 0
+  return 0
+}

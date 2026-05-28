@@ -94,7 +94,7 @@ Plans:
 
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 6
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 Plans:
 **Wave 1**
 
@@ -109,7 +109,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 06.2-05-PLAN.md — EpistemicRuntime complex aggregates + surface delegation (TDD)
+- [x] 06.2-05-PLAN.md — EpistemicRuntime complex aggregates + surface delegation (TDD)
 
 ### Phase 06.1: 补齐四大引擎未完成功能和修复类型错误 (INSERTED)
 

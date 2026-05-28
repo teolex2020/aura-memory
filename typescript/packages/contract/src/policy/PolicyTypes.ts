@@ -16,13 +16,16 @@ export enum PolicyState {
  * Kinds of policy actions — maps to Rust PolicyActionKind enum.
  *
  * 策略动作类型枚举。
+ *
+ * CONTRACT: This MUST be a TypeScript string enum (not an ad hoc string union).
+ * PROJECT RULE D-22: All enum-like Rust equivalents use TS string enums.
  */
 export enum PolicyActionKind {
+  Avoid = "avoid",
+  VerifyFirst = "verify_first",
   Prefer = "prefer",
   Recommend = "recommend",
-  VerifyFirst = "verify_first",
-  Avoid = "avoid",
-  Warn = "warn",
+  Warn = "warn"
 }
 
 /**
@@ -48,7 +51,7 @@ export type PolicyHint = {
   /** Unix timestamp of last update. 最近更新时间（秒）。 */
   readonly last_updated: number
   /** Action kind from PolicyActionKind enum. 策略动作类型。 */
-  readonly actionKind: string
+  readonly actionKind: PolicyActionKind
   /** Policy strength score (0–1). 策略强度分数。 */
   readonly policyStrength: number
   /** Risk score — higher means more risk if ignored. 风险分数。 */
@@ -57,6 +60,18 @@ export type PolicyHint = {
   readonly namespace: string
   /** Domain classification. 域分类。 */
   readonly domain: string
+
+  // ── New Rust-aligned fields (D-22) ──
+  /** Polarity classification from effect-side record analysis. 效果侧record分析得出的极性分类。 */
+  readonly polarity: "Positive" | "Negative" | "Neutral"
+  /** Human-readable recommendation text (template-based, matching Rust 5 templates). 推荐文本。 */
+  readonly recommendation: string
+  /** Utility score — expected benefit if hint is followed. 效用分数（遵循提示的预期收益）。 */
+  readonly utilityScore: number
+  /** Composite key for the cause side (namespace:cause_belief_key:effect_belief_key:edge_hash). */
+  readonly cause_key: string
+  /** Record IDs on the effect side — used for polarity signal extraction. 效果侧record ID列表。 */
+  readonly effect_keys: ReadonlyArray<string>
 }
 
 /**
@@ -82,4 +97,16 @@ export type PolicyReport = {
   readonly hints_active: number
   readonly hints_suppressed: number
   readonly avg_confidence: number
+
+  // ── New Rust-aligned report fields (D-22) ──
+  /** Number of causal pattern seeds evaluated. 评估的因果模式种子数。 */
+  readonly seeds_found: number
+  /** Number of hints promoted to Stable state. 晋升为Stable的提示数。 */
+  readonly stable_hints: number
+  /** Number of hints suppressed due to conflict. 因冲突被抑制的提示数。 */
+  readonly suppressed_hints: number
+  /** Number of hints rejected by evidence/confidence gates. 因证据/置信度门被拒绝的提示数。 */
+  readonly rejected_hints: number
+  /** Average policy strength across all generated hints. 所有生成提示的平均策略强度。 */
+  readonly avg_policy_strength: number
 }

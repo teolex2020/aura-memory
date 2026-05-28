@@ -104,15 +104,29 @@ const samplePattern = (
     confidence: number
     last_updated: number
   }> = {}
-) => ({
+): CausalEngineState["patterns"][string] => ({
   id,
-  antecedent_concept_ids: [] as ReadonlyArray<string>,
-  consequent_concept_ids: [] as ReadonlyArray<string>,
+  cause_belief_id: "b1",
+  effect_belief_id: "b2",
+  cause_key: "ns:k1:k2:h",
+  effect_key: "k2",
+  edge_hash: "h",
   support: 1,
   confidence: overrides.confidence ?? 0.7,
   lift: 1.5,
-  state: overrides.state ?? "Stable",
+  state: (overrides.state ?? "Stable") as any,
   last_updated: overrides.last_updated ?? 1000,
+  transition_lift: 0.5,
+  temporal_consistency: 0.7,
+  outcome_stability: 0.6,
+  causal_strength: 0.65,
+  support_count: 10,
+  explicit_support_count: 5,
+  counterevidence_count: 2,
+  temporal_windows: 3,
+  namespace: "test",
+  cause_record_ids: [] as ReadonlyArray<string>,
+  effect_record_ids: [] as ReadonlyArray<string>,
 })
 
 const sampleHint = (
@@ -126,20 +140,25 @@ const sampleHint = (
     riskScore: number
     actionKind: string
   }> = {}
-) => ({
+): PolicyEngineState["hints"][string] => ({
   id,
   pattern_id: null as string | null,
   condition: "test condition",
   action: "test action",
   priority: 50,
   confidence: 0.5,
-  state: overrides.state ?? "Stable",
+  state: (overrides.state ?? "Stable") as any,
   last_updated: overrides.last_updated ?? 1000,
-  actionKind: overrides.actionKind ?? "recommend",
+  actionKind: (overrides.actionKind ?? "recommend") as any,
   policyStrength: overrides.policyStrength ?? 0.5,
   riskScore: overrides.riskScore ?? 0.3,
   namespace: overrides.namespace ?? "default",
   domain: overrides.domain ?? "test",
+  polarity: "Neutral" as const,
+  recommendation: "",
+  utilityScore: 0.5,
+  cause_key: "k",
+  effect_keys: [] as ReadonlyArray<string>,
 })
 
 // ── Helper: create runtime with fresh Refs ──────────────────────────
@@ -170,6 +189,14 @@ const emptyBeliefReport: BeliefReport = {
   coarse_groups: 0,
   beliefs_built: 0,
   hypotheses_built: 0,
+  beliefs_created: 0,
+  beliefs_pruned: 0,
+  revisions: 0,
+  resolved: 0,
+  unresolved: 0,
+  total_beliefs: 0,
+  total_hypotheses: 0,
+  churn_rate: 0,
 }
 
 const emptyConceptReport: ConceptReport = {
@@ -201,6 +228,21 @@ const emptyCausalReport: CausalReport = {
   patterns_invalidated: 0,
   avg_confidence: 0,
   avg_lift: 0,
+  explicit_edges: 0,
+  temporal_edges: 0,
+  temporal_namespaces_scanned: 0,
+  temporal_pairs_considered: 0,
+  temporal_pairs_skipped_by_budget: 0,
+  temporal_edges_capped: 0,
+  temporal_namespaces_hit_cap: 0,
+  patterns_meeting_support_gate: 0,
+  patterns_meeting_repeated_window_gate: 0,
+  patterns_meeting_counterfactual_gate: 0,
+  patterns_blocked_by_evidence_gates: 0,
+  patterns_blocked_by_counterfactual_gate: 0,
+  avg_causal_strength: 0,
+  stable_count: 0,
+  rejected_count: 0,
 }
 
 const emptyPolicyReport: PolicyReport = {
@@ -208,6 +250,11 @@ const emptyPolicyReport: PolicyReport = {
   hints_active: 0,
   hints_suppressed: 0,
   avg_confidence: 0,
+  seeds_found: 0,
+  stable_hints: 0,
+  suppressed_hints: 0,
+  rejected_hints: 0,
+  avg_policy_strength: 0,
 }
 
 // ── Mock engine factories ───────────────────────────────────────────
@@ -229,6 +276,8 @@ function mockBeliefEngine(
     beliefs,
     hypotheses,
     record_to_belief: recordToBelief,
+    key_index: {} as Readonly<Record<string, string>>,
+    record_index: recordToBelief as Readonly<Record<string, string>>,
   } as BeliefEngineState
   return {
     update_with_sdr: () => Effect.succeed(emptyBeliefReport),
@@ -283,6 +332,10 @@ function mockCausalEngine(
     version: 1 as const,
     patterns,
     discovery_mode: "Standard",
+    edges_found_total: 0,
+    temporal_budget_mode: "NearbySuccessors",
+    evidence_mode: "StrictRepeatedWindows",
+    last_corpus_fingerprint: "",
   } as CausalEngineState
   return {
     discover: () => Effect.succeed(emptyCausalReport),

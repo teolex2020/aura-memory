@@ -1,55 +1,56 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-05-28T08:30:00.000Z"
+last_activity: "2026-05-28 — Phase 06.2 discuss: MaintenanceService + EpistemicRuntime 语义投影完成"
+progress:
+  total_phases: 10
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 22
+---
+
 # STATE.md
 
 ## Current Phase
 
-Phase 6: Maintenance Pipeline Completion (in progress)
+Phase 06.2: MaintenanceService + EpistemicRuntime 语义投影完成, 17 架构决策锁定 (context gathered 2026-05-28)
 
 ## Completed
 
 ### Phase 1: M1 — Read-Only Skeleton + Workspace Setup
-- Workspace setup (Bun + Effect + vitest)
-- effect-smol layering (@aura/contract, @aura/utils, @aura/platform-node)
-- Read-only parsing (brain.aura, temporal.bin, brain.cog+snap)
-- Binary/Bincode codec aligned with Rust
+
+- Workspace setup (Bun + Effect + vitest), effect-smol layering, read-only parsing, Binary/Bincode codec
 
 ### Phase 2: M2 — Write + Encryption
-- Write/flush brain.aura
-- Encryption/decryption roundtrip (Crypto.ts)
-- CRC32, bincode, JSON serialization byte-aligned
-- Cross-language read-back tests
+
+- Write/flush brain.aura, encryption/decryption roundtrip (Crypto.ts), CRC32/bincode/JSON alignment
 
 ### Phase 3: M3 — Indexing + Cognitive + Full Compatibility
-- Roaring bitmap serialization
-- InvertedIndex load/save/search (aligned with Rust)
-- Cognitive file write (CognitiveStoreFile)
-- brain.cog + brain.snap read/write
-- Trust/Recency formula aligned (linear decay)
-- Clock contract refactored
+
+- Roaring bitmap, InvertedIndex (search aligned with Rust), Cognitive file write, Trust/Recency alignment, Clock refactor
 
 ### Phase 4: Recall Pipeline + Core Facade
-- Recall pipeline skeleton (SDR + Tags + optional Embedding)
-- RRF fusion, GraphWalk, CausalWalk
-- SDRInterpreter with tests
-- Core recall facade (recallScored + recallRecords)
-- Rust/TS parity framework (fixture + verifier)
-- Recall.parity.test.ts
+
+- SDR+Tags+Embedding signals, RRF fusion, GraphWalk/CausalWalk, SDRInterpreter, recall facade, Rust/TS parity framework
 
 ### Phase 5: Epistemic Skeleton + Maintenance Phase 1
-- BeliefEngine/Store type-safe implementation (with tests)
-- ConceptEngine/Store skeleton (with tests)
-- CausalEngine/Store skeleton
-- PolicyEngine/Store skeleton
-- EpistemicRuntime DI wired (EpistemicTrace)
-- Contract types: BeliefTypes, ConceptTypes
 
-## In Progress
+- BeliefEngine/Store (with tests), ConceptEngine/Store (with tests), CausalEngine/Store skeleton, PolicyEngine/Store skeleton, EpistemicRuntime DI, BeliefTypes/ConceptTypes
 
-### Phase 6: Maintenance Pipeline Completion
-- CausalEngine — discover/invalidate_pattern/retract_pattern are stubs (UnimplementedError)
-- PolicyEngine — discover/retract_hint are stubs (UnimplementedError)
-- Full maintenance pipeline (Belief → Concept → Causal → Policy) not yet wired
-- Bounded reranking not yet integrated
-- Finalize mutations not yet implemented
+### Phase 6: Maintenance Pipeline Completion ✓ (2026-05-27)
+
+- **Contract types:** CausalTypes.ts, PolicyTypes.ts, typed Causal/Policy/EpistemicRuntime interfaces
+- **CausalEngine:** co-occurrence pattern discovery, invalidate/retract, 6 tests
+- **PolicyEngine:** hint extraction from stable patterns, retract_hint, 6 tests
+- **BoundedReranker:** inverse-position boost reranking, 3 tests
+- **RecallFinalizer:** activation tracking, 3 tests
+- **EpistemicRuntime:** maintain() pipeline (Belief→Concept→Causal→Policy), typed getters, 5 tests
+- **DefaultLayer:** BoundedRerankerLive + RecallFinalizerLive registered
+- **Verification:** 31/31 must-haves, 23 tests pass
 
 ## Blocked
 
@@ -57,16 +58,20 @@ Phase 6: Maintenance Pipeline Completion (in progress)
 
 ## Next Actions
 
-1. Implement CausalEngine.discover (highest priority — Phase 6)
-2. Implement PolicyEngine.discover (Phase 6)
-3. Wire full maintenance pipeline: Trace → Belief → Concept → Causal → Policy
-4. Integrate bounded reranking into recall pipeline
-5. Implement finalize mutations (activate/strengthen/session)
+Phase 7: MCP stdio server + full tool coverage + final parity verification
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| kh0 | 重构contract包，将所有在代码中使用import("xxx").A内联的导入类型提升为import type语句 | 2026-05-26 | 58d1367 | [kh0-contract-import-xxx-a-import-type-2-1](./quick/260526-kh0-contract-import-xxx-a-import-type-2-1/) |
+| kh0 | 重构contract包inline import type提升 | 2026-05-26 | 58d1367 | [kh0](./quick/260526-kh0-contract-import-xxx-a-import-type-2-1/) |
+| 260528-3oq | BeliefEngine.Interface contract refactor | 2026-05-27 | 5c07e41 | [3oq](./quick/260528-3oq-beliefengine-interface-contract-refactor/) |
 
-Last activity: 2026-05-26 - Completed quick task kh0: 重构contract包
+Last activity: 2026-05-27 — Quick task 260528-3oq: BeliefEngine namespace.Interface 模式重构
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 06.2 inserted after Phase 6: 不要在EpistemicRuntime实现maintain，而是完整实现MaintenanceService，完整对齐rust模块 (URGENT)
+- Phase 06.1 inserted after Phase 6: 补齐四大引擎未完成功能和修复类型错误 (URGENT)

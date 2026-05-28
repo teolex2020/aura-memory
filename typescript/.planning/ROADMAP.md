@@ -95,15 +95,21 @@ Plans:
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 6
 **Plans:** 6 plans, 3 waves
-
 Plans:
+**Wave 1**
 
 - [ ] 06.2-01-PLAN.md — Contract types: Maintenance.ts, EpistemicInspection.ts, updated EpistemicRuntime.Interface
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06.2-02-PLAN.md — Concept surface functions: surfaceConcepts, surfaceConceptsFiltered (TDD)
 - [ ] 06.2-03-PLAN.md — Policy surface functions: surfacePolicyHints, surfacePolicyHintsFiltered (TDD)
 - [ ] 06.2-04-PLAN.md — EpistemicRuntime rewrite: remove maintain(), add Refs + telemetry + 12 simple inspection methods
-- [ ] 06.2-05-PLAN.md — EpistemicRuntime complex aggregates + surface delegation (TDD)
 - [ ] 06.2-06-PLAN.md — MaintenanceService: 14 Effect functions for full maintenance cycle orchestration
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 06.2-05-PLAN.md — EpistemicRuntime complex aggregates + surface delegation (TDD)
 
 ### Phase 06.1: 补齐四大引擎未完成功能和修复类型错误 (INSERTED)
 

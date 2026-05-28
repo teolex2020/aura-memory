@@ -240,6 +240,66 @@ function isStopword(word: string): boolean {
   }
 }
 
+// ── Canonical Feature Representation (Variant A) ──
+// STUB implementations for TDD RED phase — will be replaced in GREEN phase.
+
+/**
+ * Lightweight suffix stripping: remove common English suffixes to normalize word forms.
+ * Extracted from Rust concept.rs stem_word().
+ * STUB — returns word unchanged.
+ */
+export function stemWord(word: string): string {
+  return word
+}
+
+/**
+ * Hand-curated equivalence dictionary for common domain terms.
+ * Maps variant forms to a single canonical form.
+ * Extracted from Rust concept.rs try_canonical().
+ * STUB — returns word unchanged.
+ */
+export function applyEquivalenceDictionary(word: string): string {
+  return word
+}
+
+/**
+ * Extended stopword filter for canonical tokenization.
+ * Broader than the term extraction stopwords — includes more function words.
+ * Extracted from Rust concept.rs is_canonical_stopword().
+ * STUB — returns false for all words.
+ */
+export function isCanonicalStopword(word: string): boolean {
+  return false
+}
+
+/**
+ * Jaccard similarity between two token arrays.
+ * |A ∩ B| / |A ∪ B|
+ * Extracted from Rust concept.rs jaccard().
+ * STUB — always returns 0.
+ */
+export function jaccardSimilarity(tokensA: ReadonlyArray<string>, tokensB: ReadonlyArray<string>): number {
+  return 0
+}
+
+/**
+ * Extract canonical tokens from text content.
+ * Pipeline: lowercase → split_whitespace → trim punctuation
+ * → filter stopwords/short → equivalence dictionary → suffix stripping → dedup.
+ * Extracted from Rust concept.rs canonical_tokens().
+ * STUB — returns empty array.
+ */
+export function canonicalTokens(content: string): string[] {
+  return []
+}
+
+/**
+ * Build canonical tokens from content (convenience alias for canonicalTokens).
+ */
+export function buildCanonicalTokens(content: string): string[] {
+  return canonicalTokens(content)
+}
+
 /**
  * Extract core and shell terms from a set of records.
  *

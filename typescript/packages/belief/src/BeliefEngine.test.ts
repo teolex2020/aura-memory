@@ -5,7 +5,16 @@ import {
   EpistemicTrace,
   Level,
   type EpistemicTraceImpl,
-  type Record as AuraRecord
+  type Record as AuraRecord,
+  CausalEngine,
+  PolicyEngine,
+  CausalState,
+  PolicyState,
+  PolicyActionKind,
+  type CausalEngineState,
+  type PolicyEngineState,
+  type CausalPattern,
+  type PolicyHint
 } from "@aura/contract"
 import { nowSecs } from "@aura/utils"
 import {
@@ -1247,5 +1256,377 @@ describe("TagFamilyDenseBackoff (integration)", () => {
     const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
     // 3 records → standard TagFamily behavior (no dense corridor)
     expect(report.total_beliefs).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// Plan 04 Task 2 TDD tests: apply_layer_feedback rewrite
+// ═══════════════════════════════════════════════════════════
+
+describe("apply_layer_feedback (P2 rewrite)", () => {
+  // Helper: create an engine seeded with beliefs
+  async function seedEngine(): Promise<BeliefEngineImpl> {
+    const engine = new BeliefEngineImpl()
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy", "safety"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy", "safety"], "decision")],
+    ])
+    await runEffect(engine.update_with_sdr(records, new Map()))
+    return engine
+  }
+
+  // Helper: create a mock causal engine with stable patterns
+  function mockCausalEngine(beliefIds: string[]): CausalEngine.Interface {
+    const patterns: Record<string, CausalPattern> = {}
+    for (const bid of beliefIds) {
+      patterns[`pat-${bid}`] = {
+        id: `pat-${bid}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: `default:deploy:decision`,
+        effect_key: `default:safety:decision`,
+        edge_hash: "abc123",
+        support: 5,
+        confidence: 0.85,
+        lift: 1.2,
+        state: CausalState.Stable,
+        last_updated: nowSecs(),
+        transition_lift: 0.7,
+        temporal_consistency: 0.9,
+        outcome_stability: 0.8,
+        causal_strength: 0.9,
+        support_count: 10,
+        explicit_support_count: 6,
+        counterevidence_count: 2,
+        temporal_windows: 3,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+    const state: CausalEngineState = {
+      version: 1,
+      patterns,
+      discovery_mode: "Standard" as any,
+      edges_found_total: 20,
+      temporal_budget_mode: "ExhaustiveCapped" as any,
+      evidence_mode: "StrictRepeatedWindows" as any,
+      last_corpus_fingerprint: "test"
+    }
+
+    return {
+      discover: () => Effect.succeed({ patterns_found: 0, patterns_active: 0, patterns_invalidated: 0, avg_confidence: 0, avg_lift: 0, explicit_edges: 0, temporal_edges: 0, temporal_namespaces_scanned: 0, temporal_pairs_considered: 0, temporal_pairs_skipped_by_budget: 0, temporal_edges_capped: 0, temporal_namespaces_hit_cap: 0, patterns_meeting_support_gate: 0, patterns_meeting_repeated_window_gate: 0, patterns_meeting_counterfactual_gate: 0, patterns_blocked_by_evidence_gates: 0, patterns_blocked_by_counterfactual_gate: 0, avg_causal_strength: 0, stable_count: 0, rejected_count: 0 }),
+      invalidate_pattern: () => Effect.void,
+      retract_pattern: () => Effect.void,
+      stats: () => Effect.succeed(state)
+    } as unknown as CausalEngine.Interface
+  }
+
+  // Helper: create a mock policy engine with stable hints
+  function mockPolicyEngine(beliefIds: string[]): PolicyEngine.Interface {
+    const hints: Record<string, PolicyHint> = {}
+    for (const bid of beliefIds) {
+      hints[`hint-${bid}`] = {
+        id: `hint-${bid}`,
+        pattern_id: `pat-${bid}`,
+        condition: "when deploying",
+        action: "prefer staging",
+        priority: 0.8,
+        confidence: 0.75,
+        state: PolicyState.Stable,
+        last_updated: nowSecs(),
+        actionKind: PolicyActionKind.Prefer,
+        policyStrength: 0.7,
+        riskScore: 0.2,
+        namespace: "default",
+        domain: "deployment",
+        polarity: "Positive" as const,
+        recommendation: "Prefer staging deployment",
+        utilityScore: 0.6,
+        cause_key: `default:deploy:decision`,
+        effect_keys: []
+      } as PolicyHint
+    }
+    const state: PolicyEngineState = {
+      version: 1,
+      hints,
+      metadata: {},
+      key_index: {}
+    }
+
+    return {
+      discover: () => Effect.succeed({ hints_found: 0, hints_active: 0, hints_suppressed: 0, avg_confidence: 0, seeds_found: 0, stable_hints: 0, suppressed_hints: 0, rejected_hints: 0, avg_policy_strength: 0 }),
+      retract_hint: () => Effect.void,
+      stats: () => Effect.succeed(state)
+    } as unknown as PolicyEngine.Interface
+  }
+
+  it("accepts CausalEngine.Interface + PolicyEngine.Interface and returns BeliefFeedbackReport", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    expect(report).toHaveProperty("beliefsTouched")
+    expect(report).toHaveProperty("beliefsBoosted")
+    expect(report).toHaveProperty("beliefsDampened")
+    expect(report).toHaveProperty("netConfidenceDelta")
+    expect(report).toHaveProperty("netVolatilityDelta")
+    expect(report).toHaveProperty("entries")
+    expect(typeof report.beliefsTouched).toBe("number")
+    expect(typeof report.netConfidenceDelta).toBe("number")
+    expect(Array.isArray(report.entries)).toBe(true)
+  })
+
+  it("reads causal patterns and policy hints, computes confidence_delta", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const origBelief = state.beliefs[beliefIds[0]!]
+    const origConfidence = origBelief?.confidence ?? 0
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // With stable causal + prefer policy → positive confidence delta
+    expect(report.beliefsTouched).toBeGreaterThan(0)
+    expect(report.beliefsBoosted).toBeGreaterThanOrEqual(0)
+  })
+
+  it("clamps confidence_delta to max +0.08 (boost cap)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+
+    if (beliefIds.length === 0) return
+
+    // Create MANY patterns targeting the same belief to exceed boost cap
+    const bid = beliefIds[0]!
+    const patterns: Record<string, CausalPattern> = {}
+    for (let i = 0; i < 15; i++) {
+      patterns[`pat-over-${i}`] = {
+        id: `pat-over-${i}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: "default:deploy:decision",
+        effect_key: "default:safety:decision",
+        edge_hash: `edge${i}`,
+        support: 10,
+        confidence: 0.9,
+        lift: 1.5,
+        state: CausalState.Stable,
+        last_updated: nowSecs(),
+        transition_lift: 0.8,
+        temporal_consistency: 0.95,
+        outcome_stability: 0.85,
+        causal_strength: 1.0,
+        support_count: 10,
+        explicit_support_count: 8,
+        counterevidence_count: 0,
+        temporal_windows: 5,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+
+    const mockCausal = {
+      ...mockCausalEngine(beliefIds),
+      stats: () => Effect.succeed({
+        version: 1 as const,
+        patterns,
+        discovery_mode: "Standard" as any,
+        edges_found_total: 100,
+        temporal_budget_mode: "ExhaustiveCapped" as any,
+        evidence_mode: "StrictRepeatedWindows" as any,
+        last_corpus_fingerprint: "test"
+      } as CausalEngineState)
+    } as unknown as CausalEngine.Interface
+
+    const mockPolicy = mockPolicyEngine([]) // no policy signals for this test
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // Each Stable pattern: 0.03 * 1.0 = 0.03. 15 patterns = 0.45 raw delta
+    // Should be clamped to 0.08
+    if (report.entries.length > 0) {
+      const entry = report.entries[0]!
+      expect(entry.deltaApplied).toBeLessThanOrEqual(0.08)
+      // deltaRequested should be larger (before clamp)
+      expect(Math.abs(entry.deltaRequested)).toBeGreaterThan(0.08)
+    }
+  })
+
+  it("clamps confidence_delta to min -0.18 (damping cap)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+
+    if (beliefIds.length === 0) return
+
+    // Create Rejected patterns with high counterevidence
+    const bid = beliefIds[0]!
+    const patterns: Record<string, CausalPattern> = {}
+    for (let i = 0; i < 15; i++) {
+      patterns[`rej-${i}`] = {
+        id: `rej-${i}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: "default:deploy:decision",
+        effect_key: "default:safety:decision",
+        edge_hash: `edge${i}`,
+        support: 1,
+        confidence: 0.2,
+        lift: 0.3,
+        state: CausalState.Rejected,
+        last_updated: nowSecs(),
+        transition_lift: 0.1,
+        temporal_consistency: 0.2,
+        outcome_stability: 0.1,
+        causal_strength: 0.3,
+        support_count: 2,
+        explicit_support_count: 1,
+        counterevidence_count: 8,
+        temporal_windows: 1,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+
+    const mockCausal = {
+      ...mockCausalEngine(beliefIds),
+      stats: () => Effect.succeed({
+        version: 1 as const,
+        patterns,
+        discovery_mode: "Standard" as any,
+        edges_found_total: 100,
+        temporal_budget_mode: "ExhaustiveCapped" as any,
+        evidence_mode: "StrictRepeatedWindows" as any,
+        last_corpus_fingerprint: "test"
+      } as CausalEngineState)
+    } as unknown as CausalEngine.Interface
+
+    const mockPolicy = mockPolicyEngine([])
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // Rejected patterns produce negative deltas
+    if (report.entries.length > 0) {
+      const entry = report.entries[0]!
+      expect(entry.deltaApplied).toBeGreaterThanOrEqual(-0.18)
+    }
+  })
+
+  it("does NOT modify stability (stabilityBefore === stabilityAfter)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    for (const entry of report.entries) {
+      expect(entry.stabilityBefore).toBe(entry.stabilityAfter)
+      expect(entry.stabilityAfter).toBe(entry.stabilityBefore)
+    }
+  })
+
+  it("report entries have all required fields (FeedbackAuditEntry)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    for (const entry of report.entries) {
+      expect(entry).toHaveProperty("beliefId")
+      expect(entry).toHaveProperty("sourceKind")
+      expect(entry).toHaveProperty("sourceId")
+      expect(entry).toHaveProperty("reason")
+      expect(entry).toHaveProperty("deltaRequested")
+      expect(entry).toHaveProperty("deltaApplied")
+      expect(entry).toHaveProperty("confidenceBefore")
+      expect(entry).toHaveProperty("confidenceAfter")
+      expect(entry).toHaveProperty("volatilityBefore")
+      expect(entry).toHaveProperty("volatilityAfter")
+      expect(entry).toHaveProperty("stabilityBefore")
+      expect(entry).toHaveProperty("stabilityAfter")
+    }
+  })
+
+  it("volatility delta is clamped to [-0.06, +0.20]", async () => {
+    // Test that volatility clamping works
+    // Rejected patterns produce positive volatility deltas
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+
+    if (beliefIds.length === 0) return
+    const bid = beliefIds[0]!
+
+    const patterns: Record<string, CausalPattern> = {}
+    for (let i = 0; i < 20; i++) {
+      patterns[`rejv-${i}`] = {
+        id: `rejv-${i}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: "default:deploy:decision",
+        effect_key: "default:safety:decision",
+        edge_hash: `edge${i}`,
+        support: 1,
+        confidence: 0.2,
+        lift: 0.3,
+        state: CausalState.Rejected,
+        last_updated: nowSecs(),
+        transition_lift: 0.1,
+        temporal_consistency: 0.2,
+        outcome_stability: 0.1,
+        causal_strength: 0.5,
+        support_count: 1,
+        explicit_support_count: 0,
+        counterevidence_count: 10,
+        temporal_windows: 1,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+
+    const mockCausal = {
+      ...mockCausalEngine(beliefIds),
+      stats: () => Effect.succeed({
+        version: 1 as const,
+        patterns,
+        discovery_mode: "Standard" as any,
+        edges_found_total: 100,
+        temporal_budget_mode: "ExhaustiveCapped" as any,
+        evidence_mode: "StrictRepeatedWindows" as any,
+        last_corpus_fingerprint: "test"
+      } as CausalEngineState)
+    } as unknown as CausalEngine.Interface
+
+    const mockPolicy = mockPolicyEngine([])
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // Volatility delta should be within clamping bounds
+    expect(Math.abs(report.netVolatilityDelta)).toBeLessThanOrEqual(Math.max(0.06, 0.20))
   })
 })

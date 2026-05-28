@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Ref } from "effect";
 import {
   FileFormatError,
   FileRead,
@@ -26,6 +26,35 @@ import {
   recallScored as recallScoredEffect,
 } from "./Recall";
 import { id12 } from "@aura/utils";
+
+// ── MaintenanceService function imports ──
+import {
+  runInitialPhases,
+  buildSdrLookup,
+  computeLayerStability,
+  runDiscoveryPhases,
+  runPostDiscoveryPhases,
+  finalizeTelemetry,
+  buildTrendSnapshot,
+  pushTrendSnapshot,
+  summarizeTrends,
+  buildReflectionSummary,
+  pushReflectionSummary,
+} from "./MaintenanceService"
+
+// ── Contract types for MaintenanceService ──
+import {
+  BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
+  BeliefStore, ConceptStore, CausalStore, PolicyStore,
+  EpistemicTrace,
+  type MaintenanceReport, type MaintenanceConfig,
+  defaultMaintenanceConfig,
+  type PhaseTimings, type MaintenanceHotspots,
+  type MaintenanceTrendSnapshot, type ReflectionSummary,
+  type ConceptSurfaceCounters, type ConceptSurfaceMode,
+  ConceptSurfaceMode as Csm,
+  type ContradictionCluster,
+} from "@aura/contract"
 
 export class Aura {
   private constructor(
@@ -333,14 +362,171 @@ export class Aura {
     );
   }
 
-  runMaintenance(..._args: ReadonlyArray<unknown>) {
-    // STUB: Maintenance pipeline entry point — wired by MaintenanceService.
-    // Plan 06 created MaintenanceService; this stub allows Aura facade to
-    // compile before full integration.
-    // Rust reference: Aura::run_maintenance (aura.rs)
-    return Effect.die(
-      new UnimplementedError({ feature: "Aura.runMaintenance" }),
-    );
+  runMaintenance(
+    config?: MaintenanceConfig
+  ) {
+    const cfg = config ?? defaultMaintenanceConfig
+    const dir = this.brainDir
+    const recordsList = this.records
+
+    return Effect.gen(function* () {
+      const trace = yield* Effect.service(EpistemicTrace)
+      yield* trace.event("maintenance.start", { records: recordsList.length })
+
+      // ── Get engines and stores from Effect context ──
+      const beliefEng = yield* Effect.service(BeliefEngine)
+      const conceptEng = yield* Effect.service(ConceptEngine)
+      const causalEng = yield* Effect.service(CausalEngine)
+      const policyEng = yield* Effect.service(PolicyEngine)
+
+      const beliefStore = yield* Effect.service(BeliefStore)
+      const conceptStore = yield* Effect.service(ConceptStore)
+      const causalStore = yield* Effect.service(CausalStore)
+      const policyStore = yield* Effect.service(PolicyStore)
+
+      // ── Create buffer/state Refs ──
+      const sdrLookupCache = yield* Ref.make(new Map<string, ReadonlyArray<number>>())
+      const prevBeliefKeys = yield* Ref.make(new Set<string>())
+      const prevConceptKeys = yield* Ref.make(new Set<string>())
+      const prevCausalKeys = yield* Ref.make(new Set<string>())
+      const prevPolicyKeys = yield* Ref.make(new Set<string>())
+
+      // ── Create counters ──
+      const counters: ConceptSurfaceCounters = {
+        globalCalls: yield* Ref.make(0),
+        namespaceCalls: yield* Ref.make(0),
+        recordCalls: yield* Ref.make(0),
+        conceptsReturned: yield* Ref.make(0),
+        recordAnnotationsReturned: yield* Ref.make(0),
+      }
+
+      // ── Build records map ──
+      const records = new Map<string, AuraRecord>(
+        recordsList.map((r) => [r.id, r as unknown as AuraRecord])
+      )
+
+      // ── Initialize timings and hotspots ──
+      const timings: PhaseTimings = {
+        levelFixMs: 0, decayMs: 0, reflectMs: 0, epistemicMs: 0,
+        insightsMs: 0, sdrBuildMs: 0, beliefMs: 0, conceptMs: 0,
+        causalMs: 0, policyMs: 0, consolidationMs: 0, crossConnectionsMs: 0,
+        tasksArchivalMs: 0, totalMs: 0,
+      }
+
+      const hotspots: MaintenanceHotspots = {
+        recordsBeforeCycle: records.size, recordsAfterCycle: records.size,
+        beliefSnapshotRecords: records.size, sdrSourceBytes: 0,
+        sdrVectorsBuilt: 0, sdrVectorsComputed: 0, sdrVectorsReused: 0,
+        beliefTotalBeliefs: 0, beliefTotalHypotheses: 0,
+        conceptPairwiseComparisons: 0, conceptPartitionsWithMultipleSeeds: 0,
+        causalEdgesFound: 0, causalExplicitEdgesFound: 0,
+        causalTemporalEdgesFound: 0, causalTemporalNamespacesScanned: 0,
+        causalTemporalPairsConsidered: 0, causalTemporalPairsSkippedByBudget: 0,
+        causalTemporalEdgesCapped: 0, causalTemporalNamespacesHitCap: 0,
+        policySeedsFound: 0, crossConnectionsFound: 0, taskRemindersFound: 0,
+        dominantPhase: "", dominantPhaseMs: 0, dominantPhaseShare: 0,
+      }
+
+      const t0 = Date.now()
+      const timestamp = new Date().toISOString()
+
+      // ── Phase 1: Initial phases ──
+      const initial = yield* runInitialPhases(
+        records, cfg,
+        undefined as never, // taxonomy (stub — ignored by stub phases)
+        undefined as never, // cognitiveStore (stub — ignored by stub phases)
+        0, timings, hotspots
+      )
+
+      // ── Phase 2: SDR lookup ──
+      const sdrLookup = yield* buildSdrLookup(
+        undefined as never, // SDRInterpreter (stub)
+        sdrLookupCache, records, timings, hotspots
+      )
+
+      // ── Phase 3: Layer stability ──
+      const stability = yield* computeLayerStability(
+        beliefEng, conceptEng, causalEng, policyEng,
+        prevBeliefKeys, prevConceptKeys, prevCausalKeys, prevPolicyKeys
+      )
+
+      // ── Phase 4: Discovery phases ──
+      const discovery = yield* runDiscoveryPhases(
+        beliefEng, beliefStore, conceptEng, conceptStore,
+        causalEng, causalStore, policyEng, policyStore,
+        records, sdrLookup, timings, hotspots
+      )
+
+      // ── Phase 5: Post-discovery phases ──
+      const postDiscovery = yield* runPostDiscoveryPhases(
+        records,
+        undefined as never, // ngramIndex (stub)
+        new Map(), // tagIndex
+        new Map(), // auraIndex
+        undefined as never, // cognitiveStore (stub)
+        undefined, // backgroundBrain
+        cfg,
+        undefined as never, // taxonomy (stub)
+        timings, hotspots
+      )
+
+      // ── Phase 6: Finalize telemetry ──
+      const telemetry = yield* finalizeTelemetry(
+        timings, hotspots, Csm.Inspect, conceptEng, counters
+      )
+
+      // ── Phase 7: Trends ──
+      const trendHistory: MaintenanceTrendSnapshot[] = []
+      const snapshot = buildTrendSnapshot(
+        timestamp, records.size, postDiscovery.recordsArchived,
+        initial.insightsFound, initial.epistemic,
+        discovery.belief, discovery.causal, discovery.policy,
+        discovery.feedback, timings, hotspots, 0, 0
+      )
+      yield* pushTrendSnapshot(trendHistory, snapshot)
+      const trendSummary = summarizeTrends(trendHistory)
+
+      // ── Phase 8: Reflection ──
+      const contradictionClusters: ContradictionCluster[] = []
+      const reflection = yield* buildReflectionSummary(
+        timestamp, records, cfg.taskTag,
+        contradictionClusters, trendSummary, hotspots
+      )
+
+      // ── Total timing ──
+      const timingsMut = timings as { totalMs: number }
+      timingsMut.totalMs = Date.now() - t0
+
+      yield* trace.event("maintenance.end", {
+        totalMs: timings.totalMs,
+        dominantPhase: hotspots.dominantPhase,
+      })
+
+      return {
+        timestamp,
+        decay: initial.decay,
+        reflect: initial.reflect,
+        epistemic: initial.epistemic,
+        insightsFound: initial.insightsFound,
+        belief: discovery.belief,
+        concept: discovery.concept,
+        causal: discovery.causal,
+        policy: discovery.policy,
+        feedback: discovery.feedback,
+        consolidation: postDiscovery.consolidation,
+        crossConnections: postDiscovery.crossConnections,
+        taskReminders: postDiscovery.taskReminders,
+        recordsArchived: postDiscovery.recordsArchived,
+        totalRecords: records.size,
+        experienceInjected: 0,
+        timings,
+        stability,
+        conceptSurface: telemetry,
+        reflection,
+        trendSummary,
+        hotspots,
+      } as MaintenanceReport
+    })
   }
 
   get_entity_digest(..._args: ReadonlyArray<unknown>) {

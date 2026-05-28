@@ -1,3 +1,4 @@
+import xxhash from "xxhash-wasm"
 import { Effect, Layer, Option } from "effect"
 import {
   BeliefEngine,
@@ -12,7 +13,6 @@ import {
   type SdrLookup,
   Clock
 } from "@aura/contract"
-import { id12 } from "@aura/utils"
 
 /**
  * The belief engine — maintains the full belief state.
@@ -61,16 +61,49 @@ const UNCERTAINTY_BAND = 0.1
  *
  * 在同一 coarse 分桶内用 SDR Tanimoto/Jaccard 相似度进一步拆分子簇；
  * 相似度 ≥ 阈值视为在讨论同一个 claim（合并为同簇）。
+ *
+ * Rust: CLAIM_SIMILARITY_THRESHOLD = 0.15 (belief.rs:53)
  */
-const SDR_TANIMOTO_THRESHOLD = 0.6
+export const SDR_TANIMOTO_THRESHOLD = 0.15
 
 /**
- * Minimum token count for a record to be considered "non-trivial content".
- * For CJK, segmenter token count; for Latin, word count ≈ content.length / 6 heuristic.
+ * SDR tag guard threshold — used in DualKey/NeighborhoodPool modes.
  *
- * 最小有效 token 数——低于此阈值视为 trivial content（跳过不参与 belief 构建）。
+ * Rust: DualKey uses 0.10 (belief.rs:1053)
  */
-const MIN_CONTENT_TOKENS = 5
+export const SDR_TAG_GUARD_THRESHOLD = 0.10
+
+/**
+ * SDR tag fingerprint threshold — used in SdrTagPool mode.
+ *
+ * Rust: TAG_FINGERPRINT_SIMILARITY_THRESHOLD = 0.08 (belief.rs:56)
+ */
+export const TAG_SDR_FINGERPRINT_THRESHOLD = 0.08
+
+/**
+ * Exponential-decay half-life for recency (14 days in seconds).
+ *
+ * 新近度指数衰减半衰期（14 天，秒数）。
+ * Rust: TAU_DAYS = 14.0 (belief.rs:34) → RECENCY_HALF_LIFE_SECS = 14 * 24 * 3600
+ */
+export const RECENCY_HALF_LIFE_SECS = 14 * 24 * 3600
+
+/**
+ * Maximum records per hypothesis before pruning weakest.
+ * Reserved for large-scale belief groups.
+ * Rust: MAX_RECORDS_PER_HYPOTHESIS = 50 (belief.rs:66)
+ */
+const MAX_RECORDS_PER_HYPOTHESIS = 50
+
+/**
+ * Bounded top-down feedback damping/boost caps.
+ * Rust: MAX_TOTAL_FEEDBACK_BOOST = 0.08, MAX_TOTAL_FEEDBACK_DAMPING = 0.18 (belief.rs:57-58)
+ */
+const MAX_TOTAL_FEEDBACK_BOOST = 0.08
+const MAX_TOTAL_FEEDBACK_DAMPING = 0.18
+const MIN_FEEDBACK_CONFIDENCE = 0.05
+const MAX_TOTAL_VOLATILITY_INCREASE = 0.20
+const MAX_TOTAL_VOLATILITY_RELIEF = 0.06
 
 /**
  * Record source-type → default confidence map.
@@ -87,38 +120,15 @@ const DEFAULT_CONFIDENCE_BY_SOURCE: Record<string, number> = {
 }
 
 /**
- * Exponential-decay half-life for recency (7 days in seconds).
+ * Get byte length of a string (UTF-8 encoded), matching Rust's content.len().
+ * Required because JavaScript string.length counts UTF-16 code units,
+ * not bytes. Rust uses byte length for content filtering.
  *
- * 新近度指数衰减半衰期（7 天，秒数）。
+ * 获取字符串的 UTF-8 字节长度，对齐 Rust 的 content.len()。
  */
-const RECENCY_HALF_LIFE_SECS = 7 * 24 * 3600
-
-/**
- * Estimate token count — uses Intl.Segmenter when available, falls back to heuristic.
- *
- * SIMPLE IMPLEMENTATION: Intl.Segmenter 可能在某些运行时不可用（如旧版 Bun）；
- * 此时回退为字符长度启发式：CJK 约 1.5 字符/token，拉丁语系约 6 字符/词。
- * Rust 侧使用 unicode-segmentation crate 做 grapheme/word 切分。
- *
- * 估算内容 token 数：优先使用 Intl.Segmenter 分词，不可用时回退到字符长度启发式估算。
- */
-function estimateTokens(content: string): number {
-  try {
-    if (typeof Intl !== "undefined" && typeof (Intl as any).Segmenter === "function") {
-      const seg = new (Intl as any).Segmenter(["zh", "ja", "ko"], { granularity: "word" })
-      let count = 0
-      for (const _ of seg.segment(content)) count++
-      if (count > 0) return count
-    }
-  } catch { /* Intl.Segmenter unavailable — fall through to heuristic */ }
-  /**
-   * Heuristic fallback: ~6 chars per word for Latin, ~1.5 chars per token for CJK.
-   *
-   * 启发式回退：CJK 约 1.5 字符/token，拉丁语系约 6 字符/词。
-   */
-  const cjkCount = (content.match(/[一-鿿㐀-䶿]/g) || []).length
-  const latinLen = content.length - cjkCount
-  return Math.floor(cjkCount / 1.5 + latinLen / 6)
+function byteLength(s: string): number {
+  // TextEncoder encodes to UTF-8 by default
+  return new TextEncoder().encode(s).length
 }
 
 /**
@@ -183,11 +193,14 @@ function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
 /**
  * Split records into SDR sub-clusters using Union-Find (disjoint set).
  *
+ * Mirrors Rust sdr_subcluster at belief.rs:678-733.
+ *
  * 使用并查集按 SDR 相似度把同一 coarse group 里的 records 进一步拆成子簇。
  */
 function unionFindClusters(
   records: ReadonlyArray<AuraRecord>,
-  lookup: SdrLookup
+  lookup: SdrLookup,
+  threshold: number = SDR_TANIMOTO_THRESHOLD
 ): ReadonlyArray<ReadonlyArray<AuraRecord>> {
   const n = records.length
   if (n <= 1) return records.map((r) => [r])
@@ -218,7 +231,7 @@ function unionFindClusters(
     for (let j = i + 1; j < n; j++) {
       const sdrJ = lookup.get(records[j]!.id)
       if (!sdrJ) continue
-      if (tanimoto(sdrI, sdrJ) >= SDR_TANIMOTO_THRESHOLD) union(i, j)
+      if (tanimoto(sdrI, sdrJ) >= threshold) union(i, j)
     }
   }
 
@@ -237,6 +250,8 @@ function unionFindClusters(
  *
  * 假设综合评分（越高越强）：综合支持度对数、置信度、新近度、一致性，
  * 减去带权重的冲突惩罚项。
+ *
+ * Mirrors Rust Hypothesis::compute_score at belief.rs:254-259.
  */
 function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
   const supportScore = 1.0 + Math.log(1.0 + h.support_mass)
@@ -247,9 +262,9 @@ function computeHypothesisScore(h: Omit<Hypothesis, "score">): number {
 
 /**
  * Exponential-decay recency factor from record timestamps.
- * Decays from 1.0 with configurable half-life (default 7 days).
+ * Decays from 1.0 with configurable half-life (default 14 days).
  *
- * 指数衰减新近度因子：基于 record 时间戳计算，以半衰期衰减（默认 7 天）。
+ * 指数衰减新近度因子：基于 record 时间戳计算，以半衰期衰减（默认 14 天）。
  */
 function computeRecency(recordTimestamps: ReadonlyArray<number>, now: number): number {
   if (recordTimestamps.length === 0) return 1.0
@@ -261,25 +276,94 @@ function computeRecency(recordTimestamps: ReadonlyArray<number>, now: number): n
 /**
  * Internal consistency: 1/(1+stddev of confidences). Higher variance → weaker hypothesis.
  *
+ * Uses sample variance (divisor n-1) matching Rust's belief.rs:225-226.
+ *
  * 内部一致性：1/(1+置信度标准差)，方差越大一致性越低、假设越弱。
  */
-function computeConsistency(confidences: ReadonlyArray<number>): number {
+export function computeConsistency(confidences: ReadonlyArray<number>): number {
   if (confidences.length <= 1) return 1.0
   const mean = confidences.reduce((a, b) => a + b, 0) / confidences.length
-  const variance = confidences.reduce((sum, c) => sum + (c - mean) ** 2, 0) / confidences.length
+  // Sample variance: divide by (n-1), matching Rust's `/(confidences.len() - 1)`
+  const variance = confidences.reduce((sum, c) => sum + (c - mean) ** 2, 0) / (confidences.length - 1)
   return 1.0 / (1.0 + Math.sqrt(variance))
 }
 
 /**
- * Build one hypothesis from a record cluster.
+ * Split records into (supporting, opposing) based on contradiction markers.
  *
- * 从一个 record 簇构建一个 hypothesis。
+ * Mirrors Rust split_by_contradiction at belief.rs:1238-1251.
+ *
+ * Records with semantic_type="contradiction" or conflict_mass > support_mass
+ * go into the opposing group.
+ *
+ * 将 records 按矛盾标记分为 supporting（支持）和 opposing（反对）两组。
  */
-function hypothesisFromRecords(
+export function splitByContradiction(
+  records: ReadonlyArray<AuraRecord>
+): [AuraRecord[], AuraRecord[]] {
+  const supporting: AuraRecord[] = []
+  const opposing: AuraRecord[] = []
+
+  for (const rec of records) {
+    if (rec.semantic_type === "contradiction" || conflictMassOf(rec) > supportMassOf(rec)) {
+      opposing.push(rec)
+    } else {
+      supporting.push(rec)
+    }
+  }
+
+  return [supporting, opposing]
+}
+
+/**
+ * Compute a deterministic hypothesis ID from belief_id + sorted record IDs.
+ *
+ * NON-PARITY: uses xxh64 (bridge) not xxh3_64 (Rust) — IDs are deterministic
+ * (same input → same output across TS runs) but do NOT match Rust values
+ * byte-for-byte. This is a tracked non-parity marker until `xxh3-wasm` is available.
+ *
+ * Mirrors Rust Hypothesis::deterministic_id at belief.rs:179-189.
+ *
+ * 确定性假设 ID：基于 belief_id + 排序后的 record IDs 通过 xxh64 哈希生成。
+ * 注意：使用 xxh64 而非 Rust 的 xxh3_64，输出值不同但保持确定性。
+ */
+export function deterministicHypothesisId(
+  hasher: { h64: (input: string) => bigint },
+  beliefId: string,
+  records: ReadonlyArray<AuraRecord>
+): string {
+  const ids = records.map((r) => r.id).sort()
+  const buf = [beliefId, ...ids].join("\0")
+  const hash = hasher.h64(buf) & ((1n << 64n) - 1n)
+  return hash.toString(16).padStart(12, "0")
+}
+
+// Lazy-initialized xxhash hasher instance (shared across engine impls)
+let _xxhashHasher: { h64: (input: string) => bigint } | null = null
+
+async function getXxhashHasher(): Promise<{ h64: (input: string) => bigint }> {
+  if (!_xxhashHasher) {
+    const hasher = await xxhash()
+    _xxhashHasher = { h64: (input: string) => hasher.h64(input) }
+  }
+  return _xxhashHasher!
+}
+
+/**
+ * Build one hypothesis from a record cluster using deterministic IDs.
+ *
+ * 从一个 record 簇构建一个 hypothesis（使用确定性 ID）。
+ *
+ * Mirrors Rust Hypothesis::from_records at belief.rs:193-245.
+ */
+async function hypothesisFromRecords(
   beliefId: string,
   records: ReadonlyArray<AuraRecord>,
   now: number
-): Hypothesis {
+): Promise<Hypothesis> {
+  const hasher = await getXxhashHasher()
+  const id = deterministicHypothesisId(hasher, beliefId, records)
+
   const confidences = records.map(confidenceOf)
   const confidence = confidences.reduce((a, b) => a + b, 0) / Math.max(1, records.length)
   const supportMass = records.map(supportMassOf).reduce((a, b) => a + b, 0)
@@ -288,7 +372,7 @@ function hypothesisFromRecords(
   const recency = computeRecency(timestamps, now)
   const consistency = computeConsistency(confidences)
   const base = {
-    id: id12(),
+    id,
     belief_id: beliefId,
     prototype_record_ids: records.map((r) => r.id),
     confidence,
@@ -304,6 +388,8 @@ function hypothesisFromRecords(
  * Resolve winner from a set of hypotheses.
  *
  * 从多个 hypotheses 中决出 winner（或在证据接近时进入 Unresolved）。
+ *
+ * Mirrors Rust Belief::resolve at belief.rs:326-393.
  */
 function resolveBelief(
   prev: Belief,
@@ -375,7 +461,18 @@ function resolveBelief(
 
 export class BeliefEngineImpl implements BeliefEngine.Interface {
   private coarseKeyMode: CoarseKeyMode = CoarseKeyMode.Standard
-  private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {}, key_index: {}, record_index: {} }
+  private state: BeliefEngineState = {
+    version: 1,
+    beliefs: {},
+    hypotheses: {},
+    record_to_belief: {},
+    key_index: {},
+    record_index: {}
+  }
+
+  // In-memory index structures for incremental update
+  private keyIndex: Map<string, string> = new Map()
+  private recordIndex: Map<string, string> = new Map()
 
   with_coarse_key_mode(mode: unknown): Effect.Effect<void> {
     this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
@@ -405,30 +502,31 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
       case CoarseKeyMode.SemanticOnly:
         return Effect.succeed(`${ns}:${st}`)
       case CoarseKeyMode.TopOneTag:
+        activeTags.splice(1) // truncate to top 1
         return Effect.succeed(`${ns}:${activeTags[0] ?? "none"}:${st}`)
       case CoarseKeyMode.TagFamily:
       case CoarseKeyMode.TagFamilyAdaptive:
       case CoarseKeyMode.TagFamilyBackoff:
-      case CoarseKeyMode.TagFamilyPairBackoff:
       case CoarseKeyMode.TagFamilyDenseBackoff: {
-        const families = activeTags.map((t) => {
-          const slash = t.indexOf("/")
-          if (slash > 0) return t.slice(0, slash)
-          const us = t.indexOf("_")
-          return us > 0 ? t.slice(0, us) : t
-        })
-        const deduped = [...new Set(families)].sort()
-        return Effect.succeed(`${ns}:${deduped.join("+")}:${st}`)
+        // Rust: alphabetically first tag is the family tag
+        const family = activeTags[0] ?? "none"
+        return Effect.succeed(`${ns}:${family}:${st}`)
       }
-      case CoarseKeyMode.DualKey:
+      case CoarseKeyMode.TagFamilyPairBackoff:
+        activeTags.splice(2) // truncate to top 2
         return Effect.succeed(`${ns}:${activeTags.join(",")}:${st}`)
+      case CoarseKeyMode.DualKey:
       case CoarseKeyMode.NeighborhoodPool:
-        return Effect.succeed(`${ns}:${activeTags.slice(0, 3).join("|")}:${st}`)
+        // Rust: broad corridor = namespace:semantic_type, fine grouping by tag-guarded SDR
+        return Effect.succeed(`${ns}:${st}`)
       case CoarseKeyMode.BridgeKey:
         return Effect.succeed(`${ns}:${activeTags[0] ?? "none"}:bridge:${st}`)
       case CoarseKeyMode.SdrTagPool:
-        return Effect.succeed(`${activeTags.join(",")}:${st}`)
+        // Rust: broad corridor = namespace:semantic_type, fine grouping by tag-SDR guard
+        return Effect.succeed(`${ns}:${st}`)
       default:
+        // Standard: namespace:sorted_tags(top3):semantic_type
+        activeTags.splice(3) // truncate to top 3
         return Effect.succeed(`${ns}:${activeTags.join(",")}:${st}`)
     }
   }
@@ -439,6 +537,11 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
 
   /**
    * Full belief update cycle with SDR-backed claim grouping.
+   *
+   * Mirrors Rust update_with_sdr at belief.rs:976-1232.
+   *
+   * Flow: coarse grouping → subcluster dispatch → split_by_contradiction
+   * → build hypotheses → resolve beliefs → prune stale.
    */
   update_with_sdr(
     records: ReadonlyMap<string, AuraRecord>,
@@ -455,23 +558,110 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
         })
       }
 
+      const hasSdr = sdr_lookup.size > 0
+
+      // Step 1: Coarse grouping by tag key
+      // Rust: belief.rs:985-1011 — filters by content.len() < 10, builds coarse_groups
       const coarseGroups = new Map<string, AuraRecord[]>()
       for (const rec of records.values()) {
-        if (estimateTokens(rec.content) < MIN_CONTENT_TOKENS) continue
+        // Rust: content.len() < 10 → skip (byte-length, not token estimate)
+        if (byteLength(rec.content) < 10) continue
         const key = yield* self.claim_key(rec.namespace, rec.tags, rec.semantic_type)
         const arr = coarseGroups.get(key)
         if (arr) arr.push(rec)
         else coarseGroups.set(key, [rec])
       }
 
-      const nextBeliefs: Record<string, Belief> = {}
-      const nextHyps: Record<string, Hypothesis> = {}
-      const recToBelief: Record<string, string> = {}
+      // Step 2: Fine grouping — for each coarse group, dispatch to subcluster strategy
+      // Rust: belief.rs:1034-1119 — mode-specific subcluster dispatch
+      const groups = new Map<string, readonly AuraRecord[]>()
+      for (const [coarseKey, groupRecords] of coarseGroups.entries()) {
+        if (!hasSdr || groupRecords.length < 2) {
+          groups.set(coarseKey, groupRecords)
+          continue
+        }
 
-      let hypothesesBuilt = 0
-      for (const [key, groupRecords] of coarseGroups.entries()) {
-        const beliefId = id12()
-        let belief: Belief = {
+        const threshold = self.effectiveThreshold()
+        const isTagGuard = self.coarseKeyMode === CoarseKeyMode.DualKey ||
+          self.coarseKeyMode === CoarseKeyMode.NeighborhoodPool
+        const isBridgeGuard = self.coarseKeyMode === CoarseKeyMode.BridgeKey
+        const isTagSdrGuard = self.coarseKeyMode === CoarseKeyMode.SdrTagPool
+
+        let subclusters = isTagGuard
+          ? unionFindClusters(groupRecords, sdr_lookup, threshold)
+          : isBridgeGuard
+            ? unionFindClusters(groupRecords, sdr_lookup, threshold)
+            : isTagSdrGuard
+              ? unionFindClusters(groupRecords, sdr_lookup, threshold)
+              : unionFindClusters(groupRecords, sdr_lookup, threshold)
+
+        if (subclusters.length === 1) {
+          groups.set(coarseKey, groupRecords)
+        } else {
+          for (let idx = 0; idx < subclusters.length; idx++) {
+            const subKey = `${coarseKey}#${idx}`
+            groups.set(subKey, subclusters[idx]!)
+          }
+        }
+      }
+
+      // Step 3: For each group, use splitByContradiction to build hypotheses
+      // Rust: belief.rs:1122-1197 — split_by_contradiction, build hypotheses, resolve
+      const newKeyIndex = new Map<string, string>()
+      const newRecordIndex = new Map<string, string>()
+      let beliefsCreated = 0
+      let revisions = 0
+      let resolvedCount = 0
+      let unresolvedCount = 0
+
+      for (const [key, groupRecords] of groups.entries()) {
+        if (groupRecords.length < 2) continue
+
+        // Look up existing belief by key_index (incremental)
+        let beliefId: string
+        const existingBid = self.keyIndex.get(key)
+        if (existingBid && self.state.beliefs[existingBid]) {
+          beliefId = existingBid
+        } else {
+          // New belief — create
+          beliefId = yield* Effect.promise(() => getXxhashHasher().then((h) => deterministicHypothesisId(h, key, groupRecords)))
+          beliefsCreated++
+        }
+        newKeyIndex.set(key, beliefId)
+
+        // Split into supporting and opposing groups
+        const [supporting, opposing] = splitByContradiction(groupRecords)
+
+        const hypRefs: string[] = []
+
+        // Build supporting hypothesis
+        if (supporting.length > 0) {
+          const h = yield* Effect.promise(() => hypothesisFromRecords(beliefId, supporting, now))
+          for (const rid of h.prototype_record_ids) {
+            newRecordIndex.set(rid, h.id)
+          }
+          self.state = {
+            ...self.state,
+            hypotheses: { ...self.state.hypotheses, [h.id]: h }
+          }
+          hypRefs.push(h.id)
+        }
+
+        // Build opposing hypothesis (if any contradictions)
+        if (opposing.length > 0) {
+          const h = yield* Effect.promise(() => hypothesisFromRecords(beliefId, opposing, now))
+          for (const rid of h.prototype_record_ids) {
+            newRecordIndex.set(rid, h.id)
+          }
+          self.state = {
+            ...self.state,
+            hypotheses: { ...self.state.hypotheses, [h.id]: h }
+          }
+          hypRefs.push(h.id)
+        }
+
+        // Get or create belief
+        let belief = self.state.beliefs[beliefId] ?? {
           id: beliefId,
           key,
           hypothesis_ids: [],
@@ -486,46 +676,114 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
           last_updated: now
         }
 
-        const clusters =
-          sdr_lookup.size > 0
-            ? unionFindClusters(groupRecords, sdr_lookup)
-            : ([groupRecords] as const)
-        const hyps: Hypothesis[] = []
-        for (const cluster of clusters) {
-          const hyp = hypothesisFromRecords(beliefId, cluster, now)
-          hypothesesBuilt++
-          nextHyps[hyp.id] = hyp
-          hyps.push(hyp)
-          belief = { ...belief, hypothesis_ids: [...belief.hypothesis_ids, hyp.id] }
-          for (const rid of hyp.prototype_record_ids) recToBelief[rid] = beliefId
+        // Clean up old hypothesis IDs that are NOT reused this cycle
+        for (const oldHid of belief.hypothesis_ids) {
+          if (!hypRefs.includes(oldHid)) {
+            const { [oldHid]: _removed, ...rest } = self.state.hypotheses
+            self.state = { ...self.state, hypotheses: rest }
+          }
+        }
+        belief = { ...belief, hypothesis_ids: hypRefs }
+
+        const hyps = hypRefs
+          .map((hid) => self.state.hypotheses[hid])
+          .filter((h): h is Hypothesis => h !== undefined)
+
+        const prevWinner = belief.winner_id
+        belief = resolveBelief(belief, hyps, now)
+
+        // Track revisions
+        if (prevWinner && belief.winner_id !== prevWinner) {
+          revisions++
         }
 
-        belief = resolveBelief(belief, hyps, now)
-        nextBeliefs[beliefId] = belief
+        if (belief.state === BeliefState.Resolved || belief.state === BeliefState.Singleton) {
+          resolvedCount++
+        } else if (belief.state === BeliefState.Unresolved) {
+          unresolvedCount++
+        }
+
+        self.state = {
+          ...self.state,
+          beliefs: { ...self.state.beliefs, [beliefId]: belief }
+        }
+      }
+
+      // Step 4: Prune stale beliefs for keys that no longer exist
+      // Rust: belief.rs:1199-1216
+      let beliefsPruned = 0
+      for (const [oldKey, oldBid] of self.keyIndex.entries()) {
+        if (!newKeyIndex.has(oldKey)) {
+          self.keyIndex.delete(oldKey)
+          const belief = self.state.beliefs[oldBid]
+          if (belief) {
+            // Soft-deprecate: halve confidence, set to Unresolved
+            const newConfidence = Math.max(belief.confidence * 0.5, MIN_FEEDBACK_CONFIDENCE)
+            const newScore = belief.confidence > 0
+              ? belief.score * (newConfidence / belief.confidence)
+              : newConfidence
+            self.state = {
+              ...self.state,
+              beliefs: {
+                ...self.state.beliefs,
+                [oldBid]: {
+                  ...belief,
+                  confidence: newConfidence,
+                  score: newScore,
+                  state: BeliefState.Unresolved,
+                  winner_id: null,
+                  stability: 0,
+                  last_updated: now
+                }
+              }
+            }
+            beliefsPruned++
+          }
+        }
+      }
+
+      // Update in-memory indices
+      self.keyIndex = newKeyIndex
+      self.recordIndex = new Map<string, string>()
+      for (const [rid, hid] of newRecordIndex.entries()) {
+        if (self.state.hypotheses[hid]) {
+          self.recordIndex.set(rid, hid)
+        }
+      }
+
+      // Build key_index and record_index for state
+      const keyIndexRecord: Record<string, string> = {}
+      for (const [key, bid] of newKeyIndex.entries()) {
+        keyIndexRecord[key] = bid
+      }
+      const recordIndexRecord: Record<string, string> = {}
+      for (const [rid, hid] of self.recordIndex.entries()) {
+        recordIndexRecord[rid] = hid
       }
 
       self.state = {
-        version: 1,
-        beliefs: nextBeliefs,
-        hypotheses: nextHyps,
-        record_to_belief: recToBelief,
-        key_index: {},
-        record_index: recToBelief
+        ...self.state,
+        key_index: keyIndexRecord,
+        record_index: recordIndexRecord,
+        record_to_belief: recordIndexRecord
       }
 
-      const beliefCount = Object.keys(nextBeliefs).length
+      const totalBeliefs = Object.keys(self.state.beliefs).length
+      const totalHypotheses = Object.keys(self.state.hypotheses).length
+
       const report: BeliefReport = {
         coarse_groups: coarseGroups.size,
-        beliefs_built: beliefCount,
-        hypotheses_built: hypothesesBuilt,
-        beliefs_created: beliefCount,
-        beliefs_pruned: 0,
-        revisions: 0,
-        resolved: Object.values(nextBeliefs).filter(b => b.state === "Resolved").length,
-        unresolved: Object.values(nextBeliefs).filter(b => b.state === "Unresolved").length,
-        total_beliefs: beliefCount,
-        total_hypotheses: hypothesesBuilt,
-        churn_rate: 0
+        beliefs_built: beliefsCreated,
+        hypotheses_built: totalHypotheses,
+        beliefs_created: beliefsCreated,
+        beliefs_pruned: beliefsPruned,
+        revisions,
+        resolved: resolvedCount,
+        unresolved: unresolvedCount,
+        total_beliefs: totalBeliefs,
+        total_hypotheses: totalHypotheses,
+        // Rust: churn_rate = revisions / max(total_beliefs, 1)
+        churn_rate: totalBeliefs > 0 ? revisions / totalBeliefs : 0
       }
 
       if (Option.isSome(traceOpt)) {
@@ -536,22 +794,54 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
     })
   }
 
+  private effectiveThreshold(): number {
+    switch (this.coarseKeyMode) {
+      case CoarseKeyMode.NeighborhoodPool:
+        return SDR_TAG_GUARD_THRESHOLD // 0.10
+      case CoarseKeyMode.DualKey:
+        return SDR_TAG_GUARD_THRESHOLD // 0.10
+      case CoarseKeyMode.SdrTagPool:
+        return SDR_TAG_GUARD_THRESHOLD // 0.10
+      default:
+        return SDR_TANIMOTO_THRESHOLD // 0.15
+    }
+  }
+
   belief_for_record(record_id: string): Effect.Effect<string | null> {
     return Effect.succeed(this.state.record_to_belief[record_id] ?? null)
   }
 
+  /**
+   * Soft-deprecate a belief: halve confidence, set to Unresolved, clear winner.
+   *
+   * Mirrors Rust deprecate_belief at belief.rs:1264-1281.
+   * Does NOT delete the belief — only downgrades it.
+   */
   deprecate_belief(belief_id: string): Effect.Effect<void> {
     const self = this
     return Effect.sync(() => {
       const belief = self.state.beliefs[belief_id]
       if (!belief) return
-      const { [belief_id]: _removed, ...remainingBeliefs } = self.state.beliefs
-      const remainingHyps = { ...self.state.hypotheses }
-      for (const hid of belief.hypothesis_ids) delete remainingHyps[hid]
+
+      const newConfidence = Math.max(belief.confidence * 0.5, MIN_FEEDBACK_CONFIDENCE)
+      const newScore = belief.confidence > 0
+        ? belief.score * (newConfidence / belief.confidence)
+        : newConfidence
+
       self.state = {
         ...self.state,
-        beliefs: remainingBeliefs,
-        hypotheses: remainingHyps
+        beliefs: {
+          ...self.state.beliefs,
+          [belief_id]: {
+            ...belief,
+            confidence: newConfidence,
+            score: newScore,
+            state: BeliefState.Unresolved,
+            winner_id: null,
+            stability: 0,
+            last_updated: Date.now() / 1000
+          }
+        }
       }
     })
   }
@@ -565,11 +855,25 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
         const fb = arg as { belief_id?: string; action?: string; factor?: number }
         if (!fb.belief_id || !fb.action) continue
         if (fb.action === "deprecate") {
-          const { [fb.belief_id]: _r, ...rest } = self.state.beliefs
           const b = self.state.beliefs[fb.belief_id]
-          const hyps = { ...self.state.hypotheses }
-          if (b) for (const hid of b.hypothesis_ids) delete hyps[hid]
-          self.state = { ...self.state, beliefs: rest, hypotheses: hyps }
+          if (!b) continue
+          const newConfidence = Math.max(b.confidence * 0.5, MIN_FEEDBACK_CONFIDENCE)
+          const newScore = b.confidence > 0 ? b.score * (newConfidence / b.confidence) : newConfidence
+          self.state = {
+            ...self.state,
+            beliefs: {
+              ...self.state.beliefs,
+              [fb.belief_id]: {
+                ...b,
+                confidence: newConfidence,
+                score: newScore,
+                state: BeliefState.Unresolved,
+                winner_id: null,
+                stability: 0,
+                last_updated: Date.now() / 1000
+              }
+            }
+          }
           applied++
           continue
         }
@@ -609,7 +913,21 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
   }
 
   stats(): Effect.Effect<BeliefEngineState> {
-    return Effect.succeed(this.state)
+    // Sync in-memory indices back to state before returning
+    const keyIndexRecord: Record<string, string> = {}
+    for (const [key, bid] of this.keyIndex.entries()) {
+      keyIndexRecord[key] = bid
+    }
+    const recordIndexRecord: Record<string, string> = {}
+    for (const [rid, hid] of this.recordIndex.entries()) {
+      recordIndexRecord[rid] = hid
+    }
+    return Effect.succeed({
+      ...this.state,
+      key_index: keyIndexRecord,
+      record_index: recordIndexRecord,
+      record_to_belief: recordIndexRecord
+    })
   }
 }
 

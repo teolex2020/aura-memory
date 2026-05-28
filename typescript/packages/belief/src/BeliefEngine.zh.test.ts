@@ -41,7 +41,12 @@ function makeRecord(
   }
 }
 
-it("中文用例：大样本分桶+SDR聚类后，每个桶只生成一个Belief，且记录映射稳定", async () => {
+// ── P0-aligned Chinese tests ──
+// With SDR subclustering and split_by_contradiction, coarse groups split into
+// separate beliefs per subcluster (Rust behavior). Single-record subclusters
+// are skipped (Rust's group_records.len() < 2 guard).
+
+it("中文用例：SDR子簇分桶后每个子簇产生独立Belief，记录映射稳定", async () => {
   const engine = new BeliefEngineImpl()
 
   const records = new Map<string, AuraRecord>()
@@ -91,31 +96,38 @@ it("中文用例：大样本分桶+SDR聚类后，每个桶只生成一个Belief
   }
 
   const report = await Effect.runPromise(engine.update_with_sdr(records, sdr).pipe(Effect.provideService(EpistemicTrace, NoopTrace)))
+  // 3 coarse groups (tag-based claim keys), each with 2 SDR subclusters
   assert.strictEqual(report.coarse_groups, 3)
-  assert.strictEqual(report.beliefs_built, 3)
-  assert.strictEqual(report.hypotheses_built, 6)
+  // Each SDR subcluster becomes its own belief (6 total)
+  assert.strictEqual(report.beliefs_created, 6)
+  // Each belief gets 1 hypothesis (from supporting side, no contradictions)
+  assert.strictEqual(report.total_hypotheses, 6)
 
   const state = await Effect.runPromise(engine.stats())
-  assert.strictEqual(Object.keys(state.beliefs).length, 3)
+  assert.strictEqual(Object.keys(state.beliefs).length, 6)
   assert.strictEqual(Object.keys(state.hypotheses).length, 6)
 
+  // Records within the same SDR subcluster map to the same belief
   const byBelief: Record<string, string[]> = {}
   for (const [rid, bid] of Object.entries(state.record_to_belief)) {
     ;(byBelief[bid] ??= []).push(rid)
   }
-  assert.strictEqual(Object.keys(byBelief).length, 3)
+  assert.strictEqual(Object.keys(byBelief).length, 6)
 
-  const g1Belief = state.record_to_belief[group1[0]!]!
-  const g2Belief = state.record_to_belief[group2[0]!]!
-  const g3Belief = state.record_to_belief[group3[0]!]!
-  for (const rid of group1) assert.strictEqual(state.record_to_belief[rid], g1Belief)
-  for (const rid of group2) assert.strictEqual(state.record_to_belief[rid], g2Belief)
-  for (const rid of group3) assert.strictEqual(state.record_to_belief[rid], g3Belief)
+  // All group1 dark records should be in the same belief
+  const darkBids = new Set(group1.slice(0, 20).map(rid => state.record_to_belief[rid]))
+  assert.strictEqual(darkBids.size, 1)
+  // All group1 light records should be in the same belief (different from dark)
+  const lightBids = new Set(group1.slice(20).map(rid => state.record_to_belief[rid]))
+  assert.strictEqual(lightBids.size, 1)
+  assert.notStrictEqual([...darkBids][0], [...lightBids][0])
 })
 
-it("中文用例：两组假设分数接近时应进入Unresolved（不产生winner）", async () => {
+it("中文用例：SDR分簇后每组单记录不产生Belief（Rust guard对齐）", async () => {
   const engine = new BeliefEngineImpl()
 
+  // Two records with different SDR: Rust subclustering splits them into
+  // single-record clusters, which are skipped (group_records.len() < 2).
   const records = new Map<string, AuraRecord>([
     ["a", makeRecord("a", "用户偏好深色主题（强，中文长句保证长度）", ["界面", "主题"], "偏好", 10, 0.9)],
     ["b", makeRecord("b", "用户偏好浅色主题（近似强，中文长句保证长度）", ["界面", "主题"], "偏好", 9.5, 0.9)]
@@ -128,28 +140,29 @@ it("中文用例：两组假设分数接近时应进入Unresolved（不产生win
   await Effect.runPromise(engine.update_with_sdr(records, sdr).pipe(Effect.provideService(EpistemicTrace, NoopTrace)))
   const state = await Effect.runPromise(engine.stats())
   const beliefs = Object.values(state.beliefs)
-  assert.strictEqual(beliefs.length, 1)
-  assert.strictEqual(beliefs[0]!.state, BeliefState.Unresolved)
-  assert.strictEqual(beliefs[0]!.winner_id, null)
+  // SDR splits into 2 single-record clusters, both skipped (Rust <2 guard)
+  assert.strictEqual(beliefs.length, 0)
 })
 
-it("中文用例：明显更强的假设应Resolved且winner来自更高support_mass簇", async () => {
+it("中文用例：相同SDR簇内records通过contradiction产生supporting/opposing假设", async () => {
   const engine = new BeliefEngineImpl()
 
+  // Two records with similar SDR (same cluster) but different support levels
+  // With the same SDR vector, they merge into one subcluster and pass the <2 guard
   const records = new Map<string, AuraRecord>([
     ["a", makeRecord("a", "用户非常偏好深色主题（中文长句保证长度）", ["界面", "主题"], "偏好", 10, 0.95)],
     ["b", makeRecord("b", "用户有时用浅色主题（中文长句保证长度）", ["界面", "主题"], "偏好", 1, 0.5)]
   ])
   const sdr = new Map<string, ReadonlyArray<number>>([
-    ["a", [1, 2, 3]],
-    ["b", [100, 200, 300]]
+    ["a", [1, 2, 3, 4, 5]],
+    ["b", [1, 2, 3, 4, 6]]   // Tanimoto = 4/6 ≈ 0.67 > 0.15 → merge
   ])
 
   await Effect.runPromise(engine.update_with_sdr(records, sdr).pipe(Effect.provideService(EpistemicTrace, NoopTrace)))
   const state = await Effect.runPromise(engine.stats())
   const beliefs = Object.values(state.beliefs)
   assert.strictEqual(beliefs.length, 1)
-  assert.strictEqual(beliefs[0]!.state, BeliefState.Resolved)
+  assert.strictEqual(beliefs[0]!.state, BeliefState.Singleton)
   assert.ok(beliefs[0]!.winner_id !== null)
   const winner = state.hypotheses[beliefs[0]!.winner_id!]
   assert.ok(winner !== undefined)

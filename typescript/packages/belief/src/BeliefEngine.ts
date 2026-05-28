@@ -201,12 +201,24 @@ function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
 /**
  * Minimal deterministic tag bridge table for safe densification experiments.
  *
- * Mirrors Rust normalize_bridge_tag at belief.rs:526-533.
+ * Mirrors Rust normalize_bridge_tag at belief.rs:526-534.
+ *
+ * Default bridge families (extracted from Rust source — 3 families, 6 input tags):
+ *   "ui" | "frontend"   → "frontend"
+ *   "auth" | "authentication" → "authentication"
+ *   "deploy" | "release" → "release"
+ *
+ * Accepts optional override map. Overrides take priority over defaults.
  *
  * 最小确定性标签桥接表，用于安全的高密度实验。
+ * 支持可选的外部覆盖配置，覆盖优先于默认映射。
  */
-function normalizeBridgeTag(tag: string): string {
+export function normalizeBridgeTag(tag: string, overrides?: Record<string, string>): string {
   const lower = tag.trim().toLowerCase()
+  // Overrides take priority
+  if (overrides && lower in overrides) {
+    return overrides[lower]!
+  }
   switch (lower) {
     case "ui":
     case "frontend":
@@ -227,12 +239,126 @@ function normalizeBridgeTag(tag: string): string {
  *
  * Mirrors Rust normalized_bridge_tags at belief.rs:536-546.
  */
-function normalizedBridgeTags(record: AuraRecord): string[] {
+export function normalizedBridgeTags(record: AuraRecord, overrides?: Record<string, string>): string[] {
   const tags = record.tags
-    .map((t) => normalizeBridgeTag(t))
+    .map((t) => normalizeBridgeTag(t, overrides))
     .sort()
   // dedup
   return tags.filter((t, i) => i === 0 || t !== tags[i - 1]).slice(0, 3)
+}
+
+/**
+ * Parse the tag family from a coarse key (second segment after first colon).
+ *
+ * Mirrors Rust parse_tag_family_from_key at belief.rs:560-564.
+ *
+ * 从 coarse key 中解析 tag family（第一个冒号后的第二段）。
+ */
+export function parseTagFamilyFromKey(key: string): string {
+  const parts = key.split(":")
+  return parts[1] ?? ""
+}
+
+/**
+ * Check if a tag family is generic (too broad for meaningful clustering).
+ *
+ * Mirrors Rust is_generic_tag_family at belief.rs:566-568.
+ *
+ * 检查 tag family 是否为泛化族（过于宽泛，不适合聚类）。
+ */
+export function isGenericTagFamily(family: string): boolean {
+  return family === "alerts"
+}
+
+/**
+ * Extract stable secondary tags that appear frequently across records.
+ *
+ * A tag is stable if:
+ * - It is the family tag (always included at position 0), OR
+ * - It appears in at least 4 records
+ *
+ * Generic families (e.g., "alerts") are excluded.
+ *
+ * Mirrors Rust dense_corridor_stable_tags at belief.rs:570-606.
+ *
+ * 提取在记录中频繁出现的稳定二级标签。
+ */
+export function denseCorridorStableTags(
+  records: ReadonlyArray<AuraRecord>,
+  family: string
+): string[] {
+  const counts = new Map<string, number>()
+  for (const rec of records) {
+    const tags = rec.tags
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t.length > 0)
+      .sort()
+    // Dedup per record
+    const deduped = tags.filter((t, i) => i === 0 || t !== tags[i - 1])
+    for (const tag of deduped) {
+      if (isGenericTagFamily(tag)) {
+        continue
+      }
+      counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+  }
+
+  const stable: string[] = []
+  for (const [tag, count] of counts) {
+    if (tag === family || count >= 4) {
+      stable.push(tag)
+    }
+  }
+  stable.sort()
+  if (!stable.includes(family)) {
+    stable.unshift(family)
+  }
+  return stable
+}
+
+/**
+ * Build a dense backoff group key from stable secondary tags.
+ *
+ * Conditions for dense corridor regrouping:
+ * - At least 4 records
+ * - At least 2 stable tags
+ * - At least 2 picked tags matching the record
+ *
+ * If conditions not met, falls back to the original coarse_key.
+ *
+ * Mirrors Rust dense_backoff_group_key at belief.rs:608-642.
+ *
+ * 从稳定的二级标签构建密集后退组键。
+ */
+export function denseBackoffGroupKey(
+  coarseKey: string,
+  records: ReadonlyArray<AuraRecord>,
+  record: AuraRecord
+): string {
+  const family = parseTagFamilyFromKey(coarseKey)
+  const stableTags = denseCorridorStableTags(records, family)
+  if (records.length < 4 || stableTags.length < 2) {
+    return coarseKey
+  }
+
+  const recordTags = record.tags
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0)
+    .sort()
+  const recordDeduped = recordTags.filter((t, i) => i === 0 || t !== recordTags[i - 1])
+
+  const picked: string[] = stableTags
+    .filter((tag) => recordDeduped.includes(tag))
+  picked.sort()
+  // dedup picked
+  const dedupedPicked = picked.filter((t, i) => i === 0 || t !== picked[i - 1])
+  dedupedPicked.splice(3) // truncate to 3
+
+  if (dedupedPicked.length >= 2) {
+    return `${record.namespace}:${dedupedPicked.join(",")}:${record.semantic_type}`
+  } else {
+    return coarseKey
+  }
 }
 
 /**
@@ -861,7 +987,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
 
       // Step 1: Coarse grouping by tag key
       // Rust: belief.rs:985-1011 — filters by content.len() < 10, builds coarse_groups
-      const coarseGroups = new Map<string, AuraRecord[]>()
+      let coarseGroups = new Map<string, AuraRecord[]>()
       for (const rec of records.values()) {
         // Rust: content.len() < 10 → skip (byte-length, not token estimate)
         if (byteLength(rec.content) < 10) continue
@@ -869,6 +995,30 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
         const arr = coarseGroups.get(key)
         if (arr) arr.push(rec)
         else coarseGroups.set(key, [rec])
+      }
+
+      // TagFamilyDenseBackoff pre-refinement: re-key records with dense corridor keys
+      // Rust: belief.rs:1013-1031
+      if (self.coarseKeyMode === CoarseKeyMode.TagFamilyDenseBackoff) {
+        const refinedGroups = new Map<string, AuraRecord[]>()
+        for (const [coarseKey, groupRecords] of coarseGroups.entries()) {
+          const family = parseTagFamilyFromKey(coarseKey)
+          if (
+            groupRecords.length >= 4 &&
+            !isGenericTagFamily(family) &&
+            denseCorridorStableTags(groupRecords, family).length >= 2
+          ) {
+            for (const rec of groupRecords) {
+              const refinedKey = denseBackoffGroupKey(coarseKey, groupRecords, rec)
+              const arr = refinedGroups.get(refinedKey)
+              if (arr) arr.push(rec)
+              else refinedGroups.set(refinedKey, [rec])
+            }
+          } else {
+            refinedGroups.set(coarseKey, groupRecords)
+          }
+        }
+        coarseGroups = refinedGroups
       }
 
       // Step 2: Fine grouping — for each coarse group, dispatch to subcluster strategy
@@ -896,6 +1046,38 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
           subclusters = sdrSubclusterTagSdrGuarded(groupRecords, sdr_lookup, threshold, sdrInterpreter)
         } else {
           subclusters = sdrSubcluster(groupRecords, sdr_lookup, threshold)
+        }
+
+        // TagFamilyAdaptive 2-pass: if all singletons, retry with relaxed threshold (0.10)
+        // Rust: belief.rs:1078-1092
+        if (self.coarseKeyMode === CoarseKeyMode.TagFamilyAdaptive) {
+          const family = parseTagFamilyFromKey(coarseKey)
+          const strictAllSingletons = subclusters.every((c) => c.length < 2)
+          if (
+            groupRecords.length >= 2 &&
+            strictAllSingletons &&
+            !isGenericTagFamily(family)
+          ) {
+            const adaptiveThreshold = 0.10 // Rust: claim_similarity_override.unwrap_or(0.10)
+            subclusters = sdrSubcluster(groupRecords, sdr_lookup, adaptiveThreshold)
+          }
+        }
+
+        // TagFamily backoff: if all clusters singletons, fall back to broad bucket
+        // Rust: belief.rs:1094-1107
+        const useTagFamilyBackoff =
+          self.coarseKeyMode === CoarseKeyMode.TagFamilyBackoff ||
+          self.coarseKeyMode === CoarseKeyMode.TagFamilyPairBackoff ||
+          self.coarseKeyMode === CoarseKeyMode.TagFamilyDenseBackoff
+        if (
+          useTagFamilyBackoff &&
+          groupRecords.length >= 2 &&
+          !isGenericTagFamily(parseTagFamilyFromKey(coarseKey)) &&
+          subclusters.every((c) => c.length < 2)
+        ) {
+          // All singletons → fall back to broad bucket (single group under original key)
+          groups.set(coarseKey, groupRecords)
+          continue
         }
 
         if (subclusters.length === 1) {

@@ -118,7 +118,7 @@ Plans:
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 06.2
 **Source:** AUDIT-DIFF.md, EXPLAIN.md
-**Plans:** 11 plans
+**Plans:** 1/11 plans executed
 
 **Scope (by priority):**
 
@@ -134,26 +134,32 @@ Plans:
 | P2 | PolicyEngine | Suppression phase, recommendation text generation |
 
 **Wave 1** *(autonomous)*
-- [ ] 06.3-01-PLAN.md — Contract type expansions: CausalTypes (20+ fields), PolicyTypes (polarity/recommendation), BeliefTypes (key_index/record_index), updated Causal/Policy discover signatures
+
+- [x] 06.3-01-PLAN.md — Contract type expansions: CausalTypes (20+ fields), PolicyTypes (polarity/recommendation), BeliefTypes (key_index/record_index), updated Causal/Policy discover signatures
 
 **Wave 2** *(blocked on Wave 1)*
+
 - [ ] 06.3-02-PLAN.md — BeliefEngine P0: contradiction split, deterministic IDs, thresholds (0.15/14d), incremental update, sample variance (TDD)
 - [ ] 06.3-03-PLAN.md — BeliefEngine P1: 4 SDR subcluster guards + coarse key mode alignment (Standard truncation, TagFamily, DualKey) (TDD)
 - [ ] 06.3-04-PLAN.md — BeliefEngine P2: BridgeKey normalize, TagFamily backoff strategies, apply_layer_feedback rewrite (TDD)
 
 **Wave 3** *(blocked on Wave 2)*
+
 - [ ] 06.3-05-PLAN.md — ConceptEngine P1: CanonicalFeature mode (stemming+equivalence+Jaccard) + expanded stop words (TDD)
 - [ ] 06.3-06-PLAN.md — ConceptEngine P1+P2: Cluster guards + surface alignment (per-ns cap, 5-dim tiebreak) (TDD)
 
 **Wave 4** *(blocked on Wave 3)*
+
 - [ ] 06.3-07-PLAN.md — CausalEngine P0: record-level edge extraction + belief-level aggregation + MaintenanceService call update (TDD)
 - [ ] 06.3-08-PLAN.md — CausalEngine P1+P2: 20+ field scoring + evidence gates + corpus fingerprint (TDD)
 
 **Wave 5** *(blocked on Wave 4)*
+
 - [ ] 06.3-09-PLAN.md — PolicyEngine P1: 3-engine discover + seed selection + polarity + action mapping + MaintenanceService call update (TDD)
 - [ ] 06.3-10-PLAN.md — PolicyEngine P2: 4-dim scoring + suppression + recommendation templates + surface alignment (TDD)
 
 **Wave 6** *(blocked on Waves 1-5)*
+
 - [ ] 06.3-11-PLAN.md — Integration: full typecheck + test suite + AUDIT-DIFF.md status update (checkpoint)
 
 ### Phase 06.1: 补齐四大引擎未完成功能和修复类型错误 (INSERTED)

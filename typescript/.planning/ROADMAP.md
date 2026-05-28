@@ -118,7 +118,7 @@ Plans:
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 06.2
 **Source:** AUDIT-DIFF.md, EXPLAIN.md
-**Plans:** 6/11 plans executed
+**Plans:** 7/11 plans executed
 
 **Scope (by priority):**
 
@@ -150,7 +150,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 06.3-07-PLAN.md — CausalEngine P0: record-level edge extraction + belief-level aggregation + MaintenanceService call update (TDD)
+- [x] 06.3-07-PLAN.md — CausalEngine P0: record-level edge extraction + belief-level aggregation + MaintenanceService call update (TDD)
 - [ ] 06.3-08-PLAN.md — CausalEngine P1+P2: 20+ field scoring + evidence gates + corpus fingerprint (TDD)
 
 **Wave 5** *(blocked on Wave 4)*

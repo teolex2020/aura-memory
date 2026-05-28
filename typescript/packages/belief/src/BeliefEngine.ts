@@ -3,12 +3,21 @@ import { Effect, Layer, Option } from "effect"
 import {
   BeliefEngine,
   BeliefState,
+  CausalEngine,
+  CausalState,
   EpistemicTrace,
+  PolicyActionKind,
+  PolicyEngine,
+  PolicyState,
   serviceOption,
   type Belief,
   type BeliefEngineState,
   type BeliefReport,
+  type CausalEngineState,
+  type CausalPattern,
   type Hypothesis,
+  type PolicyEngineState,
+  type PolicyHint,
   type Record as AuraRecord,
   type SdrLookup,
   Clock
@@ -114,6 +123,66 @@ const MAX_TOTAL_VOLATILITY_INCREASE = 0.20
 const MAX_TOTAL_VOLATILITY_RELIEF = 0.06
 
 /**
+ * Per-belief audit entry produced by apply_layer_feedback.
+ *
+ * Mirrors Rust BeliefFeedbackEntry at belief.rs:1446-1461.
+ *
+ * apply_layer_feedback 为每个受影响的 belief 生成的审计条目。
+ */
+export type FeedbackAuditEntry = {
+  /** Target belief ID. */
+  readonly beliefId: string
+  /** Signal source: "causal" or "policy". */
+  readonly sourceKind: string
+  /** Source pattern/hint ID. */
+  readonly sourceId: string
+  /** Human-readable reason string. */
+  readonly reason: string
+  /** Raw delta before clamping. */
+  readonly deltaRequested: number
+  /** Actual delta after clamping (proportional to total). */
+  readonly deltaApplied: number
+  /** Confidence value before feedback. */
+  readonly confidenceBefore: number
+  /** Confidence value after feedback. */
+  readonly confidenceAfter: number
+  /** Volatility value before feedback. */
+  readonly volatilityBefore: number
+  /** Volatility value after feedback. */
+  readonly volatilityAfter: number
+  /** Volatility delta applied (proportional). */
+  readonly volatilityDeltaApplied: number
+  /** Stability before feedback (unchanged — owned by resolve()). */
+  readonly stabilityBefore: number
+  /** Stability after feedback (unchanged — owned by resolve()). */
+  readonly stabilityAfter: number
+  /** Stability delta applied (always 0). */
+  readonly stabilityDeltaApplied: number
+}
+
+/**
+ * Report returned by apply_layer_feedback after processing causal and policy signals.
+ *
+ * Mirrors Rust BeliefFeedbackReport at belief.rs (with BeliefFeedbackEntry entries).
+ *
+ * apply_layer_feedback 处理的反馈报告。
+ */
+export type BeliefFeedbackReport = {
+  /** Number of distinct beliefs affected. */
+  readonly beliefsTouched: number
+  /** Number of beliefs with net positive delta. */
+  readonly beliefsBoosted: number
+  /** Number of beliefs with net negative delta. */
+  readonly beliefsDampened: number
+  /** Sum of all applied confidence deltas. */
+  readonly netConfidenceDelta: number
+  /** Sum of all applied volatility deltas. */
+  readonly netVolatilityDelta: number
+  /** Per-belief audit entries. */
+  readonly entries: ReadonlyArray<FeedbackAuditEntry>
+}
+
+/**
  * Record source-type → default confidence map.
  *
  * Rust 侧 `Record::default_confidence_for_source` 按 source_type 给默认值；
@@ -201,12 +270,24 @@ function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
 /**
  * Minimal deterministic tag bridge table for safe densification experiments.
  *
- * Mirrors Rust normalize_bridge_tag at belief.rs:526-533.
+ * Mirrors Rust normalize_bridge_tag at belief.rs:526-534.
+ *
+ * Default bridge families (extracted from Rust source — 3 families, 6 input tags):
+ *   "ui" | "frontend"   → "frontend"
+ *   "auth" | "authentication" → "authentication"
+ *   "deploy" | "release" → "release"
+ *
+ * Accepts optional override map. Overrides take priority over defaults.
  *
  * 最小确定性标签桥接表，用于安全的高密度实验。
+ * 支持可选的外部覆盖配置，覆盖优先于默认映射。
  */
-function normalizeBridgeTag(tag: string): string {
+export function normalizeBridgeTag(tag: string, overrides?: Record<string, string>): string {
   const lower = tag.trim().toLowerCase()
+  // Overrides take priority
+  if (overrides && lower in overrides) {
+    return overrides[lower]!
+  }
   switch (lower) {
     case "ui":
     case "frontend":
@@ -227,12 +308,126 @@ function normalizeBridgeTag(tag: string): string {
  *
  * Mirrors Rust normalized_bridge_tags at belief.rs:536-546.
  */
-function normalizedBridgeTags(record: AuraRecord): string[] {
+export function normalizedBridgeTags(record: AuraRecord, overrides?: Record<string, string>): string[] {
   const tags = record.tags
-    .map((t) => normalizeBridgeTag(t))
+    .map((t) => normalizeBridgeTag(t, overrides))
     .sort()
   // dedup
   return tags.filter((t, i) => i === 0 || t !== tags[i - 1]).slice(0, 3)
+}
+
+/**
+ * Parse the tag family from a coarse key (second segment after first colon).
+ *
+ * Mirrors Rust parse_tag_family_from_key at belief.rs:560-564.
+ *
+ * 从 coarse key 中解析 tag family（第一个冒号后的第二段）。
+ */
+export function parseTagFamilyFromKey(key: string): string {
+  const parts = key.split(":")
+  return parts[1] ?? ""
+}
+
+/**
+ * Check if a tag family is generic (too broad for meaningful clustering).
+ *
+ * Mirrors Rust is_generic_tag_family at belief.rs:566-568.
+ *
+ * 检查 tag family 是否为泛化族（过于宽泛，不适合聚类）。
+ */
+export function isGenericTagFamily(family: string): boolean {
+  return family === "alerts"
+}
+
+/**
+ * Extract stable secondary tags that appear frequently across records.
+ *
+ * A tag is stable if:
+ * - It is the family tag (always included at position 0), OR
+ * - It appears in at least 4 records
+ *
+ * Generic families (e.g., "alerts") are excluded.
+ *
+ * Mirrors Rust dense_corridor_stable_tags at belief.rs:570-606.
+ *
+ * 提取在记录中频繁出现的稳定二级标签。
+ */
+export function denseCorridorStableTags(
+  records: ReadonlyArray<AuraRecord>,
+  family: string
+): string[] {
+  const counts = new Map<string, number>()
+  for (const rec of records) {
+    const tags = rec.tags
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t.length > 0)
+      .sort()
+    // Dedup per record
+    const deduped = tags.filter((t, i) => i === 0 || t !== tags[i - 1])
+    for (const tag of deduped) {
+      if (isGenericTagFamily(tag)) {
+        continue
+      }
+      counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+  }
+
+  const stable: string[] = []
+  for (const [tag, count] of counts) {
+    if (tag === family || count >= 4) {
+      stable.push(tag)
+    }
+  }
+  stable.sort()
+  if (!stable.includes(family)) {
+    stable.unshift(family)
+  }
+  return stable
+}
+
+/**
+ * Build a dense backoff group key from stable secondary tags.
+ *
+ * Conditions for dense corridor regrouping:
+ * - At least 4 records
+ * - At least 2 stable tags
+ * - At least 2 picked tags matching the record
+ *
+ * If conditions not met, falls back to the original coarse_key.
+ *
+ * Mirrors Rust dense_backoff_group_key at belief.rs:608-642.
+ *
+ * 从稳定的二级标签构建密集后退组键。
+ */
+export function denseBackoffGroupKey(
+  coarseKey: string,
+  records: ReadonlyArray<AuraRecord>,
+  record: AuraRecord
+): string {
+  const family = parseTagFamilyFromKey(coarseKey)
+  const stableTags = denseCorridorStableTags(records, family)
+  if (records.length < 4 || stableTags.length < 2) {
+    return coarseKey
+  }
+
+  const recordTags = record.tags
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0)
+    .sort()
+  const recordDeduped = recordTags.filter((t, i) => i === 0 || t !== recordTags[i - 1])
+
+  const picked: string[] = stableTags
+    .filter((tag) => recordDeduped.includes(tag))
+  picked.sort()
+  // dedup picked
+  const dedupedPicked = picked.filter((t, i) => i === 0 || t !== picked[i - 1])
+  dedupedPicked.splice(3) // truncate to 3
+
+  if (dedupedPicked.length >= 2) {
+    return `${record.namespace}:${dedupedPicked.join(",")}:${record.semantic_type}`
+  } else {
+    return coarseKey
+  }
 }
 
 /**
@@ -861,7 +1056,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
 
       // Step 1: Coarse grouping by tag key
       // Rust: belief.rs:985-1011 — filters by content.len() < 10, builds coarse_groups
-      const coarseGroups = new Map<string, AuraRecord[]>()
+      let coarseGroups = new Map<string, AuraRecord[]>()
       for (const rec of records.values()) {
         // Rust: content.len() < 10 → skip (byte-length, not token estimate)
         if (byteLength(rec.content) < 10) continue
@@ -869,6 +1064,30 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
         const arr = coarseGroups.get(key)
         if (arr) arr.push(rec)
         else coarseGroups.set(key, [rec])
+      }
+
+      // TagFamilyDenseBackoff pre-refinement: re-key records with dense corridor keys
+      // Rust: belief.rs:1013-1031
+      if (self.coarseKeyMode === CoarseKeyMode.TagFamilyDenseBackoff) {
+        const refinedGroups = new Map<string, AuraRecord[]>()
+        for (const [coarseKey, groupRecords] of coarseGroups.entries()) {
+          const family = parseTagFamilyFromKey(coarseKey)
+          if (
+            groupRecords.length >= 4 &&
+            !isGenericTagFamily(family) &&
+            denseCorridorStableTags(groupRecords, family).length >= 2
+          ) {
+            for (const rec of groupRecords) {
+              const refinedKey = denseBackoffGroupKey(coarseKey, groupRecords, rec)
+              const arr = refinedGroups.get(refinedKey)
+              if (arr) arr.push(rec)
+              else refinedGroups.set(refinedKey, [rec])
+            }
+          } else {
+            refinedGroups.set(coarseKey, groupRecords)
+          }
+        }
+        coarseGroups = refinedGroups
       }
 
       // Step 2: Fine grouping — for each coarse group, dispatch to subcluster strategy
@@ -896,6 +1115,38 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
           subclusters = sdrSubclusterTagSdrGuarded(groupRecords, sdr_lookup, threshold, sdrInterpreter)
         } else {
           subclusters = sdrSubcluster(groupRecords, sdr_lookup, threshold)
+        }
+
+        // TagFamilyAdaptive 2-pass: if all singletons, retry with relaxed threshold (0.10)
+        // Rust: belief.rs:1078-1092
+        if (self.coarseKeyMode === CoarseKeyMode.TagFamilyAdaptive) {
+          const family = parseTagFamilyFromKey(coarseKey)
+          const strictAllSingletons = subclusters.every((c) => c.length < 2)
+          if (
+            groupRecords.length >= 2 &&
+            strictAllSingletons &&
+            !isGenericTagFamily(family)
+          ) {
+            const adaptiveThreshold = 0.10 // Rust: claim_similarity_override.unwrap_or(0.10)
+            subclusters = sdrSubcluster(groupRecords, sdr_lookup, adaptiveThreshold)
+          }
+        }
+
+        // TagFamily backoff: if all clusters singletons, fall back to broad bucket
+        // Rust: belief.rs:1094-1107
+        const useTagFamilyBackoff =
+          self.coarseKeyMode === CoarseKeyMode.TagFamilyBackoff ||
+          self.coarseKeyMode === CoarseKeyMode.TagFamilyPairBackoff ||
+          self.coarseKeyMode === CoarseKeyMode.TagFamilyDenseBackoff
+        if (
+          useTagFamilyBackoff &&
+          groupRecords.length >= 2 &&
+          !isGenericTagFamily(parseTagFamilyFromKey(coarseKey)) &&
+          subclusters.every((c) => c.length < 2)
+        ) {
+          // All singletons → fall back to broad bucket (single group under original key)
+          groups.set(coarseKey, groupRecords)
+          continue
         }
 
         if (subclusters.length === 1) {
@@ -1159,61 +1410,286 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
     })
   }
 
-  apply_layer_feedback(...args: unknown[]): Effect.Effect<unknown> {
+  /**
+   * Apply higher-layer feedback from causal and policy engines.
+   *
+   * Mirrors Rust apply_layer_feedback at belief.rs:1287-1466.
+   *
+   * Flow:
+   * 1. Collect feedback signals from causal engine patterns
+   * 2. Collect feedback signals from policy engine hints
+   * 3. Aggregate per belief_id with bounded clamping
+   * 4. Update belief confidence/volatility (NOT stability)
+   * 5. Build BeliefFeedbackReport with per-belief audit entries
+   *
+   * Uses Interface types per project layering rules (NOT *Impl).
+   *
+   * 应用来自因果引擎和策略引擎的上层反馈信号。
+   */
+  apply_layer_feedback(
+    causalEngine: CausalEngine.Interface,
+    policyEngine: PolicyEngine.Interface
+  ): Effect.Effect<BeliefFeedbackReport, never, EpistemicTrace> {
     const self = this
-    return Effect.sync(() => {
-      if (args.length === 0) return { applied: 0 }
-      let applied = 0
-      for (const arg of args) {
-        const fb = arg as { belief_id?: string; action?: string; factor?: number }
-        if (!fb.belief_id || !fb.action) continue
-        if (fb.action === "deprecate") {
-          const b = self.state.beliefs[fb.belief_id]
-          if (!b) continue
-          const newConfidence = Math.max(b.confidence * 0.5, MIN_FEEDBACK_CONFIDENCE)
-          const newScore = b.confidence > 0 ? b.score * (newConfidence / b.confidence) : newConfidence
-          self.state = {
-            ...self.state,
-            beliefs: {
-              ...self.state.beliefs,
-              [fb.belief_id]: {
-                ...b,
-                confidence: newConfidence,
-                score: newScore,
-                state: BeliefState.Unresolved,
-                winner_id: null,
-                stability: 0,
-                last_updated: Date.now() / 1000
-              }
-            }
-          }
-          applied++
-          continue
+    return Effect.gen(function* () {
+      const now = yield* Clock.nowSeconds()
+      const traceOpt = yield* serviceOption(EpistemicTrace)
+
+      // Read causal and policy engine states
+      const causalState = yield* causalEngine.stats()
+      const policyState = yield* policyEngine.stats()
+
+      // Feedback signal accumulator
+      interface FeedbackSignal {
+        sourceKind: string
+        sourceId: string
+        reason: string
+        confidenceDelta: number
+        volatilityDelta: number
+      }
+      const pending = new Map<string, FeedbackSignal[]>()
+
+      // ── Collect policy hints ──
+      // Rust: belief.rs:1302-1335
+      for (const hint of Object.values(policyState.hints)) {
+        let stateWeight: number
+        switch (hint.state) {
+          case PolicyState.Stable:
+            stateWeight = 1.0
+            break
+          case PolicyState.Candidate:
+            stateWeight = 0.6
+            break
+          case PolicyState.Suppressed:
+          case PolicyState.Rejected:
+            continue
         }
-        const belief = self.state.beliefs[fb.belief_id]
-        if (!belief) continue
-        const factor = typeof fb.factor === "number" ? fb.factor : 1.0
-        if (fb.action === "suppress") {
-          self.state = {
-            ...self.state,
-            beliefs: {
-              ...self.state.beliefs,
-              [fb.belief_id]: { ...belief, volatility: belief.volatility + factor }
-            }
+        let direction: number
+        switch (hint.actionKind) {
+          case PolicyActionKind.Avoid:
+            direction = -0.10
+            break
+          case PolicyActionKind.VerifyFirst:
+            direction = -0.06
+            break
+          case PolicyActionKind.Warn:
+            direction = -0.03
+            break
+          case PolicyActionKind.Prefer:
+            direction = 0.05
+            break
+          case PolicyActionKind.Recommend:
+            direction = 0.03
+            break
+        }
+        const delta = direction * Math.max(0, hint.policyStrength) * stateWeight
+
+        // Resolve target belief IDs: use pattern_id → CausalPattern → belief IDs
+        const targetBeliefIds: string[] = []
+        if (hint.pattern_id && causalState.patterns[hint.pattern_id]) {
+          const pat = causalState.patterns[hint.pattern_id]!
+          targetBeliefIds.push(pat.cause_belief_id)
+          if (pat.effect_belief_id !== pat.cause_belief_id) {
+            targetBeliefIds.push(pat.effect_belief_id)
           }
-          applied++
-        } else if (fb.action === "boost") {
-          self.state = {
-            ...self.state,
-            beliefs: {
-              ...self.state.beliefs,
-              [fb.belief_id]: { ...belief, stability: belief.stability + Math.round(factor) }
-            }
-          }
-          applied++
+        }
+
+        for (const beliefId of targetBeliefIds) {
+          const entries = pending.get(beliefId) ?? []
+          entries.push({
+            sourceKind: "policy",
+            sourceId: hint.id,
+            reason: `${hint.state}:${hint.actionKind}`.toLowerCase(),
+            confidenceDelta: delta,
+            // Stability is managed exclusively by resolve(). Layer feedback
+            // must not modify it — doing so creates an oscillation that
+            // permanently caps stability, blocking concept seeding.
+            volatilityDelta:
+              delta < 0
+                ? 0.01 * Math.max(0, hint.policyStrength)
+                : -0.005 * Math.max(0, hint.policyStrength)
+          })
+          pending.set(beliefId, entries)
         }
       }
-      return { applied }
+
+      // ── Collect causal patterns ──
+      // Rust: belief.rs:1337-1380
+      for (const pattern of Object.values(causalState.patterns)) {
+        let rawDelta: number
+        let volatilityDelta: number
+        let reason: string
+
+        switch (pattern.state) {
+          case CausalState.Stable:
+            rawDelta = 0.03 * Math.max(0, pattern.causal_strength)
+            volatilityDelta = -0.02 * Math.max(0, pattern.causal_strength)
+            reason = "stable_pattern"
+            break
+          case CausalState.Candidate:
+            rawDelta = 0.015 * Math.max(0, pattern.causal_strength)
+            volatilityDelta = -0.01 * Math.max(0, pattern.causal_strength)
+            reason = "candidate_pattern"
+            break
+          case CausalState.Rejected: {
+            const denom = Math.max(1, pattern.support_count + pattern.counterevidence_count)
+            const pressure = Math.min(1.0, Math.max(0.0, pattern.counterevidence_count / denom))
+            rawDelta = -(0.02 + 0.04 * pressure)
+            volatilityDelta = 0.03 + 0.12 * pressure
+            reason = `rejected_pattern:counterevidence=${pattern.counterevidence_count}`
+            break
+          }
+          case CausalState.Invalidated:
+            continue
+        }
+
+        // Collect target belief IDs (cause + effect)
+        const targetBeliefIds: string[] = [pattern.cause_belief_id]
+        if (pattern.effect_belief_id !== pattern.cause_belief_id) {
+          targetBeliefIds.push(pattern.effect_belief_id)
+        }
+
+        for (const beliefId of targetBeliefIds) {
+          const entries = pending.get(beliefId) ?? []
+          entries.push({
+            sourceKind: "causal",
+            sourceId: pattern.id,
+            reason,
+            confidenceDelta: rawDelta,
+            volatilityDelta
+          })
+          pending.set(beliefId, entries)
+        }
+      }
+
+      // ── Aggregate and apply with bounded clamping ──
+      // Rust: belief.rs:1382-1466
+      const report: BeliefFeedbackReport = {
+        beliefsTouched: 0,
+        beliefsBoosted: 0,
+        beliefsDampened: 0,
+        netConfidenceDelta: 0,
+        netVolatilityDelta: 0,
+        entries: []
+      }
+      const entries: FeedbackAuditEntry[] = []
+
+      for (const [beliefId, rawEntries] of pending) {
+        const rawDelta = rawEntries.reduce((sum, e) => sum + e.confidenceDelta, 0)
+        const delta = Math.max(
+          -MAX_TOTAL_FEEDBACK_DAMPING,
+          Math.min(MAX_TOTAL_FEEDBACK_BOOST, rawDelta)
+        )
+        const rawVolatilityDelta = rawEntries.reduce((sum, e) => sum + e.volatilityDelta, 0)
+        const volatilityDelta = Math.max(
+          -MAX_TOTAL_VOLATILITY_RELIEF,
+          Math.min(MAX_TOTAL_VOLATILITY_INCREASE, rawVolatilityDelta)
+        )
+
+        const belief = self.state.beliefs[beliefId]
+        if (!belief) continue
+
+        const oldConfidence = belief.confidence
+        const newConfidence = Math.max(
+          MIN_FEEDBACK_CONFIDENCE,
+          Math.min(1.0, oldConfidence + delta)
+        )
+        const appliedDelta = newConfidence - oldConfidence
+        const oldVolatility = belief.volatility
+        const newVolatility = Math.max(0.0, Math.min(1.0, oldVolatility + volatilityDelta))
+        const appliedVolatilityDelta = newVolatility - oldVolatility
+        // Stability is NOT modified by layer feedback — it is a cycle-count
+        // metric owned exclusively by resolve().
+        const oldStability = belief.stability
+        const newStability = oldStability
+
+        // Skip if no meaningful change
+        if (Math.abs(appliedDelta) < 1e-6 && Math.abs(appliedVolatilityDelta) < 1e-6) {
+          continue
+        }
+
+        // Update belief
+        const newScore =
+          oldConfidence > 0
+            ? belief.score * (newConfidence / oldConfidence)
+            : newConfidence
+
+        self.state = {
+          ...self.state,
+          beliefs: {
+            ...self.state.beliefs,
+            [beliefId]: {
+              ...belief,
+              confidence: newConfidence,
+              score: newScore,
+              volatility: newVolatility,
+              stability: newStability,
+              last_updated: now
+            }
+          }
+        }
+
+        // Report stats
+        let touched: BeliefFeedbackReport = {
+          beliefsTouched: 0,
+          beliefsBoosted: 0,
+          beliefsDampened: 0,
+          netConfidenceDelta: 0,
+          netVolatilityDelta: 0,
+          entries: []
+        }
+        touched = {
+          ...touched,
+          beliefsTouched: 1,
+          netConfidenceDelta: appliedDelta,
+          netVolatilityDelta: appliedVolatilityDelta,
+          beliefsBoosted: appliedDelta > 0 ? 1 : 0,
+          beliefsDampened: appliedDelta < 0 ? 1 : 0
+        }
+        report.beliefsTouched += touched.beliefsTouched
+        report.netConfidenceDelta += touched.netConfidenceDelta
+        report.netVolatilityDelta += touched.netVolatilityDelta
+        report.beliefsBoosted += touched.beliefsBoosted
+        report.beliefsDampened += touched.beliefsDampened
+
+        // Build per-entry audit records (proportional attribution)
+        for (const rawEntry of rawEntries) {
+          const proportionalApplied =
+            Math.abs(rawDelta) > 1e-6
+              ? appliedDelta * (rawEntry.confidenceDelta / rawDelta)
+              : 0
+          const proportionalVolatilityApplied =
+            Math.abs(rawVolatilityDelta) > 1e-6
+              ? appliedVolatilityDelta * (rawEntry.volatilityDelta / rawVolatilityDelta)
+              : 0
+          entries.push({
+            beliefId,
+            sourceKind: rawEntry.sourceKind,
+            sourceId: rawEntry.sourceId,
+            reason: rawEntry.reason,
+            deltaRequested: rawEntry.confidenceDelta,
+            deltaApplied: proportionalApplied,
+            confidenceBefore: oldConfidence,
+            confidenceAfter: newConfidence,
+            volatilityBefore: oldVolatility,
+            volatilityAfter: newVolatility,
+            volatilityDeltaApplied: proportionalVolatilityApplied,
+            stabilityBefore: oldStability,
+            stabilityAfter: newStability,
+            stabilityDeltaApplied: 0
+          })
+        }
+      }
+
+      if (Option.isSome(traceOpt)) {
+        yield* traceOpt.value.event("belief.apply_layer_feedback.end", {
+          beliefsTouched: report.beliefsTouched,
+          netConfidenceDelta: report.netConfidenceDelta
+        })
+      }
+
+      // Return report with entries
+      return { ...report, entries }
     })
   }
 

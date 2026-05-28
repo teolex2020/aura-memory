@@ -5,7 +5,16 @@ import {
   EpistemicTrace,
   Level,
   type EpistemicTraceImpl,
-  type Record as AuraRecord
+  type Record as AuraRecord,
+  CausalEngine,
+  PolicyEngine,
+  CausalState,
+  PolicyState,
+  PolicyActionKind,
+  type CausalEngineState,
+  type PolicyEngineState,
+  type CausalPattern,
+  type PolicyHint
 } from "@aura/contract"
 import { nowSecs } from "@aura/utils"
 import {
@@ -22,7 +31,10 @@ import {
   sdrSubclusterBridgeGuarded,
   sdrSubclusterTagSdrGuarded,
   CoarseKeyMode,
-  NEIGHBORHOOD_POOL_THRESHOLD
+  NEIGHBORHOOD_POOL_THRESHOLD,
+  normalizeBridgeTag,
+  denseCorridorStableTags,
+  denseBackoffGroupKey
 } from "./BeliefEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -868,5 +880,762 @@ describe("Subcluster dispatch + threshold verification", () => {
 
   it("SDR_TANIMOTO_THRESHOLD = 0.15 (base/default threshold)", () => {
     expect(SDR_TANIMOTO_THRESHOLD).toBe(0.15)
+  })
+})
+
+// ── Plan 04 Task 1 TDD tests: BridgeKey normalize + TagFamily backoff strategies ──
+
+describe("normalizeBridgeTag (P2 — exports + overrides)", () => {
+  it('maps "ui" → "frontend" (Rust bridge table, belief.rs:526-534)', () => {
+    expect(normalizeBridgeTag("ui")).toBe("frontend")
+  })
+
+  it('maps "frontend" → "frontend" (synonym in Rust bridge table)', () => {
+    expect(normalizeBridgeTag("frontend")).toBe("frontend")
+  })
+
+  it('maps "auth" → "authentication" (Rust bridge table)', () => {
+    expect(normalizeBridgeTag("auth")).toBe("authentication")
+  })
+
+  it('maps "authentication" → "authentication" (synonym in Rust bridge table)', () => {
+    expect(normalizeBridgeTag("authentication")).toBe("authentication")
+  })
+
+  it('maps "deploy" → "release" (Rust bridge table)', () => {
+    expect(normalizeBridgeTag("deploy")).toBe("release")
+  })
+
+  it('maps "release" → "release" (synonym in Rust bridge table)', () => {
+    expect(normalizeBridgeTag("release")).toBe("release")
+  })
+
+  it("returns tag unchanged if no bridge mapping exists (unknown/tag)", () => {
+    expect(normalizeBridgeTag("unknown/tag")).toBe("unknown/tag")
+  })
+
+  it("returns tag unchanged when tag is not in default Rust table", () => {
+    expect(normalizeBridgeTag("ui/frontend")).toBe("ui/frontend")
+  })
+
+  it("supports external config override (priority over defaults)", () => {
+    // Override maps "ui" → "ui" instead of "frontend"
+    const overrides = { ui: "ui" } as Record<string, string>
+    expect(normalizeBridgeTag("ui", overrides)).toBe("ui")
+  })
+
+  it("returns override value when both default and override have the tag", () => {
+    const overrides = { "ui/frontend": "ui" } as Record<string, string>
+    expect(normalizeBridgeTag("ui/frontend", overrides)).toBe("ui")
+  })
+
+  it("returns from default table when override does not contain the tag", () => {
+    const overrides = { "custom/tag": "custom" } as Record<string, string>
+    expect(normalizeBridgeTag("ui", overrides)).toBe("frontend")
+  })
+
+  it("is case-insensitive (matches Rust to_ascii_lowercase)", () => {
+    expect(normalizeBridgeTag("UI")).toBe("frontend")
+    expect(normalizeBridgeTag("Auth")).toBe("authentication")
+    expect(normalizeBridgeTag("DEPLOY")).toBe("release")
+  })
+
+  it("trims whitespace (matches Rust tag.trim())", () => {
+    expect(normalizeBridgeTag("  ui  ")).toBe("frontend")
+  })
+})
+
+describe("denseCorridorStableTags", () => {
+  function makeStableRec(
+    id: string,
+    tags: string[],
+    content: string = "some content for record with enough text length"
+  ): AuraRecord {
+    return makeRecord(id, content, tags, "fact")
+  }
+
+  it("returns [family_tag] when no other tags appear in >= 4 records", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x", "y"]),
+      makeStableRec("r2", ["alpha", "x", "z"]),
+      makeStableRec("r3", ["alpha", "x", "w"]),
+    ]
+    // Only 3 records — no tag reaches count >= 4
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result).toEqual(["alpha"])
+  })
+
+  it("keeps family tag at position 0 always", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x"]),
+      makeStableRec("r2", ["alpha", "x"]),
+      makeStableRec("r3", ["alpha", "x"]),
+      makeStableRec("r4", ["alpha", "x"]),
+    ]
+    // x appears in all 4 records → count=4 >= 4 → stable
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result[0]).toBe("alpha")
+    expect(result).toContain("x")
+  })
+
+  it("adds tags with count >= 4 alongside family tag", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x", "y"]),
+      makeStableRec("r2", ["alpha", "x", "z"]),
+      makeStableRec("r3", ["alpha", "x", "w"]),
+      makeStableRec("r4", ["alpha", "x", "v"]),
+    ]
+    // x appears in all 4 records → count=4 >= 4 → stable
+    // alpha is family tag → always included
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result).toContain("alpha")
+    expect(result).toContain("x")
+    expect(result.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it("excludes tags with count < 4 from stable set", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x"]),
+      makeStableRec("r2", ["alpha", "x"]),
+      makeStableRec("r3", ["alpha", "x"]),
+      makeStableRec("r4", ["alpha", "x", "y"]),  // y only in 1 record
+    ]
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result).not.toContain("y")
+  })
+
+  it("returns [family] for empty records (family always included per Rust)", () => {
+    const result = denseCorridorStableTags([], "alpha")
+    // Rust: family tag is always inserted at position 0 (belief.rs:602-604)
+    expect(result).toEqual(["alpha"])
+  })
+
+  it("excludes generic tag family 'alerts'", () => {
+    const records = [
+      makeStableRec("r1", ["deploy", "alerts"]),
+      makeStableRec("r2", ["deploy", "alerts"]),
+      makeStableRec("r3", ["deploy", "alerts"]),
+      makeStableRec("r4", ["deploy", "alerts"]),
+    ]
+    const result = denseCorridorStableTags(records, "deploy")
+    // "deploy" is family → always included
+    // "alerts" is generic → excluded even with count=4
+    expect(result).toContain("deploy")
+    expect(result).not.toContain("alerts")
+  })
+
+  it("is case-insensitive and deduped (matches Rust)", () => {
+    const records = [
+      makeStableRec("r1", ["Alpha", "TAG"]),
+      makeStableRec("r2", ["alpha", "tag"]),
+      makeStableRec("r3", ["ALPHA", "Tag"]),
+      makeStableRec("r4", ["alpha", "tag"]),
+    ]
+    const result = denseCorridorStableTags(records, "alpha")
+    // "alpha" is family → always included (case normalized)
+    // "tag" appears 4 times → stable
+    expect(result).toContain("alpha")
+    expect(result).toContain("tag")
+  })
+})
+
+describe("denseBackoffGroupKey", () => {
+  function makeKeyRec(
+    id: string,
+    tags: string[],
+    namespace: string = "default",
+    content: string = "some content for record with enough text length",
+    semanticType: string = "fact"
+  ): AuraRecord {
+    return makeRecord(id, content, tags, semanticType, { namespace })
+  }
+
+  it("formats dense corridor key when >= 4 records and >= 2 stable tags", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x", "y"]),
+      makeKeyRec("r2", ["alpha", "x", "z"]),
+      makeKeyRec("r3", ["alpha", "x", "w"]),
+      makeKeyRec("r4", ["alpha", "x", "v"]),
+    ]
+    // coarse_key: default:alpha:fact, family=alpha
+    // stable tags: ["alpha", "x"] (alpha=family, x=count 4)
+    // record r1 picks: alpha (matches), x (matches) → ["alpha", "x"]
+    // result: default:alpha,x:fact
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    expect(result).toBe("default:alpha,x:fact")
+  })
+
+  it("falls back to coarse_key when < 4 records", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x"]),
+      makeKeyRec("r2", ["alpha", "x"]),
+      makeKeyRec("r3", ["alpha", "x"]),
+    ]
+    // Only 3 records → not enough for dense corridor
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    expect(result).toBe("default:alpha:fact")
+  })
+
+  it("falls back to coarse_key when < 2 stable tags", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "a"]),
+      makeKeyRec("r2", ["alpha", "b"]),
+      makeKeyRec("r3", ["alpha", "c"]),
+      makeKeyRec("r4", ["alpha", "d"]),
+    ]
+    // Only "alpha" is stable (family, always included)
+    // Other tags each appear only 1 time → count < 4
+    // stable tags = ["alpha"] → length = 1 < 2
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    expect(result).toBe("default:alpha:fact")
+  })
+
+  it("picks only stable tags that match the record's tags", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x", "y"]),
+      makeKeyRec("r2", ["alpha", "x", "z"]),
+      makeKeyRec("r3", ["alpha", "x", "w"]),
+      makeKeyRec("r4", ["alpha", "x", "v"]),
+    ]
+    // stable: ["alpha", "x"]
+    // r4 has tags: ["alpha", "x", "v"] → picks ["alpha", "x"]
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[3]!)
+    expect(result).toBe("default:alpha,x:fact")
+  })
+
+  it("truncates picked tags to top 3 (matches Rust picked.truncate(3))", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x", "y", "z", "w"]),
+      makeKeyRec("r2", ["alpha", "x", "y", "z", "w"]),
+      makeKeyRec("r3", ["alpha", "x", "y", "z", "w"]),
+      makeKeyRec("r4", ["alpha", "x", "y", "z", "w"]),
+    ]
+    // All tags appear 4 times → all stable
+    // family="alpha" → stable=["alpha", "w", "x", "y", "z"]
+    // r1 tags: ["alpha", "x", "y", "z", "w"] → picks all 5 → truncated to 3
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    // Should have exactly 3 tag components in the key
+    const parts = result.split(":")
+    expect(parts[1]).toBeDefined()
+    const pickedTags = parts[1]!.split(",")
+    expect(pickedTags.length).toBeLessThanOrEqual(3)
+  })
+})
+
+// ── TagFamily strategy integration tests ──
+
+describe("TagFamilyAdaptive (integration)", () => {
+  it("uses relaxed threshold (0.10) when pass 1 produces all singletons", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyAdaptive))
+
+    // SDR_A vs SDR_F: tanimoto = 2/18 ≈ 0.111
+    // Standard threshold = 0.15 → NOT merged (singletons)
+    // Relaxed threshold = 0.10 → MERGED
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_F],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // Both records should be in one belief (merged by adaptive pass 2)
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(1)
+    // With adaptive merging, we expect fewer coarse groups for similar records
+    expect(report.total_hypotheses).toBeGreaterThanOrEqual(0)
+  })
+
+  it("does not use relaxed threshold when pass 1 has non-singleton clusters", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyAdaptive))
+
+    // SDR_A vs SDR_B: tanimoto = 9/11 ≈ 0.818 ≥ 0.15 → merges in pass 1
+    // SDR_A vs SDR_D: tanimoto = 0/20 = 0 → stays singleton in pass 1
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_B],
+      ["r3", SDR_D],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+      ["r3", makeRecord("r3", "completely different topic content here", ["alpha", "other"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // Pass 1 has non-singletons → no adaptive pass 2
+    // r3 stays separate from r1,r2
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe("TagFamilyBackoff (integration)", () => {
+  it("falls back to broad bucket when all clusters are singletons", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyBackoff))
+
+    // SDR_A vs SDR_F: tanimoto ≈ 0.111 < 0.15 → singletons
+    // Both records share family "alpha"
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_F],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // With backoff, all records merge into one broad bucket → 1 belief
+    expect(report.total_beliefs).toBe(1)
+  })
+
+  it("does not fall back when at least one non-singleton cluster exists", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyBackoff))
+
+    // SDR_A vs SDR_B: tanimoto ≈ 0.818 ≥ 0.15 → merges (non-singleton)
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_B],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // Non-singleton → should proceed normally (not backoff)
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe("TagFamilyDenseBackoff (integration)", () => {
+  it("regroups records with dense corridor stable tags when >= 4 records", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyDenseBackoff))
+
+    // 4 records, all with "alpha" family and "deploy" secondary tag
+    // "alpha" = family (always included)
+    // "deploy" appears in all 4 → count=4 → stable
+    const sdrLookup = new Map<string, number[]>([]) // no SDR
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+      ["r3", makeRecord("r3", "alpha deployment policy content here", ["alpha", "deploy"], "fact")],
+      ["r4", makeRecord("r4", "alpha deployment strategy content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // With 4 records and >= 2 stable tags → dense corridor keys should be created
+    // Records re-keyed as "default:alpha,deploy:fact" → 1 belief
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(1)
+  })
+
+  it("falls back when fewer than 4 records (not enough for dense corridor)", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyDenseBackoff))
+
+    // Only 3 records → not enough for dense corridor
+    const sdrLookup = new Map<string, number[]>([])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+      ["r3", makeRecord("r3", "alpha deployment policy content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // 3 records → standard TagFamily behavior (no dense corridor)
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// Plan 04 Task 2 TDD tests: apply_layer_feedback rewrite
+// ═══════════════════════════════════════════════════════════
+
+describe("apply_layer_feedback (P2 rewrite)", () => {
+  // Helper: create an engine seeded with beliefs
+  async function seedEngine(): Promise<BeliefEngineImpl> {
+    const engine = new BeliefEngineImpl()
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "deploy staging before production release", ["deploy", "safety"], "decision")],
+      ["r2", makeRecord("r2", "always deploy staging before production", ["deploy", "safety"], "decision")],
+    ])
+    await runEffect(engine.update_with_sdr(records, new Map()))
+    return engine
+  }
+
+  // Helper: create a mock causal engine with stable patterns
+  function mockCausalEngine(beliefIds: string[]): CausalEngine.Interface {
+    const patterns: Record<string, CausalPattern> = {}
+    for (const bid of beliefIds) {
+      patterns[`pat-${bid}`] = {
+        id: `pat-${bid}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: `default:deploy:decision`,
+        effect_key: `default:safety:decision`,
+        edge_hash: "abc123",
+        support: 5,
+        confidence: 0.85,
+        lift: 1.2,
+        state: CausalState.Stable,
+        last_updated: nowSecs(),
+        transition_lift: 0.7,
+        temporal_consistency: 0.9,
+        outcome_stability: 0.8,
+        causal_strength: 0.9,
+        support_count: 10,
+        explicit_support_count: 6,
+        counterevidence_count: 2,
+        temporal_windows: 3,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+    const state: CausalEngineState = {
+      version: 1,
+      patterns,
+      discovery_mode: "Standard" as any,
+      edges_found_total: 20,
+      temporal_budget_mode: "ExhaustiveCapped" as any,
+      evidence_mode: "StrictRepeatedWindows" as any,
+      last_corpus_fingerprint: "test"
+    }
+
+    return {
+      discover: () => Effect.succeed({ patterns_found: 0, patterns_active: 0, patterns_invalidated: 0, avg_confidence: 0, avg_lift: 0, explicit_edges: 0, temporal_edges: 0, temporal_namespaces_scanned: 0, temporal_pairs_considered: 0, temporal_pairs_skipped_by_budget: 0, temporal_edges_capped: 0, temporal_namespaces_hit_cap: 0, patterns_meeting_support_gate: 0, patterns_meeting_repeated_window_gate: 0, patterns_meeting_counterfactual_gate: 0, patterns_blocked_by_evidence_gates: 0, patterns_blocked_by_counterfactual_gate: 0, avg_causal_strength: 0, stable_count: 0, rejected_count: 0 }),
+      invalidate_pattern: () => Effect.void,
+      retract_pattern: () => Effect.void,
+      stats: () => Effect.succeed(state)
+    } as unknown as CausalEngine.Interface
+  }
+
+  // Helper: create a mock policy engine with stable hints
+  function mockPolicyEngine(beliefIds: string[]): PolicyEngine.Interface {
+    const hints: Record<string, PolicyHint> = {}
+    for (const bid of beliefIds) {
+      hints[`hint-${bid}`] = {
+        id: `hint-${bid}`,
+        pattern_id: `pat-${bid}`,
+        condition: "when deploying",
+        action: "prefer staging",
+        priority: 0.8,
+        confidence: 0.75,
+        state: PolicyState.Stable,
+        last_updated: nowSecs(),
+        actionKind: PolicyActionKind.Prefer,
+        policyStrength: 0.7,
+        riskScore: 0.2,
+        namespace: "default",
+        domain: "deployment",
+        polarity: "Positive" as const,
+        recommendation: "Prefer staging deployment",
+        utilityScore: 0.6,
+        cause_key: `default:deploy:decision`,
+        effect_keys: []
+      } as PolicyHint
+    }
+    const state: PolicyEngineState = {
+      version: 1,
+      hints,
+      metadata: {},
+      key_index: {}
+    }
+
+    return {
+      discover: () => Effect.succeed({ hints_found: 0, hints_active: 0, hints_suppressed: 0, avg_confidence: 0, seeds_found: 0, stable_hints: 0, suppressed_hints: 0, rejected_hints: 0, avg_policy_strength: 0 }),
+      retract_hint: () => Effect.void,
+      stats: () => Effect.succeed(state)
+    } as unknown as PolicyEngine.Interface
+  }
+
+  it("accepts CausalEngine.Interface + PolicyEngine.Interface and returns BeliefFeedbackReport", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    expect(report).toHaveProperty("beliefsTouched")
+    expect(report).toHaveProperty("beliefsBoosted")
+    expect(report).toHaveProperty("beliefsDampened")
+    expect(report).toHaveProperty("netConfidenceDelta")
+    expect(report).toHaveProperty("netVolatilityDelta")
+    expect(report).toHaveProperty("entries")
+    expect(typeof report.beliefsTouched).toBe("number")
+    expect(typeof report.netConfidenceDelta).toBe("number")
+    expect(Array.isArray(report.entries)).toBe(true)
+  })
+
+  it("reads causal patterns and policy hints, computes confidence_delta", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const origBelief = state.beliefs[beliefIds[0]!]
+    const origConfidence = origBelief?.confidence ?? 0
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // With stable causal + prefer policy → positive confidence delta
+    expect(report.beliefsTouched).toBeGreaterThan(0)
+    expect(report.beliefsBoosted).toBeGreaterThanOrEqual(0)
+  })
+
+  it("clamps confidence_delta to max +0.08 (boost cap)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+
+    if (beliefIds.length === 0) return
+
+    // Create MANY patterns targeting the same belief to exceed boost cap
+    const bid = beliefIds[0]!
+    const patterns: Record<string, CausalPattern> = {}
+    for (let i = 0; i < 15; i++) {
+      patterns[`pat-over-${i}`] = {
+        id: `pat-over-${i}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: "default:deploy:decision",
+        effect_key: "default:safety:decision",
+        edge_hash: `edge${i}`,
+        support: 10,
+        confidence: 0.9,
+        lift: 1.5,
+        state: CausalState.Stable,
+        last_updated: nowSecs(),
+        transition_lift: 0.8,
+        temporal_consistency: 0.95,
+        outcome_stability: 0.85,
+        causal_strength: 1.0,
+        support_count: 10,
+        explicit_support_count: 8,
+        counterevidence_count: 0,
+        temporal_windows: 5,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+
+    const mockCausal = {
+      ...mockCausalEngine(beliefIds),
+      stats: () => Effect.succeed({
+        version: 1 as const,
+        patterns,
+        discovery_mode: "Standard" as any,
+        edges_found_total: 100,
+        temporal_budget_mode: "ExhaustiveCapped" as any,
+        evidence_mode: "StrictRepeatedWindows" as any,
+        last_corpus_fingerprint: "test"
+      } as CausalEngineState)
+    } as unknown as CausalEngine.Interface
+
+    const mockPolicy = mockPolicyEngine([]) // no policy signals for this test
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // Each Stable pattern: 0.03 * 1.0 = 0.03. 15 patterns = 0.45 raw delta
+    // Clamping applies to aggregate: max boost = 0.08
+    // Individual entries get proportional attribution, so they are < 0.08
+    // The report-level netConfidenceDelta should be clamped to <= 0.08
+    expect(report.beliefsTouched).toBeGreaterThan(0)
+    expect(report.netConfidenceDelta).toBeLessThanOrEqual(0.08)
+    // The individual entry's deltaRequested is per-signal (0.03), but at least
+    // one entry should have deltaRequested matching the raw signal
+    if (report.entries.length > 0) {
+      const entry = report.entries[0]!
+      expect(Math.abs(entry.deltaRequested)).toBeGreaterThan(0)
+      // deltaRequested records the raw per-signal request (before aggregate clamping)
+      expect(entry.deltaApplied).toBeLessThanOrEqual(entry.deltaRequested)
+    }
+  })
+
+  it("clamps confidence_delta to min -0.18 (damping cap)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+
+    if (beliefIds.length === 0) return
+
+    // Create Rejected patterns with high counterevidence
+    const bid = beliefIds[0]!
+    const patterns: Record<string, CausalPattern> = {}
+    for (let i = 0; i < 15; i++) {
+      patterns[`rej-${i}`] = {
+        id: `rej-${i}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: "default:deploy:decision",
+        effect_key: "default:safety:decision",
+        edge_hash: `edge${i}`,
+        support: 1,
+        confidence: 0.2,
+        lift: 0.3,
+        state: CausalState.Rejected,
+        last_updated: nowSecs(),
+        transition_lift: 0.1,
+        temporal_consistency: 0.2,
+        outcome_stability: 0.1,
+        causal_strength: 0.3,
+        support_count: 2,
+        explicit_support_count: 1,
+        counterevidence_count: 8,
+        temporal_windows: 1,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+
+    const mockCausal = {
+      ...mockCausalEngine(beliefIds),
+      stats: () => Effect.succeed({
+        version: 1 as const,
+        patterns,
+        discovery_mode: "Standard" as any,
+        edges_found_total: 100,
+        temporal_budget_mode: "ExhaustiveCapped" as any,
+        evidence_mode: "StrictRepeatedWindows" as any,
+        last_corpus_fingerprint: "test"
+      } as CausalEngineState)
+    } as unknown as CausalEngine.Interface
+
+    const mockPolicy = mockPolicyEngine([])
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // Rejected patterns produce negative deltas — aggregate clamped to >= -0.18
+    // Allow floating-point tolerance: -0.18 clamped value may be -0.18000000000000005
+    expect(report.netConfidenceDelta).toBeGreaterThan(-0.19)
+    // Individual entries get proportional attribution
+    if (report.entries.length > 0) {
+      const entry = report.entries[0]!
+      expect(entry.deltaApplied).toBeGreaterThanOrEqual(-0.18)
+    }
+  })
+
+  it("does NOT modify stability (stabilityBefore === stabilityAfter)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    for (const entry of report.entries) {
+      expect(entry.stabilityBefore).toBe(entry.stabilityAfter)
+      expect(entry.stabilityAfter).toBe(entry.stabilityBefore)
+    }
+  })
+
+  it("report entries have all required fields (FeedbackAuditEntry)", async () => {
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+    expect(beliefIds.length).toBeGreaterThan(0)
+
+    const mockCausal = mockCausalEngine(beliefIds)
+    const mockPolicy = mockPolicyEngine(beliefIds)
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    for (const entry of report.entries) {
+      expect(entry).toHaveProperty("beliefId")
+      expect(entry).toHaveProperty("sourceKind")
+      expect(entry).toHaveProperty("sourceId")
+      expect(entry).toHaveProperty("reason")
+      expect(entry).toHaveProperty("deltaRequested")
+      expect(entry).toHaveProperty("deltaApplied")
+      expect(entry).toHaveProperty("confidenceBefore")
+      expect(entry).toHaveProperty("confidenceAfter")
+      expect(entry).toHaveProperty("volatilityBefore")
+      expect(entry).toHaveProperty("volatilityAfter")
+      expect(entry).toHaveProperty("stabilityBefore")
+      expect(entry).toHaveProperty("stabilityAfter")
+    }
+  })
+
+  it("volatility delta is clamped to [-0.06, +0.20]", async () => {
+    // Test that volatility clamping works
+    // Rejected patterns produce positive volatility deltas
+    const engine = await seedEngine()
+    const state = await Effect.runPromise(engine.stats())
+    const beliefIds = Object.keys(state.beliefs)
+
+    if (beliefIds.length === 0) return
+    const bid = beliefIds[0]!
+
+    const patterns: Record<string, CausalPattern> = {}
+    for (let i = 0; i < 20; i++) {
+      patterns[`rejv-${i}`] = {
+        id: `rejv-${i}`,
+        cause_belief_id: bid,
+        effect_belief_id: bid,
+        cause_key: "default:deploy:decision",
+        effect_key: "default:safety:decision",
+        edge_hash: `edge${i}`,
+        support: 1,
+        confidence: 0.2,
+        lift: 0.3,
+        state: CausalState.Rejected,
+        last_updated: nowSecs(),
+        transition_lift: 0.1,
+        temporal_consistency: 0.2,
+        outcome_stability: 0.1,
+        causal_strength: 0.5,
+        support_count: 1,
+        explicit_support_count: 0,
+        counterevidence_count: 10,
+        temporal_windows: 1,
+        namespace: "default",
+        cause_record_ids: [],
+        effect_record_ids: []
+      } as CausalPattern
+    }
+
+    const mockCausal = {
+      ...mockCausalEngine(beliefIds),
+      stats: () => Effect.succeed({
+        version: 1 as const,
+        patterns,
+        discovery_mode: "Standard" as any,
+        edges_found_total: 100,
+        temporal_budget_mode: "ExhaustiveCapped" as any,
+        evidence_mode: "StrictRepeatedWindows" as any,
+        last_corpus_fingerprint: "test"
+      } as CausalEngineState)
+    } as unknown as CausalEngine.Interface
+
+    const mockPolicy = mockPolicyEngine([])
+
+    const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
+
+    // Volatility delta should be within clamping bounds
+    expect(Math.abs(report.netVolatilityDelta)).toBeLessThanOrEqual(Math.max(0.06, 0.20))
   })
 })

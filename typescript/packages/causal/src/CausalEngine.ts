@@ -45,6 +45,46 @@ export const MAX_EDGES_PER_NAMESPACE = 5000
 export const MAX_TEMPORAL_SUCCESSORS_PER_RECORD = 16
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Scoring Constants (aligned with Rust causal.rs lines 29-47)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Minimum support count for pattern promotion — matches Rust MIN_SUPPORT */
+const MIN_SUPPORT = 2
+
+/** Maximum tolerated counterfactual ratio — matches Rust MAX_COUNTERFACTUAL_RATIO */
+const MAX_COUNTERFACTUAL_RATIO = 0.50
+
+/** Minimum share of explicit support for dominance — matches Rust MIN_EXPLICIT_DOMINANCE_SHARE */
+const MIN_EXPLICIT_DOMINANCE_SHARE = 0.70
+
+/** Fixed bucket width for repeated temporal evidence (24h) — matches Rust EVIDENCE_WINDOW_SECS */
+const EVIDENCE_WINDOW_SECS = 86400
+
+/** Scoring weights — matches Rust W_TRANSITION_LIFT, W_TEMPORAL_CONSISTENCY, W_OUTCOME_STABILITY, W_SUPPORT */
+const W_TRANSITION_LIFT = 0.35
+const W_TEMPORAL_CONSISTENCY = 0.30
+const W_OUTCOME_STABILITY = 0.20
+const W_SUPPORT = 0.15
+
+/** State thresholds for causal_strength — matches Rust STABLE_THRESHOLD, CANDIDATE_THRESHOLD */
+const STABLE_THRESHOLD = 0.75
+const CANDIDATE_THRESHOLD = 0.50
+
+/** Lightweight polarity keywords — matches Rust NEGATIVE_OUTCOME_KEYWORDS */
+const NEGATIVE_OUTCOME_KEYWORDS = [
+  "error", "failure", "fail", "crash", "bug", "incident",
+  "rollback", "revert", "risk", "vulnerability", "downtime",
+  "outage", "regression", "contradiction", "conflict", "noise", "review",
+]
+
+/** Lightweight polarity keywords — matches Rust POSITIVE_OUTCOME_KEYWORDS */
+const POSITIVE_OUTCOME_KEYWORDS = [
+  "success", "improvement", "improve", "faster", "reliable",
+  "stable", "healthy", "secure", "optimized", "resolved",
+  "fixed", "deployed", "completed", "approved",
+]
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Edge extraction stats (mirrors Rust EdgeExtractionStats)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -354,6 +394,9 @@ export function aggregateToPatterns(
       const totalExplicitForCause = causeExplicitSupportTotals.get(
         `${key.namespace}:${key.causeBeliefId}`
       ) ?? acc.explicitCount
+      const explicitVariantsForCause = causeExplicitVariantCounts.get(
+        `${key.namespace}:${key.causeBeliefId}`
+      ) ?? (acc.explicitCount > 0 ? 1 : 0)
 
       // Build pattern key and deterministic ID
       const edgeHash = deterministicEdgeHash(
@@ -389,8 +432,14 @@ export function aggregateToPatterns(
         causal_strength: 0,
         support_count: supportCount,
         explicit_support_count: acc.explicitCount,
+        temporal_support_count: acc.temporalCount,
         counterevidence_count: totalExplicitForCause - acc.explicitCount,
         temporal_windows: acc.temporalWindowBuckets.size,
+        explicit_support_total_for_cause: totalExplicitForCause,
+        explicit_effect_variants_for_cause: explicitVariantsForCause,
+        effect_record_signature_variants: 0,
+        positive_effect_signals: 0,
+        negative_effect_signals: 0,
         namespace: key.namespace,
         cause_record_ids: Array.from(acc.causeRecordIds),
         effect_record_ids: Array.from(acc.effectRecordIds),
@@ -399,6 +448,217 @@ export function aggregateToPatterns(
 
     return patterns
   })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pattern Scoring (matches Rust causal.rs score_pattern lines 955-1076)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build an effect record signature from tags (sorted, lowercased, deduped)
+ * or from semantic_type + content if no tags. Matches Rust effect_record_signature.
+ */
+function effectRecordSignature(record: AuraRecord): string {
+  const tags = [...(record.tags ?? [])]
+  if (tags.length > 0) {
+    const normalized = [...new Set(tags.map((t) => t.toLowerCase()))].sort()
+    return normalized.join("|")
+  }
+  return `${record.semantic_type ?? "unknown"}:${record.content.toLowerCase()}`
+}
+
+/**
+ * Count positive and negative outcome signals across effect-side records.
+ * Matches Rust effect_polarity_signal_counts (lines 1222-1266).
+ */
+function effectPolaritySignalCounts(
+  effectRecordIds: ReadonlyArray<string>,
+  records: ReadonlyMap<string, AuraRecord>
+): { positive: number; negative: number } {
+  let positive = 0
+  let negative = 0
+
+  for (const eid of effectRecordIds) {
+    const record = records.get(eid)
+    if (!record) continue
+
+    // semantic_type "contradiction" → strong negative signal
+    if (record.semantic_type === "contradiction") {
+      negative += 2
+    }
+
+    // Check tags against keyword lists
+    for (const tag of record.tags ?? []) {
+      const tagLower = tag.toLowerCase()
+      if (NEGATIVE_OUTCOME_KEYWORDS.some((kw) => tagLower.includes(kw))) {
+        negative += 1
+      }
+      if (POSITIVE_OUTCOME_KEYWORDS.some((kw) => tagLower.includes(kw))) {
+        positive += 1
+      }
+    }
+
+    // Check content against keyword lists
+    const contentLower = (record.content ?? "").toLowerCase()
+    for (const kw of NEGATIVE_OUTCOME_KEYWORDS) {
+      if (contentLower.includes(kw)) {
+        negative += 1
+      }
+    }
+    for (const kw of POSITIVE_OUTCOME_KEYWORDS) {
+      if (contentLower.includes(kw)) {
+        positive += 1
+      }
+    }
+  }
+
+  return { positive, negative }
+}
+
+/**
+ * Score a causal pattern with Rust-aligned formulas.
+ *
+ * Computes: transition_lift, temporal_consistency, outcome_stability,
+ * support_score, causal_strength, and effect metadata (signature variants,
+ * polarity signals). Updates legacy confidence and lift fields.
+ *
+ * Matches Rust causal.rs score_pattern (lines 955-1076).
+ *
+ * The plan's guess about dynamic max_support was incorrect — Rust uses a
+ * constant log2(n+1)/log2(21) formula (max_expected = 20).
+ */
+export function scorePattern(
+  pattern: CausalPattern,
+  records: ReadonlyMap<string, AuraRecord>,
+  evidenceMode: EvidenceMode = EvidenceMode.StrictRepeatedWindows
+): CausalPattern {
+  const n = pattern.support_count
+  if (n === 0) {
+    return {
+      ...pattern,
+      transition_lift: 0,
+      temporal_consistency: 0,
+      outcome_stability: 0,
+      causal_strength: 0,
+      confidence: 0,
+      lift: 0,
+      effect_record_signature_variants: 0,
+      positive_effect_signals: 0,
+      negative_effect_signals: 0,
+    }
+  }
+
+  // ── Transition lift: P(effect|cause) / P(effect) ──
+  const nsTotal = [...records.values()]
+    .filter((r) => r.namespace === pattern.namespace)
+    .length
+  const causeCount = Math.max(pattern.cause_record_ids.length, 1)
+  const effectCount = pattern.effect_record_ids.length
+
+  const pEffectGivenCause = n / causeCount
+  const pEffect = nsTotal > 0 ? effectCount / nsTotal : 1.0
+  const rawLift = pEffect > 0
+    ? Math.min(pEffectGivenCause / pEffect, 5.0)
+    : 1.0
+  const transitionLift = Math.min(rawLift / 5.0, 1.0)
+
+  // ── Temporal consistency ──
+  // Count cause×effect pairs where effect_ts > cause_ts
+  let positiveGaps = 0
+  for (const cid of pattern.cause_record_ids) {
+    const causeRec = records.get(cid)
+    if (!causeRec) continue
+    for (const eid of pattern.effect_record_ids) {
+      const effectRec = records.get(eid)
+      if (!effectRec) continue
+      if (effectRec.created_at - causeRec.created_at > 0) {
+        positiveGaps++
+      }
+    }
+  }
+  const totalPairs = Math.max(pattern.cause_record_ids.length * pattern.effect_record_ids.length, 1)
+  const rawTemporal = positiveGaps / totalPairs
+
+  // Explicit floor at 0.60 for explicitly-supported patterns
+  const explicitTrustedFloor = evidenceMode === EvidenceMode.ExplicitTrusted
+    && pattern.explicit_support_count >= 1
+  const strictFloor = pattern.explicit_support_count >= MIN_SUPPORT
+  const temporalConsistency = (explicitTrustedFloor || strictFloor) && rawTemporal < 0.60
+    ? Math.max(0.60, rawTemporal)
+    : rawTemporal
+
+  // ── Outcome stability ──
+  // 1 - coefficient_of_variation of effect record strengths
+  const effectStrengths: number[] = []
+  for (const eid of pattern.effect_record_ids) {
+    const rec = records.get(eid)
+    if (rec) effectStrengths.push(rec.strength)
+  }
+
+  // Compute effect signature variants
+  const signatures = new Set<string>()
+  for (const eid of pattern.effect_record_ids) {
+    const rec = records.get(eid)
+    if (rec) signatures.add(effectRecordSignature(rec))
+  }
+  const effectSignatureVariants = signatures.size
+
+  // Compute polarity signals
+  const { positive: posSignals, negative: negSignals } = effectPolaritySignalCounts(
+    pattern.effect_record_ids, records
+  )
+
+  let outcomeStability: number
+  if (effectStrengths.length >= 2) {
+    const mean = effectStrengths.reduce((s, v) => s + v, 0) / effectStrengths.length
+    if (mean > 0) {
+      const variance = effectStrengths
+        .map((s) => (s - mean) ** 2)
+        .reduce((s, v) => s + v, 0) / effectStrengths.length // population variance
+      const cv = Math.sqrt(variance) / mean
+      outcomeStability = Math.max(0, Math.min(1, 1.0 - cv))
+    } else {
+      outcomeStability = 0.5
+    }
+  } else {
+    outcomeStability = 0.5 // not enough data
+  }
+
+  // ── Support score ──
+  // log2(support_count + 1) / log2(max_expected + 1)
+  // max_expected = 20 (matched to Rust constant denominator log2(21))
+  const supportScore = Math.min(Math.log2(n + 1) / Math.log2(21), 1.0)
+
+  // ── Composite causal strength ──
+  const supportOk = n >= MIN_SUPPORT
+    || (evidenceMode === EvidenceMode.ExplicitTrusted && pattern.explicit_support_count >= 1)
+
+  let causalStrength: number
+  if (!supportOk) {
+    causalStrength = transitionLift * 0.3 // penalized
+  } else {
+    causalStrength = W_TRANSITION_LIFT * transitionLift
+      + W_TEMPORAL_CONSISTENCY * temporalConsistency
+      + W_OUTCOME_STABILITY * outcomeStability
+      + W_SUPPORT * supportScore
+  }
+
+  // Legacy fields
+  const confidence = pEffectGivenCause // P(effect|cause)
+  const lift = rawLift // unnormalized lift value
+
+  return {
+    ...pattern,
+    transition_lift: transitionLift,
+    temporal_consistency: temporalConsistency,
+    outcome_stability: outcomeStability,
+    causal_strength: causalStrength,
+    confidence,
+    lift,
+    effect_record_signature_variants: effectSignatureVariants,
+    positive_effect_signals: posSignals,
+    negative_effect_signals: negSignals,
+  }
 }
 
 // ── Pattern key and ID helpers ──

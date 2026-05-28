@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import {
   BeliefState,
   ConceptSimilarityMode,
+  ConceptUnionMode,
   EpistemicTrace,
   Level,
   type BeliefEngine,
@@ -14,7 +15,22 @@ import {
   type SdrLookup
 } from "@aura/contract"
 import { nowSecs } from "@aura/utils"
-import { ConceptEngineImpl, stemWord, applyEquivalenceDictionary, isCanonicalStopword, jaccardSimilarity, canonicalTokens, buildCanonicalTokens } from "./ConceptEngine"
+import {
+  ConceptEngineImpl,
+  stemWord,
+  applyEquivalenceDictionary,
+  isCanonicalStopword,
+  jaccardSimilarity,
+  canonicalTokens,
+  buildCanonicalTokens,
+  tagBarrier,
+  familyGuard,
+  genericFamilyGuard,
+  semanticTypeBridge,
+  parseBeliefKeyFamily,
+  familyTokenSet,
+  isGenericFamily
+} from "./ConceptEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
   event: () => Effect.void,
@@ -687,4 +703,272 @@ it("ConceptEngine: defaults to CanonicalFeature similarity mode (matching Rust)"
   const concept = new ConceptEngineImpl()
   const stats = await Effect.runPromise(concept.stats())
   assert.strictEqual(stats.similarity_mode, ConceptSimilarityMode.CanonicalFeature)
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// Cluster Guard Tests — RED phase (stubs always allow)
+// Extracted from Rust concept.rs cluster_beliefs / cluster_beliefs_canonical
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Helper: build tag set from string array ──
+
+function tagSet(tags: string[]): Set<string> {
+  return new Set(tags)
+}
+
+// ── parseBeliefKeyFamily ──
+
+it("parseBeliefKeyFamily: extracts tags portion from belief key", () => {
+  assert.strictEqual(parseBeliefKeyFamily("default:ui,theme:preference"), "ui,theme")
+  assert.strictEqual(parseBeliefKeyFamily("default:deploy:fact"), "deploy")
+  assert.strictEqual(parseBeliefKeyFamily("default:alerts:fact"), "alerts")
+  assert.strictEqual(parseBeliefKeyFamily("ns:fact"), "")  // only 2 parts
+  assert.strictEqual(parseBeliefKeyFamily(""), "")
+})
+
+// ── familyTokenSet ──
+
+it("familyTokenSet: splits comma-separated family into token set", () => {
+  const tokens = familyTokenSet("deploy,devops,monitor")
+  assert.strictEqual(tokens.size, 3)
+  assert.ok(tokens.has("deploy"))
+  assert.ok(tokens.has("devops"))
+  assert.ok(tokens.has("monitor"))
+})
+
+it("familyTokenSet: returns empty set for empty family", () => {
+  assert.strictEqual(familyTokenSet("").size, 0)
+})
+
+// ── isGenericFamily ──
+
+it("isGenericFamily: 'alerts' is generic, others are not", () => {
+  assert.strictEqual(isGenericFamily("alerts"), true)
+  assert.strictEqual(isGenericFamily("deploy"), false)
+  assert.strictEqual(isGenericFamily("frontend"), false)
+  assert.strictEqual(isGenericFamily(""), false)
+})
+
+// ── Task 1a: tagBarrier ──
+
+it("tagBarrier: blocks merge when shared_tags == 0 and both have tags", () => {
+  // RED: stub always returns true, this assertion FAILS
+  const tagsA = tagSet(["deploy", "api"])
+  const tagsB = tagSet(["frontend", "ui"])
+  assert.strictEqual(tagBarrier(tagsA, tagsB), false)
+})
+
+it("tagBarrier: allows merge when shared_tags >= 1", () => {
+  const tagsA = tagSet(["deploy", "api"])
+  const tagsB = tagSet(["deploy", "frontend"])
+  assert.strictEqual(tagBarrier(tagsA, tagsB), true)
+})
+
+it("tagBarrier: allows merge when one side has no tags", () => {
+  const tagsA = tagSet([])
+  const tagsB = tagSet(["deploy", "api"])
+  assert.strictEqual(tagBarrier(tagsA, tagsB), true)
+})
+
+// ── Task 1b: familyGuard ──
+
+it("familyGuard: blocks merge when families differ and no bridge applies", () => {
+  // RED: stub always returns 'allowed', this assertion FAILS
+  assert.strictEqual(
+    familyGuard("deploy", "frontend", 1, "fact", "fact", ConceptUnionMode.Standard),
+    "blocked"
+  )
+})
+
+it("familyGuard: allows merge when families are the same", () => {
+  assert.strictEqual(
+    familyGuard("deploy", "deploy", 1, "fact", "fact", ConceptUnionMode.Standard),
+    "allowed"
+  )
+})
+
+it("familyGuard: overlap bridge — different families with token overlap AND shared tag", () => {
+  // "deploy,devops" vs "devops,monitor" — "devops" token overlaps, shared >= 1
+  assert.strictEqual(
+    familyGuard("deploy,devops", "devops,monitor", 1, "fact", "fact", ConceptUnionMode.Standard),
+    "bridge_allowed"
+  )
+})
+
+it("familyGuard: single-tag fact↔decision bridge", () => {
+  // Each family has exactly 1 tag, shared >= 2, different semantic types
+  assert.strictEqual(
+    familyGuard("deploy", "deploy", 2, "fact", "decision", ConceptUnionMode.SingleTagFactDecisionBridge),
+    "bridge_allowed"
+  )
+})
+
+it("familyGuard: single-tag bridge blocked when union_mode is Standard", () => {
+  assert.strictEqual(
+    familyGuard("deploy", "deploy", 2, "fact", "decision", ConceptUnionMode.Standard),
+    "blocked"
+  )
+})
+
+// ── Task 1c: genericFamilyGuard ──
+
+it("genericFamilyGuard: 'alerts' requires shared_tags >= 2", () => {
+  // RED: stub always returns true, this assertion FAILS
+  assert.strictEqual(genericFamilyGuard("alerts", 1), false)
+  assert.strictEqual(genericFamilyGuard("alerts", 0), false)
+  assert.strictEqual(genericFamilyGuard("alerts", 2), true)
+})
+
+it("genericFamilyGuard: non-alerts families pass with any shared_tags", () => {
+  assert.strictEqual(genericFamilyGuard("deploy", 0), true)
+  assert.strictEqual(genericFamilyGuard("frontend", 1), true)
+})
+
+// ── Task 1d: semanticTypeBridge ──
+
+it("semanticTypeBridge: same semantic_type always allowed", () => {
+  assert.strictEqual(
+    semanticTypeBridge("fact", "fact", tagSet(["deploy"]), tagSet(["api"])),
+    true
+  )
+})
+
+it("semanticTypeBridge: different semantic_type but overlapping tags → allowed", () => {
+  assert.strictEqual(
+    semanticTypeBridge("fact", "decision", tagSet(["deploy", "api"]), tagSet(["deploy"])),
+    true
+  )
+})
+
+it("semanticTypeBridge: different semantic_type and no overlapping tags → blocked", () => {
+  // RED: stub always returns true, this assertion FAILS
+  assert.strictEqual(
+    semanticTypeBridge("fact", "decision", tagSet(["deploy"]), tagSet(["frontend"])),
+    false
+  )
+})
+
+// ── Task 1e: SdrTanimoto mode integration with guards ──
+
+it("ConceptEngine: SdrTanimoto mode clusters beliefs with guard-aware partitioning", async () => {
+  // Create beliefs with:
+  // - b1, b2: same tags "deploy" → should cluster together
+  // - b3: different tag "frontend", no shared tags with b1/b2 → guard should block
+  // All have high-Tanimoto SDR centroids (would merge without guards)
+  const concept = new ConceptEngineImpl()
+  // Set to SdrTanimoto mode explicitly
+  await Effect.runPromise(
+    (concept as any).state.similarity_mode
+      ? Effect.succeed(((concept as any).state.similarity_mode = ConceptSimilarityMode.SdrTanimoto))
+      : Effect.void
+  )
+
+  const state: BeliefEngineState = {
+    version: 1,
+    beliefs: {
+      b1: {
+        id: "b1",
+        key: "default:deploy:fact",
+        hypothesis_ids: ["h1"],
+        winner_id: "h1",
+        state: BeliefState.Resolved,
+        score: 1.0,
+        confidence: 0.9,
+        support_mass: 10,
+        conflict_mass: 0,
+        stability: 2,
+        volatility: 0,
+        last_updated: nowSecs()
+      },
+      b2: {
+        id: "b2",
+        key: "default:deploy:fact",
+        hypothesis_ids: ["h2"],
+        winner_id: "h2",
+        state: BeliefState.Singleton,
+        score: 1.0,
+        confidence: 0.9,
+        support_mass: 8,
+        conflict_mass: 0,
+        stability: 2,
+        volatility: 0,
+        last_updated: nowSecs()
+      },
+      b3: {
+        id: "b3",
+        key: "default:frontend:fact",
+        hypothesis_ids: ["h3"],
+        winner_id: "h3",
+        state: BeliefState.Resolved,
+        score: 1.0,
+        confidence: 0.9,
+        support_mass: 10,
+        conflict_mass: 0,
+        stability: 2,
+        volatility: 0,
+        last_updated: nowSecs()
+      }
+    },
+    hypotheses: {
+      h1: {
+        id: "h1",
+        belief_id: "b1",
+        prototype_record_ids: ["r1"],
+        confidence: 0.9,
+        support_mass: 10,
+        conflict_mass: 0,
+        recency: 1,
+        consistency: 1,
+        score: 1.0
+      },
+      h2: {
+        id: "h2",
+        belief_id: "b2",
+        prototype_record_ids: ["r2"],
+        confidence: 0.9,
+        support_mass: 8,
+        conflict_mass: 0,
+        recency: 1,
+        consistency: 1,
+        score: 1.0
+      },
+      h3: {
+        id: "h3",
+        belief_id: "b3",
+        prototype_record_ids: ["r3"],
+        confidence: 0.9,
+        support_mass: 10,
+        conflict_mass: 0,
+        recency: 1,
+        consistency: 1,
+        score: 1.0
+      }
+    },
+    record_to_belief: { r1: "b1", r2: "b2", r3: "b3" },
+    key_index: {},
+    record_index: { r1: "b1", r2: "b2", r3: "b3" }
+  }
+
+  const records = new Map<string, AuraRecord>([
+    ["r1", makeRecord("r1", "deploy service to production", ["deploy"], "fact")],
+    ["r2", makeRecord("r2", "deploy new version release", ["deploy"], "fact")],
+    ["r3", makeRecord("r3", "frontend ui update theme", ["frontend"], "fact")]
+  ])
+  // All SDR centroids overlap heavily → Tanimoto would be high
+  // But b3 has different tags → tag barrier should block if implemented
+  const sdr: SdrLookup = new Map([
+    ["r1", [1, 2, 3, 4, 5, 6, 7]],
+    ["r2", [3, 4, 5, 6, 7, 8, 9]],
+    ["r3", [6, 7, 8, 9, 10, 11, 12]]
+  ])
+
+  const report = await Effect.runPromise(
+    concept.discover(fakeBeliefEngine(state), records, sdr).pipe(Effect.provideService(EpistemicTrace, NoopTrace))
+  )
+
+  // RED: without guards, b3 may merge with b1/b2 cluster.
+  // After guards are implemented, b3 should be separated.
+  // For now (stub always allows), this assertion checks that the engine runs.
+  assert.ok(report.candidates_found >= 1)
+  assert.ok(report.seeds_found >= 3)
 })

@@ -725,6 +725,117 @@ export function buildCanonicalTokens(content: string): string[] {
 }
 
 /**
+ * Parse the family tag from a belief key.
+ *
+ * Belief key format: "namespace:sorted_tags:semantic_type" or
+ * "namespace:sorted_tags:semantic_type#N" (subclustered).
+ *
+ * Returns the sorted_tags portion (second colon-delimited part),
+ * or empty string if key has fewer than 3 parts.
+ * Extracted from Rust concept.rs parse_belief_key_family() (line 1357).
+ */
+export function parseBeliefKeyFamily(key: string): string {
+  const parts = key.split(":")
+  if (parts.length >= 3) return parts[1]!
+  return ""
+}
+
+/**
+ * Split a family string into token set.
+ * Family is comma-separated tags; this splits them into individual tokens.
+ * Extracted from Rust concept.rs family_token_set() (line 1366).
+ */
+export function familyTokenSet(family: string): ReadonlySet<string> {
+  if (!family) return new Set()
+  return new Set(
+    family
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0)
+  )
+}
+
+/**
+ * Check if a family is "alerts" (generic/ambient category requiring stricter guards).
+ * Extracted from Rust concept.rs is_generic_family() (line 1374).
+ */
+export function isGenericFamily(family: string): boolean {
+  return family === "alerts"
+}
+
+// ── Cluster Guards ──
+// STUB implementations — always allow merges.
+// Will be replaced with Rust-aligned logic in GREEN phase.
+
+/**
+ * Tag barrier: checks whether two beliefs share at least one tag.
+ * If both beliefs have tags but share none, merging is blocked.
+ * Rust concept.rs: cluster_beliefs lines 1038-1042, cluster_beliefs_canonical lines 918-923.
+ */
+export function tagBarrier(
+  _tagsA: ReadonlySet<string>,
+  _tagsB: ReadonlySet<string>
+): boolean {
+  // STUB: always allow
+  return true
+}
+
+/**
+ * Family guard: prevents cross-family merges unless bridge exceptions apply.
+ * Extracted from Rust concept.rs: cluster_beliefs lines 1044-1078,
+ * cluster_beliefs_canonical lines 925-959.
+ *
+ * Returns 'allowed' when same family or bridge exception applies.
+ * Returns 'blocked' when families differ and no bridge applies.
+ * Returns 'bridge_allowed' when families differ but overlap bridge or single-tag bridge applies.
+ */
+export function familyGuard(
+  _familyA: string,
+  _familyB: string,
+  _sharedTags: number,
+  _stA: string,
+  _stB: string,
+  _unionMode: ConceptUnionMode
+): "allowed" | "bridge_allowed" | "blocked" {
+  // STUB: always allow
+  return "allowed"
+}
+
+/**
+ * Generic family guard: families like "alerts" require stricter tag overlap.
+ * Extracted from Rust concept.rs: cluster_beliefs lines 1080-1082,
+ * cluster_beliefs_canonical lines 961-963.
+ *
+ * "alerts" family requires shared_tags >= 2.
+ * Other families pass with shared_tags >= 1 (tag barrier already checked).
+ */
+export function genericFamilyGuard(
+  _family: string,
+  _sharedTags: number
+): boolean {
+  // STUB: always allow
+  return true
+}
+
+/**
+ * Semantic type bridge: allows concepts with different semantic types
+ * to merge when their tags overlap.
+ *
+ * - Same semantic_type → ALLOWED
+ * - Different but tags overlap → ALLOWED (bridge via shared meaning)
+ * - Otherwise → BLOCKED
+ */
+export function semanticTypeBridge(
+  _stA: string,
+  _stB: string,
+  _tagsA: ReadonlySet<string>,
+  _tagsB: ReadonlySet<string>
+): boolean {
+  // STUB: always allow
+  return true
+}
+
+/**
  * Extract core and shell terms from a set of records.
  *
  * Core: terms appearing in >= CORE_TERM_THRESHOLD fraction of records.

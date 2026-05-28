@@ -59,6 +59,7 @@ function makeRecord(
     last_activated: 0,
     tags,
     connections: {},
+    connection_types: {},
     content_type: "text/plain",
     source_type: "recorded",
     namespace: "default",
@@ -1301,7 +1302,13 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
         temporal_windows: 3,
         namespace: "default",
         cause_record_ids: [],
-        effect_record_ids: []
+        effect_record_ids: [],
+        temporal_support_count: 0,
+        explicit_support_total_for_cause: 0,
+        explicit_effect_variants_for_cause: 0,
+        effect_record_signature_variants: 0,
+        positive_effect_signals: 0,
+        negative_effect_signals: 0,
       } as CausalPattern
     }
     const state: CausalEngineState = {
@@ -1344,7 +1351,8 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
         recommendation: "Prefer staging deployment",
         utilityScore: 0.6,
         cause_key: `default:deploy:decision`,
-        effect_keys: []
+        effect_keys: [],
+        cause_record_ids: []
       } as PolicyHint
     }
     const state: PolicyEngineState = {
@@ -1435,7 +1443,13 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
         temporal_windows: 5,
         namespace: "default",
         cause_record_ids: [],
-        effect_record_ids: []
+        effect_record_ids: [],
+        temporal_support_count: 0,
+        explicit_support_total_for_cause: 0,
+        explicit_effect_variants_for_cause: 0,
+        effect_record_signature_variants: 0,
+        positive_effect_signals: 0,
+        negative_effect_signals: 0,
       } as CausalPattern
     }
 
@@ -1505,7 +1519,13 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
         temporal_windows: 1,
         namespace: "default",
         cause_record_ids: [],
-        effect_record_ids: []
+        effect_record_ids: [],
+        temporal_support_count: 0,
+        explicit_support_total_for_cause: 0,
+        explicit_effect_variants_for_cause: 0,
+        effect_record_signature_variants: 0,
+        positive_effect_signals: 0,
+        negative_effect_signals: 0,
       } as CausalPattern
     }
 
@@ -1614,7 +1634,13 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
         temporal_windows: 1,
         namespace: "default",
         cause_record_ids: [],
-        effect_record_ids: []
+        effect_record_ids: [],
+        temporal_support_count: 0,
+        explicit_support_total_for_cause: 0,
+        explicit_effect_variants_for_cause: 0,
+        effect_record_signature_variants: 0,
+        positive_effect_signals: 0,
+        negative_effect_signals: 0,
       } as CausalPattern
     }
 

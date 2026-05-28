@@ -127,6 +127,12 @@ const samplePattern = (
   namespace: "test",
   cause_record_ids: [] as ReadonlyArray<string>,
   effect_record_ids: [] as ReadonlyArray<string>,
+  temporal_support_count: 0,
+  explicit_support_total_for_cause: 0,
+  explicit_effect_variants_for_cause: 0,
+  effect_record_signature_variants: 0,
+  positive_effect_signals: 0,
+  negative_effect_signals: 0,
 })
 
 const sampleHint = (
@@ -159,6 +165,7 @@ const sampleHint = (
   utilityScore: 0.5,
   cause_key: "k",
   effect_keys: [] as ReadonlyArray<string>,
+  cause_record_ids: [] as ReadonlyArray<string>,
 })
 
 // ── Helper: create runtime with fresh Refs ──────────────────────────

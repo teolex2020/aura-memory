@@ -360,7 +360,7 @@ const POSITIVE_KEYWORDS = [
  * Matches Rust policy.rs polarity_signal_counts (lines 454-496).
  */
 export function polaritySignalCounts(
-  effectRecordIds: string[],
+  effectRecordIds: ReadonlyArray<string>,
   records: ReadonlyMap<string, AuraRecord>
 ): { positiveSignals: number; negativeSignals: number } {
   let positiveSignals = 0
@@ -418,7 +418,7 @@ export function polaritySignalCounts(
  * Matches Rust policy.rs classify_polarity (lines 423-437).
  */
 export function classifyPolarity(
-  effectRecordIds: string[],
+  effectRecordIds: ReadonlyArray<string>,
   records: ReadonlyMap<string, AuraRecord>
 ): "Positive" | "Negative" | "Neutral" {
   const { positiveSignals, negativeSignals } = polaritySignalCounts(effectRecordIds, records)
@@ -452,7 +452,7 @@ export function classifyPolarity(
 export function mapActionKind(
   polarity: "Positive" | "Negative" | "Neutral",
   causalStrength: number
-): typeof PolicyActionKind {
+): PolicyActionKind {
   switch (polarity) {
     case "Negative":
       return causalStrength >= 0.75
@@ -561,7 +561,7 @@ function aggregateBeliefConfidence(
     for (const rid of recordIds) {
       const rec = records.get(rid)
       if (rec) {
-        recordSum += rec.confidence
+        recordSum += rec.confidence ?? 0
         recordCount++
       }
     }

@@ -580,8 +580,8 @@ import type { PolicyHint } from "@aura/contract"
 import { PolicyState } from "@aura/contract"
 
 function makeTestHint(overrides: Partial<PolicyHint> & { id: string }): PolicyHint {
+  // Spread overrides first so explicit `id` wins (overrides always has `id`)
   return {
-    id: overrides.id,
     pattern_id: "cp-test",
     condition: "test condition",
     action: "test",
@@ -594,13 +594,14 @@ function makeTestHint(overrides: Partial<PolicyHint> & { id: string }): PolicyHi
     riskScore: 0.2,
     namespace: "ns1",
     domain: "backend",
-    polarity: "Positive",
+    polarity: "Positive" as const,
     recommendation: "Test recommendation",
     utilityScore: 0.6,
     cause_key: "ns1:cause:effect:hash",
     effect_keys: ["r-eff-1"],
     cause_record_ids: ["r-cause-1", "r-cause-2"],
     ...overrides,
+    id: overrides.id,
   }
 }
 

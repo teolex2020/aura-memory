@@ -334,7 +334,7 @@ describe("aggregateToPatterns", () => {
       r4: "b-effect",
     })
 
-    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+    const patterns = await runWithClock(aggregateToPatterns(edges, records, beliefState))
 
     assert.ok(patterns.length > 0, "should produce at least one pattern")
     // Two edges both mapping to same cause→effect belief pair → one pattern
@@ -357,7 +357,7 @@ describe("aggregateToPatterns", () => {
       r2: "b-self", // same belief on both sides
     })
 
-    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+    const patterns = await runWithClock(aggregateToPatterns(edges, records, beliefState))
 
     assert.strictEqual(patterns.length, 0, "self-loop at belief level should produce no pattern")
   })
@@ -381,7 +381,7 @@ describe("aggregateToPatterns", () => {
       r4: "b-effect",
     })
 
-    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+    const patterns = await runWithClock(aggregateToPatterns(edges, records, beliefState))
 
     assert.ok(patterns.length > 0, "should produce at least one pattern")
     const p = patterns.find(
@@ -403,7 +403,7 @@ describe("aggregateToPatterns", () => {
 
     const beliefState = makeBeliefState({ r1: "b-c", r2: "b-e" })
 
-    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+    const patterns = await runWithClock(aggregateToPatterns(edges, records, beliefState))
 
     assert.strictEqual(patterns.length, 1, "should produce 1 pattern")
     const p = patterns[0]!
@@ -436,8 +436,8 @@ describe("aggregateToPatterns", () => {
     const beliefState1 = makeBeliefState({ r1: "b-X", r2: "b-Y" })
     const beliefState2 = makeBeliefState({ r3: "b-X", r4: "b-Y" })
 
-    const p1 = await Effect.runPromise(aggregateToPatterns(edges1, records1, beliefState1))
-    const p2 = await Effect.runPromise(aggregateToPatterns(edges2, records2, beliefState2))
+    const p1 = await runWithClock(aggregateToPatterns(edges1, records1, beliefState1))
+    const p2 = await runWithClock(aggregateToPatterns(edges2, records2, beliefState2))
 
     // Different cause/effect record IDs but same belief IDs → different IDs
     // If both pairs resolve to the same belief IDs but with different edges, the pattern ID should differ
@@ -465,7 +465,7 @@ describe("aggregateToPatterns", () => {
       r3: "b-effect", r4: "b-effect",
     })
 
-    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+    const patterns = await runWithClock(aggregateToPatterns(edges, records, beliefState))
 
     assert.ok(patterns.length > 0, "should produce at least one pattern")
     const p = patterns[0]!

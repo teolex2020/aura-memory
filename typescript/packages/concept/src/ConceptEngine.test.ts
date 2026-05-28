@@ -53,6 +53,7 @@ function makeRecord(
     last_activated: 0,
     tags,
     connections: {},
+    connection_types: {},
     content_type: "text/plain",
     source_type: "recorded",
     namespace: "default",

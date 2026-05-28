@@ -1426,10 +1426,8 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
    *
    * 应用来自因果引擎和策略引擎的上层反馈信号。
    */
-  apply_layer_feedback(
-    causalEngine: CausalEngine.Interface,
-    policyEngine: PolicyEngine.Interface
-  ): Effect.Effect<BeliefFeedbackReport, never, EpistemicTrace> {
+  apply_layer_feedback(...args: unknown[]): Effect.Effect<unknown> {
+    const [causalEngine, policyEngine] = args as [CausalEngine.Interface, PolicyEngine.Interface];
     const self = this
     return Effect.gen(function* () {
       const now = yield* Clock.nowSeconds()
@@ -1564,14 +1562,12 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
 
       // ── Aggregate and apply with bounded clamping ──
       // Rust: belief.rs:1382-1466
-      const report: BeliefFeedbackReport = {
-        beliefsTouched: 0,
-        beliefsBoosted: 0,
-        beliefsDampened: 0,
-        netConfidenceDelta: 0,
-        netVolatilityDelta: 0,
-        entries: []
-      }
+      // Use mutable accumulators (BeliefFeedbackReport fields are readonly)
+      let beliefsTouched = 0
+      let beliefsBoosted = 0
+      let beliefsDampened = 0
+      let netConfidenceDelta = 0
+      let netVolatilityDelta = 0
       const entries: FeedbackAuditEntry[] = []
 
       for (const [beliefId, rawEntries] of pending) {
@@ -1629,28 +1625,12 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
           }
         }
 
-        // Report stats
-        let touched: BeliefFeedbackReport = {
-          beliefsTouched: 0,
-          beliefsBoosted: 0,
-          beliefsDampened: 0,
-          netConfidenceDelta: 0,
-          netVolatilityDelta: 0,
-          entries: []
-        }
-        touched = {
-          ...touched,
-          beliefsTouched: 1,
-          netConfidenceDelta: appliedDelta,
-          netVolatilityDelta: appliedVolatilityDelta,
-          beliefsBoosted: appliedDelta > 0 ? 1 : 0,
-          beliefsDampened: appliedDelta < 0 ? 1 : 0
-        }
-        report.beliefsTouched += touched.beliefsTouched
-        report.netConfidenceDelta += touched.netConfidenceDelta
-        report.netVolatilityDelta += touched.netVolatilityDelta
-        report.beliefsBoosted += touched.beliefsBoosted
-        report.beliefsDampened += touched.beliefsDampened
+        // Accumulate stats
+        beliefsTouched += 1
+        netConfidenceDelta += appliedDelta
+        netVolatilityDelta += appliedVolatilityDelta
+        beliefsBoosted += appliedDelta > 0 ? 1 : 0
+        beliefsDampened += appliedDelta < 0 ? 1 : 0
 
         // Build per-entry audit records (proportional attribution)
         for (const rawEntry of rawEntries) {
@@ -1681,6 +1661,15 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
         }
       }
 
+      const report: BeliefFeedbackReport = {
+        beliefsTouched,
+        beliefsBoosted,
+        beliefsDampened,
+        netConfidenceDelta,
+        netVolatilityDelta,
+        entries
+      }
+
       if (Option.isSome(traceOpt)) {
         yield* traceOpt.value.event("belief.apply_layer_feedback.end", {
           beliefsTouched: report.beliefsTouched,
@@ -1689,7 +1678,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
       }
 
       // Return report with entries
-      return { ...report, entries }
+      return report
     })
   }
 

@@ -157,6 +157,7 @@ export class Aura {
         last_activated: nowSec,
         tags,
         connections: {},
+        connection_types: {},
         content_type: options?.content_type ?? "text",
         source_type: options?.source_type ?? "recorded",
         namespace: options?.namespace ?? "default",
@@ -204,6 +205,7 @@ export class Aura {
         last_activated: nowSec,
         tags: patch?.tags ?? base?.tags ?? [],
         connections: base?.connections ?? {},
+        connection_types: base?.connection_types ?? {},
         content_type: base?.content_type ?? "text",
         source_type: base?.source_type ?? "recorded",
         namespace: base?.namespace ?? "default",
@@ -292,6 +294,7 @@ export class Aura {
         last_activated: nowSec,
         tags: base?.tags ?? [],
         connections,
+        connection_types: base?.connection_types ?? {},
         content_type: base?.content_type ?? "text",
         source_type: base?.source_type ?? "recorded",
         namespace: base?.namespace ?? "default",
@@ -578,6 +581,10 @@ function toRecordLike(rec: CognitiveRecord, nowSecs: number): AuraRecord | undef
     o.connections && typeof o.connections === "object"
       ? { ...(o.connections as { [k: string]: number }) }
       : {};
+  const connection_types: { [k: string]: string } =
+    o.connection_types && typeof o.connection_types === "object"
+      ? { ...(o.connection_types as { [k: string]: string }) }
+      : {};
   const metadata: { [k: string]: string } =
     o.metadata && typeof o.metadata === "object"
       ? { ...(o.metadata as { [k: string]: string }) }
@@ -601,6 +608,7 @@ function toRecordLike(rec: CognitiveRecord, nowSecs: number): AuraRecord | undef
       typeof o.last_activated === "number" ? o.last_activated : nowSecs,
     tags,
     connections,
+    connection_types,
     content_type: typeof o.content_type === "string" ? o.content_type : "text",
     source_type: typeof o.source_type === "string" ? o.source_type : "recorded",
     namespace: typeof o.namespace === "string" ? o.namespace : "default",

@@ -662,7 +662,6 @@ export function runDiscoveryPhases(
 
     // ── Phase 3.9: Policy ──
     t = Date.now()
-    const causalStateForPolicy = yield* causalEngine.stats()
     const policyReport = yield* policyEngine.discover(causalEngine, conceptEngine, beliefEngine, beliefSnapshot)
     const policyState = yield* policyEngine.stats()
     yield* policyStore.save(policyState)

@@ -3,7 +3,7 @@ import { FileReadError, FileWriteError, JsonParseError } from "./Errors"
 
 import type { CausalEngine } from "./Causal"
 import type { BeliefEngine } from "./Belief"
-import type { ConceptEngineImpl } from "./Concept"
+import type { ConceptEngine } from "./Concept"
 import type { PolicyEngineState, PolicyReport } from "./policy/PolicyTypes"
 import type { EpistemicTrace } from "./EpistemicTrace"
 import type { Record as AuraRecord } from "./record/Record"
@@ -16,7 +16,7 @@ export namespace PolicyEngine {
   export interface Interface {
     discover: (
       causal_engine: CausalEngine.Interface,
-      concept_engine: ConceptEngineImpl,
+      concept_engine: ConceptEngine.Interface,
       belief_engine: BeliefEngine.Interface,
       records: ReadonlyMap<string, AuraRecord>
     ) => Effect.Effect<PolicyReport, never, EpistemicTrace>
@@ -27,7 +27,7 @@ export namespace PolicyEngine {
 
 export class PolicyEngine extends Tag("aura.contract.PolicyEngine")<PolicyEngine, PolicyEngine.Interface>() {}
 
-/** @deprecated Use PolicyEngine.Interface instead. 请使用 PolicyEngine.Interface。 */
+/** @deprecated Use PolicyEngine.Interface instead. */
 export type PolicyEngineImpl = PolicyEngine.Interface
 
 export namespace PolicyStore {
@@ -45,5 +45,5 @@ export namespace PolicyStore {
 
 export class PolicyStore extends Tag("aura.contract.PolicyStore")<PolicyStore, PolicyStore.Interface>() {}
 
-/** @deprecated Use PolicyStore.Interface instead. 请使用 PolicyStore.Interface。 */
+/** @deprecated Use PolicyStore.Interface instead. */
 export type PolicyStoreImpl = PolicyStore.Interface

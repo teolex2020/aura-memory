@@ -94,7 +94,7 @@ Plans:
 
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 6
-**Plans:** 1/6 plans executed
+**Plans:** 5/6 plans executed
 Plans:
 **Wave 1**
 
@@ -102,10 +102,10 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 06.2-02-PLAN.md — Concept surface functions: surfaceConcepts, surfaceConceptsFiltered (TDD)
-- [ ] 06.2-03-PLAN.md — Policy surface functions: surfacePolicyHints, surfacePolicyHintsFiltered (TDD)
-- [ ] 06.2-04-PLAN.md — EpistemicRuntime rewrite: remove maintain(), add Refs + telemetry + 12 simple inspection methods
-- [ ] 06.2-06-PLAN.md — MaintenanceService: 14 Effect functions for full maintenance cycle orchestration
+- [x] 06.2-02-PLAN.md — Concept surface functions: surfaceConcepts, surfaceConceptsFiltered (TDD)
+- [x] 06.2-03-PLAN.md — Policy surface functions: surfacePolicyHints, surfacePolicyHintsFiltered (TDD)
+- [x] 06.2-04-PLAN.md — EpistemicRuntime rewrite: remove maintain(), add Refs + telemetry + 12 simple inspection methods
+- [x] 06.2-06-PLAN.md — MaintenanceService: 14 Effect functions for full maintenance cycle orchestration
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

@@ -24,7 +24,6 @@ import { surfaceConcepts, surfaceConceptsFiltered } from "@aura/concept"
 import { surfacePolicyHints, surfacePolicyHintsFiltered } from "@aura/policy"
 import type { PolicyHint as SurfacePolicyHint } from "@aura/policy"
 import type { PolicyEngine as SurfacePolicyEngine } from "@aura/policy"
-import type { PolicyState as SurfacePolicyState } from "@aura/policy"
 
 // ── Telemetry infrastructure ────────────────────────────────────────
 

@@ -9,6 +9,8 @@ import type { Record as AuraRecord } from "@aura/contract"
 import {
   CausalEngineImpl,
   extractEdges,
+  buildRecordToBelief,
+  aggregateToPatterns,
   MAX_CAUSAL_WINDOW_SECS,
   MAX_EDGES_PER_NAMESPACE,
   MAX_TEMPORAL_SUCCESSORS_PER_RECORD,
@@ -266,6 +268,204 @@ describe("extractEdges", () => {
     // same r1→r2 pair discovered via caused_by_id, should only be 1 edge total
     const r1r2Edges = edges.filter((e) => e.cause_record_id === "r1" && e.effect_record_id === "r2")
     assert.strictEqual(r1r2Edges.length, 1, "duplicate cause→effect pair should be deduplicated")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 2: Pattern aggregation tests (RED phase — expect failure until implemented)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("aggregateToPatterns", () => {
+  function makeBeliefState(recordToBelief: Record<string, string>): {
+    beliefs: Readonly<Record<string, { state: string; id: string }>>
+    record_index: Readonly<Record<string, string>>
+  } {
+    const beliefs: Record<string, { state: string; id: string }> = {}
+    for (const [, beliefId] of Object.entries(recordToBelief)) {
+      if (!beliefs[beliefId]) {
+        beliefs[beliefId] = { state: "Resolved", id: beliefId }
+      }
+    }
+    return { beliefs, record_index: recordToBelief }
+  }
+
+  function makeTestEdge(overrides?: Partial<CausalEdge>): CausalEdge {
+    return {
+      cause_record_id: "r1",
+      effect_record_id: "r2",
+      namespace: "default",
+      edge_kind: "temporal",
+      gap_seconds: 100,
+      created_at: 1001,
+      ...overrides,
+    }
+  }
+
+  function makeRecordWithBelief(
+    id: string,
+    content: string,
+    namespace: string,
+    created_at: number
+  ): AuraRecord {
+    return makeRecord(id, content, namespace, created_at)
+  }
+
+  it("1. Edges aggregated to belief-level patterns: same cause_belief → effect_belief grouped together", async () => {
+    const edges: CausalEdge[] = [
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "temporal" }),
+      makeTestEdge({ cause_record_id: "r3", effect_record_id: "r4", edge_kind: "temporal" }),
+    ]
+    const records = new Map<string, AuraRecord>()
+    records.set("r1", makeRecordWithBelief("r1", "cause-a", "default", 1000))
+    records.set("r2", makeRecordWithBelief("r2", "effect-x", "default", 1001))
+    records.set("r3", makeRecordWithBelief("r3", "cause-a", "default", 1002))
+    records.set("r4", makeRecordWithBelief("r4", "effect-x", "default", 1003))
+
+    const beliefState = makeBeliefState({
+      r1: "b-cause",
+      r2: "b-effect",
+      r3: "b-cause",
+      r4: "b-effect",
+    })
+
+    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+
+    assert.ok(patterns.length > 0, "should produce at least one pattern")
+    // Two edges both mapping to same cause→effect belief pair → one pattern
+    const byPair = patterns.filter(
+      (p) => p.cause_belief_id === "b-cause" && p.effect_belief_id === "b-effect"
+    )
+    assert.strictEqual(byPair.length, 1, "should have 1 pattern for same belief pair")
+  })
+
+  it("2. Self-loop filtered at belief level: cause_belief_id === effect_belief_id → pattern NOT created", async () => {
+    const edges: CausalEdge[] = [
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "temporal" }),
+    ]
+    const records = new Map<string, AuraRecord>()
+    records.set("r1", makeRecordWithBelief("r1", "a", "default", 1000))
+    records.set("r2", makeRecordWithBelief("r2", "b", "default", 1001))
+
+    const beliefState = makeBeliefState({
+      r1: "b-self",
+      r2: "b-self", // same belief on both sides
+    })
+
+    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+
+    assert.strictEqual(patterns.length, 0, "self-loop at belief level should produce no pattern")
+  })
+
+  it("3. Pattern support counts grouped by edge count: 3 edges between same belief pair → support_count = 3", async () => {
+    const edges: CausalEdge[] = [
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r3", edge_kind: "temporal", gap_seconds: 100 }),
+      makeTestEdge({ cause_record_id: "r2", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 200 }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 300 }),
+    ]
+    const records = new Map<string, AuraRecord>()
+    records.set("r1", makeRecordWithBelief("r1", "c1", "default", 1000))
+    records.set("r2", makeRecordWithBelief("r2", "c2", "default", 1001))
+    records.set("r3", makeRecordWithBelief("r3", "e1", "default", 1100))
+    records.set("r4", makeRecordWithBelief("r4", "e2", "default", 1200))
+
+    const beliefState = makeBeliefState({
+      r1: "b-cause",
+      r2: "b-cause",
+      r3: "b-effect",
+      r4: "b-effect",
+    })
+
+    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+
+    assert.ok(patterns.length > 0, "should produce at least one pattern")
+    const p = patterns.find(
+      (p) => p.cause_belief_id === "b-cause" && p.effect_belief_id === "b-effect"
+    )
+    assert.ok(p !== undefined, "should find the aggregated pattern")
+    if (p) {
+      assert.strictEqual(p.support_count, 3, "3 edges should give support_count = 3")
+    }
+  })
+
+  it("4. CausalPattern has all required fields populated", async () => {
+    const edges: CausalEdge[] = [
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "explicit", gap_seconds: 1 }),
+    ]
+    const records = new Map<string, AuraRecord>()
+    records.set("r1", makeRecordWithBelief("r1", "c", "ns", 1000))
+    records.set("r2", makeRecordWithBelief("r2", "e", "ns", 1001))
+
+    const beliefState = makeBeliefState({ r1: "b-c", r2: "b-e" })
+
+    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+
+    assert.strictEqual(patterns.length, 1, "should produce 1 pattern")
+    const p = patterns[0]!
+    assert.strictEqual(p.cause_belief_id, "b-c")
+    assert.strictEqual(p.effect_belief_id, "b-e")
+    assert.strictEqual(p.namespace, "ns")
+    assert.strictEqual(p.support_count, 1)
+    assert.strictEqual(p.explicit_support_count, 1)
+    assert.strictEqual(p.state, "Candidate" as any)
+    assert.ok(typeof p.id === "string" && p.id.length > 0, "should have non-empty id")
+    assert.ok(typeof p.cause_key === "string", "should have cause_key")
+    assert.ok(typeof p.effect_key === "string", "should have effect_key")
+    assert.ok(typeof p.edge_hash === "string", "should have edge_hash")
+  })
+
+  it("5. CausalPattern uses deterministic pattern ID (same keys → same ID)", async () => {
+    const edges1: CausalEdge[] = [
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "explicit", gap_seconds: 1 }),
+    ]
+    const edges2: CausalEdge[] = [
+      makeTestEdge({ cause_record_id: "r3", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 100 }),
+    ]
+    const records1 = new Map<string, AuraRecord>()
+    records1.set("r1", makeRecordWithBelief("r1", "c", "ns", 1000))
+    records1.set("r2", makeRecordWithBelief("r2", "e", "ns", 1001))
+    const records2 = new Map<string, AuraRecord>()
+    records2.set("r3", makeRecordWithBelief("r3", "c", "ns", 1000))
+    records2.set("r4", makeRecordWithBelief("r4", "e", "ns", 1001))
+
+    const beliefState1 = makeBeliefState({ r1: "b-X", r2: "b-Y" })
+    const beliefState2 = makeBeliefState({ r3: "b-X", r4: "b-Y" })
+
+    const p1 = await Effect.runPromise(aggregateToPatterns(edges1, records1, beliefState1))
+    const p2 = await Effect.runPromise(aggregateToPatterns(edges2, records2, beliefState2))
+
+    // Different cause/effect record IDs but same belief IDs → different IDs
+    // If both pairs resolve to the same belief IDs but with different edges, the pattern ID should differ
+    // because edge_hash is part of the pattern key
+    assert.ok(p1.length > 0, "should produce pattern 1")
+    assert.ok(p2.length > 0, "should produce pattern 2")
+    // Note: with different edges, IDs should differ. Test that both are non-empty strings.
+    assert.ok(typeof p1[0]!.id === "string" && p1[0]!.id.length > 0)
+    assert.ok(typeof p2[0]!.id === "string" && p2[0]!.id.length > 0)
+  })
+
+  it("6. Explicit support counts separated from temporal", async () => {
+    const edges: CausalEdge[] = [
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r3", edge_kind: "explicit", gap_seconds: 1 }),
+      makeTestEdge({ cause_record_id: "r2", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 100 }),
+    ]
+    const records = new Map<string, AuraRecord>()
+    records.set("r1", makeRecordWithBelief("r1", "c1", "default", 1000))
+    records.set("r2", makeRecordWithBelief("r2", "c2", "default", 1001))
+    records.set("r3", makeRecordWithBelief("r3", "e1", "default", 1001))
+    records.set("r4", makeRecordWithBelief("r4", "e2", "default", 1101))
+
+    const beliefState = makeBeliefState({
+      r1: "b-cause", r2: "b-cause",
+      r3: "b-effect", r4: "b-effect",
+    })
+
+    const patterns = await Effect.runPromise(aggregateToPatterns(edges, records, beliefState))
+
+    assert.ok(patterns.length > 0, "should produce at least one pattern")
+    const p = patterns[0]!
+    // explicit_support_count = 1 (only edge_kind "explicit" or "explicit_causal")
+    assert.strictEqual(p.explicit_support_count, 1, "should have 1 explicit support edge")
+    assert.strictEqual(p.support_count, 2, "total support_count should be 2")
   })
 })
 

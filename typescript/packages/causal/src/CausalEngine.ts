@@ -9,6 +9,7 @@ import {
   EpistemicTrace,
   serviceOption,
   Clock,
+  BeliefState,
   type BeliefEngine,
   type CausalEngineState,
   type CausalEdge,
@@ -217,6 +218,36 @@ export function extractEdges(
       temporal_namespaces_hit_cap,
     },
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Belief-level pattern aggregation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build reverse index: record_id → belief_id.
+ * Only maps records that belong to Resolved or Singleton beliefs.
+ * Matches Rust causal.rs build_record_to_belief (lines 935-950).
+ */
+export function buildRecordToBelief(
+  beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> }
+): ReadonlyMap<string, string> {
+  // STUB — returns empty for RED phase
+  return new Map()
+}
+
+/**
+ * Aggregate record-level edges into belief-level causal patterns.
+ *
+ * Matches Rust causal.rs aggregate_to_patterns (lines 767-929).
+ */
+export function aggregateToPatterns(
+  edges: ReadonlyArray<CausalEdge>,
+  records: ReadonlyMap<string, AuraRecord>,
+  beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> }
+): Effect.Effect<CausalPattern[], never, EpistemicTrace> {
+  // STUB — returns empty for RED phase
+  return Effect.succeed([])
 }
 
 let _hasher: { h64: (input: string) => bigint } | null = null

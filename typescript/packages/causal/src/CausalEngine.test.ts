@@ -233,11 +233,12 @@ describe("extractEdges", () => {
   })
 
   it("12. Edge stats: total, explicit, temporal counts returned correctly", () => {
+    // Use separate namespaces so temporal edges don't interact with explicit records
     const records = new Map<string, AuraRecord>()
-    const r1 = makeRecord("r1", "cause", "default", 1000)
-    const r2 = makeRecord("r2", "effect", "default", 1001, { caused_by_id: "r1" })
-    const r3 = makeRecord("r3", "temporal-a", "default", 1000)
-    const r4 = makeRecord("r4", "temporal-b", "default", 1800)
+    const r1 = makeRecord("r1", "cause", "explicit-ns", 1000)
+    const r2 = makeRecord("r2", "effect", "explicit-ns", 1001, { caused_by_id: "r1" })
+    const r3 = makeRecord("r3", "temporal-a", "temporal-ns", 1000)
+    const r4 = makeRecord("r4", "temporal-b", "temporal-ns", 1800)
     records.set("r1", r1)
     records.set("r2", r2)
     records.set("r3", r3)
@@ -248,8 +249,8 @@ describe("extractEdges", () => {
     assert.strictEqual(edges.length, stats.explicit_edges_found + stats.temporal_edges_found,
       "total edges should equal explicit + temporal")
     assert.strictEqual(stats.explicit_edges_found, 1, "should have 1 explicit edge")
-    assert.strictEqual(stats.temporal_edges_found, 1, "should have 1 temporal edge")
-    assert.strictEqual(stats.temporal_namespaces_scanned, 1, "1 namespace scanned")
+    assert.strictEqual(stats.temporal_edges_found, 1, "should have 1 temporal edge (r3→r4)")
+    assert.strictEqual(stats.temporal_namespaces_scanned, 2, "2 namespaces scanned (1 explicit + 1 temporal)")
   })
 
   it("13. Duplicate edge detection: same cause→effect pair produces only 1 edge", () => {

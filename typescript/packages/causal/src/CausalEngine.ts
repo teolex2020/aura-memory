@@ -72,17 +72,149 @@ export type EdgeStats = {
 export function extractEdges(
   records: ReadonlyMap<string, AuraRecord>
 ): { edges: CausalEdge[]; stats: EdgeStats } {
-  // STUB — returns empty for RED phase
+  const edges: CausalEdge[] = []
+  const seen = new Set<string>()
+  let explicit_edges_found = 0
+  let temporal_edges_found = 0
+  let temporal_namespaces_scanned = 0
+  let temporal_pairs_considered = 0
+  let temporal_pairs_skipped_by_budget = 0
+  let temporal_edges_capped = 0
+  let temporal_namespaces_hit_cap = 0
+
+  // ── Phase A: Explicit edges — caused_by_id ──
+  for (const [rid, rec] of records) {
+    if (rec.caused_by_id != null) {
+      // Self-loop guard
+      if (rec.caused_by_id === rid) continue
+      const causeRec = records.get(rec.caused_by_id)
+      if (causeRec && causeRec.namespace === rec.namespace) {
+        const edgeKey = `${rec.caused_by_id}→${rid}`
+        if (!seen.has(edgeKey)) {
+          seen.add(edgeKey)
+          edges.push({
+            cause_record_id: rec.caused_by_id,
+            effect_record_id: rid,
+            namespace: rec.namespace,
+            edge_kind: "explicit",
+            gap_seconds: rec.created_at - causeRec.created_at,
+            created_at: rec.created_at,
+          })
+          explicit_edges_found++
+        }
+      }
+    }
+
+    // ── Phase B: Explicit edges — connection_type == "causal" ──
+    for (const [connId, connType] of Object.entries(rec.connection_types)) {
+      if (connType === "causal") {
+        // Self-loop guard
+        if (connId === rid) continue
+        const connRec = records.get(connId)
+        if (connRec && connRec.namespace === rec.namespace) {
+          // Direction: earlier created_at is cause
+          const recIsEarlier = rec.created_at <= connRec.created_at
+          const causeId = recIsEarlier ? rid : connId
+          const effectId = recIsEarlier ? connId : rid
+          const causeTs = recIsEarlier ? rec.created_at : connRec.created_at
+          const effectTs = recIsEarlier ? connRec.created_at : rec.created_at
+
+          const edgeKey = `${causeId}→${effectId}`
+          if (!seen.has(edgeKey)) {
+            seen.add(edgeKey)
+            edges.push({
+              cause_record_id: causeId,
+              effect_record_id: effectId,
+              namespace: rec.namespace,
+              edge_kind: "explicit_causal",
+              gap_seconds: effectTs - causeTs,
+              created_at: effectTs,
+            })
+            explicit_edges_found++
+          }
+        }
+      }
+    }
+  }
+
+  // ── Phase C: Temporal edges within namespace ──
+  // Partition by namespace
+  const byNs = new Map<string, Array<[string, AuraRecord]>>()
+  for (const [rid, rec] of records) {
+    let arr = byNs.get(rec.namespace)
+    if (!arr) {
+      arr = []
+      byNs.set(rec.namespace, arr)
+    }
+    arr.push([rid, rec])
+  }
+
+  for (const [, nsRecs] of byNs) {
+    temporal_namespaces_scanned++
+    // Sort by created_at ascending
+    nsRecs.sort((a, b) => a[1].created_at - b[1].created_at)
+
+    let nsEdgeCount = 0
+    let nsHitCap = false
+    for (let i = 0; i < nsRecs.length; i++) {
+      if (nsEdgeCount >= MAX_EDGES_PER_NAMESPACE) {
+        break
+      }
+      const [causeId, causeRec] = nsRecs[i]!
+      let budgetedSuccessors = 0
+      for (let j = i + 1; j < nsRecs.length; j++) {
+        // NearbySuccessors budgeting
+        if (budgetedSuccessors >= MAX_TEMPORAL_SUCCESSORS_PER_RECORD) {
+          temporal_pairs_skipped_by_budget += nsRecs.length - j
+          break
+        }
+        temporal_pairs_considered++
+        budgetedSuccessors++
+        const [effectId, effectRec] = nsRecs[j]!
+        const gap = effectRec.created_at - causeRec.created_at
+        if (gap > MAX_CAUSAL_WINDOW_SECS) {
+          break // sorted, all further will exceed window
+        }
+        if (gap <= 0) {
+          continue
+        }
+        const edgeKey = `${causeId}→${effectId}`
+        if (!seen.has(edgeKey)) {
+          seen.add(edgeKey)
+          edges.push({
+            cause_record_id: causeId,
+            effect_record_id: effectId,
+            namespace: causeRec.namespace,
+            edge_kind: "temporal",
+            gap_seconds: gap,
+            created_at: effectRec.created_at,
+          })
+          nsEdgeCount++
+          temporal_edges_found++
+          if (nsEdgeCount >= MAX_EDGES_PER_NAMESPACE) {
+            nsHitCap = true
+            break
+          }
+        }
+      }
+    }
+    if (nsHitCap) {
+      temporal_namespaces_hit_cap++
+      const remaining = nsRecs.length - 1 - nsEdgeCount
+      temporal_edges_capped += Math.max(0, remaining)
+    }
+  }
+
   return {
-    edges: [],
+    edges,
     stats: {
-      explicit_edges_found: 0,
-      temporal_edges_found: 0,
-      temporal_namespaces_scanned: 0,
-      temporal_pairs_considered: 0,
-      temporal_pairs_skipped_by_budget: 0,
-      temporal_edges_capped: 0,
-      temporal_namespaces_hit_cap: 0,
+      explicit_edges_found,
+      temporal_edges_found,
+      temporal_namespaces_scanned,
+      temporal_pairs_considered,
+      temporal_pairs_skipped_by_budget,
+      temporal_edges_capped,
+      temporal_namespaces_hit_cap,
     },
   }
 }

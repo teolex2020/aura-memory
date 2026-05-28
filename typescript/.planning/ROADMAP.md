@@ -135,6 +135,17 @@ Plans:
 
 Plans:
 
+### Phase 06.1: 补齐四大引擎未完成功能和修复类型错误 (INSERTED)
+
+**Goal:** Fix TypeScript strict type errors across epistemic engine packages (CausalEngine, BoundedReranker, EpistemicRuntime)
+**Requirements:** REQ-012
+**Depends on:** Phase 6
+**Plans:** 1/1 plans complete
+
+Plans:
+
+- [x] 06.1-01-PLAN.md — Fix strict type errors in CausalEngine, BoundedReranker, EpistemicRuntime
+
 ## Phase 7: MCP + Polish
 
 **Goal:** MCP stdio server + full tool coverage + final parity verification

@@ -71,13 +71,55 @@ export type BeliefEngineState = {
   readonly version: 1
   readonly beliefs: Readonly<Record<string, Belief>>
   readonly hypotheses: Readonly<Record<string, Hypothesis>>
+
+  /**
+   * Maps record IDs to belief IDs (legacy name; kept for backward compat).
+   * Same semantics as record_index.
+   */
   readonly record_to_belief: Readonly<Record<string, string>>
+
+  /**
+   * Key index — maps canonical claim keys to belief IDs for fast lookup.
+   * Used by incremental update to locate existing beliefs for a given key.
+   *
+   * 键索引——将规范化 claim key 映射到 belief ID，用于增量更新快速定位。
+   */
+  readonly key_index: Readonly<Record<string, string>>
+
+  /**
+   * Record index — maps record IDs to belief IDs (full mapping for
+   * record→belief→hypothesis traversal from downstream engines).
+   *
+   * Record 索引——将 record ID 映射到 belief ID（供下游引擎反向遍历）。
+   */
+  readonly record_index: Readonly<Record<string, string>>
 }
 
 // Per-cycle report returned by BeliefEngine.update/update_with_sdr.
 // 每次更新返回的统计报告（用于 trace/观测）。
 export type BeliefReport = {
+  /** Number of coarse groups created during key-claiming phase. */
   readonly coarse_groups: number
+  /** Number of beliefs freshly built this cycle. */
   readonly beliefs_built: number
+  /** Number of hypotheses freshly built this cycle. */
   readonly hypotheses_built: number
+
+  // ── New Rust-aligned report fields ──
+  /** Number of beliefs created (newly instantiated) this cycle. */
+  readonly beliefs_created: number
+  /** Number of beliefs pruned (soft-deprecated, confidence halved) this cycle. */
+  readonly beliefs_pruned: number
+  /** Number of hypothesis revisions (incremental updates to existing hypotheses). */
+  readonly revisions: number
+  /** Number of beliefs that reached Resolved state this cycle. */
+  readonly resolved: number
+  /** Number of beliefs remaining in Unresolved state after this cycle. */
+  readonly unresolved: number
+  /** Total beliefs in state after this cycle (Resolved + Unresolved + Singleton). */
+  readonly total_beliefs: number
+  /** Total hypotheses in state after this cycle. */
+  readonly total_hypotheses: number
+  /** Churn rate — fraction of beliefs modified this cycle vs total. */
+  readonly churn_rate: number
 }

@@ -636,7 +636,7 @@ export function runDiscoveryPhases(
     const { concept: conceptReport, causal: causalReport } = yield* Effect.all(
       {
         concept: conceptEngine.discover(beliefEngine, beliefSnapshot, sdrLookup),
-        causal: causalEngine.discover(conceptStatePre, beliefSnapshot, sdrLookup),
+        causal: causalEngine.discover(beliefEngine, beliefSnapshot, sdrLookup),
       },
       { concurrency: 2 }
     )
@@ -657,7 +657,7 @@ export function runDiscoveryPhases(
     // ── Phase 3.9: Policy ──
     t = Date.now()
     const causalStateForPolicy = yield* causalEngine.stats()
-    const policyReport = yield* policyEngine.discover(causalStateForPolicy, beliefSnapshot)
+    const policyReport = yield* policyEngine.discover(causalEngine, conceptEngine, beliefEngine, beliefSnapshot)
     const policyState = yield* policyEngine.stats()
     yield* policyStore.save(policyState)
     mh.policySeedsFound = policyReport.hints_found

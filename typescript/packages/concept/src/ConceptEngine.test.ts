@@ -7,6 +7,7 @@ import {
   Level,
   type BeliefEngine,
   type BeliefEngineState,
+  type BeliefReport,
   type EpistemicTraceImpl,
   type Record as AuraRecord,
   type SdrLookup
@@ -53,8 +54,8 @@ function fakeBeliefEngine(state: BeliefEngineState): BeliefEngine.Interface {
     with_coarse_key_mode: () => Effect.void,
     claim_key: () => Effect.succeed(""),
     claim_key_with_mode: () => Effect.succeed(""),
-    update: () => Effect.succeed({ coarse_groups: 0, beliefs_built: 0, hypotheses_built: 0 }),
-    update_with_sdr: () => Effect.succeed({ coarse_groups: 0, beliefs_built: 0, hypotheses_built: 0 }),
+    update: () => Effect.succeed({ coarse_groups: 0, beliefs_built: 0, hypotheses_built: 0, beliefs_created: 0, beliefs_pruned: 0, revisions: 0, resolved: 0, unresolved: 0, total_beliefs: 0, total_hypotheses: 0, churn_rate: 0 } as BeliefReport),
+    update_with_sdr: () => Effect.succeed({ coarse_groups: 0, beliefs_built: 0, hypotheses_built: 0, beliefs_created: 0, beliefs_pruned: 0, revisions: 0, resolved: 0, unresolved: 0, total_beliefs: 0, total_hypotheses: 0, churn_rate: 0 } as BeliefReport),
     belief_for_record: (rid) => Effect.succeed(state.record_to_belief[rid] ?? null),
     deprecate_belief: () => Effect.void,
     apply_layer_feedback: () => Effect.succeed(undefined),
@@ -97,7 +98,9 @@ it("ConceptEngine: unresolved beliefs should not seed concepts", async () => {
         score: 0.5
       }
     },
-    record_to_belief: { r1: "b1" }
+    record_to_belief: { r1: "b1" },
+    key_index: {},
+    record_index: { r1: "b1" }
   }
 
   const records = new Map<string, AuraRecord>([["r1", makeRecord("r1", "tabs are better than spaces for indentation in code", ["coding", "style"], "preference")]])
@@ -168,7 +171,9 @@ it("ConceptEngine: candidates form from resolved/singleton beliefs and provenanc
         score: 1.0
       }
     },
-    record_to_belief: { r1: "b1", r2: "b1", r3: "b2" }
+    record_to_belief: { r1: "b1", r2: "b1", r3: "b2" },
+    key_index: {},
+    record_index: { r1: "b1", r2: "b1", r3: "b2" }
   }
 
   const records = new Map<string, AuraRecord>([
@@ -254,7 +259,9 @@ it("ConceptEngine: stable across replay (same inputs -> same report metrics)", a
         score: 1.0
       }
     },
-    record_to_belief: { r1: "b1", r2: "b1", r3: "b2" }
+    record_to_belief: { r1: "b1", r2: "b1", r3: "b2" },
+    key_index: {},
+    record_index: { r1: "b1", r2: "b1", r3: "b2" }
   }
   const records = new Map<string, AuraRecord>([
     ["r1", makeRecord("r1", "dark mode is great for coding at night", ["ui", "theme"], "preference")],

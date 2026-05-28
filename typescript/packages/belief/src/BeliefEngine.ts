@@ -375,7 +375,7 @@ function resolveBelief(
 
 export class BeliefEngineImpl implements BeliefEngine.Interface {
   private coarseKeyMode: CoarseKeyMode = CoarseKeyMode.Standard
-  private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {} }
+  private state: BeliefEngineState = { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {}, key_index: {}, record_index: {} }
 
   with_coarse_key_mode(mode: unknown): Effect.Effect<void> {
     this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
@@ -508,13 +508,24 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
         version: 1,
         beliefs: nextBeliefs,
         hypotheses: nextHyps,
-        record_to_belief: recToBelief
+        record_to_belief: recToBelief,
+        key_index: {},
+        record_index: recToBelief
       }
 
+      const beliefCount = Object.keys(nextBeliefs).length
       const report: BeliefReport = {
         coarse_groups: coarseGroups.size,
-        beliefs_built: Object.keys(nextBeliefs).length,
-        hypotheses_built: hypothesesBuilt
+        beliefs_built: beliefCount,
+        hypotheses_built: hypothesesBuilt,
+        beliefs_created: beliefCount,
+        beliefs_pruned: 0,
+        revisions: 0,
+        resolved: Object.values(nextBeliefs).filter(b => b.state === "Resolved").length,
+        unresolved: Object.values(nextBeliefs).filter(b => b.state === "Unresolved").length,
+        total_beliefs: beliefCount,
+        total_hypotheses: hypothesesBuilt,
+        churn_rate: 0
       }
 
       if (Option.isSome(traceOpt)) {

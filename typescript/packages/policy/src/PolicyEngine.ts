@@ -1,14 +1,17 @@
 import { Effect, Layer, Option } from "effect"
 import {
   PolicyEngine,
+  PolicyActionKind,
   PolicyState,
   EpistemicTrace,
   serviceOption,
   Clock,
+  type CausalEngine,
+  type BeliefEngine,
+  type ConceptEngineImpl,
   type PolicyEngineState,
   type PolicyHint,
   type PolicyReport,
-  type CausalEngineState,
   type Record as AuraRecord
 } from "@aura/contract"
 
@@ -21,6 +24,11 @@ export { PolicyState } from "@aura/contract"
  *
  * Fifth tier of the cognitive hierarchy:
  *   Record → Belief → Concept → Causal Pattern → Policy
+ *
+ * NOTE: This implementation is a STUB aligned with the expanded contract types.
+ * Full Rust-aligned polarity classification, 5 action kinds, 4-dim policy_strength
+ * scoring, suppression, and recommendation templates will be implemented in
+ * Phase 06.3 Plan 09 (PolicyEngine algorithm parity).
  */
 
 let _hintCounter = 0
@@ -34,85 +42,38 @@ export class PolicyEngineImpl {
   }
 
   discover(
-    causal_state: CausalEngineState,
+    _causal_engine: CausalEngine.Interface,
+    _concept_engine: ConceptEngineImpl,
+    _belief_engine: BeliefEngine.Interface,
     _records: ReadonlyMap<string, AuraRecord>
   ): Effect.Effect<PolicyReport, never, EpistemicTrace> {
     const self = this
     return Effect.gen(function* () {
       const traceOpt = yield* serviceOption(EpistemicTrace)
       const trace = Option.isSome(traceOpt) ? traceOpt.value : undefined
-      if (trace) yield* trace.event("policy.discover.start", { patterns: Object.keys(causal_state.patterns).length })
+      if (trace) yield* trace.event("policy.discover.start", {})
 
-      const nowSeconds = yield* Clock.nowSeconds()
-      const patterns = Object.values(causal_state.patterns)
+      // ── STUB: full Rust-aligned policy discovery deferred to Phase 06.3 Plan 09 ──
+      // This stub produces a valid PolicyReport with zero values so that the
+      // contract types compile and the MaintenanceService pipeline can run end-to-end.
+      // The actual algorithm will be implemented via Plan 09 (PolicyEngine parity).
 
-      if (patterns.length === 0) {
-        const report: PolicyReport = {
-          hints_found: 0,
-          hints_active: 0,
-          hints_suppressed: 0,
-          avg_confidence: 0
-        }
-        if (trace) yield* trace.event("policy.discover.end", report)
-        return report
-      }
-
-      const newHints: Record<string, PolicyHint> = {}
-      let totalConfidence = 0
-
-      for (const pattern of patterns) {
-        // Skip rejected patterns
-        if (pattern.state === "Rejected") continue
-
-        const hintState = pattern.state === "Invalidated"
-          ? PolicyState.Suppressed
-          : pattern.confidence > 0.7
-            ? PolicyState.Stable
-            : PolicyState.Candidate
-
-        // Preserve existing hint ID if one maps to this pattern
-        const existingEntry = Object.entries(self.state.hints).find(
-          ([, h]) => h.pattern_id === pattern.id
-        )
-        const id = existingEntry
-          ? existingEntry[0]
-          : `ph-${String(++_hintCounter).padStart(8, "0")}-${pattern.id.slice(0, 8)}`
-
-        newHints[id] = {
-          id,
-          pattern_id: pattern.id,
-          condition: `pattern:${pattern.id}`,
-          action: "boost:consequent",
-          priority: Math.round(pattern.confidence * 10),
-          confidence: pattern.confidence,
-          state: hintState,
-          last_updated: nowSeconds,
-          actionKind: "recommend",
-          policyStrength: pattern.confidence,
-          riskScore: 1.0 - pattern.confidence,
-          namespace: "default",
-          domain: "causal"
-        }
-        totalConfidence += pattern.confidence
-      }
-
-      const count = Object.keys(newHints).length
-      const active = Object.values(newHints).filter(h => h.state === PolicyState.Stable).length
-      const suppressed = Object.values(newHints).filter(h => h.state === PolicyState.Suppressed).length
-
-      self.state = {
-        ...self.state,
-        hints: { ...self.state.hints, ...newHints }
+      if (trace) {
+        yield* trace.event("policy.discover.end", { hints_found: 0 })
       }
 
       const report: PolicyReport = {
-        hints_found: count,
-        hints_active: active,
-        hints_suppressed: suppressed,
-        avg_confidence: count > 0 ? Math.round((totalConfidence / count) * 10000) / 10000 : 0
+        hints_found: 0,
+        hints_active: 0,
+        hints_suppressed: 0,
+        avg_confidence: 0,
+        seeds_found: 0,
+        stable_hints: 0,
+        suppressed_hints: 0,
+        rejected_hints: 0,
+        avg_policy_strength: 0
       }
 
-      if (trace) yield* trace.event("policy.discover.end", report)
       return report
     })
   }

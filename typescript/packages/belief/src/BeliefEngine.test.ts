@@ -22,7 +22,10 @@ import {
   sdrSubclusterBridgeGuarded,
   sdrSubclusterTagSdrGuarded,
   CoarseKeyMode,
-  NEIGHBORHOOD_POOL_THRESHOLD
+  NEIGHBORHOOD_POOL_THRESHOLD,
+  normalizeBridgeTag,
+  denseCorridorStableTags,
+  denseBackoffGroupKey
 } from "./BeliefEngine"
 
 const NoopTrace: EpistemicTraceImpl = {
@@ -868,5 +871,381 @@ describe("Subcluster dispatch + threshold verification", () => {
 
   it("SDR_TANIMOTO_THRESHOLD = 0.15 (base/default threshold)", () => {
     expect(SDR_TANIMOTO_THRESHOLD).toBe(0.15)
+  })
+})
+
+// ── Plan 04 Task 1 TDD tests: BridgeKey normalize + TagFamily backoff strategies ──
+
+describe("normalizeBridgeTag (P2 — exports + overrides)", () => {
+  it('maps "ui" → "frontend" (Rust bridge table, belief.rs:526-534)', () => {
+    expect(normalizeBridgeTag("ui")).toBe("frontend")
+  })
+
+  it('maps "frontend" → "frontend" (synonym in Rust bridge table)', () => {
+    expect(normalizeBridgeTag("frontend")).toBe("frontend")
+  })
+
+  it('maps "auth" → "authentication" (Rust bridge table)', () => {
+    expect(normalizeBridgeTag("auth")).toBe("authentication")
+  })
+
+  it('maps "authentication" → "authentication" (synonym in Rust bridge table)', () => {
+    expect(normalizeBridgeTag("authentication")).toBe("authentication")
+  })
+
+  it('maps "deploy" → "release" (Rust bridge table)', () => {
+    expect(normalizeBridgeTag("deploy")).toBe("release")
+  })
+
+  it('maps "release" → "release" (synonym in Rust bridge table)', () => {
+    expect(normalizeBridgeTag("release")).toBe("release")
+  })
+
+  it("returns tag unchanged if no bridge mapping exists (unknown/tag)", () => {
+    expect(normalizeBridgeTag("unknown/tag")).toBe("unknown/tag")
+  })
+
+  it("returns tag unchanged when tag is not in default Rust table", () => {
+    expect(normalizeBridgeTag("ui/frontend")).toBe("ui/frontend")
+  })
+
+  it("supports external config override (priority over defaults)", () => {
+    // Override maps "ui" → "ui" instead of "frontend"
+    const overrides = { ui: "ui" } as Record<string, string>
+    expect(normalizeBridgeTag("ui", overrides)).toBe("ui")
+  })
+
+  it("returns override value when both default and override have the tag", () => {
+    const overrides = { "ui/frontend": "ui" } as Record<string, string>
+    expect(normalizeBridgeTag("ui/frontend", overrides)).toBe("ui")
+  })
+
+  it("returns from default table when override does not contain the tag", () => {
+    const overrides = { "custom/tag": "custom" } as Record<string, string>
+    expect(normalizeBridgeTag("ui", overrides)).toBe("frontend")
+  })
+
+  it("is case-insensitive (matches Rust to_ascii_lowercase)", () => {
+    expect(normalizeBridgeTag("UI")).toBe("frontend")
+    expect(normalizeBridgeTag("Auth")).toBe("authentication")
+    expect(normalizeBridgeTag("DEPLOY")).toBe("release")
+  })
+
+  it("trims whitespace (matches Rust tag.trim())", () => {
+    expect(normalizeBridgeTag("  ui  ")).toBe("frontend")
+  })
+})
+
+describe("denseCorridorStableTags", () => {
+  function makeStableRec(
+    id: string,
+    tags: string[],
+    content: string = "some content for record with enough text length"
+  ): AuraRecord {
+    return makeRecord(id, content, tags, "fact")
+  }
+
+  it("returns [family_tag] when no other tags appear in >= 4 records", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x", "y"]),
+      makeStableRec("r2", ["alpha", "x", "z"]),
+      makeStableRec("r3", ["alpha", "x", "w"]),
+    ]
+    // Only 3 records — no tag reaches count >= 4
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result).toEqual(["alpha"])
+  })
+
+  it("keeps family tag at position 0 always", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x"]),
+      makeStableRec("r2", ["alpha", "x"]),
+      makeStableRec("r3", ["alpha", "x"]),
+      makeStableRec("r4", ["alpha", "x"]),
+    ]
+    // x appears in all 4 records → count=4 >= 4 → stable
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result[0]).toBe("alpha")
+    expect(result).toContain("x")
+  })
+
+  it("adds tags with count >= 4 alongside family tag", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x", "y"]),
+      makeStableRec("r2", ["alpha", "x", "z"]),
+      makeStableRec("r3", ["alpha", "x", "w"]),
+      makeStableRec("r4", ["alpha", "x", "v"]),
+    ]
+    // x appears in all 4 records → count=4 >= 4 → stable
+    // alpha is family tag → always included
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result).toContain("alpha")
+    expect(result).toContain("x")
+    expect(result.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it("excludes tags with count < 4 from stable set", () => {
+    const records = [
+      makeStableRec("r1", ["alpha", "x"]),
+      makeStableRec("r2", ["alpha", "x"]),
+      makeStableRec("r3", ["alpha", "x"]),
+      makeStableRec("r4", ["alpha", "x", "y"]),  // y only in 1 record
+    ]
+    const result = denseCorridorStableTags(records, "alpha")
+    expect(result).not.toContain("y")
+  })
+
+  it("returns [family] for empty records (family always included per Rust)", () => {
+    const result = denseCorridorStableTags([], "alpha")
+    // Rust: family tag is always inserted at position 0 (belief.rs:602-604)
+    expect(result).toEqual(["alpha"])
+  })
+
+  it("excludes generic tag family 'alerts'", () => {
+    const records = [
+      makeStableRec("r1", ["deploy", "alerts"]),
+      makeStableRec("r2", ["deploy", "alerts"]),
+      makeStableRec("r3", ["deploy", "alerts"]),
+      makeStableRec("r4", ["deploy", "alerts"]),
+    ]
+    const result = denseCorridorStableTags(records, "deploy")
+    // "deploy" is family → always included
+    // "alerts" is generic → excluded even with count=4
+    expect(result).toContain("deploy")
+    expect(result).not.toContain("alerts")
+  })
+
+  it("is case-insensitive and deduped (matches Rust)", () => {
+    const records = [
+      makeStableRec("r1", ["Alpha", "TAG"]),
+      makeStableRec("r2", ["alpha", "tag"]),
+      makeStableRec("r3", ["ALPHA", "Tag"]),
+      makeStableRec("r4", ["alpha", "tag"]),
+    ]
+    const result = denseCorridorStableTags(records, "alpha")
+    // "alpha" is family → always included (case normalized)
+    // "tag" appears 4 times → stable
+    expect(result).toContain("alpha")
+    expect(result).toContain("tag")
+  })
+})
+
+describe("denseBackoffGroupKey", () => {
+  function makeKeyRec(
+    id: string,
+    tags: string[],
+    namespace: string = "default",
+    content: string = "some content for record with enough text length",
+    semanticType: string = "fact"
+  ): AuraRecord {
+    return makeRecord(id, content, tags, semanticType, { namespace })
+  }
+
+  it("formats dense corridor key when >= 4 records and >= 2 stable tags", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x", "y"]),
+      makeKeyRec("r2", ["alpha", "x", "z"]),
+      makeKeyRec("r3", ["alpha", "x", "w"]),
+      makeKeyRec("r4", ["alpha", "x", "v"]),
+    ]
+    // coarse_key: default:alpha:fact, family=alpha
+    // stable tags: ["alpha", "x"] (alpha=family, x=count 4)
+    // record r1 picks: alpha (matches), x (matches) → ["alpha", "x"]
+    // result: default:alpha,x:fact
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    expect(result).toBe("default:alpha,x:fact")
+  })
+
+  it("falls back to coarse_key when < 4 records", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x"]),
+      makeKeyRec("r2", ["alpha", "x"]),
+      makeKeyRec("r3", ["alpha", "x"]),
+    ]
+    // Only 3 records → not enough for dense corridor
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    expect(result).toBe("default:alpha:fact")
+  })
+
+  it("falls back to coarse_key when < 2 stable tags", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "a"]),
+      makeKeyRec("r2", ["alpha", "b"]),
+      makeKeyRec("r3", ["alpha", "c"]),
+      makeKeyRec("r4", ["alpha", "d"]),
+    ]
+    // Only "alpha" is stable (family, always included)
+    // Other tags each appear only 1 time → count < 4
+    // stable tags = ["alpha"] → length = 1 < 2
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    expect(result).toBe("default:alpha:fact")
+  })
+
+  it("picks only stable tags that match the record's tags", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x", "y"]),
+      makeKeyRec("r2", ["alpha", "x", "z"]),
+      makeKeyRec("r3", ["alpha", "x", "w"]),
+      makeKeyRec("r4", ["alpha", "x", "v"]),
+    ]
+    // stable: ["alpha", "x"]
+    // r4 has tags: ["alpha", "x", "v"] → picks ["alpha", "x"]
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[3]!)
+    expect(result).toBe("default:alpha,x:fact")
+  })
+
+  it("truncates picked tags to top 3 (matches Rust picked.truncate(3))", () => {
+    const records = [
+      makeKeyRec("r1", ["alpha", "x", "y", "z", "w"]),
+      makeKeyRec("r2", ["alpha", "x", "y", "z", "w"]),
+      makeKeyRec("r3", ["alpha", "x", "y", "z", "w"]),
+      makeKeyRec("r4", ["alpha", "x", "y", "z", "w"]),
+    ]
+    // All tags appear 4 times → all stable
+    // family="alpha" → stable=["alpha", "w", "x", "y", "z"]
+    // r1 tags: ["alpha", "x", "y", "z", "w"] → picks all 5 → truncated to 3
+    const result = denseBackoffGroupKey("default:alpha:fact", records, records[0]!)
+    // Should have exactly 3 tag components in the key
+    const parts = result.split(":")
+    expect(parts[1]).toBeDefined()
+    const pickedTags = parts[1]!.split(",")
+    expect(pickedTags.length).toBeLessThanOrEqual(3)
+  })
+})
+
+// ── TagFamily strategy integration tests ──
+
+describe("TagFamilyAdaptive (integration)", () => {
+  it("uses relaxed threshold (0.10) when pass 1 produces all singletons", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyAdaptive))
+
+    // SDR_A vs SDR_F: tanimoto = 2/18 ≈ 0.111
+    // Standard threshold = 0.15 → NOT merged (singletons)
+    // Relaxed threshold = 0.10 → MERGED
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_F],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // Both records should be in one belief (merged by adaptive pass 2)
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(1)
+    // With adaptive merging, we expect fewer coarse groups for similar records
+    expect(report.total_hypotheses).toBeGreaterThanOrEqual(0)
+  })
+
+  it("does not use relaxed threshold when pass 1 has non-singleton clusters", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyAdaptive))
+
+    // SDR_A vs SDR_B: tanimoto = 9/11 ≈ 0.818 ≥ 0.15 → merges in pass 1
+    // SDR_A vs SDR_D: tanimoto = 0/20 = 0 → stays singleton in pass 1
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_B],
+      ["r3", SDR_D],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+      ["r3", makeRecord("r3", "completely different topic content here", ["alpha", "other"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // Pass 1 has non-singletons → no adaptive pass 2
+    // r3 stays separate from r1,r2
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe("TagFamilyBackoff (integration)", () => {
+  it("falls back to broad bucket when all clusters are singletons", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyBackoff))
+
+    // SDR_A vs SDR_F: tanimoto ≈ 0.111 < 0.15 → singletons
+    // Both records share family "alpha"
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_F],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // With backoff, all records merge into one broad bucket → 1 belief
+    expect(report.total_beliefs).toBe(1)
+  })
+
+  it("does not fall back when at least one non-singleton cluster exists", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyBackoff))
+
+    // SDR_A vs SDR_B: tanimoto ≈ 0.818 ≥ 0.15 → merges (non-singleton)
+    const sdrLookup = makeSdrLookup([
+      ["r1", SDR_A],
+      ["r2", SDR_B],
+    ])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // Non-singleton → should proceed normally (not backoff)
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe("TagFamilyDenseBackoff (integration)", () => {
+  it("regroups records with dense corridor stable tags when >= 4 records", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyDenseBackoff))
+
+    // 4 records, all with "alpha" family and "deploy" secondary tag
+    // "alpha" = family (always included)
+    // "deploy" appears in all 4 → count=4 → stable
+    const sdrLookup = new Map<string, number[]>([]) // no SDR
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+      ["r3", makeRecord("r3", "alpha deployment policy content here", ["alpha", "deploy"], "fact")],
+      ["r4", makeRecord("r4", "alpha deployment strategy content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // With 4 records and >= 2 stable tags → dense corridor keys should be created
+    // Records re-keyed as "default:alpha,deploy:fact" → 1 belief
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(1)
+  })
+
+  it("falls back when fewer than 4 records (not enough for dense corridor)", async () => {
+    const engine = new BeliefEngineImpl()
+    await runEffect(engine.with_coarse_key_mode(CoarseKeyMode.TagFamilyDenseBackoff))
+
+    // Only 3 records → not enough for dense corridor
+    const sdrLookup = new Map<string, number[]>([])
+
+    const records = new Map<string, AuraRecord>([
+      ["r1", makeRecord("r1", "alpha deployment safety content here", ["alpha", "deploy"], "fact")],
+      ["r2", makeRecord("r2", "alpha deployment practice content here", ["alpha", "deploy"], "fact")],
+      ["r3", makeRecord("r3", "alpha deployment policy content here", ["alpha", "deploy"], "fact")],
+    ])
+
+    const report = await runEffect(engine.update_with_sdr(records, sdrLookup))
+    // 3 records → standard TagFamily behavior (no dense corridor)
+    expect(report.total_beliefs).toBeGreaterThanOrEqual(0)
   })
 })

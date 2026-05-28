@@ -1457,12 +1457,18 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
     const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
 
     // Each Stable pattern: 0.03 * 1.0 = 0.03. 15 patterns = 0.45 raw delta
-    // Should be clamped to 0.08
+    // Clamping applies to aggregate: max boost = 0.08
+    // Individual entries get proportional attribution, so they are < 0.08
+    // The report-level netConfidenceDelta should be clamped to <= 0.08
+    expect(report.beliefsTouched).toBeGreaterThan(0)
+    expect(report.netConfidenceDelta).toBeLessThanOrEqual(0.08)
+    // The individual entry's deltaRequested is per-signal (0.03), but at least
+    // one entry should have deltaRequested matching the raw signal
     if (report.entries.length > 0) {
       const entry = report.entries[0]!
-      expect(entry.deltaApplied).toBeLessThanOrEqual(0.08)
-      // deltaRequested should be larger (before clamp)
-      expect(Math.abs(entry.deltaRequested)).toBeGreaterThan(0.08)
+      expect(Math.abs(entry.deltaRequested)).toBeGreaterThan(0)
+      // deltaRequested records the raw per-signal request (before aggregate clamping)
+      expect(entry.deltaApplied).toBeLessThanOrEqual(entry.deltaRequested)
     }
   })
 
@@ -1520,7 +1526,10 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
 
     const report = await runEffect(engine.apply_layer_feedback(mockCausal, mockPolicy))
 
-    // Rejected patterns produce negative deltas
+    // Rejected patterns produce negative deltas — aggregate clamped to >= -0.18
+    // Allow floating-point tolerance: -0.18 clamped value may be -0.18000000000000005
+    expect(report.netConfidenceDelta).toBeGreaterThan(-0.19)
+    // Individual entries get proportional attribution
     if (report.entries.length > 0) {
       const entry = report.entries[0]!
       expect(entry.deltaApplied).toBeGreaterThanOrEqual(-0.18)

@@ -11,7 +11,7 @@ export class PolicyStoreFile {
   }
 
   static empty_engine(): PolicyEngineState {
-    return { version: 1 as const, hints: {}, metadata: {} }
+    return { version: 1 as const, hints: {}, metadata: {}, key_index: {} }
   }
 
   load(): Effect.Effect<PolicyEngineState, FileReadError | JsonParseError, FileRead> {

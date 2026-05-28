@@ -545,7 +545,7 @@ export function computeLayerStability(
   prevConceptKeys: Ref.Ref<Set<string>>,
   prevCausalKeys: Ref.Ref<Set<string>>,
   prevPolicyKeys: Ref.Ref<Set<string>>
-): Effect.Effect<LayerStability, never, BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine> {
+): Effect.Effect<LayerStability, never> {
   return Effect.gen(function* () {
     const beliefState = yield* beliefEng.stats()
     const conceptState = yield* conceptEng.stats()

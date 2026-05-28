@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest"
 import { Effect, Ref } from "effect"
 
 // Helper: create a Ref from a value (replaces Ref.unsafeMake which doesn't exist)
-function mockRef<T>(value: T): Effect.Ref.Ref<T> {
+function mockRef<T>(value: T): Ref.Ref<T> {
   return Effect.runSync(Ref.make(value))
 }
 import {

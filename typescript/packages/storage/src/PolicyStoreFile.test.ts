@@ -17,7 +17,7 @@ it("PolicyStoreFile load/save roundtrip", async () => {
   )
   assert.deepStrictEqual(empty, PolicyStoreFile.empty_engine())
 
-  const engine: PolicyEngineState = { version: 1, hints: {}, metadata: {} }
+  const engine: PolicyEngineState = { version: 1, hints: {}, metadata: {}, key_index: {} }
   await Effect.runPromise(file.save(engine).pipe(Effect.provide(NodeFileWriteLive)))
 
   const loaded = await Effect.runPromise(

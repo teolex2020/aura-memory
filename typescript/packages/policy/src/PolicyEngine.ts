@@ -29,7 +29,8 @@ export class PolicyEngineImpl {
   private state: PolicyEngineState = {
     version: 1 as const,
     hints: {},
-    metadata: {}
+    metadata: {},
+    key_index: {}
   }
 
   discover(
@@ -85,7 +86,12 @@ export class PolicyEngineImpl {
           priority: Math.round(pattern.confidence * 10),
           confidence: pattern.confidence,
           state: hintState,
-          last_updated: nowSeconds
+          last_updated: nowSeconds,
+          actionKind: "recommend",
+          policyStrength: pattern.confidence,
+          riskScore: 1.0 - pattern.confidence,
+          namespace: "default",
+          domain: "causal"
         }
         totalConfidence += pattern.confidence
       }

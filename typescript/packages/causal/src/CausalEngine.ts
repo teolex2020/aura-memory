@@ -228,12 +228,25 @@ export function extractEdges(
  * Build reverse index: record_id → belief_id.
  * Only maps records that belong to Resolved or Singleton beliefs.
  * Matches Rust causal.rs build_record_to_belief (lines 935-950).
+ *
+ * TS note: In TS, record_index maps record_id → belief_id directly
+ * (unlike Rust where it maps record_id → hypothesis_id → belief_id).
  */
 export function buildRecordToBelief(
   beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> }
 ): ReadonlyMap<string, string> {
-  // STUB — returns empty for RED phase
-  return new Map()
+  const map = new Map<string, string>()
+  for (const [rid, beliefId] of Object.entries(beliefState.record_index)) {
+    const belief = beliefState.beliefs[beliefId]
+    if (belief) {
+      const state = belief.state
+      if (state === BeliefState.Resolved || state === BeliefState.Singleton) {
+        map.set(rid, beliefId)
+      }
+      // skip Unresolved / Empty
+    }
+  }
+  return map
 }
 
 /**
@@ -243,11 +256,184 @@ export function buildRecordToBelief(
  */
 export function aggregateToPatterns(
   edges: ReadonlyArray<CausalEdge>,
-  records: ReadonlyMap<string, AuraRecord>,
+  _records: ReadonlyMap<string, AuraRecord>,
   beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> }
 ): Effect.Effect<CausalPattern[], never, EpistemicTrace> {
-  // STUB — returns empty for RED phase
-  return Effect.succeed([])
+  return Effect.gen(function* () {
+    const recordToBelief = buildRecordToBelief(beliefState)
+
+    // Accumulate edges by (cause_belief_id, effect_belief_id, namespace) group
+    interface PatternKey {
+      namespace: string
+      causeBeliefId: string
+      effectBeliefId: string
+    }
+
+    interface PatternAccum {
+      causeRecordIds: Set<string>
+      effectRecordIds: Set<string>
+      timeGaps: number[]
+      explicitCount: number
+      temporalCount: number
+      temporalWindowBuckets: Set<number>
+    }
+
+    const accum = new Map<string, { key: PatternKey; acc: PatternAccum }>()
+
+    for (const edge of edges) {
+      const causeBeliefId = recordToBelief.get(edge.cause_record_id)
+      const effectBeliefId = recordToBelief.get(edge.effect_record_id)
+
+      // If either record has no belief mapping (unresolved/empty), use orphan key
+      const causeKey = causeBeliefId ?? `orphan:${edge.cause_record_id}`
+      const effectKey = effectBeliefId ?? `orphan:${edge.effect_record_id}`
+
+      // Skip self-loops at belief level
+      if (causeKey === effectKey) continue
+
+      const pk: PatternKey = {
+        namespace: edge.namespace,
+        causeBeliefId: causeKey,
+        effectBeliefId: effectKey,
+      }
+
+      const groupKey = `${pk.namespace}:${pk.causeBeliefId}:${pk.effectBeliefId}`
+
+      let entry = accum.get(groupKey)
+      if (!entry) {
+        entry = {
+          key: pk,
+          acc: {
+            causeRecordIds: new Set(),
+            effectRecordIds: new Set(),
+            timeGaps: [],
+            explicitCount: 0,
+            temporalCount: 0,
+            temporalWindowBuckets: new Set(),
+          },
+        }
+        accum.set(groupKey, entry)
+      }
+
+      entry.acc.causeRecordIds.add(edge.cause_record_id)
+      entry.acc.effectRecordIds.add(edge.effect_record_id)
+      entry.acc.timeGaps.push(edge.gap_seconds)
+
+      if (edge.edge_kind === "explicit" || edge.edge_kind === "explicit_causal") {
+        entry.acc.explicitCount++
+      } else {
+        entry.acc.temporalCount++
+        // Bucket by 1-hour windows for temporal window counting
+        entry.acc.temporalWindowBuckets.add(Math.floor(edge.created_at / 3600))
+      }
+    }
+
+    // Compute per-cause totals for counterevidence
+    const causeExplicitSupportTotals = new Map<string, number>()
+    const causeExplicitVariantCounts = new Map<string, number>()
+    for (const [, { key, acc }] of accum) {
+      const causeTotalKey = `${key.namespace}:${key.causeBeliefId}`
+      causeExplicitSupportTotals.set(
+        causeTotalKey,
+        (causeExplicitSupportTotals.get(causeTotalKey) ?? 0) + acc.explicitCount
+      )
+      if (acc.explicitCount > 0) {
+        causeExplicitVariantCounts.set(
+          causeTotalKey,
+          (causeExplicitVariantCounts.get(causeTotalKey) ?? 0) + 1
+        )
+      }
+    }
+
+    // Convert to CausalPattern[]
+    const patterns: CausalPattern[] = []
+    const now = Math.floor(Date.now() / 1000)
+
+    for (const [, { key, acc }] of accum) {
+      const supportCount = acc.timeGaps.length
+      const totalExplicitForCause = causeExplicitSupportTotals.get(
+        `${key.namespace}:${key.causeBeliefId}`
+      ) ?? acc.explicitCount
+
+      // Build pattern key and deterministic ID
+      const edgeHash = deterministicEdgeHash(
+        key.namespace,
+        key.causeBeliefId,
+        key.effectBeliefId,
+        Array.from(acc.timeGaps)
+      )
+      const patternKeyStr = patternKey(
+        key.namespace,
+        key.causeBeliefId,
+        key.effectBeliefId
+      )
+      const id = deterministicPatternIdFromKey(patternKeyStr, edgeHash)
+
+      patterns.push({
+        id,
+        cause_belief_id: key.causeBeliefId,
+        effect_belief_id: key.effectBeliefId,
+        cause_key: patternKeyStr,
+        effect_key: key.effectBeliefId,
+        edge_hash: edgeHash,
+        support: supportCount,
+        confidence: 0, // computed in Plan 08 scoring
+        lift: 0,       // computed in Plan 08 scoring
+        state: CausalState.Candidate,
+        last_updated: now,
+        transition_lift: 0,
+        temporal_consistency: acc.timeGaps.length > 0
+          ? acc.timeGaps.filter((g) => g > 0).length / acc.timeGaps.length
+          : 0,
+        outcome_stability: 0,
+        causal_strength: 0,
+        support_count: supportCount,
+        explicit_support_count: acc.explicitCount,
+        counterevidence_count: totalExplicitForCause - acc.explicitCount,
+        temporal_windows: acc.temporalWindowBuckets.size,
+        namespace: key.namespace,
+        cause_record_ids: Array.from(acc.causeRecordIds),
+        effect_record_ids: Array.from(acc.effectRecordIds),
+      })
+    }
+
+    return patterns
+  })
+}
+
+// ── Pattern key and ID helpers ──
+
+/** Build pattern key: namespace:cause_belief:effect_belief */
+function patternKey(namespace: string, causeBid: string, effectBid: string): string {
+  return `${namespace}:${causeBid}:${effectBid}`
+}
+
+/** Build a deterministic edge hash from edge data. */
+function deterministicEdgeHash(
+  namespace: string,
+  causeBid: string,
+  effectBid: string,
+  timeGaps: number[]
+): string {
+  const sortedGaps = [...timeGaps].sort((a, b) => a - b)
+  const raw = `${namespace}:${causeBid}:${effectBid}:${sortedGaps.join(",")}`
+  // Simple hash — full xxhash in Plan 08 scoring
+  let h = 0
+  for (let i = 0; i < raw.length; i++) {
+    h = ((h << 5) - h + raw.charCodeAt(i)) | 0
+  }
+  return `h${(h >>> 0).toString(16).padStart(8, "0")}`
+}
+
+/** Generate deterministic pattern ID from pattern key and edge hash. */
+function deterministicPatternIdFromKey(patternKeyStr: string, edgeHash: string): string {
+  const raw = `${patternKeyStr}|${edgeHash}`
+  let h = 0
+  for (let i = 0; i < raw.length; i++) {
+    h = ((h << 5) - h + raw.charCodeAt(i)) | 0
+  }
+  const hex = (h >>> 0).toString(16).padStart(8, "0")
+  return `cp-${hex.slice(-8)}`
 }
 
 let _hasher: { h64: (input: string) => bigint } | null = null
@@ -290,39 +476,64 @@ export class CausalEngineImpl {
       const trace = Option.isSome(traceOpt) ? traceOpt.value : undefined
       if (trace) yield* trace.event("causal.discover.start", { records: _records.size })
 
-      // ── STUB: full Rust-aligned edge extraction + scoring deferred to Phase 06.3 Plan 07 ──
-      // This stub produces a valid CausalReport with zero values so that the
-      // contract types compile and the MaintenanceService pipeline can run end-to-end.
-      // The actual algorithm will be implemented via Plan 07 (CausalEngine parity).
+      // Phase 1: Extract edges from records
+      const { edges, stats: edgeStats } = extractEdges(_records)
+
+      // Phase 2: Get belief state for record-to-belief mapping
+      const beliefState = yield* _belief_engine.stats()
+
+      // Phase 3: Aggregate edges to belief-level patterns
+      const patterns = yield* aggregateToPatterns(edges, _records, beliefState)
+
+      // Update engine state
+      const patternsMap: Record<string, CausalPattern> = {}
+      for (const p of patterns) {
+        patternsMap[p.id] = p
+      }
+      self.state = {
+        ...self.state,
+        patterns: patternsMap,
+        edges_found_total: self.state.edges_found_total + edges.length,
+        last_corpus_fingerprint: `${_records.size}-${edges.length}-${patterns.length}`,
+      }
+
+      // Compute report stats
+      const totalExplicit = edgeStats.explicit_edges_found
+      const totalTemporal = edgeStats.temporal_edges_found
+      const stableCount = patterns.filter((p) => p.state === CausalState.Stable).length
+      const rejectedCount = patterns.filter((p) => p.state === CausalState.Rejected).length
+      const avgCausalStrength = patterns.length > 0
+        ? patterns.reduce((sum, p) => sum + p.causal_strength, 0) / patterns.length
+        : 0
 
       if (trace) {
         yield* trace.event("causal.discover.end", {
-          patterns_found: 0,
-          patterns_active: 0
+          patterns_found: patterns.length,
+          patterns_active: patterns.filter((p) => p.state === CausalState.Stable || p.state === CausalState.Candidate).length,
         })
       }
 
       const report: CausalReport = {
-        patterns_found: 0,
-        patterns_active: 0,
+        patterns_found: patterns.length,
+        patterns_active: patterns.filter((p) => p.state === CausalState.Stable || p.state === CausalState.Candidate).length,
         patterns_invalidated: 0,
         avg_confidence: 0,
         avg_lift: 0,
-        explicit_edges: 0,
-        temporal_edges: 0,
-        temporal_namespaces_scanned: 0,
-        temporal_pairs_considered: 0,
-        temporal_pairs_skipped_by_budget: 0,
-        temporal_edges_capped: 0,
-        temporal_namespaces_hit_cap: 0,
+        explicit_edges: totalExplicit,
+        temporal_edges: totalTemporal,
+        temporal_namespaces_scanned: edgeStats.temporal_namespaces_scanned,
+        temporal_pairs_considered: edgeStats.temporal_pairs_considered,
+        temporal_pairs_skipped_by_budget: edgeStats.temporal_pairs_skipped_by_budget,
+        temporal_edges_capped: edgeStats.temporal_edges_capped,
+        temporal_namespaces_hit_cap: edgeStats.temporal_namespaces_hit_cap,
         patterns_meeting_support_gate: 0,
         patterns_meeting_repeated_window_gate: 0,
         patterns_meeting_counterfactual_gate: 0,
         patterns_blocked_by_evidence_gates: 0,
         patterns_blocked_by_counterfactual_gate: 0,
-        avg_causal_strength: 0,
-        stable_count: 0,
-        rejected_count: 0
+        avg_causal_strength: avgCausalStrength,
+        stable_count: stableCount,
+        rejected_count: rejectedCount,
       }
 
       return report

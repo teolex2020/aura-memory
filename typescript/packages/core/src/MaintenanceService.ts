@@ -146,27 +146,35 @@ function toConceptPhase(report: {
 /** Map engine CausalReport → Maintenance CausalPhaseReport. */
 function toCausalPhase(report: {
   patterns_found: number; patterns_active: number; patterns_invalidated: number;
-  avg_confidence: number; avg_lift: number
+  avg_confidence: number; avg_lift: number;
+  explicit_edges: number; temporal_edges: number;
+  temporal_namespaces_scanned: number; temporal_pairs_considered: number;
+  temporal_pairs_skipped_by_budget: number; temporal_edges_capped: number;
+  temporal_namespaces_hit_cap: number;
+  patterns_meeting_support_gate: number; patterns_meeting_repeated_window_gate: number;
+  patterns_meeting_counterfactual_gate: number;
+  patterns_blocked_by_evidence_gates: number; patterns_blocked_by_counterfactual_gate: number;
+  avg_causal_strength: number; stable_count: number; rejected_count: number;
 }): CausalPhaseReport {
   return {
     skipped: false,
     edgesFound: report.patterns_found,
-    explicitEdgesFound: 0,
-    temporalEdgesFound: 0,
-    temporalNamespacesScanned: 0,
-    temporalPairsConsidered: 0,
-    temporalPairsSkippedByBudget: 0,
-    temporalEdgesCapped: 0,
-    temporalNamespacesHitCap: 0,
+    explicitEdgesFound: report.explicit_edges,
+    temporalEdgesFound: report.temporal_edges,
+    temporalNamespacesScanned: report.temporal_namespaces_scanned,
+    temporalPairsConsidered: report.temporal_pairs_considered,
+    temporalPairsSkippedByBudget: report.temporal_pairs_skipped_by_budget,
+    temporalEdgesCapped: report.temporal_edges_capped,
+    temporalNamespacesHitCap: report.temporal_namespaces_hit_cap,
     candidatesFound: report.patterns_active,
-    patternsMeetingSupportGate: 0,
-    patternsMeetingRepeatedWindowGate: 0,
-    patternsMeetingCounterfactualGate: 0,
-    patternsBlockedByEvidenceGates: 0,
-    patternsBlockedByCounterfactualGate: 0,
-    stableCount: 0,
-    rejectedCount: report.patterns_invalidated,
-    avgCausalStrength: report.avg_confidence,
+    patternsMeetingSupportGate: report.patterns_meeting_support_gate,
+    patternsMeetingRepeatedWindowGate: report.patterns_meeting_repeated_window_gate,
+    patternsMeetingCounterfactualGate: report.patterns_meeting_counterfactual_gate,
+    patternsBlockedByEvidenceGates: report.patterns_blocked_by_evidence_gates,
+    patternsBlockedByCounterfactualGate: report.patterns_blocked_by_counterfactual_gate,
+    stableCount: report.stable_count,
+    rejectedCount: report.rejected_count,
+    avgCausalStrength: report.avg_causal_strength,
   }
 }
 
@@ -628,9 +636,7 @@ export function runDiscoveryPhases(
     mt.beliefMs = Date.now() - t
 
     // ── Phase 3.7 & 3.8: Concept ‖ Causal (parallel, concurrency: 2) ──
-    // Causal discovery reads the concept engine state from the *previous* cycle
-    // (before this cycle's concept discover runs), matching Rust's rayon::join semantics.
-    const conceptStatePre = yield* conceptEngine.stats()
+    // Both discoveries read beliefEngine state independently, matching Rust's rayon::join semantics.
     t = Date.now()
 
     const { concept: conceptReport, causal: causalReport } = yield* Effect.all(

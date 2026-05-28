@@ -389,7 +389,7 @@ describe("aggregateToPatterns", () => {
 
   it("4. CausalPattern has all required fields populated", async () => {
     const edges: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "explicit", gap_seconds: 1 }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "explicit", gap_seconds: 1, namespace: "ns" }),
     ]
     const records = new Map<string, AuraRecord>()
     records.set("r1", makeRecordWithBelief("r1", "c", "ns", 1000))

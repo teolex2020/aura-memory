@@ -2,7 +2,7 @@ import { it, describe } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import { EpistemicTrace, CausalEngine, BeliefEngine, ConceptEngine } from "@aura/contract"
-import { CausalState, CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode } from "@aura/contract"
+import { CausalState, CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode, PolicyActionKind } from "@aura/contract"
 import type {
   CausalEngineState,
   CausalPattern,
@@ -11,7 +11,7 @@ import type {
   SdrLookup,
   ConceptEngineState,
 } from "@aura/contract"
-import { PolicyEngineImpl } from "./PolicyEngine"
+import { PolicyEngineImpl, classifyPolarity, polaritySignalCounts, mapActionKind } from "./PolicyEngine"
 
 const NoopTrace = {
   event: (): Effect.Effect<void> => Effect.void,
@@ -442,5 +442,95 @@ describe("PolicyEngine (contract-aligned)", () => {
     assert.strictEqual(r1.hints_found, r2.hints_found)
     assert.strictEqual(r1.hints_active, r2.hints_active)
     assert.strictEqual(r1.avg_confidence, r2.avg_confidence)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 2 RED Tests: Polarity classification + action mapping + MaintenanceService
+// These tests MUST FAIL against the current stub functions.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("PolicyEngine P2 — Polarity Classification", () => {
+  function makeRec(id: string, tags: string[], semanticType: string, content: string) {
+    return { id, namespace: "test", tags, semantic_type: semanticType, content, strength: 0.9,
+      confidence: 0.85, level: 1, activation_count: 5, created_at: 1000, last_activated: 2000,
+      connections: {}, connection_types: {}, content_type: "text", source_type: "input", metadata: {} }
+  }
+
+  it("classifyPolarity returns 'Negative' when semantic_type is 'contradiction' with additional negative signals", () => {
+    const records = new Map([
+      ["r1", makeRec("r1", ["error"], "contradiction", "system crash detected")],
+    ])
+    const result = classifyPolarity(["r1"], records)
+    // RED: stub returns "Neutral"; should return "Negative"
+    assert.strictEqual(result, "Negative")
+  })
+
+  it("classifyPolarity returns 'Positive' when POSITIVE_KEYWORDS match in tags and content", () => {
+    const records = new Map([
+      ["r1", makeRec("r1", ["success", "deployed"], "observation", "deployment completed successfully")],
+    ])
+    const result = classifyPolarity(["r1"], records)
+    assert.strictEqual(result, "Positive")
+  })
+
+  it("classifyPolarity returns 'Neutral' when signals are balanced or below threshold", () => {
+    const records = new Map([
+      ["r1", makeRec("r1", ["update"], "observation", "system updated")],
+    ])
+    const result = classifyPolarity(["r1"], records)
+    assert.strictEqual(result, "Neutral")
+  })
+
+  it("polaritySignalCounts counts positive and negative signals from effect records", () => {
+    const records = new Map([
+      ["r1", makeRec("r1", ["error", "bug"], "contradiction", "system crash failure")],
+    ])
+    const { positiveSignals, negativeSignals } = polaritySignalCounts(["r1"], records)
+    // RED: stub returns {0,0}; should have negativeSignals >= 2
+    assert.ok(negativeSignals >= 2, `expected negativeSignals >= 2, got ${negativeSignals}`)
+    assert.strictEqual(positiveSignals, 0)
+  })
+
+  it("polaritySignalCounts returns positive signals for success keywords", () => {
+    const records = new Map([
+      ["r1", makeRec("r1", ["success", "deployed", "optimized"], "observation", "deployment completed and improved performance")],
+    ])
+    const { positiveSignals, negativeSignals } = polaritySignalCounts(["r1"], records)
+    assert.ok(positiveSignals >= 2, `expected positiveSignals >= 2, got ${positiveSignals}`)
+    assert.strictEqual(negativeSignals, 0)
+  })
+
+  it("polaritySignalCounts sums signals across multiple effect records", () => {
+    const records = new Map([
+      ["r1", makeRec("r1", ["error"], "observation", "system failure")],
+      ["r2", makeRec("r2", ["success"], "observation", "deployment successful")],
+    ])
+    const { positiveSignals, negativeSignals } = polaritySignalCounts(["r1", "r2"], records)
+    assert.ok(positiveSignals >= 1, `expected positiveSignals >= 1, got ${positiveSignals}`)
+    assert.ok(negativeSignals >= 1, `expected negativeSignals >= 1, got ${negativeSignals}`)
+  })
+})
+
+describe("PolicyEngine P2 — Action Mapping", () => {
+  it("mapActionKind('Negative', 0.80) returns 'Avoid'", () => {
+    // RED: stub returns Warn
+    assert.strictEqual(mapActionKind("Negative", 0.80), PolicyActionKind.Avoid)
+  })
+
+  it("mapActionKind('Negative', 0.50) returns 'VerifyFirst'", () => {
+    assert.strictEqual(mapActionKind("Negative", 0.50), PolicyActionKind.VerifyFirst)
+  })
+
+  it("mapActionKind('Positive', 0.80) returns 'Prefer'", () => {
+    assert.strictEqual(mapActionKind("Positive", 0.80), PolicyActionKind.Prefer)
+  })
+
+  it("mapActionKind('Positive', 0.50) returns 'Recommend'", () => {
+    assert.strictEqual(mapActionKind("Positive", 0.50), PolicyActionKind.Recommend)
+  })
+
+  it("mapActionKind('Neutral', 0.50) returns 'Warn'", () => {
+    assert.strictEqual(mapActionKind("Neutral", 0.50), PolicyActionKind.Warn)
   })
 })

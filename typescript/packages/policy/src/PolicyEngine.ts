@@ -301,3 +301,31 @@ export class PolicyEngineImpl {
 }
 
 export const PolicyEngineLive = Layer.succeed(PolicyEngine, new PolicyEngineImpl())
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P2 Stub exports (RED phase — return wrong values; will be fixed in GREEN)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Stub: always returns "Neutral". Will be replaced with 6-dimension classification in GREEN. */
+export function classifyPolarity(
+  _effectRecordIds: string[],
+  _records: ReadonlyMap<string, AuraRecord>
+): "Positive" | "Negative" | "Neutral" {
+  return "Neutral"
+}
+
+/** Stub: always returns zeros. Will be replaced with keyword matching in GREEN. */
+export function polaritySignalCounts(
+  _effectRecordIds: string[],
+  _records: ReadonlyMap<string, AuraRecord>
+): { positiveSignals: number; negativeSignals: number } {
+  return { positiveSignals: 0, negativeSignals: 0 }
+}
+
+/** Stub: always returns Warn. Will be replaced with full mapping table in GREEN. */
+export function mapActionKind(
+  _polarity: "Positive" | "Negative" | "Neutral",
+  _causalStrength: number
+): typeof PolicyActionKind {
+  return PolicyActionKind.Warn
+}

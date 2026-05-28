@@ -1,31 +1,60 @@
 /**
  * Concept surface functions.
  *
- * Filters disclosed concepts (Stable or Candidate state), sorts by abstraction
- * score descending, limits the result set, and maps each candidate into a
- * SurfacedConcept ready for external consumption.
+ * Filters disclosed concepts (Stable or Candidate state), sorts by 5-dim
+ * tiebreak (abstraction_score → confidence → cluster_size → stable priority → key),
+ * caps at MAX_SURFACED_PER_NAMESPACE per namespace, and deduplicates by key.
  *
- * Aligns with Rust `concept.rs` §surface module:
- *   - Phase A: filter eligible concepts (state = Stable or Candidate)
+ * Aligns with Rust `concept.rs` surface_concepts() (lines 1854-1965):
+ *   - Phase A: filter eligible concepts (state + score threshold + provenance)
  *   - Phase B: optional namespace filter
- *   - Phase C: sort by abstraction_score desc, then key asc (deterministic)
- *   - Phase D: limit (default 20, no max cap)
- *   - Phase E: map to SurfacedConcept
+ *   - Phase C: sort deterministic 5-dim tiebreak
+ *   - Phase D: dedup by key → per-namespace cap → collect
  */
-import { Effect } from "effect"
-import { ConceptState, type ConceptEngineImpl, type SurfacedConcept } from "@aura/contract"
 
-/** Default surface limit, matching Rust MAX_SURFACED_CONCEPTS. */
+import { Effect } from "effect"
+import { ConceptState, type ConceptCandidate, type ConceptEngineImpl, type SurfacedConcept } from "@aura/contract"
+
+/** Per-namespace max surfaced concepts, matching Rust MAX_SURFACED_PER_NAMESPACE. */
+export const MAX_SURFACED_PER_NAMESPACE = 5
+
+/** Minimum abstraction_score for Candidate concepts to surface. */
+export const SURFACE_CANDIDATE_THRESHOLD = 0.70
+
+/** Default global surface limit, matching Rust MAX_SURFACED_CONCEPTS. */
 const DEFAULT_LIMIT = 20
+
+// ── Pure surface function (Rust-aligned) ──
+// STUB implementation for TDD RED phase.
+// Returns empty array — all surface tests will fail.
+
+/**
+ * Compute surfaced concepts from a flat array of concept candidates.
+ *
+ * Pure function matching Rust surface_concepts_filtered() algorithm:
+ * 1. Filter eligible: Stable always passes, Candidate needs score >= 0.70
+ * 2. Filter namespaces if provided
+ * 3. Sort: 5-dim tiebreak (score → confidence → cluster_size → stable priority → key)
+ * 4. Dedup by key (first occurrence wins), then per-ns cap, then collect
+ * 5. Return SurfacedConcept[]
+ *
+ * Dedup-before-cap ordering verified against Rust concept.rs lines 1924-1939.
+ */
+export function computeSurfaceConcepts(
+  concepts: ReadonlyArray<ConceptCandidate>,
+  namespaces?: ReadonlyArray<string>
+): ReadonlyArray<SurfacedConcept> {
+  // STUB: RED phase — empty result, all tests will fail
+  return []
+}
+
+// ── Effect-based wrappers (backward compat with existing consumers) ──
 
 /**
  * Returns a sorted, filtered, limited list of surfaced concepts.
  *
- * Filters to Stable and Candidate concepts, sorts by abstraction score
- * descending (with key ascending as tiebreaker), caps at the given limit
- * (default 20), and maps each candidate to a SurfacedConcept.
- *
- * Empty engine state returns an empty array — no crash, no error.
+ * Wraps computeSurfaceConcepts for backward compat.
+ * Existing consumers (EpistemicRuntime) use this Effect-based API.
  */
 export function surfaceConcepts(
   engine: ConceptEngineImpl,
@@ -34,31 +63,13 @@ export function surfaceConcepts(
   return Effect.gen(function* () {
     const state = yield* engine.stats()
     const max = limit ?? DEFAULT_LIMIT
-
-    const result = Object.values(state.concepts)
-      .filter(
-        (c) => c.state === ConceptState.Stable || c.state === ConceptState.Candidate
-      )
-      .sort((a, b) => {
-        const scoreDiff = b.abstraction_score - a.abstraction_score
-        if (scoreDiff !== 0) return scoreDiff
-        // Secondary sort by key ascending for deterministic ordering
-        if (a.key < b.key) return -1
-        if (a.key > b.key) return 1
-        return 0
-      })
-      .slice(0, max)
-      .map(toSurfacedConcept)
-
-    return result
+    const result = computeSurfaceConcepts(Object.values(state.concepts))
+    return result.slice(0, max)
   })
 }
 
 /**
  * Same as surfaceConcepts but additionally filters by exact namespace match.
- *
- * When namespace is not provided, behaves identically to surfaceConcepts.
- * A non-existent namespace returns an empty array.
  */
 export function surfaceConceptsFiltered(
   engine: ConceptEngineImpl,
@@ -68,52 +79,8 @@ export function surfaceConceptsFiltered(
   return Effect.gen(function* () {
     const state = yield* engine.stats()
     const max = limit ?? DEFAULT_LIMIT
-
-    let candidates = Object.values(state.concepts).filter(
-      (c) => c.state === ConceptState.Stable || c.state === ConceptState.Candidate
-    )
-
-    if (namespace !== undefined) {
-      candidates = candidates.filter((c) => c.namespace === namespace)
-    }
-
-    const result = candidates
-      .sort((a, b) => {
-        const scoreDiff = b.abstraction_score - a.abstraction_score
-        if (scoreDiff !== 0) return scoreDiff
-        if (a.key < b.key) return -1
-        if (a.key > b.key) return 1
-        return 0
-      })
-      .slice(0, max)
-      .map(toSurfacedConcept)
-
-    return result
+    const nsArray = namespace !== undefined ? [namespace] : undefined
+    const result = computeSurfaceConcepts(Object.values(state.concepts), nsArray)
+    return result.slice(0, max)
   })
-}
-
-// ── Internal ──────────────────────────────────────────────────────────
-
-/** Maps a ConceptCandidate (snake_case contract fields) to SurfacedConcept (camelCase). */
-function toSurfacedConcept(c: {
-  readonly id: string
-  readonly key: string
-  readonly state: string
-  readonly namespace: string
-  readonly abstraction_score: number
-  readonly belief_ids: ReadonlyArray<string>
-  readonly record_ids: ReadonlyArray<string>
-  readonly core_terms: ReadonlyArray<string>
-}): SurfacedConcept {
-  return {
-    id: c.id,
-    key: c.key,
-    state: c.state,
-    namespace: c.namespace,
-    abstractionScore: c.abstraction_score,
-    beliefCount: c.belief_ids.length,
-    recordCount: c.record_ids.length,
-    coreTerms: c.core_terms,
-    recordIds: c.record_ids,
-  }
 }

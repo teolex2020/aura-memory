@@ -17,7 +17,7 @@ export class BeliefStoreFile {
   }
 
   static empty_engine(): BeliefEngineState {
-    return { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {} } satisfies BeliefEngineState
+    return { version: 1, beliefs: {}, hypotheses: {}, record_to_belief: {}, key_index: {}, record_index: {} } satisfies BeliefEngineState
   }
 
   load(): Effect.Effect<BeliefEngineState, FileReadError | JsonParseError, FileRead> {

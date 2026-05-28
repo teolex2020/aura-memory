@@ -130,6 +130,31 @@ describe("CausalEngine", () => {
     assert.ok(!(targetId in state2.patterns))
   })
 
+  it("discover emits trace events", async () => {
+    const events: Array<{ name: string; fields: unknown }> = []
+    const spyTrace = {
+      event: (name: string, fields: Record<string, string | number | boolean>): Effect.Effect<void> =>
+        Effect.sync(() => { events.push({ name, fields }) }),
+      span: <A, E, R>(_name: string, _fields: Record<string, string | number | boolean>, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => effect
+    }
+
+    const engine = new CausalEngineImpl()
+    const conceptState = fakeConceptState({
+      "c1": fakeConcept("c1", ["r1", "r2"]),
+      "c2": fakeConcept("c2", ["r1", "r3"])
+    })
+
+    await Effect.runPromise(
+      engine.discover(conceptState, new Map(), new Map()).pipe(
+        Effect.provideService(EpistemicTrace, spyTrace)
+      )
+    )
+
+    assert.strictEqual(events.length, 2)
+    assert.strictEqual(events[0]!.name, "causal.discover.start")
+    assert.strictEqual(events[1]!.name, "causal.discover.end")
+  })
+
   it("discover with overlapping concepts produces deterministic output", async () => {
     const run = () => {
       const engine = new CausalEngineImpl()

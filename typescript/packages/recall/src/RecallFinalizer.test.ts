@@ -20,4 +20,14 @@ describe("RecallFinalizer", () => {
     const scored: Array<readonly [number, string]> = [[0.8, "r1"]]
     await Effect.runPromise(finalizer.finalize(scored))
   })
+
+  it("finalize increments activation counts", async () => {
+    const finalizer = new RecallFinalizerImpl()
+
+    await Effect.runPromise(finalizer.finalize([[0.5, "r1"]]))
+    await Effect.runPromise(finalizer.finalize([[0.5, "r1"]]))
+
+    const count = (finalizer as any).activationCounts.get("r1")
+    assert.strictEqual(count, 2)
+  })
 })

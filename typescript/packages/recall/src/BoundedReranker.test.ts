@@ -25,6 +25,13 @@ describe("BoundedReranker", () => {
     assert.strictEqual(result.length, 3)
   })
 
+  it("empty input returns empty", async () => {
+    const reranker = new BoundedRerankerImpl()
+    const result = await Effect.runPromise(reranker.rerank([], "query"))
+    assert.strictEqual(result.length, 0)
+    assert.deepStrictEqual(result, [])
+  })
+
   it("preserves all record IDs", async () => {
     const reranker = new BoundedRerankerImpl()
     const ids = ["r1", "r2", "r3", "r4", "r5"]

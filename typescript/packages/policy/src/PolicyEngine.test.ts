@@ -91,6 +91,30 @@ describe("PolicyEngine", () => {
     assert.ok(!(targetId in state2.hints))
   })
 
+  it("discover emits trace events", async () => {
+    const events: Array<{ name: string; fields: unknown }> = []
+    const spyTrace = {
+      event: (name: string, fields: Record<string, string | number | boolean>): Effect.Effect<void> =>
+        Effect.sync(() => { events.push({ name, fields }) }),
+      span: <A, E, R>(_name: string, _fields: Record<string, string | number | boolean>, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => effect
+    }
+
+    const engine = new PolicyEngineImpl()
+    const causalState = fakeCausalState({
+      "cp-001": fakePattern("cp-001", { confidence: 0.85 })
+    })
+
+    await Effect.runPromise(
+      engine.discover(causalState, new Map()).pipe(
+        Effect.provideService(EpistemicTrace, spyTrace)
+      )
+    )
+
+    assert.strictEqual(events.length, 2)
+    assert.strictEqual(events[0]!.name, "policy.discover.start")
+    assert.strictEqual(events[1]!.name, "policy.discover.end")
+  })
+
   it("discover is deterministic across replays", async () => {
     const run = () => {
       const engine = new PolicyEngineImpl()

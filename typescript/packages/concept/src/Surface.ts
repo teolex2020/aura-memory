@@ -44,8 +44,98 @@ export function computeSurfaceConcepts(
   concepts: ReadonlyArray<ConceptCandidate>,
   namespaces?: ReadonlyArray<string>
 ): ReadonlyArray<SurfacedConcept> {
-  // STUB: RED phase — empty result, all tests will fail
-  return []
+  const nsSet = namespaces ? new Set(namespaces) : undefined
+
+  // Phase A: filter eligible concepts
+  // Matching Rust surface_concepts_filtered lines 1870-1896
+  const eligible = concepts.filter((c) => {
+    // Namespace filter
+    if (nsSet && !nsSet.has(c.namespace)) return false
+
+    // Must have provenance (matching Rust: non-empty belief_ids and record_ids)
+    if (c.belief_ids.length === 0 || c.record_ids.length === 0) return false
+
+    // Must have core_terms or tags (matching Rust)
+    if (c.core_terms.length === 0 && c.tags.length === 0) return false
+
+    // State gate: Stable always, Candidate needs score >= threshold, Rejected excluded
+    switch (c.state) {
+      case ConceptState.Stable:
+        return true
+      case ConceptState.Candidate:
+        return c.abstraction_score >= SURFACE_CANDIDATE_THRESHOLD
+      case ConceptState.Rejected:
+        return false
+      default:
+        return false
+    }
+  })
+
+  // Phase B: sort deterministic 5-dim tiebreak
+  // Matching Rust surface_concepts_filtered lines 1900-1917
+  eligible.sort((a, b) => {
+    // 1. abstraction_score DESC (higher score first)
+    const scoreDiff = b.abstraction_score - a.abstraction_score
+    if (scoreDiff !== 0) return scoreDiff
+
+    // 2. confidence DESC (higher confidence first)
+    const confDiff = b.confidence - a.confidence
+    if (confDiff !== 0) return confDiff
+
+    // 3. cluster_size DESC (larger clusters first)
+    const sizeDiff = b.belief_ids.length - a.belief_ids.length
+    if (sizeDiff !== 0) return sizeDiff
+
+    // 4. Stable before Candidate
+    const aStable = a.state === ConceptState.Stable ? 1 : 0
+    const bStable = b.state === ConceptState.Stable ? 1 : 0
+    const stableDiff = bStable - aStable
+    if (stableDiff !== 0) return stableDiff
+
+    // 5. key ASC (deterministic alphabetical tiebreaker)
+    if (a.key < b.key) return -1
+    if (a.key > b.key) return 1
+    return 0
+  })
+
+  // Phase C: dedup by key → per-ns cap → collect
+  // Matching Rust surface_concepts_filtered lines 1920-1962
+  // Dedup-before-cap ordering: duplicates don't consume namespace cap slots
+  const result: SurfacedConcept[] = []
+  const nsCounts = new Map<string, number>()
+  const seenKeys = new Set<string>()
+
+  for (const c of eligible) {
+    // Dedup by key — duplicate keys skipped (don't count against cap)
+    if (seenKeys.has(c.key)) continue
+    seenKeys.add(c.key)
+
+    // Per-namespace cap
+    const count = nsCounts.get(c.namespace) ?? 0
+    if (count >= MAX_SURFACED_PER_NAMESPACE) continue
+    nsCounts.set(c.namespace, count + 1)
+
+    result.push(toSurfacedConcept(c))
+  }
+
+  return result
+}
+
+// ── Internal ──────────────────────────────────────────────────────────
+
+/** Maps a ConceptCandidate (snake_case contract fields) to SurfacedConcept (camelCase). */
+function toSurfacedConcept(c: ConceptCandidate): SurfacedConcept {
+  return {
+    id: c.id,
+    key: c.key,
+    state: c.state,
+    namespace: c.namespace,
+    abstractionScore: c.abstraction_score,
+    beliefCount: c.belief_ids.length,
+    recordCount: c.record_ids.length,
+    coreTerms: c.core_terms,
+    recordIds: c.record_ids,
+  }
 }
 
 // ── Effect-based wrappers (backward compat with existing consumers) ──

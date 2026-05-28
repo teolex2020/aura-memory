@@ -36,9 +36,9 @@ function c(overrides: Partial<ConceptCandidate> & { id: string }): ConceptCandid
     semantic_type: overrides.semantic_type ?? "concept",
     state: overrides.state ?? ConceptState.Stable,
     abstraction_score: overrides.abstraction_score ?? 0.5,
-    belief_ids: overrides.belief_ids ?? [],
-    record_ids: overrides.record_ids ?? [],
-    core_terms: overrides.core_terms ?? [],
+    belief_ids: overrides.belief_ids ?? ["b-default"],
+    record_ids: overrides.record_ids ?? ["r-default"],
+    core_terms: overrides.core_terms ?? ["term-default"],
     shell_terms: overrides.shell_terms ?? [],
     tags: overrides.tags ?? [],
     support_mass: overrides.support_mass ?? 1,
@@ -106,11 +106,11 @@ describe("surfaceConcepts", () => {
   })
 
   it("default limit is 20 when no limit arg", async () => {
-    // Create 25 concepts — only first 20 should be returned
+    // Create 25 concepts spread across 25 namespaces (per-ns cap = 5, so all pass)
     const entries: Record<string, ConceptCandidate> = {}
     for (let i = 1; i <= 25; i++) {
       const id = `c${i}`
-      entries[id] = c({ id, abstraction_score: 1.0 - i * 0.01, key: `key-${i}` })
+      entries[id] = c({ id, abstraction_score: 1.0 - i * 0.01, key: `key-${i}`, namespace: `ns-${i}` })
     }
 
     const engine = mockEngine(makeState(entries))
@@ -124,7 +124,7 @@ describe("surfaceConcepts", () => {
       makeState({
         c1: c({ id: "c1", state: ConceptState.Stable, abstraction_score: 0.8 }),
         c2: c({ id: "c2", state: ConceptState.Rejected, abstraction_score: 0.9 }),
-        c3: c({ id: "c3", state: ConceptState.Candidate, abstraction_score: 0.5 }),
+        c3: c({ id: "c3", state: ConceptState.Candidate, abstraction_score: 0.75 }),
       })
     )
 

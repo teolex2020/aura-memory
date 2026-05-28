@@ -13,6 +13,19 @@ export enum PolicyState {
 }
 
 /**
+ * Kinds of policy actions — maps to Rust PolicyActionKind enum.
+ *
+ * 策略动作类型枚举。
+ */
+export enum PolicyActionKind {
+  Prefer = "prefer",
+  Recommend = "recommend",
+  VerifyFirst = "verify_first",
+  Avoid = "avoid",
+  Warn = "warn",
+}
+
+/**
  * A policy hint extracted from causal patterns — rule/guidance for the MCP layer.
  *
  * 从因果模式中提取的策略提示（向 MCP 层提供的规则/指导）。
@@ -34,6 +47,16 @@ export type PolicyHint = {
   readonly state: PolicyState
   /** Unix timestamp of last update. 最近更新时间（秒）。 */
   readonly last_updated: number
+  /** Action kind from PolicyActionKind enum. 策略动作类型。 */
+  readonly actionKind: string
+  /** Policy strength score (0–1). 策略强度分数。 */
+  readonly policyStrength: number
+  /** Risk score — higher means more risk if ignored. 风险分数。 */
+  readonly riskScore: number
+  /** Namespace this hint belongs to. 所属命名空间。 */
+  readonly namespace: string
+  /** Domain classification. 域分类。 */
+  readonly domain: string
 }
 
 /**
@@ -45,6 +68,8 @@ export type PolicyEngineState = {
   readonly version: 1
   readonly hints: Readonly<Record<string, PolicyHint>>
   readonly metadata: Readonly<Record<string, unknown>>
+  /** Key index — maps key strings to hint IDs for fast namespace/domain lookup. */
+  readonly key_index: Readonly<Record<string, string>>
 }
 
 /**

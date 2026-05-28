@@ -12,6 +12,9 @@ export type Record = {
   last_activated: number
   tags: ReadonlyArray<string>
   connections: { readonly [recordId: string]: number }
+  /** Typed connections — maps record_id to relationship kind (e.g. "causal", "reflective").
+   *  Matches Rust `record.rs` connection_types: HashMap<String, String>. */
+  connection_types: { readonly [recordId: string]: string }
   content_type: string
   source_type: string
   namespace: string

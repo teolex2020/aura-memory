@@ -94,7 +94,7 @@ Plans:
 
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 6
-**Plans:** 6/6 plans complete
+**Plans:** 8/8 plans complete
 Plans:
 **Wave 1**
 

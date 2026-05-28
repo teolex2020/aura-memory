@@ -111,16 +111,29 @@ Plans:
 
 - [x] 06.2-05-PLAN.md — EpistemicRuntime complex aggregates + surface delegation (TDD)
 
-### Phase 06.1: 补齐四大引擎未完成功能和修复类型错误 (INSERTED)
+### Phase 06.3: Engine Algorithm Parity — 对齐 Rust 引擎算法 (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
-**Depends on:** Phase 6
+**Goal:** Align TS BeliefEngine/ConceptEngine/CausalEngine/PolicyEngine algorithms with Rust reference to achieve deterministic cross-language parity. Close 14 systematic deviations identified in AUDIT-DIFF.md across thresholds, clustering strategies, signal sources, scoring formulas, and guard conditions.
+
+**Requirements:** REQ-011, REQ-012
+**Depends on:** Phase 06.2
+**Source:** AUDIT-DIFF.md, EXPLAIN.md
 **Plans:** 0 plans
 
-Plans:
+**Scope (by priority):**
 
-- [ ] TBD (run /gsd-plan-phase 06.1 to break down)
+| Priority | Engine | Gaps |
+|----------|--------|------|
+| P0 | BeliefEngine | SDR threshold 0.6→0.15, incremental update (key_index), contradiction-based hypothesis |
+| P0 | CausalEngine | Rewrite to record-level edge extraction (explicit + temporal edges) |
+| P1 | BeliefEngine | Coarse key guard strategies (tag_guarded, bridge_guarded, tag_sdr_guarded) |
+| P1 | ConceptEngine | CanonicalFeature mode (stemming + equivalence dictionary), cluster guards |
+| P1 | CausalEngine | Evidence gates (support, repeated window, counterfactual) |
+| P1 | PolicyEngine | Multi-engine integration, polarity classification + action mapping |
+| P2 | BeliefEngine | BridgeKey normalize, TagFamilyAdaptive/TagFamilyBackoff |
+| P2 | PolicyEngine | Suppression phase, recommendation text generation |
+
+Plans:
 
 ## Phase 7: MCP + Polish
 

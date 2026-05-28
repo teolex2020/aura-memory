@@ -1,0 +1,25 @@
+{
+  "source_path": "D:\\workspace\\@yuyi919\\external\\AuraSDK\\typescript\\EXPLAIN.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Aura 认知引擎算法详解",
+  "summary": "Detailed explanation of Aura's four cognitive engine algorithms (Belief, Concept, Causal, Policy) and their coordination.",
+  "scope": [
+    "BeliefEngine",
+    "ConceptEngine",
+    "CausalEngine",
+    "PolicyEngine",
+    "EpistemicRuntime",
+    "MaintenanceService",
+    "cognitive engines",
+    "SDR clustering",
+    "Union-Find",
+    "Tanimoto similarity",
+    "Core-Shell term model"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

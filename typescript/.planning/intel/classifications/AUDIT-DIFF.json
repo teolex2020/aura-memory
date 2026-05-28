@@ -1,0 +1,7 @@
+{
+  "path": "AUDIT-DIFF.md",
+  "type": "DOC",
+  "title": "Aura Rust ↔ TypeScript 认知引擎差异审计报告",
+  "scope_summary": "Audit of systematic differences between Rust and TypeScript implementations of BeliefEngine, ConceptEngine, CausalEngine, and PolicyEngine",
+  "cross_references": ["../src/"]
+}

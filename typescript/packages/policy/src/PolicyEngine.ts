@@ -303,29 +303,139 @@ export class PolicyEngineImpl {
 export const PolicyEngineLive = Layer.succeed(PolicyEngine, new PolicyEngineImpl())
 
 // ═══════════════════════════════════════════════════════════════════════════
-// P2 Stub exports (RED phase — return wrong values; will be fixed in GREEN)
+// Polarity classification (Rust-aligned policy.rs lines 44-78, 421-496)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Stub: always returns "Neutral". Will be replaced with 6-dimension classification in GREEN. */
-export function classifyPolarity(
-  _effectRecordIds: string[],
-  _records: ReadonlyMap<string, AuraRecord>
-): "Positive" | "Negative" | "Neutral" {
-  return "Neutral"
-}
+/** Negative outcome keywords (Rust-aligned policy.rs lines 44-60). */
+const NEGATIVE_KEYWORDS = [
+  "error", "failure", "fail", "crash", "bug", "incident",
+  "rollback", "revert", "risk", "vulnerability", "downtime",
+  "outage", "regression", "contradiction", "conflict",
+]
 
-/** Stub: always returns zeros. Will be replaced with keyword matching in GREEN. */
+/** Positive outcome keywords (Rust-aligned policy.rs lines 63-78). */
+const POSITIVE_KEYWORDS = [
+  "success", "improvement", "improve", "faster", "reliable",
+  "stable", "healthy", "secure", "optimized", "resolved",
+  "fixed", "deployed", "completed", "approved",
+]
+
+/**
+ * Count positive and negative outcome signals from effect-side records.
+ *
+ * Checks 4 dimensions per record:
+ *   1. semantic_type === "contradiction" → negativeSignals += 2
+ *   2. Tags against NEGATIVE_KEYWORDS (case-insensitive contains)
+ *   3. Tags against POSITIVE_KEYWORDS (case-insensitive contains)
+ *   4. Content against NEGATIVE_KEYWORDS
+ *   5. Content against POSITIVE_KEYWORDS
+ *
+ * Matches Rust policy.rs polarity_signal_counts (lines 454-496).
+ */
 export function polaritySignalCounts(
-  _effectRecordIds: string[],
-  _records: ReadonlyMap<string, AuraRecord>
+  effectRecordIds: string[],
+  records: ReadonlyMap<string, AuraRecord>
 ): { positiveSignals: number; negativeSignals: number } {
-  return { positiveSignals: 0, negativeSignals: 0 }
+  let positiveSignals = 0
+  let negativeSignals = 0
+
+  for (const eid of effectRecordIds) {
+    const rec = records.get(eid)
+    if (!rec) continue
+
+    // Check semantic_type
+    if (rec.semantic_type === "contradiction") {
+      negativeSignals += 2
+    }
+
+    // Check tags
+    for (const tag of rec.tags) {
+      const tagLower = tag.toLowerCase()
+      for (const kw of NEGATIVE_KEYWORDS) {
+        if (tagLower.includes(kw)) {
+          negativeSignals += 1
+        }
+      }
+      for (const kw of POSITIVE_KEYWORDS) {
+        if (tagLower.includes(kw)) {
+          positiveSignals += 1
+        }
+      }
+    }
+
+    // Check content keywords
+    const contentLower = (rec.content ?? "").toLowerCase()
+    for (const kw of NEGATIVE_KEYWORDS) {
+      if (contentLower.includes(kw)) {
+        negativeSignals += 1
+      }
+    }
+    for (const kw of POSITIVE_KEYWORDS) {
+      if (contentLower.includes(kw)) {
+        positiveSignals += 1
+      }
+    }
+  }
+
+  return { positiveSignals, negativeSignals }
 }
 
-/** Stub: always returns Warn. Will be replaced with full mapping table in GREEN. */
+/**
+ * Classify outcome polarity of a pattern by examining effect-side records.
+ *
+ * Rules:
+ *   - negativeSignals > positiveSignals AND negativeSignals >= 2 → Negative
+ *   - positiveSignals > negativeSignals AND positiveSignals >= 2 → Positive
+ *   - Otherwise → Neutral
+ *
+ * Matches Rust policy.rs classify_polarity (lines 423-437).
+ */
+export function classifyPolarity(
+  effectRecordIds: string[],
+  records: ReadonlyMap<string, AuraRecord>
+): "Positive" | "Negative" | "Neutral" {
+  const { positiveSignals, negativeSignals } = polaritySignalCounts(effectRecordIds, records)
+
+  if (negativeSignals > positiveSignals && negativeSignals >= 2) {
+    return "Negative"
+  } else if (positiveSignals > negativeSignals && positiveSignals >= 2) {
+    return "Positive"
+  } else {
+    return "Neutral"
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Action kind mapping (Rust-aligned policy.rs lines 500-508)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Map polarity + causal_strength to a PolicyActionKind.
+ *
+ * | Polarity + Strength               | Action Kind      |
+ * |-----------------------------------|------------------|
+ * | Negative + strength >= 0.75       | Avoid            |
+ * | Negative                          | VerifyFirst      |
+ * | Positive + strength >= 0.75       | Prefer           |
+ * | Positive                          | Recommend        |
+ * | Neutral                           | Warn             |
+ *
+ * Matches Rust policy.rs map_action_kind (lines 500-508).
+ */
 export function mapActionKind(
-  _polarity: "Positive" | "Negative" | "Neutral",
-  _causalStrength: number
+  polarity: "Positive" | "Negative" | "Neutral",
+  causalStrength: number
 ): typeof PolicyActionKind {
-  return PolicyActionKind.Warn
+  switch (polarity) {
+    case "Negative":
+      return causalStrength >= 0.75
+        ? PolicyActionKind.Avoid
+        : PolicyActionKind.VerifyFirst
+    case "Positive":
+      return causalStrength >= 0.75
+        ? PolicyActionKind.Prefer
+        : PolicyActionKind.Recommend
+    case "Neutral":
+      return PolicyActionKind.Warn
+  }
 }

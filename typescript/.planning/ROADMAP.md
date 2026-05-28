@@ -118,7 +118,7 @@ Plans:
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 06.2
 **Source:** AUDIT-DIFF.md, EXPLAIN.md
-**Plans:** 4/11 plans executed
+**Plans:** 5/11 plans executed
 
 **Scope (by priority):**
 
@@ -145,7 +145,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 06.3-05-PLAN.md — ConceptEngine P1: CanonicalFeature mode (stemming+equivalence+Jaccard) + expanded stop words (TDD)
+- [x] 06.3-05-PLAN.md — ConceptEngine P1: CanonicalFeature mode (stemming+equivalence+Jaccard) + expanded stop words (TDD)
 - [ ] 06.3-06-PLAN.md — ConceptEngine P1+P2: Cluster guards + surface alignment (per-ns cap, 5-dim tiebreak) (TDD)
 
 **Wave 4** *(blocked on Wave 3)*

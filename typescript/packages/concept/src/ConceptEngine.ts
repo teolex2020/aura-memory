@@ -764,8 +764,23 @@ export function isGenericFamily(family: string): boolean {
 }
 
 // ── Cluster Guards ──
-// STUB implementations — always allow merges.
-// Will be replaced with Rust-aligned logic in GREEN phase.
+// Extracted from Rust concept.rs: cluster_beliefs (lines 1035-1083)
+// and cluster_beliefs_canonical (lines 918-964).
+
+/**
+ * Compute the count of shared tags between two sets.
+ * Used internally by guard functions.
+ */
+function computeSharedTags(
+  tagsA: ReadonlySet<string>,
+  tagsB: ReadonlySet<string>
+): number {
+  let count = 0
+  for (const tag of tagsA) {
+    if (tagsB.has(tag)) count++
+  }
+  return count
+}
 
 /**
  * Tag barrier: checks whether two beliefs share at least one tag.
@@ -773,11 +788,11 @@ export function isGenericFamily(family: string): boolean {
  * Rust concept.rs: cluster_beliefs lines 1038-1042, cluster_beliefs_canonical lines 918-923.
  */
 export function tagBarrier(
-  _tagsA: ReadonlySet<string>,
-  _tagsB: ReadonlySet<string>
+  tagsA: ReadonlySet<string>,
+  tagsB: ReadonlySet<string>
 ): boolean {
-  // STUB: always allow
-  return true
+  if (tagsA.size === 0 || tagsB.size === 0) return true
+  return computeSharedTags(tagsA, tagsB) > 0
 }
 
 /**
@@ -790,15 +805,48 @@ export function tagBarrier(
  * Returns 'bridge_allowed' when families differ but overlap bridge or single-tag bridge applies.
  */
 export function familyGuard(
-  _familyA: string,
-  _familyB: string,
-  _sharedTags: number,
-  _stA: string,
-  _stB: string,
-  _unionMode: ConceptUnionMode
+  familyA: string,
+  familyB: string,
+  sharedTags: number,
+  stA: string,
+  stB: string,
+  unionMode: ConceptUnionMode
 ): "allowed" | "bridge_allowed" | "blocked" {
-  // STUB: always allow
-  return "allowed"
+  if (familyA === familyB) return "allowed"
+  if (!familyA || !familyB) return "allowed"
+
+  const famA = familyTokenSet(familyA)
+  const famB = familyTokenSet(familyB)
+
+  let familyOverlap = 0
+  for (const t of famA) {
+    if (famB.has(t)) familyOverlap++
+  }
+
+  // Overlap bridge: both families have >= 2 tokens, family token overlap >= 1,
+  // shared tags >= 1, and neither family is generic.
+  const allowOverlapBridge =
+    famA.size >= 2 &&
+    famB.size >= 2 &&
+    familyOverlap >= 1 &&
+    sharedTags >= 1 &&
+    !isGenericFamily(familyA) &&
+    !isGenericFamily(familyB)
+
+  // Single-tag fact↔decision bridge: requires SingleTagFactDecisionBridge mode,
+  // each family exactly 1 tag, shared >= 2, non-generic, fact↔decision crossing.
+  const allowSingleTagBridge =
+    unionMode === ConceptUnionMode.SingleTagFactDecisionBridge &&
+    famA.size === 1 &&
+    famB.size === 1 &&
+    sharedTags >= 2 &&
+    !isGenericFamily(familyA) &&
+    !isGenericFamily(familyB) &&
+    ((stA === "fact" && stB === "decision") ||
+      (stA === "decision" && stB === "fact"))
+
+  if (allowOverlapBridge || allowSingleTagBridge) return "bridge_allowed"
+  return "blocked"
 }
 
 /**
@@ -807,13 +855,15 @@ export function familyGuard(
  * cluster_beliefs_canonical lines 961-963.
  *
  * "alerts" family requires shared_tags >= 2.
- * Other families pass with shared_tags >= 1 (tag barrier already checked).
+ * Other families pass with any shared_tags count.
  */
 export function genericFamilyGuard(
-  _family: string,
-  _sharedTags: number
+  family: string,
+  sharedTags: number
 ): boolean {
-  // STUB: always allow
+  if (family === "alerts") {
+    return sharedTags >= 2
+  }
   return true
 }
 
@@ -826,13 +876,14 @@ export function genericFamilyGuard(
  * - Otherwise → BLOCKED
  */
 export function semanticTypeBridge(
-  _stA: string,
-  _stB: string,
-  _tagsA: ReadonlySet<string>,
-  _tagsB: ReadonlySet<string>
+  stA: string,
+  stB: string,
+  tagsA: ReadonlySet<string>,
+  tagsB: ReadonlySet<string>
 ): boolean {
-  // STUB: always allow
-  return true
+  if (stA === stB) return true
+  if (tagsA.size === 0 || tagsB.size === 0) return false
+  return computeSharedTags(tagsA, tagsB) > 0
 }
 
 /**
@@ -952,6 +1003,12 @@ export class ConceptEngineImpl {
     return Effect.void
   }
 
+  /** 设置 similarity 模式（用于测试切换 SdrTanimoto / CanonicalFeature）。 */
+  with_similarity_mode(mode: ConceptSimilarityMode): Effect.Effect<void> {
+    this.state = { ...this.state, similarity_mode: mode }
+    return Effect.void
+  }
+
   private selectSeeds(beliefs: ReadonlyArray<import("@aura/contract").Belief>, mode: ConceptSeedMode): string[] {
     const [minStability, minConfidence] =
       mode === ConceptSeedMode.Warmup
@@ -1034,7 +1091,16 @@ export class ConceptEngineImpl {
     return out
   }
 
-  private clusterBeliefs(seedIds: ReadonlyArray<string>, centroids: Map<string, number[]>): string[][] {
+  /**
+   * Cluster beliefs using SDR centroid Tanimoto similarity.
+   * Updated with 4-layer guard system matching Rust cluster_beliefs (lines 981-1097).
+   */
+  private clusterBeliefs(
+    seedIds: ReadonlyArray<string>,
+    centroids: Map<string, number[]>,
+    beliefFamilies: ReadonlyMap<string, string>,
+    beliefSemanticTypes: ReadonlyMap<string, string>
+  ): string[][] {
     const n = seedIds.length
     if (n === 0) return []
     const parent = new Array<number>(n)
@@ -1056,10 +1122,49 @@ export class ConceptEngineImpl {
       if (ra !== rb) parent[rb] = ra
     }
 
+    // Build tag sets per belief from families
+    const beliefTags = new Map<string, ReadonlySet<string>>()
+    for (const bid of seedIds) {
+      const family = beliefFamilies.get(bid) ?? ""
+      beliefTags.set(bid, familyTokenSet(family))
+    }
+
+    const emptyTags: ReadonlySet<string> = new Set()
+    const unionMode = this.state.union_mode
+
     for (let i = 0; i < n; i++) {
       const a = centroids.get(seedIds[i]!) ?? []
+      if (a.length === 0) continue
+
+      const tagsI = beliefTags.get(seedIds[i]!) ?? emptyTags
+      const familyI = beliefFamilies.get(seedIds[i]!) ?? ""
+      const stI = beliefSemanticTypes.get(seedIds[i]!) ?? ""
+
       for (let j = i + 1; j < n; j++) {
         const b = centroids.get(seedIds[j]!) ?? []
+        if (b.length === 0) continue
+
+        const tagsJ = beliefTags.get(seedIds[j]!) ?? emptyTags
+        const familyJ = beliefFamilies.get(seedIds[j]!) ?? ""
+        const stJ = beliefSemanticTypes.get(seedIds[j]!) ?? ""
+
+        const shared = computeSharedTags(tagsI, tagsJ)
+
+        // Guard 1: Tag barrier
+        if (!tagBarrier(tagsI, tagsJ)) continue
+
+        // Guard 2: Family guard
+        const famResult = familyGuard(familyI, familyJ, shared, stI, stJ, unionMode)
+        if (famResult === "blocked") continue
+
+        // Guard 3: Generic family guard
+        if (!genericFamilyGuard(familyI, shared)) continue
+        if (!genericFamilyGuard(familyJ, shared)) continue
+
+        // Guard 4: Semantic type bridge
+        if (!semanticTypeBridge(stI, stJ, tagsI, tagsJ)) continue
+
+        // Only then: Tanimoto similarity check
         if (tanimotoSorted(a, b) >= CONCEPT_SIMILARITY_THRESHOLD) union(i, j)
       }
     }
@@ -1103,10 +1208,18 @@ export class ConceptEngineImpl {
   /**
    * Cluster beliefs using canonical token Jaccard similarity.
    * Matching Rust cluster_beliefs_canonical (lines 866-978).
+   *
+   * Integrates 4-layer guard system before Jaccard check:
+   * 1. tagBarrier — shared_tags >= 1 required
+   * 2. familyGuard — cross-family merge blocked unless bridge exception
+   * 3. genericFamilyGuard — "alerts" requires shared_tags >= 2
+   * 4. semanticTypeBridge — different semantic types blocked unless tags overlap
    */
   private clusterBeliefsCanonical(
     seedIds: ReadonlyArray<string>,
-    beliefTokens: ReadonlyMap<string, ReadonlyArray<string>>
+    beliefTokens: ReadonlyMap<string, ReadonlyArray<string>>,
+    beliefFamilies: ReadonlyMap<string, string>,
+    beliefSemanticTypes: ReadonlyMap<string, string>
   ): string[][] {
     const n = seedIds.length
     if (n <= 1) return [seedIds.map((x) => x)]
@@ -1127,12 +1240,49 @@ export class ConceptEngineImpl {
       if (ra !== rb) parent[ra] = rb
     }
 
+    // Build tag sets per belief from records (extracted from belief_families split)
+    const beliefTags = new Map<string, ReadonlySet<string>>()
+    for (const bid of seedIds) {
+      const family = beliefFamilies.get(bid) ?? ""
+      beliefTags.set(bid, familyTokenSet(family))
+    }
+
+    const emptyTags: ReadonlySet<string> = new Set()
+    const unionMode = this.state.union_mode
+
     for (let i = 0; i < n; i++) {
       const tokI = beliefTokens.get(seedIds[i]!)
       if (!tokI || tokI.length === 0) continue
+
+      const tagsI = beliefTags.get(seedIds[i]!) ?? emptyTags
+      const familyI = beliefFamilies.get(seedIds[i]!) ?? ""
+      const stI = beliefSemanticTypes.get(seedIds[i]!) ?? ""
+
       for (let j = i + 1; j < n; j++) {
         const tokJ = beliefTokens.get(seedIds[j]!)
         if (!tokJ || tokJ.length === 0) continue
+
+        const tagsJ = beliefTags.get(seedIds[j]!) ?? emptyTags
+        const familyJ = beliefFamilies.get(seedIds[j]!) ?? ""
+        const stJ = beliefSemanticTypes.get(seedIds[j]!) ?? ""
+
+        const shared = computeSharedTags(tagsI, tagsJ)
+
+        // Guard 1: Tag barrier
+        if (!tagBarrier(tagsI, tagsJ)) continue
+
+        // Guard 2: Family guard
+        const famResult = familyGuard(familyI, familyJ, shared, stI, stJ, unionMode)
+        if (famResult === "blocked") continue
+
+        // Guard 3: Generic family guard (apply to both families)
+        if (!genericFamilyGuard(familyI, shared)) continue
+        if (!genericFamilyGuard(familyJ, shared)) continue
+
+        // Guard 4: Semantic type bridge
+        if (!semanticTypeBridge(stI, stJ, tagsI, tagsJ)) continue
+
+        // Only then: Jaccard similarity check
         if (jaccardSimilarity(tokI, tokJ) >= CANONICAL_SIMILARITY_THRESHOLD) {
           union(i, j)
         }
@@ -1237,9 +1387,25 @@ export class ConceptEngineImpl {
         : CONCEPT_SIMILARITY_THRESHOLD
 
       /**
-       * NON-PARITY: Rust supports `union_mode` family bridging.
-       * TS currently implements CanonicalFeature clustering without family/tag barriers.
-       * The core similarity path (jaccard over canonical tokens) is aligned.
+       * Build family and semantic_type maps from belief keys.
+       * Family = second colon-delimited part of key (the sorted tags).
+       * Semantic type = last colon-delimited part (strip #N suffix).
+       * Matching Rust concept.rs discover() lines 388-405.
+       */
+      const beliefFamilies = new Map<string, string>()
+      const beliefSemanticTypes = new Map<string, string>()
+      for (const bid of seeds) {
+        const belief = beliefs[bid]
+        if (!belief) continue
+        const [ns, st] = parseBeliefKeyNsSt(belief.key)
+        beliefFamilies.set(bid, parseBeliefKeyFamily(belief.key))
+        beliefSemanticTypes.set(bid, st)
+      }
+
+      /**
+       * Cluster beliefs with guards aligned to Rust.
+       * Family/tag barriers prevent cross-topic false merges.
+       * Union mode supports SingleTagFactDecisionBridge for fact↔decision crossing.
        */
       const partitions = self.partitionSeeds(seeds, beliefs, self.state.partition_mode)
       const clustersAll: string[][] = []
@@ -1288,8 +1454,8 @@ export class ConceptEngineImpl {
         }
 
         const clusters = useCanonical
-          ? self.clusterBeliefsCanonical(partitionSeeds, beliefTokens)
-          : self.clusterBeliefs(partitionSeeds, centroids)
+          ? self.clusterBeliefsCanonical(partitionSeeds, beliefTokens, beliefFamilies, beliefSemanticTypes)
+          : self.clusterBeliefs(partitionSeeds, centroids, beliefFamilies, beliefSemanticTypes)
         clustersAll.push(...clusters)
       }
 

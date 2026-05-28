@@ -796,16 +796,18 @@ it("familyGuard: overlap bridge — different families with token overlap AND sh
 })
 
 it("familyGuard: single-tag fact↔decision bridge", () => {
-  // Each family has exactly 1 tag, shared >= 2, different semantic types
+  // Each family has exactly 1 tag (different families), shared >= 2, different semantic types
+  // Families differ ("deploy" vs "rollout"), but both are single-tag non-generic families
   assert.strictEqual(
-    familyGuard("deploy", "deploy", 2, "fact", "decision", ConceptUnionMode.SingleTagFactDecisionBridge),
+    familyGuard("deploy", "rollout", 2, "fact", "decision", ConceptUnionMode.SingleTagFactDecisionBridge),
     "bridge_allowed"
   )
 })
 
 it("familyGuard: single-tag bridge blocked when union_mode is Standard", () => {
+  // Same scenario as above but Standard union_mode — bridge NOT allowed
   assert.strictEqual(
-    familyGuard("deploy", "deploy", 2, "fact", "decision", ConceptUnionMode.Standard),
+    familyGuard("deploy", "rollout", 2, "fact", "decision", ConceptUnionMode.Standard),
     "blocked"
   )
 })
@@ -857,11 +859,7 @@ it("ConceptEngine: SdrTanimoto mode clusters beliefs with guard-aware partitioni
   // All have high-Tanimoto SDR centroids (would merge without guards)
   const concept = new ConceptEngineImpl()
   // Set to SdrTanimoto mode explicitly
-  await Effect.runPromise(
-    (concept as any).state.similarity_mode
-      ? Effect.succeed(((concept as any).state.similarity_mode = ConceptSimilarityMode.SdrTanimoto))
-      : Effect.void
-  )
+  await Effect.runPromise(concept.with_similarity_mode(ConceptSimilarityMode.SdrTanimoto))
 
   const state: BeliefEngineState = {
     version: 1,

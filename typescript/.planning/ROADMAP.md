@@ -118,7 +118,7 @@ Plans:
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 06.2
 **Source:** AUDIT-DIFF.md, EXPLAIN.md
-**Plans:** 8/11 plans executed
+**Plans:** 9/11 plans executed
 
 **Scope (by priority):**
 
@@ -155,7 +155,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4)*
 
-- [ ] 06.3-09-PLAN.md — PolicyEngine P1: 3-engine discover + seed selection + polarity + action mapping + MaintenanceService call update (TDD)
+- [x] 06.3-09-PLAN.md — PolicyEngine P1: 3-engine discover + seed selection + polarity + action mapping + MaintenanceService call update (TDD)
 - [ ] 06.3-10-PLAN.md — PolicyEngine P2: 4-dim scoring + suppression + recommendation templates + surface alignment (TDD)
 
 **Wave 6** *(blocked on Waves 1-5)*

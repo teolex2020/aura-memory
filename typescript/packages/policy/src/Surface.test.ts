@@ -130,12 +130,13 @@ it("hints without provenance are not surfaced", () => {
 it("surface sorting is deterministic with actionKind tiebreaker", () => {
   // Same policyStrength for all, so actionKind priority is the differentiator
   // Avoid > Warn > VerifyFirst > Recommend > Prefer
+  // Use different domains to avoid per-domain cap (MAX_SURFACED_PER_DOMAIN=3)
   const engine = makeEngine([
-    makeHint("h_prefer", "k_prefer", "default", "general", "Prefer", "Stable", 0.80, 0.70, 0.0),
-    makeHint("h_recommend", "k_recommend", "default", "general", "Recommend", "Stable", 0.80, 0.70, 0.0),
-    makeHint("h_verify", "k_verify", "default", "general", "VerifyFirst", "Stable", 0.80, 0.70, 0.0),
-    makeHint("h_warn", "k_warn", "default", "general", "Warn", "Stable", 0.80, 0.70, 0.0),
-    makeHint("h_avoid", "k_avoid", "default", "general", "Avoid", "Stable", 0.80, 0.70, 0.0),
+    makeHint("h_prefer", "k_prefer", "default", "domain_a", "Prefer", "Stable", 0.80, 0.70, 0.0, { recommendation: "Prefer approach A" }),
+    makeHint("h_recommend", "k_recommend", "default", "domain_b", "Recommend", "Stable", 0.80, 0.70, 0.0, { recommendation: "Recommend approach B" }),
+    makeHint("h_verify", "k_verify", "default", "domain_c", "VerifyFirst", "Stable", 0.80, 0.70, 0.0, { recommendation: "Verify first for C" }),
+    makeHint("h_warn", "k_warn", "default", "domain_d", "Warn", "Stable", 0.80, 0.70, 0.0, { recommendation: "Warn about D" }),
+    makeHint("h_avoid", "k_avoid", "default", "domain_e", "Avoid", "Stable", 0.80, 0.70, 0.0, { recommendation: "Avoid approach E" }),
   ])
 
   const s1 = run(surfacePolicyHints(engine))

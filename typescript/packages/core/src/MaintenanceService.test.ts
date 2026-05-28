@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest"
 import { Effect, Ref } from "effect"
+
+// Helper: create a Ref from a value (replaces Ref.unsafeMake which doesn't exist)
+function mockRef<T>(value: T): Effect.Ref.Ref<T> {
+  return Effect.runSync(Ref.make(value))
+}
 import {
   buildTrendSnapshot,
   summarizeTrends,
@@ -322,8 +327,7 @@ describe("summarizeReflections", () => {
     expect(result.summaryCount).toBe(2)
     expect(result.totalFindings).toBe(4)
     expect(result.highSeverityFindings).toBe(2)
-    expect(result.latestTimestamp).toBe("rts-3") // Wait... this would be from the most recent. Let me check.
-    // Actually the summaries don't have timestamps set past the default. latestTimestamp would be the last entry's timestamp.
+    expect(result.latestTimestamp).toBe("2026-05-28T00:00:00Z")
     expect(result.latestDominantPhase).toBe("causal")
 
     // Kinds: blocker count=2, trend count=1, contradiction count=1
@@ -398,10 +402,10 @@ describe("computeLayerStability", () => {
         mockConceptEng() as any,
         mockCausalEng() as any,
         mockPolicyEng() as any,
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>())
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>())
       )
     )
 
@@ -425,10 +429,10 @@ describe("computeLayerStability", () => {
         mockConceptEng(concepts, conceptKI) as any,
         mockCausalEng({}) as any,
         mockPolicyEng({}) as any,
-        Ref.unsafeMake(new Set(["b1", "b2", "b3"])),
-        Ref.unsafeMake(new Set(["c1"])),
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>())
+        mockRef(new Set(["b1", "b2", "b3"])),
+        mockRef(new Set(["key-a"])),
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>())
       )
     )
 
@@ -451,10 +455,10 @@ describe("computeLayerStability", () => {
         mockConceptEng() as any,
         mockCausalEng() as any,
         mockPolicyEng() as any,
-        Ref.unsafeMake(prevKeys),
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>())
+        mockRef(prevKeys),
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>())
       )
     )
 
@@ -472,10 +476,10 @@ describe("computeLayerStability", () => {
         mockConceptEng() as any,
         mockCausalEng() as any,
         mockPolicyEng() as any,
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>()),
-        Ref.unsafeMake(new Set<string>())
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>()),
+        mockRef(new Set<string>())
       )
     )
 
@@ -488,10 +492,10 @@ describe("computeLayerStability", () => {
   })
 
   it("updates prevKeys Refs after computation", async () => {
-    const prevBelief = Ref.unsafeMake(new Set<string>())
-    const prevConcept = Ref.unsafeMake(new Set<string>())
-    const prevCausal = Ref.unsafeMake(new Set<string>())
-    const prevPolicy = Ref.unsafeMake(new Set<string>())
+    const prevBelief = mockRef(new Set<string>())
+    const prevConcept = mockRef(new Set<string>())
+    const prevCausal = mockRef(new Set<string>())
+    const prevPolicy = mockRef(new Set<string>())
 
     await Effect.runPromise(
       computeLayerStability(
@@ -503,9 +507,9 @@ describe("computeLayerStability", () => {
       )
     )
 
-    expect(Ref.unsafeGet(prevBelief)).toEqual(new Set(["b1", "b2"]))
-    expect(Ref.unsafeGet(prevConcept)).toEqual(new Set(["key-x"]))
-    expect(Ref.unsafeGet(prevCausal)).toEqual(new Set<string>())
-    expect(Ref.unsafeGet(prevPolicy)).toEqual(new Set(["policy1"]))
+    expect(Effect.runSync(Ref.get(prevBelief))).toEqual(new Set(["b1", "b2"]))
+    expect(Effect.runSync(Ref.get(prevConcept))).toEqual(new Set(["key-x"]))
+    expect(Effect.runSync(Ref.get(prevCausal))).toEqual(new Set<string>())
+    expect(Effect.runSync(Ref.get(prevPolicy))).toEqual(new Set(["policy1"]))
   })
 })

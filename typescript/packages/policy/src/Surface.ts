@@ -8,6 +8,7 @@
  */
 
 import { Effect } from "effect"
+import { PolicyActionKind, PolicyState, type SurfacedPolicyHint } from "@aura/contract"
 
 // ── Constants ──
 
@@ -25,40 +26,20 @@ const MAX_SURFACED_PER_DOMAIN = 3
 
 // ── Types ──
 
-/** The type of advisory action suggested by a policy hint. */
-export type PolicyActionKind = "Prefer" | "Recommend" | "VerifyFirst" | "Avoid" | "Warn"
-
-/** Lifecycle state of a policy hint. */
-export type PolicyState = "Candidate" | "Stable" | "Suppressed" | "Rejected"
-
 /** ActionKind priority for tiebreaking: lower number = higher surface priority. */
 const ACTION_KIND_PRIORITY: Record<PolicyActionKind, number> = {
-  Avoid: 0,
-  Warn: 1,
-  VerifyFirst: 2,
-  Recommend: 3,
-  Prefer: 4,
-}
-
-/** Maps PolicyActionKind to its snake_case external representation. */
-function actionKindString(kind: PolicyActionKind): SurfacedPolicyHint["actionKind"] {
-  const map: Record<PolicyActionKind, SurfacedPolicyHint["actionKind"]> = {
-    Avoid: "avoid",
-    Warn: "warn",
-    VerifyFirst: "verify_first",
-    Recommend: "recommend",
-    Prefer: "prefer",
-  }
-  return map[kind]
+  [PolicyActionKind.Avoid]: 0,
+  [PolicyActionKind.Warn]: 1,
+  [PolicyActionKind.VerifyFirst]: 2,
+  [PolicyActionKind.Recommend]: 3,
+  [PolicyActionKind.Prefer]: 4,
 }
 
 /** Maps PolicyState to its external string representation. */
 function stateString(state: PolicyState): SurfacedPolicyHint["state"] {
-  switch (state) {
-    case "Stable": return "stable"
-    case "Candidate": return "candidate"
-    default: return "candidate"
-  }
+  if (state === PolicyState.Stable) return "stable"
+  if (state === PolicyState.Candidate) return "candidate"
+  return "candidate"
 }
 
 // ── PolicyHint (internal engine hint) ──
@@ -90,39 +71,6 @@ export interface PolicyHint {
 export interface PolicyEngine {
   readonly hints: ReadonlyMap<string, PolicyHint>
   readonly keyIndex: ReadonlyMap<string, string>
-}
-
-// ── SurfacedPolicyHint (external-facing) ──
-
-/** A filtered, stable, user-facing advisory hint.
- *  This is the external contract — decoupled from internal PolicyHint. */
-export interface SurfacedPolicyHint {
-  /** Hint identifier. */
-  readonly id: string
-  /** Lifecycle state ("stable" or "candidate"). */
-  readonly state: "stable" | "candidate"
-  /** Advisory action kind. */
-  readonly actionKind: "prefer" | "recommend" | "verify_first" | "avoid" | "warn"
-  /** Namespace this hint belongs to. */
-  readonly namespace: string
-  /** Domain/topic of the hint. */
-  readonly domain: string
-  /** Human-readable recommendation text. */
-  readonly recommendation: string
-  /** Composite policy strength score. */
-  readonly policyStrength: number
-  /** Aggregated confidence from beliefs. */
-  readonly confidence: number
-  /** Risk signal (higher = more negative outcome weight). */
-  readonly riskScore: number
-  /** Causal pattern IDs that triggered this hint. */
-  readonly triggerCausalIds: readonly string[]
-  /** Concept IDs that support this hint. */
-  readonly triggerConceptIds: readonly string[]
-  /** Belief IDs that support this hint. */
-  readonly triggerBeliefIds: readonly string[]
-  /** Record IDs (transitive provenance). */
-  readonly supportingRecordIds: readonly string[]
 }
 
 // ── Helper: is hint eligible for surfacing? ──
@@ -157,7 +105,7 @@ function toSurfaced(hint: PolicyHint): SurfacedPolicyHint {
   return {
     id: hint.id,
     state: stateString(hint.state),
-    actionKind: actionKindString(hint.actionKind),
+    actionKind: hint.actionKind,
     namespace: hint.namespace,
     domain: hint.domain,
     // Truncate recommendation to 200 characters
@@ -165,12 +113,8 @@ function toSurfaced(hint: PolicyHint): SurfacedPolicyHint {
       ? hint.recommendation.slice(0, 200)
       : hint.recommendation,
     policyStrength: hint.policyStrength,
-    confidence: hint.confidence,
     riskScore: hint.riskScore,
     triggerCausalIds: hint.triggerCausalIds,
-    triggerConceptIds: hint.triggerConceptIds,
-    triggerBeliefIds: hint.triggerBeliefIds,
-    supportingRecordIds: hint.supportingRecordIds,
   }
 }
 
@@ -264,3 +208,8 @@ export function surfacePolicyHintsFiltered(
 
   return Effect.succeed(result)
 }
+
+// ── Re-exports for downstream consumers ──
+
+export { PolicyActionKind, PolicyState } from "@aura/contract"
+export type { SurfacedPolicyHint } from "@aura/contract"

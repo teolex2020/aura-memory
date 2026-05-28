@@ -240,6 +240,490 @@ function isStopword(word: string): boolean {
   }
 }
 
+// ── Canonical Feature Representation (Variant A) ──
+// STUB implementations for TDD RED phase — will be replaced in GREEN phase.
+
+/**
+ * Lightweight suffix stripping: remove common English suffixes to normalize word forms.
+ * Conservative approach: only strip when the resulting base is >= 4 chars long
+ * to avoid mangling short words.
+ *
+ * Extracted from Rust concept.rs stem_word() (lines 1502-1559).
+ */
+export function stemWord(word: string): string {
+  const len = word.length
+
+  // Minimum length to attempt stemming: require at least 6 chars
+  // so the base after stripping is still meaningful (>= 4 chars)
+  if (len <= 5) {
+    return word
+  }
+
+  // Order matters: try longest suffixes first, require base >= 4 chars
+  if (word.endsWith("ations") && len > 7) {
+    return word.slice(0, len - 6)
+  }
+  if (word.endsWith("ation") && len > 6) {
+    return word.slice(0, len - 5)
+  }
+  if (word.endsWith("ments") && len > 6) {
+    return word.slice(0, len - 5)
+  }
+  if (word.endsWith("ment") && len > 5 && (len - 4) >= 4) {
+    return word.slice(0, len - 4)
+  }
+  if (word.endsWith("ness") && len > 5 && (len - 4) >= 4) {
+    return word.slice(0, len - 4)
+  }
+  if (word.endsWith("ting") && len > 5 && (len - 3) >= 4) {
+    return word.slice(0, len - 3)
+  }
+  if (word.endsWith("ing") && len > 5 && (len - 3) >= 4) {
+    return word.slice(0, len - 3)
+  }
+  if (word.endsWith("ied") && len > 5) {
+    return word.slice(0, len - 3) + "y"
+  }
+  if (word.endsWith("ies") && len > 5) {
+    return word.slice(0, len - 3) + "y"
+  }
+  if (word.endsWith("ed") && len > 5 && (len - 2) >= 4) {
+    return word.slice(0, len - 2)
+  }
+  if (word.endsWith("ly") && len > 5 && (len - 2) >= 4) {
+    return word.slice(0, len - 2)
+  }
+  if (word.endsWith("es") && len > 5 && (len - 2) >= 4) {
+    return word.slice(0, len - 2)
+  }
+  if (word.endsWith("er") && len > 5 && (len - 2) >= 4) {
+    return word.slice(0, len - 2)
+  }
+  if (word.endsWith("s") && !word.endsWith("ss") && len > 4 && (len - 1) >= 4) {
+    return word.slice(0, len - 1)
+  }
+
+  return word
+}
+
+/**
+ * Hand-curated equivalence dictionary for common domain terms.
+ * Maps variant forms to a single canonical form.
+ * Extracted from Rust concept.rs try_canonical() (lines 1562-1632).
+ * ALL entries copied verbatim from Rust source — no additions, no omissions.
+ */
+export function applyEquivalenceDictionary(word: string): string {
+  switch (word) {
+    // deployment family
+    case "deploy":
+    case "deploys":
+    case "deployed":
+    case "deploying":
+    case "deployment":
+    case "deployments":
+    case "post-deploy":
+      return "deploy"
+    case "rollout":
+    case "rollouts":
+    case "roll-out":
+    case "rolling":
+      return "rollout"
+    case "rollback":
+    case "rollbacks":
+      return "rollback"
+    case "release":
+    case "releases":
+    case "released":
+    case "releasing":
+      return "release"
+    case "canary":
+    case "canaries":
+      return "canary"
+    case "staging":
+    case "staged":
+    case "stage":
+      return "staging"
+    case "production":
+    case "prod":
+      return "production"
+    case "blue-green":
+      return "bluegreen"
+    case "downtime":
+      return "downtime"
+    case "promote":
+    case "promotes":
+    case "promoted":
+    case "promoting":
+    case "promotion":
+      return "promote"
+    case "validate":
+    case "validates":
+    case "validated":
+    case "validating":
+    case "validation":
+      return "validate"
+    case "region":
+    case "regions":
+    case "regional":
+      return "region"
+    case "environment":
+    case "environments":
+    case "env":
+      return "environment"
+    case "smoke":
+      return "smoke"
+    // database family
+    case "database":
+    case "databases":
+    case "db":
+    case "postgresql":
+    case "postgres":
+    case "mysql":
+      return "database"
+    case "query":
+    case "queries":
+    case "querying":
+    case "queried":
+      return "query"
+    case "index":
+    case "indexes":
+    case "indices":
+    case "indexed":
+    case "indexing":
+      return "index"
+    case "schema":
+    case "schemas":
+      return "schema"
+    case "migration":
+    case "migrations":
+    case "migrating":
+    case "migrate":
+      return "migration"
+    case "backup":
+    case "backups":
+    case "backed":
+      return "backup"
+    case "replica":
+    case "replicas":
+    case "replication":
+    case "replicate":
+      return "replica"
+    case "connection":
+    case "connections":
+    case "connecting":
+    case "connect":
+      return "connection"
+    case "pool":
+    case "pools":
+    case "pooling":
+      return "pool"
+    case "table":
+    case "tables":
+      return "table"
+    case "partition":
+    case "partitions":
+    case "partitioning":
+    case "partitioned":
+      return "partition"
+    // editor/UI family
+    case "editor":
+    case "editors":
+      return "editor"
+    case "theme":
+    case "themes":
+    case "themed":
+      return "theme"
+    case "dark":
+    case "darker":
+      return "dark"
+    case "mode":
+    case "modes":
+      return "mode"
+    case "font":
+    case "fonts":
+      return "font"
+    case "keybinding":
+    case "keybindings":
+    case "binding":
+    case "bindings":
+      return "keybinding"
+    case "vim":
+    case "vi":
+      return "vim"
+    case "extension":
+    case "extensions":
+      return "extension"
+    // process/workflow
+    case "test":
+    case "tests":
+    case "testing":
+    case "tested":
+      return "test"
+    case "monitor":
+    case "monitors":
+    case "monitoring":
+    case "monitored":
+      return "monitor"
+    case "config":
+    case "configuration":
+    case "configurations":
+    case "configure":
+    case "configured":
+    case "configuring":
+      return "config"
+    case "review":
+    case "reviews":
+    case "reviewing":
+    case "reviewed":
+    case "reviewer":
+      return "review"
+    case "approval":
+    case "approve":
+    case "approved":
+    case "approving":
+      return "approval"
+    case "pipeline":
+    case "pipelines":
+      return "pipeline"
+    case "security":
+    case "secure":
+    case "secured":
+    case "securing":
+      return "security"
+    case "scan":
+    case "scans":
+    case "scanning":
+    case "scanned":
+    case "scanner":
+      return "scan"
+    case "strategy":
+    case "strategies":
+      return "strategy"
+    case "artifact":
+    case "artifacts":
+      return "artifact"
+    case "version":
+    case "versions":
+    case "versioned":
+    case "versioning":
+      return "version"
+    case "timeout":
+    case "timeouts":
+      return "timeout"
+    case "credential":
+    case "credentials":
+      return "credential"
+    case "error":
+    case "errors":
+      return "error"
+    case "metric":
+    case "metrics":
+      return "metric"
+    case "service":
+    case "services":
+      return "service"
+    case "log":
+    case "logs":
+    case "logging":
+    case "logged":
+      return "log"
+    case "performance":
+    case "perf":
+      return "performance"
+    // general
+    case "feature":
+    case "features":
+      return "feature"
+    case "flag":
+    case "flags":
+      return "flag"
+    case "container":
+    case "containers":
+      return "container"
+    case "registry":
+    case "registries":
+      return "registry"
+    case "healthy":
+    case "health":
+      return "health"
+    case "automated":
+    case "automatic":
+    case "auto":
+      return "automated"
+    default:
+      return word
+  }
+}
+
+/**
+ * Extended stopword filter for canonical tokenization.
+ * Broader than the term extraction stopwords — includes more function words.
+ * Extracted from Rust concept.rs is_canonical_stopword() (lines 1637-1731).
+ * ALL 91 entries copied verbatim from Rust source — no additions, no omissions.
+ */
+export function isCanonicalStopword(word: string): boolean {
+  switch (word) {
+    case "the":
+    case "and":
+    case "for":
+    case "are":
+    case "but":
+    case "not":
+    case "you":
+    case "all":
+    case "can":
+    case "had":
+    case "her":
+    case "was":
+    case "one":
+    case "our":
+    case "out":
+    case "has":
+    case "his":
+    case "how":
+    case "its":
+    case "may":
+    case "new":
+    case "now":
+    case "old":
+    case "see":
+    case "way":
+    case "who":
+    case "did":
+    case "get":
+    case "let":
+    case "say":
+    case "she":
+    case "too":
+    case "use":
+    case "with":
+    case "this":
+    case "that":
+    case "have":
+    case "from":
+    case "they":
+    case "been":
+    case "will":
+    case "into":
+    case "when":
+    case "what":
+    case "which":
+    case "their":
+    case "than":
+    case "each":
+    case "make":
+    case "like":
+    case "just":
+    case "over":
+    case "such":
+    case "take":
+    case "also":
+    case "some":
+    case "could":
+    case "them":
+    case "only":
+    case "other":
+    case "very":
+    case "after":
+    case "most":
+    case "then":
+    case "more":
+    case "should":
+    case "would":
+    case "there":
+    case "about":
+    case "these":
+    case "where":
+    case "being":
+    case "does":
+    case "much":
+    case "every":
+    case "always":
+    case "using":
+    case "during":
+    case "before":
+    case "between":
+    case "through":
+    case "while":
+    case "since":
+    case "both":
+    case "still":
+    case "need":
+    case "set":
+    case "via":
+    case "per":
+    case "least":
+    case "already":
+      return true
+    default:
+      return false
+  }
+}
+
+/**
+ * Jaccard similarity between two token arrays.
+ * |A ∩ B| / |A ∪ B|
+ * Extracted from Rust concept.rs jaccard() (lines 1782-1793).
+ */
+export function jaccardSimilarity(tokensA: ReadonlyArray<string>, tokensB: ReadonlyArray<string>): number {
+  if (tokensA.length === 0 && tokensB.length === 0) {
+    return 0.0
+  }
+  const setA = new Set(tokensA)
+  const setB = new Set(tokensB)
+  let intersection = 0
+  for (const token of setA) {
+    if (setB.has(token)) intersection++
+  }
+  const union = setA.size + setB.size - intersection
+  if (union === 0) return 0.0
+  return intersection / union
+}
+
+/**
+ * Extract canonical tokens from text content.
+ * Pipeline: lowercase → split_whitespace → trim punctuation
+ * → filter stopwords/short → equivalence dictionary → suffix stripping → dedup.
+ * Extracted from Rust concept.rs canonical_tokens() (lines 1738-1757).
+ */
+export function canonicalTokens(content: string): string[] {
+  const tokens = new Set<string>()
+  const words = content.toLowerCase().split(/\s+/).filter(Boolean)
+
+  for (const w of words) {
+    // trim non-alphanumeric chars on both ends (Rust: trim_matches(!is_alphanumeric))
+    const trimmed = w.replace(/^[^a-z0-9]+/, "").replace(/[^a-z0-9]+$/, "")
+    if (trimmed.length < 3) continue
+    if (isCanonicalStopword(trimmed)) continue
+
+    // First try equivalence dictionary on raw word
+    const equiv = applyEquivalenceDictionary(trimmed)
+    if (equiv !== trimmed) {
+      if (equiv.length >= 2) tokens.add(equiv)
+      continue
+    }
+
+    // Then stem and try dictionary on stemmed form
+    const stemmed = stemWord(trimmed)
+    const equivStemmed = applyEquivalenceDictionary(stemmed)
+    if (equivStemmed !== stemmed) {
+      if (equivStemmed.length >= 2) tokens.add(equivStemmed)
+    } else if (stemmed.length >= 2) {
+      tokens.add(stemmed)
+    }
+  }
+
+  // Return sorted unique tokens
+  return Array.from(tokens).sort()
+}
+
+/**
+ * Build canonical tokens from content (convenience alias for canonicalTokens).
+ */
+export function buildCanonicalTokens(content: string): string[] {
+  return canonicalTokens(content)
+}
+
 /**
  * Extract core and shell terms from a set of records.
  *
@@ -346,7 +830,7 @@ export class ConceptEngineImpl {
     concepts: {},
     key_index: {},
     seed_mode: ConceptSeedMode.Standard,
-    similarity_mode: ConceptSimilarityMode.SdrTanimoto,
+    similarity_mode: ConceptSimilarityMode.CanonicalFeature,
     partition_mode: ConceptPartitionMode.Standard,
     union_mode: ConceptUnionMode.Standard
   }
@@ -480,6 +964,81 @@ export class ConceptEngineImpl {
   }
 
   /**
+   * Build canonical token sets per belief for CanonicalFeature mode.
+   * Extracts tokens from each belief's records using the canonical_tokens pipeline.
+   */
+  private buildBeliefCanonicalTokens(
+    seeds: ReadonlyArray<string>,
+    beliefRecords: ReadonlyMap<string, ReadonlyArray<string>>,
+    records: ReadonlyMap<string, AuraRecord>
+  ): Map<string, string[]> {
+    const out = new Map<string, string[]>()
+    for (const bid of seeds) {
+      const rids = beliefRecords.get(bid)
+      if (!rids) continue
+      const tokenSet = new Set<string>()
+      for (const rid of rids) {
+        const rec = records.get(rid)
+        if (!rec) continue
+        for (const t of canonicalTokens(rec.content)) tokenSet.add(t)
+        // Also include tags as canonical tokens (matching Rust belief_canonical_tokens)
+        for (const tag of rec.tags) tokenSet.add(tag.toLowerCase())
+      }
+      if (tokenSet.size > 0) out.set(bid, Array.from(tokenSet).sort())
+    }
+    return out
+  }
+
+  /**
+   * Cluster beliefs using canonical token Jaccard similarity.
+   * Matching Rust cluster_beliefs_canonical (lines 866-978).
+   */
+  private clusterBeliefsCanonical(
+    seedIds: ReadonlyArray<string>,
+    beliefTokens: ReadonlyMap<string, ReadonlyArray<string>>
+  ): string[][] {
+    const n = seedIds.length
+    if (n <= 1) return [seedIds.map((x) => x)]
+
+    const parent = new Array<number>(n)
+    for (let i = 0; i < n; i++) parent[i] = i
+
+    const find = (x: number): number => {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]!]!
+        x = parent[x]!
+      }
+      return x
+    }
+    const union = (a: number, b: number) => {
+      const ra = find(a)
+      const rb = find(b)
+      if (ra !== rb) parent[ra] = rb
+    }
+
+    for (let i = 0; i < n; i++) {
+      const tokI = beliefTokens.get(seedIds[i]!)
+      if (!tokI || tokI.length === 0) continue
+      for (let j = i + 1; j < n; j++) {
+        const tokJ = beliefTokens.get(seedIds[j]!)
+        if (!tokJ || tokJ.length === 0) continue
+        if (jaccardSimilarity(tokI, tokJ) >= CANONICAL_SIMILARITY_THRESHOLD) {
+          union(i, j)
+        }
+      }
+    }
+
+    const clusters = new Map<number, string[]>()
+    for (let i = 0; i < n; i++) {
+      const root = find(i)
+      const arr = clusters.get(root)
+      if (arr) arr.push(seedIds[i]!)
+      else clusters.set(root, [seedIds[i]!])
+    }
+    return Array.from(clusters.values())
+  }
+
+  /**
    * Run a full concept discovery cycle.
    *
    * Rebuilds all concepts from scratch using current belief engine state.
@@ -551,11 +1110,25 @@ export class ConceptEngineImpl {
           ? 0
           : nonEmptyCentroids.map((c) => c.length).reduce((a, b) => a + b, 0) / nonEmptyCentroids.length
 
+      const useCanonical = self.state.similarity_mode === ConceptSimilarityMode.CanonicalFeature
+      // Build canonical token sets per belief (for CanonicalFeature mode)
+      const beliefTokens = useCanonical
+        ? self.buildBeliefCanonicalTokens(seeds, beliefRecords, records)
+        : new Map<string, string[]>()
+
+      // Report centroids/token-sets built
+      const centroidsBuiltFinal = useCanonical
+        ? Array.from(beliefTokens.values()).filter((t) => t.length > 0).length
+        : nonEmptyCentroids.length
+
+      const activeThreshold = useCanonical
+        ? CANONICAL_SIMILARITY_THRESHOLD
+        : CONCEPT_SIMILARITY_THRESHOLD
+
       /**
-       * TODO: NON-PARITY IMPLEMENTATION: Rust supports `CanonicalFeature` similarity mode and `union_mode` family bridging.
-       *
-       * 待办：Rust concept 引擎支持 CanonicalFeature 相似度与 union_mode 的 family bridge；
-       * TS 当前仅实现 SdrTanimoto + 固定阈值聚类（保持主链路可跑通）。
+       * NON-PARITY: Rust supports `union_mode` family bridging.
+       * TS currently implements CanonicalFeature clustering without family/tag barriers.
+       * The core similarity path (jaccard over canonical tokens) is aligned.
        */
       const partitions = self.partitionSeeds(seeds, beliefs, self.state.partition_mode)
       const clustersAll: string[][] = []
@@ -587,17 +1160,26 @@ export class ConceptEngineImpl {
         }
 
         for (let i = 0; i < partitionSeeds.length; i++) {
-          const a = centroids.get(partitionSeeds[i]!) ?? []
           for (let j = i + 1; j < partitionSeeds.length; j++) {
-            const b = centroids.get(partitionSeeds[j]!) ?? []
-            const t = tanimotoSorted(a, b)
+            const t = useCanonical
+              ? jaccardSimilarity(
+                  beliefTokens.get(partitionSeeds[i]!) ?? [],
+                  beliefTokens.get(partitionSeeds[j]!) ?? []
+                )
+              : tanimotoSorted(
+                  centroids.get(partitionSeeds[i]!) ?? [],
+                  centroids.get(partitionSeeds[j]!) ?? []
+                )
             allTanimotos.push(t)
             pairwiseComparisons++
-            if (t >= CONCEPT_SIMILARITY_THRESHOLD) pairwiseAbove++
+            if (t >= activeThreshold) pairwiseAbove++
           }
         }
 
-        clustersAll.push(...self.clusterBeliefs(partitionSeeds, centroids))
+        const clusters = useCanonical
+          ? self.clusterBeliefsCanonical(partitionSeeds, beliefTokens)
+          : self.clusterBeliefs(partitionSeeds, centroids)
+        clustersAll.push(...clusters)
       }
 
       allTanimotos.sort((a, b) => a - b)
@@ -721,7 +1303,7 @@ export class ConceptEngineImpl {
         stable_count: stableCount,
         rejected_count: rejectedCount,
         avg_abstraction_score: avgAbstractionScore,
-        centroids_built: centroidsBuilt,
+        centroids_built: centroidsBuiltFinal,
         partitions_with_multiple_seeds: partitionsWithMultipleSeeds,
         multi_seed_partition_sizes: multiSeedPartitionSizes,
         cluster_sizes: clusterSizes,

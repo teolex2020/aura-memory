@@ -333,6 +333,16 @@ export class Aura {
     );
   }
 
+  runMaintenance(..._args: ReadonlyArray<unknown>) {
+    // STUB: Maintenance pipeline entry point — wired by MaintenanceService.
+    // Plan 06 created MaintenanceService; this stub allows Aura facade to
+    // compile before full integration.
+    // Rust reference: Aura::run_maintenance (aura.rs)
+    return Effect.die(
+      new UnimplementedError({ feature: "Aura.runMaintenance" }),
+    );
+  }
+
   get_entity_digest(..._args: ReadonlyArray<unknown>) {
     // UNIMPLEMENTED: relation/entity graph APIs are intentionally left as defects for now.
     // Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.

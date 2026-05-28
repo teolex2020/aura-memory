@@ -4,6 +4,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@aura/concept": "workspace:*",
+    "@aura/policy": "workspace:*"
   }
 }
-

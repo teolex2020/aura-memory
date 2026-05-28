@@ -224,12 +224,12 @@ function mockBeliefEngine(
   const beliefs = opts.beliefs ?? {}
   const hypotheses = opts.hypotheses ?? {}
   const recordToBelief = opts.recordToBelief ?? {}
-  const state: BeliefEngineState = {
-    version: 1,
+  const state = {
+    version: 1 as const,
     beliefs,
     hypotheses,
     record_to_belief: recordToBelief,
-  }
+  } as BeliefEngineState
   return {
     update_with_sdr: () => Effect.succeed(emptyBeliefReport),
     update: () => Effect.succeed(emptyBeliefReport),
@@ -253,15 +253,15 @@ function mockConceptEngine(
   opts: MockConceptOptions = {}
 ): ConceptEngineImpl {
   const concepts = opts.concepts ?? {}
-  const state: ConceptEngineState = {
-    version: 1,
+  const state = {
+    version: 1 as const,
     concepts,
     key_index: {},
-    seed_mode: "Standard" as const,
-    similarity_mode: "SdrTanimoto" as const,
-    partition_mode: "Standard" as const,
-    union_mode: "Standard" as const,
-  }
+    seed_mode: "Standard",
+    similarity_mode: "SdrTanimoto",
+    partition_mode: "Standard",
+    union_mode: "Standard",
+  } as ConceptEngineState
   return {
     discover: () => Effect.succeed(emptyConceptReport),
     stats: () => Effect.succeed(state),
@@ -279,11 +279,11 @@ function mockCausalEngine(
   opts: MockCausalOptions = {}
 ): CausalEngineImpl {
   const patterns = opts.patterns ?? {}
-  const state: CausalEngineState = {
-    version: 1,
+  const state = {
+    version: 1 as const,
     patterns,
-    discovery_mode: "Standard" as const,
-  }
+    discovery_mode: "Standard",
+  } as CausalEngineState
   return {
     discover: () => Effect.succeed(emptyCausalReport),
     stats: () => Effect.succeed(state),
@@ -302,7 +302,7 @@ function mockPolicyEngine(
   const hints = opts.hints ?? {}
   const state: PolicyEngineState = {
     version: 1,
-    hints,
+    hints: hints as PolicyEngineState["hints"],
     metadata: {},
     key_index: {},
   }
@@ -924,10 +924,10 @@ describe("EpistemicRuntime (refactored)", () => {
     it("beliefs sharing records form clusters", async () => {
       const runtime = await createTestRuntime()
       const records = new Map<string, AuraRecord>([
-        ["rec1", { id: "rec1", tags: ["tag-a", "tag-b"] } as AuraRecord],
-        ["rec2", { id: "rec2", tags: ["tag-b"] } as AuraRecord],
-        ["rec3", { id: "rec3", tags: ["tag-c"] } as AuraRecord],
-        ["rec4", { id: "rec4", tags: ["tag-d"] } as AuraRecord],
+        ["rec1", { id: "rec1", tags: ["tag-a", "tag-b"] } as unknown as AuraRecord],
+        ["rec2", { id: "rec2", tags: ["tag-b"] } as unknown as AuraRecord],
+        ["rec3", { id: "rec3", tags: ["tag-c"] } as unknown as AuraRecord],
+        ["rec4", { id: "rec4", tags: ["tag-d"] } as unknown as AuraRecord],
       ])
       const layer = makeLayer({
         belief: {
@@ -955,7 +955,7 @@ describe("EpistemicRuntime (refactored)", () => {
       // Find the cluster containing b1
       const clusterABC = result.find((c) => c.beliefIds.includes("b1"))
       expect(clusterABC).toBeDefined()
-      expect(clusterABC!.beliefIds.sort()).toEqual(["b1", "b2", "b3"])
+      expect([...clusterABC!.beliefIds].sort()).toEqual(["b1", "b2", "b3"])
       expect(clusterABC!.unresolvedBeliefCount).toBe(2) // b1, b3
       expect(clusterABC!.highVolatilityBeliefCount).toBe(2) // b1(0.5), b3(0.6)
       expect(clusterABC!.totalConflictMass).toBeCloseTo(0.8 + 0.2 + 0.9, 5)
@@ -965,8 +965,8 @@ describe("EpistemicRuntime (refactored)", () => {
     it("namespace filter works", async () => {
       const runtime = await createTestRuntime()
       const records = new Map<string, AuraRecord>([
-        ["rec1", { id: "rec1", tags: [], namespace: "ns1" } as AuraRecord],
-        ["rec2", { id: "rec2", tags: [], namespace: "ns2" } as AuraRecord],
+        ["rec1", { id: "rec1", tags: [], namespace: "ns1" } as unknown as AuraRecord],
+        ["rec2", { id: "rec2", tags: [], namespace: "ns2" } as unknown as AuraRecord],
       ])
       const layer = makeLayer({
         belief: {
@@ -999,7 +999,7 @@ describe("EpistemicRuntime (refactored)", () => {
         beliefs[bid] = sampleBelief(bid, { conflict_mass: 0.1 * (i + 1) })
         // Each belief has its own record (no sharing)
         const rid = `rec${i}`
-        records.set(rid, { id: rid } as AuraRecord)
+        records.set(rid, { id: rid } as unknown as AuraRecord)
         hypotheses[`h${i}`] = sampleHypothesis(`h${i}`, { belief_id: bid, prototype_record_ids: [rid] })
       }
       const layer = makeLayer({ belief: { beliefs, hypotheses } })
@@ -1021,8 +1021,8 @@ describe("EpistemicRuntime (refactored)", () => {
     it("isolated beliefs produce separate singleton clusters", async () => {
       const runtime = await createTestRuntime()
       const records = new Map<string, AuraRecord>([
-        ["rec1", { id: "rec1" } as AuraRecord],
-        ["rec2", { id: "rec2" } as AuraRecord],
+        ["rec1", { id: "rec1" } as unknown as AuraRecord],
+        ["rec2", { id: "rec2" } as unknown as AuraRecord],
       ])
       const layer = makeLayer({
         belief: {

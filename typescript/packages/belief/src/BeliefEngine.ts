@@ -13,6 +13,7 @@ import {
   type SdrLookup,
   Clock
 } from "@aura/contract"
+import { SDRInterpreter } from "@aura/recall"
 
 /**
  * The belief engine — maintains the full belief state.
@@ -79,6 +80,13 @@ export const SDR_TAG_GUARD_THRESHOLD = 0.10
  * Rust: TAG_FINGERPRINT_SIMILARITY_THRESHOLD = 0.08 (belief.rs:56)
  */
 export const TAG_SDR_FINGERPRINT_THRESHOLD = 0.08
+
+/**
+ * NeighborhoodPool relaxed SDR threshold.
+ *
+ * Rust: NeighborhoodPool => self.claim_similarity_override.unwrap_or(0.08) (belief.rs:1045)
+ */
+export const NEIGHBORHOOD_POOL_THRESHOLD = 0.08
 
 /**
  * Exponential-decay half-life for recency (14 days in seconds).
@@ -191,6 +199,66 @@ function tanimoto(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
 }
 
 /**
+ * Minimal deterministic tag bridge table for safe densification experiments.
+ *
+ * Mirrors Rust normalize_bridge_tag at belief.rs:526-533.
+ *
+ * 最小确定性标签桥接表，用于安全的高密度实验。
+ */
+function normalizeBridgeTag(tag: string): string {
+  const lower = tag.trim().toLowerCase()
+  switch (lower) {
+    case "ui":
+    case "frontend":
+      return "frontend"
+    case "auth":
+    case "authentication":
+      return "authentication"
+    case "deploy":
+    case "release":
+      return "release"
+    default:
+      return lower
+  }
+}
+
+/**
+ * Compute normalized bridge tags for a record.
+ *
+ * Mirrors Rust normalized_bridge_tags at belief.rs:536-546.
+ */
+function normalizedBridgeTags(record: AuraRecord): string[] {
+  const tags = record.tags
+    .map((t) => normalizeBridgeTag(t))
+    .sort()
+  // dedup
+  return tags.filter((t, i) => i === 0 || t !== tags[i - 1]).slice(0, 3)
+}
+
+/**
+ * Canonical tag text: sorted, deduped, lowercased tags joined by space.
+ *
+ * Mirrors Rust canonical_tag_text at belief.rs:548-558.
+ */
+function canonicalTagText(record: AuraRecord): string {
+  const tags = record.tags
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => tag.length > 0)
+    .sort()
+  // dedup
+  const deduped = tags.filter((t, i) => i === 0 || t !== tags[i - 1])
+  return deduped.join(" ")
+}
+
+/**
+ * Interface for generating tag SDR fingerprints.
+ * SDRInterpreter from @aura/recall satisfies this interface.
+ */
+export interface TagSdrGenerator {
+  textToSdrLowered(text: string, isIdentity: boolean): number[]
+}
+
+/**
  * Split records into SDR sub-clusters using Union-Find (disjoint set).
  *
  * Mirrors Rust sdr_subcluster at belief.rs:678-733.
@@ -232,6 +300,237 @@ function unionFindClusters(
       const sdrJ = lookup.get(records[j]!.id)
       if (!sdrJ) continue
       if (tanimoto(sdrI, sdrJ) >= threshold) union(i, j)
+    }
+  }
+
+  const clusters = new Map<number, AuraRecord[]>()
+  for (let i = 0; i < n; i++) {
+    const root = find(i)
+    const arr = clusters.get(root)
+    if (arr) arr.push(records[i]!)
+    else clusters.set(root, [records[i]!])
+  }
+  return Array.from(clusters.values())
+}
+
+/**
+ * Exported alias for sdr_subcluster — plain Union-Find SDR subclustering.
+ *
+ * Mirrors Rust sdr_subcluster at belief.rs:678-733.
+ */
+export const sdrSubcluster = unionFindClusters
+
+/**
+ * Tag-guarded SDR subclustering for DualKey/NeighborhoodPool modes.
+ *
+ * Like sdr_subcluster, but additionally requires that two records share
+ * at least 1 tag before they can be merged. Exception: if either side
+ * has no tags, skip the tag barrier.
+ *
+ * Mirrors Rust sdr_subcluster_tag_guarded at belief.rs:741-803.
+ */
+export function sdrSubclusterTagGuarded(
+  records: ReadonlyArray<AuraRecord>,
+  lookup: SdrLookup,
+  threshold: number
+): ReadonlyArray<ReadonlyArray<AuraRecord>> {
+  const n = records.length
+  if (n <= 1) return records.map((r) => [r])
+
+  const parent = new Array<number>(n)
+  for (let i = 0; i < n; i++) parent[i] = i
+
+  const find = (x: number): number => {
+    let v = x
+    while (parent[v] !== v) v = parent[v]!
+    let p = x
+    while (parent[p] !== p) {
+      const next = parent[p]!
+      parent[p] = v
+      p = next
+    }
+    return v
+  }
+
+  const union = (a: number, b: number) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[rb] = ra
+  }
+
+  for (let i = 0; i < n; i++) {
+    const sdrI = lookup.get(records[i]!.id)
+    if (!sdrI) continue
+
+    const tagsI = new Set(records[i]!.tags)
+
+    for (let j = i + 1; j < n; j++) {
+      // Tag barrier: require shared tags >= 1
+      // Exception: if either side has no tags, skip the barrier (Rust belief.rs:781)
+      const tagsJ = records[j]!.tags
+      const shared = tagsJ.some((t) => tagsI.has(t))
+      if (!shared && tagsI.size > 0 && tagsJ.length > 0) {
+        continue
+      }
+
+      const sdrJ = lookup.get(records[j]!.id)
+      if (!sdrJ) continue
+
+      if (tanimoto(sdrI, sdrJ) >= threshold) {
+        union(i, j)
+      }
+    }
+  }
+
+  const clusters = new Map<number, AuraRecord[]>()
+  for (let i = 0; i < n; i++) {
+    const root = find(i)
+    const arr = clusters.get(root)
+    if (arr) arr.push(records[i]!)
+    else clusters.set(root, [records[i]!])
+  }
+  return Array.from(clusters.values())
+}
+
+/**
+ * Bridge-tag-guarded SDR subclustering for BridgeKey mode.
+ *
+ * Records may merge only if they share at least one normalized bridge tag
+ * family and pass the SDR threshold.
+ *
+ * Mirrors Rust sdr_subcluster_bridge_guarded at belief.rs:810-875.
+ */
+export function sdrSubclusterBridgeGuarded(
+  records: ReadonlyArray<AuraRecord>,
+  lookup: SdrLookup,
+  threshold: number
+): ReadonlyArray<ReadonlyArray<AuraRecord>> {
+  const n = records.length
+  if (n <= 1) return records.map((r) => [r])
+
+  const parent = new Array<number>(n)
+  for (let i = 0; i < n; i++) parent[i] = i
+
+  const find = (x: number): number => {
+    let v = x
+    while (parent[v] !== v) v = parent[v]!
+    let p = x
+    while (parent[p] !== p) {
+      const next = parent[p]!
+      parent[p] = v
+      p = next
+    }
+    return v
+  }
+
+  const union = (a: number, b: number) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[rb] = ra
+  }
+
+  const bridgeSets = records.map((rec) => new Set(normalizedBridgeTags(rec)))
+
+  for (let i = 0; i < n; i++) {
+    const sdrI = lookup.get(records[i]!.id)
+    if (!sdrI) continue
+
+    for (let j = i + 1; j < n; j++) {
+      // Bridge guard: require shared normalized bridge tag
+      const sharedBridge = [...bridgeSets[i]!].some((tag) => bridgeSets[j]!.has(tag))
+      if (!sharedBridge) {
+        continue
+      }
+
+      const sdrJ = lookup.get(records[j]!.id)
+      if (!sdrJ) continue
+
+      if (tanimoto(sdrI, sdrJ) >= threshold) {
+        union(i, j)
+      }
+    }
+  }
+
+  const clusters = new Map<number, AuraRecord[]>()
+  for (let i = 0; i < n; i++) {
+    const root = find(i)
+    const arr = clusters.get(root)
+    if (arr) arr.push(records[i]!)
+    else clusters.set(root, [records[i]!])
+  }
+  return Array.from(clusters.values())
+}
+
+/**
+ * SDR-tag-guarded subclustering for SdrTagPool mode.
+ *
+ * Uses two deterministic guards:
+ * 1. tag fingerprint overlap must exceed TAG_FINGERPRINT_SIMILARITY_THRESHOLD
+ * 2. content SDR overlap must exceed the claim threshold
+ *
+ * Mirrors Rust sdr_subcluster_tag_sdr_guarded at belief.rs:882-957.
+ */
+export function sdrSubclusterTagSdrGuarded(
+  records: ReadonlyArray<AuraRecord>,
+  lookup: SdrLookup,
+  threshold: number,
+  tagSdrGen: TagSdrGenerator
+): ReadonlyArray<ReadonlyArray<AuraRecord>> {
+  const n = records.length
+  if (n <= 1) return records.map((r) => [r])
+
+  const parent = new Array<number>(n)
+  for (let i = 0; i < n; i++) parent[i] = i
+
+  const find = (x: number): number => {
+    let v = x
+    while (parent[v] !== v) v = parent[v]!
+    let p = x
+    while (parent[p] !== p) {
+      const next = parent[p]!
+      parent[p] = v
+      p = next
+    }
+    return v
+  }
+
+  const union = (a: number, b: number) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[rb] = ra
+  }
+
+  // Pre-compute tag SDR fingerprints
+  const tagFingerprints: (number[] | null)[] = records.map((rec) => {
+    const tagText = canonicalTagText(rec)
+    if (tagText.length === 0) return null
+    return tagSdrGen.textToSdrLowered(tagText, false)
+  })
+
+  for (let i = 0; i < n; i++) {
+    const sdrI = lookup.get(records[i]!.id)
+    if (!sdrI) continue
+
+    for (let j = i + 1; j < n; j++) {
+      // Guard 1: tag fingerprint similarity
+      const fpI = tagFingerprints[i]
+      const fpJ = tagFingerprints[j]
+      if (!fpI || !fpJ || fpI.length === 0 || fpJ.length === 0) {
+        continue
+      }
+
+      const tagSimilarity = tanimoto(fpI, fpJ)
+      if (tagSimilarity < TAG_SDR_FINGERPRINT_THRESHOLD) {
+        continue
+      }
+
+      // Guard 2: content SDR similarity
+      const sdrJ = lookup.get(records[j]!.id)
+      if (!sdrJ) continue
+
+      if (tanimoto(sdrI, sdrJ) >= threshold) {
+        union(i, j)
+      }
     }
   }
 
@@ -587,13 +886,17 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
         const isBridgeGuard = self.coarseKeyMode === CoarseKeyMode.BridgeKey
         const isTagSdrGuard = self.coarseKeyMode === CoarseKeyMode.SdrTagPool
 
-        let subclusters = isTagGuard
-          ? unionFindClusters(groupRecords, sdr_lookup, threshold)
-          : isBridgeGuard
-            ? unionFindClusters(groupRecords, sdr_lookup, threshold)
-            : isTagSdrGuard
-              ? unionFindClusters(groupRecords, sdr_lookup, threshold)
-              : unionFindClusters(groupRecords, sdr_lookup, threshold)
+        let subclusters: ReadonlyArray<ReadonlyArray<AuraRecord>>
+        if (isTagGuard) {
+          subclusters = sdrSubclusterTagGuarded(groupRecords, sdr_lookup, threshold)
+        } else if (isBridgeGuard) {
+          subclusters = sdrSubclusterBridgeGuarded(groupRecords, sdr_lookup, threshold)
+        } else if (isTagSdrGuard) {
+          const sdrInterpreter = yield* Effect.promise(() => self.getSdrInterpreter())
+          subclusters = sdrSubclusterTagSdrGuarded(groupRecords, sdr_lookup, threshold, sdrInterpreter)
+        } else {
+          subclusters = sdrSubcluster(groupRecords, sdr_lookup, threshold)
+        }
 
         if (subclusters.length === 1) {
           groups.set(coarseKey, groupRecords)
@@ -794,10 +1097,20 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
     })
   }
 
+  // Lazy-initialized SDRInterpreter for tag fingerprint generation
+  private sdrInterpreterPromise: Promise<SDRInterpreter> | null = null
+
+  getSdrInterpreter(): Promise<SDRInterpreter> {
+    if (!this.sdrInterpreterPromise) {
+      this.sdrInterpreterPromise = SDRInterpreter.default()
+    }
+    return this.sdrInterpreterPromise
+  }
+
   private effectiveThreshold(): number {
     switch (this.coarseKeyMode) {
       case CoarseKeyMode.NeighborhoodPool:
-        return SDR_TAG_GUARD_THRESHOLD // 0.10
+        return NEIGHBORHOOD_POOL_THRESHOLD // 0.08 (Rust belief.rs:1045)
       case CoarseKeyMode.DualKey:
         return SDR_TAG_GUARD_THRESHOLD // 0.10
       case CoarseKeyMode.SdrTagPool:

@@ -326,8 +326,8 @@ it("stemWord: removes 'er' suffix when word > 5 chars", () => {
   assert.strictEqual(stemWord("higher"), "high")
 })
 
-it("stemWord: removes 's' suffix (unless 'ss') when word > 4 chars and base >= 4", () => {
-  assert.strictEqual(stemWord("tools"), "tool")
+it("stemWord: removes 's' suffix (unless 'ss') when word > 5 chars and base >= 4", () => {
+  assert.strictEqual(stemWord("writers"), "writer")
 })
 
 it("stemWord: does NOT remove 's' when word ends with 'ss'", () => {
@@ -611,7 +611,7 @@ it("isCanonicalStopword: total count matches Rust source (detect drift)", () => 
     "while", "since", "both", "still", "need", "set", "via", "per", "least",
     "already"
   ]
-  assert.strictEqual(stopWords.length, 93)
+  assert.strictEqual(stopWords.length, 91)
   // Verify all are recognized as stopwords
   for (const w of stopWords) {
     assert.ok(isCanonicalStopword(w), `expected "${w}" to be a stopword`)

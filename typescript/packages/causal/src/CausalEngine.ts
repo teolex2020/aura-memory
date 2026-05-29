@@ -903,8 +903,17 @@ function deterministicPatternIdFromKey(patternKeyStr: string, edgeHash: string):
   return `cp-${hex.slice(-8)}`
 }
 
+/** xxhash-wasm hasher — lazily initialized; NON-PARITY risk tracked below. */
 let _hasher: { h64: (input: string) => bigint } | null = null
 
+/**
+ * Get or initialize the xxhash hasher.
+ *
+ * NON-PARITY: Lazy async initialization can produce hash drift — the same corpus
+ * may yield different fingerprints depending on whether getHasher() has resolved.
+ * Tracked: migrate to eager module-level initialization (top-level await or
+ * synchronous hasher) to guarantee deterministic fingerprints across all calls.
+ */
 async function getHasher(): Promise<{ h64: (input: string) => bigint }> {
   if (!_hasher) _hasher = await xxhash()
   return _hasher

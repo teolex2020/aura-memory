@@ -952,7 +952,13 @@ export class CausalEngineImpl implements CausalEngine.Interface {
       const trace = Option.isSome(traceOpt) ? traceOpt.value : undefined
       if (trace) yield* trace.event("causal.discover.start", { records: _records.size })
 
-      // Phase 0: Corpus fingerprint check — skip if unchanged
+      // Phase 0: Corpus fingerprint check — skip if unchanged.
+      // Eager-initialize hasher to prevent hash drift between first and
+      // subsequent cycles (NON-PARITY: lazy init causes different hash
+      // algorithms on first vs later calls). See WR-05.
+      if (!_hasher) {
+        _hasher = yield* Effect.promise(() => xxhash())
+      }
       const fingerprint = computeCorpusFingerprint(_records)
       if (fingerprint !== "" && fingerprint === self.state.last_corpus_fingerprint
           && Object.keys(self.state.patterns).length > 0) {

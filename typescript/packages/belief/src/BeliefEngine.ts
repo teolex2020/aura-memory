@@ -1057,9 +1057,13 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
       // Step 1: Coarse grouping by tag key
       // Rust: belief.rs:985-1011 — filters by content.len() < 10, builds coarse_groups
       let coarseGroups = new Map<string, AuraRecord[]>()
+      let recordsSkippedByLength = 0
       for (const rec of records.values()) {
         // Rust: content.len() < 10 → skip (byte-length, not token estimate)
-        if (byteLength(rec.content) < 10) continue
+        if (byteLength(rec.content) < 10) {
+          recordsSkippedByLength++
+          continue
+        }
         const key = yield* self.claim_key(rec.namespace, rec.tags, rec.semantic_type)
         const arr = coarseGroups.get(key)
         if (arr) arr.push(rec)
@@ -1088,6 +1092,14 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
           }
         }
         coarseGroups = refinedGroups
+      }
+
+      // Trace records skipped by content length filter
+      if (recordsSkippedByLength > 0 && trace) {
+        yield* trace.event("belief.update_with_sdr.records_skipped_by_length", {
+          count: recordsSkippedByLength,
+          total: records.size,
+        })
       }
 
       // Step 2: Fine grouping — for each coarse group, dispatch to subcluster strategy

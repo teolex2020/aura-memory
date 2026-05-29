@@ -372,10 +372,12 @@ export class Aura {
   ) {
     const cfg = config ?? defaultMaintenanceConfig
     const dir = this.brainDir
+    const recordCount = this.records.length
 
+    const self = this
     return Effect.gen(function* () {
       const trace = yield* Effect.service(EpistemicTrace)
-      yield* trace.event("maintenance.start", { records: this.records.length })
+      yield* trace.event("maintenance.start", { records: recordCount })
 
       // ── Get engines and stores from Effect context ──
       const beliefEng = yield* Effect.service(BeliefEngine)

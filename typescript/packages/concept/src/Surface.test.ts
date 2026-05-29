@@ -25,7 +25,14 @@ import { surfaceConcepts, surfaceConceptsFiltered, computeSurfaceConcepts, MAX_S
 
 /** Build a mock ConceptEngine.Interface that only needs stats(). */
 function mockEngine(state: ConceptEngineState): ConceptEngine.Interface {
-  return { stats: () => Effect.succeed(state) }
+  return {
+    with_seed_mode: () => Effect.void,
+    with_similarity_mode: () => Effect.void,
+    discover: () => Effect.succeed({} as any),
+    stable_concepts: () => Effect.succeed([] as readonly string[]),
+    active_candidates: () => Effect.succeed([] as readonly string[]),
+    stats: () => Effect.succeed(state),
+  }
 }
 
 /** Minimal ConceptCandidate factory. */

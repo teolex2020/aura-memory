@@ -372,11 +372,10 @@ export class Aura {
   ) {
     const cfg = config ?? defaultMaintenanceConfig
     const dir = this.brainDir
-    const recordsList = this.records
 
     return Effect.gen(function* () {
       const trace = yield* Effect.service(EpistemicTrace)
-      yield* trace.event("maintenance.start", { records: recordsList.length })
+      yield* trace.event("maintenance.start", { records: this.records.length })
 
       // ── Get engines and stores from Effect context ──
       const beliefEng = yield* Effect.service(BeliefEngine)
@@ -406,9 +405,7 @@ export class Aura {
       }
 
       // ── Build records map ──
-      const records = new Map<string, AuraRecord>(
-        recordsList.map((r) => [r.id, r as unknown as AuraRecord])
-      )
+      const records = yield* loadCognitiveRecords(dir)
 
       // ── Initialize timings and hotspots ──
       const timings: PhaseTimings = {

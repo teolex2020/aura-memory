@@ -78,12 +78,12 @@ function isHintEligible(hint: PolicyHint, namespace?: string): boolean {
 
   // State gate
   switch (hint.state) {
-    case "Stable":
+    case PolicyState.Stable:
       return true
-    case "Candidate":
+    case PolicyState.Candidate:
       return hint.policyStrength >= STRONG_CANDIDATE_THRESHOLD && hint.confidence >= MIN_SURFACE_CONFIDENCE
-    case "Suppressed":
-    case "Rejected":
+    case PolicyState.Suppressed:
+    case PolicyState.Rejected:
       return false
     default:
       return false
@@ -163,8 +163,8 @@ export function surfacePolicyHintsFiltered(
     if (riskDiff !== 0) return riskDiff
 
     // Tiebreak: Stable before Candidate
-    if (a.state === "Stable" && b.state !== "Stable") return -1
-    if (a.state !== "Stable" && b.state === "Stable") return 1
+    if (a.state === PolicyState.Stable && b.state !== PolicyState.Stable) return -1
+    if (a.state !== PolicyState.Stable && b.state === PolicyState.Stable) return 1
 
     // Final tiebreak: key (deterministic)
     if (a.key < b.key) return -1

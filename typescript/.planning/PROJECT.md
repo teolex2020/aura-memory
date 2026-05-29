@@ -41,3 +41,16 @@
 - effect-smol layering: core/storage/codec/indexing/mcp only via @aura/*
 - node:* only in @aura/platform-node and test glue
 - All packages must have package.json with name: @aura/<pkg>, type: module, exports
+
+## Current State
+
+**Phase 06.3 (Engine Algorithm Parity) complete** — 11/11 plans executed. All four engines (BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine) aligned with Rust algorithm implementations. 14/14 AUDIT-DIFF deviations resolved. 449/450 tests pass. Rust fixture E2E verified. Next: Phase 7 (MCP + Polish).
+
+## Requirements
+
+### Validated in Phase 06.3
+
+- REQ-011: Per-engine type-level parity — 19 constants/thresholds/formulas verified against Rust source
+- REQ-012: Rust fixture E2E verification — 3 fixture sets cross-referenced, recall parity confirmed
+
+Last updated: 2026-05-30

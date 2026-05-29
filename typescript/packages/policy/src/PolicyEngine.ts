@@ -689,7 +689,7 @@ function buildHints(
       confidence,
       state: PolicyState.Candidate, // classified later
       last_updated: nowSecs,
-      actionKind: actionKind as unknown as import("@aura/contract").PolicyActionKind,
+      actionKind,
       policyStrength,
       riskScore,
       namespace: pattern.namespace,

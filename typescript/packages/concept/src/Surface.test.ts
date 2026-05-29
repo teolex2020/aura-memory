@@ -15,7 +15,7 @@ import {
   ConceptPartitionMode,
   ConceptUnionMode,
   type ConceptCandidate,
-  type ConceptEngineImpl,
+  type ConceptEngine,
   type ConceptEngineState,
 } from "@aura/contract"
 import type { SurfacedConcept } from "@aura/contract"
@@ -23,9 +23,9 @@ import { surfaceConcepts, surfaceConceptsFiltered, computeSurfaceConcepts, MAX_S
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-/** Build a mock ConceptEngineImpl that only needs stats(). */
-function mockEngine(state: ConceptEngineState): ConceptEngineImpl {
-  return { stats: () => Effect.succeed(state) } as unknown as ConceptEngineImpl
+/** Build a mock ConceptEngine.Interface that only needs stats(). */
+function mockEngine(state: ConceptEngineState): ConceptEngine.Interface {
+  return { stats: () => Effect.succeed(state) }
 }
 
 /** Minimal ConceptCandidate factory. */

@@ -1,7 +1,7 @@
 import { it, describe } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
-import { EpistemicTrace, BeliefEngine, TemporalBudgetMode, EvidenceMode, type FeedbackAuditReport } from "@aura/contract"
+import { EpistemicTrace, BeliefEngine, Level, TemporalBudgetMode, EvidenceMode, type FeedbackAuditReport } from "@aura/contract"
 import { CausalState, CausalDiscoveryMode, CausalEdgeKind } from "@aura/contract"
 import type { BeliefEngineState, BeliefReport } from "@aura/contract"
 import type { SdrLookup, CausalEdge, CausalReport } from "@aura/contract"
@@ -71,7 +71,7 @@ function makeRecord(
   return {
     id,
     content,
-    level: "Domain" as any,
+    level: Level.Domain,
     strength: 0.5,
     activation_count: 0,
     created_at,

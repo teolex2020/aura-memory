@@ -3,6 +3,7 @@ import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import { EpistemicTrace, CausalEngine, BeliefEngine, ConceptEngine, type FeedbackAuditReport } from "@aura/contract"
 import { CausalState, CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode, Polarity } from "@aura/contract"
+import { ConceptSeedMode, ConceptSimilarityMode, ConceptPartitionMode, ConceptUnionMode } from "@aura/contract"
 import type {
   CausalEngineState,
   CausalPattern,
@@ -86,10 +87,10 @@ function mockConceptEngine(): ConceptEngine.Interface {
       version: 1 as const,
       concepts: {},
       key_index: {},
-      seed_mode: "Standard" as any,
-      similarity_mode: "SdrTanimoto" as any,
-      partition_mode: "Standard" as any,
-      union_mode: "Standard" as any,
+      seed_mode: ConceptSeedMode.Standard,
+      similarity_mode: ConceptSimilarityMode.SdrTanimoto,
+      partition_mode: ConceptPartitionMode.Standard,
+      union_mode: ConceptUnionMode.Standard,
     } as ConceptEngineState)
   }
 }

@@ -8,9 +8,6 @@ import {
   EpistemicTrace,
   ConceptSurfaceMode,
   Polarity,
-  type ConceptEngineImpl,
-  type CausalEngineImpl,
-  type PolicyEngineImpl,
   type BeliefReport,
   type ConceptReport,
   type CausalReport,
@@ -308,7 +305,7 @@ interface MockConceptOptions {
 
 function mockConceptEngine(
   opts: MockConceptOptions = {}
-): ConceptEngineImpl {
+): ConceptEngine.Interface {
   const concepts = opts.concepts ?? {}
   const state = {
     version: 1 as const,
@@ -335,7 +332,7 @@ interface MockCausalOptions {
 
 function mockCausalEngine(
   opts: MockCausalOptions = {}
-): CausalEngineImpl {
+): CausalEngine.Interface {
   const patterns = opts.patterns ?? {}
   const state = {
     version: 1 as const,
@@ -360,7 +357,7 @@ interface MockPolicyOptions {
 
 function mockPolicyEngine(
   opts: MockPolicyOptions = {}
-): PolicyEngineImpl {
+): PolicyEngine.Interface {
   const hints = opts.hints ?? {}
   const state: PolicyEngineState = {
     version: 1,

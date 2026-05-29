@@ -121,13 +121,18 @@ export namespace BeliefEngine {
 
 export class BeliefEngine extends Tag("aura.contract.BeliefEngine")<BeliefEngine, BeliefEngine.Interface>() {}
 
-export type BeliefStoreImpl = {
-  load: () => Effect.Effect<
-    BeliefEngineState,
-    FileReadError | JsonParseError,
-    FileRead
-  >
-  save: (engine: BeliefEngineState) => Effect.Effect<void, FileWriteError, FileWrite>
+export namespace BeliefStore {
+  export interface Interface {
+    load: () => Effect.Effect<
+      BeliefEngineState,
+      FileReadError | JsonParseError,
+      FileRead
+    >
+    save: (engine: BeliefEngineState) => Effect.Effect<void, FileWriteError, FileWrite>
+  }
 }
 
-export class BeliefStore extends Tag("aura.contract.BeliefStore")<BeliefStore, BeliefStoreImpl>() {}
+export class BeliefStore extends Tag("aura.contract.BeliefStore")<BeliefStore, BeliefStore.Interface>() {}
+
+/** @deprecated Use BeliefStore.Interface instead. */
+export type BeliefStoreImpl = BeliefStore.Interface

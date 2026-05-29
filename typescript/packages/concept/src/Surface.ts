@@ -13,7 +13,7 @@
  */
 
 import { Effect } from "effect"
-import { ConceptState, type ConceptCandidate, type ConceptEngineImpl, type SurfacedConcept } from "@aura/contract"
+import { ConceptState, type ConceptEngine, type ConceptCandidate, type SurfacedConcept } from "@aura/contract"
 
 /** Per-namespace max surfaced concepts, matching Rust MAX_SURFACED_PER_NAMESPACE. */
 export const MAX_SURFACED_PER_NAMESPACE = 5
@@ -147,7 +147,7 @@ function toSurfacedConcept(c: ConceptCandidate): SurfacedConcept {
  * Existing consumers (EpistemicRuntime) use this Effect-based API.
  */
 export function surfaceConcepts(
-  engine: ConceptEngineImpl,
+  engine: ConceptEngine.Interface,
   limit?: number
 ): Effect.Effect<ReadonlyArray<SurfacedConcept>> {
   return Effect.gen(function* () {
@@ -162,7 +162,7 @@ export function surfaceConcepts(
  * Same as surfaceConcepts but additionally filters by exact namespace match.
  */
 export function surfaceConceptsFiltered(
-  engine: ConceptEngineImpl,
+  engine: ConceptEngine.Interface,
   limit?: number,
   namespace?: string
 ): Effect.Effect<ReadonlyArray<SurfacedConcept>> {

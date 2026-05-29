@@ -30,12 +30,6 @@ import type {
   MaintenanceReport
 } from "@aura/contract"
 import type { ContradictionCluster } from "@aura/contract"
-import type {
-  ConceptEngineImpl, ConceptStoreImpl,
-  CausalEngineImpl, CausalStoreImpl,
-  PolicyEngineImpl, PolicyStoreImpl,
-  BeliefStoreImpl,
-} from "@aura/contract"
 import type { SdrLookup } from "@aura/contract"
 import type { Record as AuraRecord } from "@aura/contract"
 import type { BeliefEngineState, ConceptEngineState, CausalEngineState, PolicyEngineState } from "@aura/contract"
@@ -546,9 +540,9 @@ export function buildSdrLookup(
  */
 export function computeLayerStability(
   beliefEng: BeliefEngine.Interface,
-  conceptEng: ConceptEngineImpl,
-  causalEng: CausalEngineImpl,
-  policyEng: PolicyEngineImpl,
+  conceptEng: ConceptEngine.Interface,
+  causalEng: CausalEngine.Interface,
+  policyEng: PolicyEngine.Interface,
   prevBeliefKeys: Ref.Ref<Set<string>>,
   prevConceptKeys: Ref.Ref<Set<string>>,
   prevCausalKeys: Ref.Ref<Set<string>>,
@@ -603,13 +597,13 @@ export function computeLayerStability(
  */
 export function runDiscoveryPhases(
   beliefEngine: BeliefEngine.Interface,
-  beliefStore: BeliefStoreImpl,
-  conceptEngine: ConceptEngineImpl,
-  conceptStore: ConceptStoreImpl,
-  causalEngine: CausalEngineImpl,
-  causalStore: CausalStoreImpl,
-  policyEngine: PolicyEngineImpl,
-  policyStore: PolicyStoreImpl,
+  beliefStore: BeliefStore.Interface,
+  conceptEngine: ConceptEngine.Interface,
+  conceptStore: ConceptStore.Interface,
+  causalEngine: CausalEngine.Interface,
+  causalStore: CausalStore.Interface,
+  policyEngine: PolicyEngine.Interface,
+  policyStore: PolicyStore.Interface,
   beliefSnapshot: Map<string, AuraRecord>,
   sdrLookup: SdrLookup,
   timings: PhaseTimings,
@@ -762,7 +756,7 @@ export function finalizeTelemetry(
   timings: PhaseTimings,
   hotspots: MaintenanceHotspots,
   conceptSurfaceMode: ConceptSurfaceMode,
-  conceptEngine: ConceptEngineImpl,
+  conceptEngine: ConceptEngine.Interface,
   counters: ConceptSurfaceCounters
 ): Effect.Effect<ConceptSurfaceTelemetry> {
   return Effect.gen(function* () {

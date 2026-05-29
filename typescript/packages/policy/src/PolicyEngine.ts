@@ -1,7 +1,8 @@
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer, Option, Clock } from "effect"
 import {
   PolicyEngine,
   PolicyActionKind,
+  Polarity,
   PolicyState,
   EpistemicTrace,
   serviceOption,
@@ -15,9 +16,8 @@ import {
   type CausalEngineState,
   type CausalPattern,
   type BeliefEngineState,
-  type BeliefState,
 } from "@aura/contract"
-import { EvidenceMode, CausalState } from "@aura/contract"
+import { EvidenceMode, CausalState, BeliefState } from "@aura/contract"
 import {
   meetsSupportGate,
   meetsEvidenceGate,
@@ -108,7 +108,7 @@ function meetsSeedBeliefGate(
   if (causeBid) {
     const belief = beliefState.beliefs[causeBid]
     if (belief &&
-      (belief.state === "Resolved" as string || belief.state === "Singleton" as string)) {
+      (belief.state === BeliefState.Resolved || belief.state === BeliefState.Singleton)) {
       return true
     }
   }
@@ -194,7 +194,7 @@ function selectSeeds(
  * Fifth tier of the cognitive hierarchy:
  *   Record → Belief → Concept → Causal Pattern → Policy
  */
-export class PolicyEngineImpl {
+export class PolicyEngineImpl implements PolicyEngine.Interface {
   private state: PolicyEngineState = {
     version: 1 as const,
     hints: {},
@@ -253,7 +253,8 @@ export class PolicyEngineImpl {
 
       // ── P2: Build hints from seeds (scoring + recommendation) ──
       yield* concept_engine.stats() // validate concept engine connectivity
-      const hints = buildHints(seeds, belief_engine, records)
+      const nowSecs = yield* Clock.nowSeconds()
+      const hints = buildHints(seeds, belief_engine, records, nowSecs, beliefState.beliefs)
       const hintsFound = hints.length
 
       // ── Classify state + store hints ──
@@ -420,15 +421,15 @@ export function polaritySignalCounts(
 export function classifyPolarity(
   effectRecordIds: ReadonlyArray<string>,
   records: ReadonlyMap<string, AuraRecord>
-): "Positive" | "Negative" | "Neutral" {
+): Polarity {
   const { positiveSignals, negativeSignals } = polaritySignalCounts(effectRecordIds, records)
 
   if (negativeSignals > positiveSignals && negativeSignals >= 2) {
-    return "Negative"
+    return Polarity.Negative
   } else if (positiveSignals > negativeSignals && positiveSignals >= 2) {
-    return "Positive"
+    return Polarity.Positive
   } else {
-    return "Neutral"
+    return Polarity.Neutral
   }
 }
 
@@ -450,19 +451,19 @@ export function classifyPolarity(
  * Matches Rust policy.rs map_action_kind (lines 500-508).
  */
 export function mapActionKind(
-  polarity: "Positive" | "Negative" | "Neutral",
+  polarity: Polarity,
   causalStrength: number
 ): PolicyActionKind {
   switch (polarity) {
-    case "Negative":
+    case Polarity.Negative:
       return causalStrength >= 0.75
         ? PolicyActionKind.Avoid
         : PolicyActionKind.VerifyFirst
-    case "Positive":
+    case Polarity.Positive:
       return causalStrength >= 0.75
         ? PolicyActionKind.Prefer
         : PolicyActionKind.Recommend
-    case "Neutral":
+    case Polarity.Neutral:
       return PolicyActionKind.Warn
   }
 }
@@ -541,17 +542,22 @@ export function generateRecommendation(
 function aggregateBeliefConfidence(
   beliefIds: string[],
   beliefEngine: BeliefEngine.Interface,
+  beliefs?: Readonly<Record<string, { confidence: number }>>,
   records?: ReadonlyMap<string, AuraRecord>,
   recordIds?: string[]
 ): number {
-  // Phase 1: average confidence from Resolved/Singleton beliefs
-  let sum = 0
-  let count = 0
-  for (const bid of beliefIds) {
-    // Access belief state synchronously via belief_engine.stats()
-    // In a sync context, we can't use Effect; this is a pure helper used
-    // during sync hint construction (stats are pre-fetched).
-    // For now, use the pattern's embedded confidence as fallback.
+  // Phase 1: average confidence from pre-fetched belief state
+  if (beliefs && beliefIds.length > 0) {
+    let sum = 0
+    let count = 0
+    for (const bid of beliefIds) {
+      const b = beliefs[bid]
+      if (b) {
+        sum += b.confidence
+        count++
+      }
+    }
+    if (count > 0) return sum / count
   }
 
   // Phase 2: if no belief-based confidence, fall back to record-level
@@ -609,7 +615,9 @@ function extractDomain(
 function buildHints(
   seeds: PolicySeed[],
   beliefEngine: BeliefEngine.Interface,
-  records: ReadonlyMap<string, AuraRecord>
+  records: ReadonlyMap<string, AuraRecord>,
+  nowSecs: number,
+  beliefs?: Readonly<Record<string, { confidence: number }>>
 ): PolicyHint[] {
   const hints: PolicyHint[] = []
 
@@ -639,6 +647,7 @@ function buildHints(
     const confidence = aggregateBeliefConfidence(
       [pattern.cause_belief_id ?? ""].filter(Boolean),
       beliefEngine,
+      beliefs,
       records,
       allRecordIds
     )
@@ -647,8 +656,8 @@ function buildHints(
     const utilityScore = Math.min(1.0, pattern.outcome_stability * pattern.temporal_consistency)
 
     // Risk: polarity-based (Rust lines 592-596)
-    const riskScore = polarity === "Negative" ? causal_strength * 0.8
-      : polarity === "Neutral" ? causal_strength * 0.3
+    const riskScore = polarity === Polarity.Negative ? causal_strength * 0.8
+      : polarity === Polarity.Neutral ? causal_strength * 0.3
       : 0.0
 
     // Stability proxy: temporal_consistency (Rust line 599)
@@ -678,7 +687,7 @@ function buildHints(
       priority: Math.round(policyStrength * 10),
       confidence,
       state: PolicyState.Candidate, // classified later
-      last_updated: Date.now(),
+      last_updated: nowSecs,
       actionKind: actionKind as unknown as import("@aura/contract").PolicyActionKind,
       policyStrength,
       riskScore,

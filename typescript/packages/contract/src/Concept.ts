@@ -2,7 +2,7 @@ import { Tag } from "./Context"
 import { FileReadError, FileWriteError, JsonParseError } from "./Errors"
 import type { BeliefEngine } from "./Belief"
 import type { EpistemicTrace } from "./EpistemicTrace"
-import type { ConceptEngineState, ConceptReport, ConceptSeedMode } from "./concept/ConceptTypes"
+import type { ConceptEngineState, ConceptReport, ConceptSeedMode, ConceptSimilarityMode } from "./concept/ConceptTypes"
 import type { SdrLookup } from "./sdr/Sdr"
 import type { Record as AuraRecord } from "./record/Record"
 
@@ -13,6 +13,7 @@ import type { Effect } from "effect"
 export namespace ConceptEngine {
   export interface Interface {
     with_seed_mode: (mode: ConceptSeedMode) => Effect.Effect<void>
+    with_similarity_mode: (mode: ConceptSimilarityMode) => Effect.Effect<void>
     discover: (
       belief_engine: BeliefEngine.Interface,
       records: ReadonlyMap<string, AuraRecord>,
@@ -29,15 +30,20 @@ export class ConceptEngine extends Tag("aura.contract.ConceptEngine")<ConceptEng
 /** @deprecated Use ConceptEngine.Interface instead. */
 export type ConceptEngineImpl = ConceptEngine.Interface
 
-export type ConceptStoreImpl = {
-  load: () =>
-    Effect.Effect<
-      ConceptEngineState,
-      FileReadError | JsonParseError,
-      FileRead
-    >
-  save: (engine: ConceptEngineState) =>
-    Effect.Effect<void, FileWriteError, FileWrite>
+export namespace ConceptStore {
+  export interface Interface {
+    load: () =>
+      Effect.Effect<
+        ConceptEngineState,
+        FileReadError | JsonParseError,
+        FileRead
+      >
+    save: (engine: ConceptEngineState) =>
+      Effect.Effect<void, FileWriteError, FileWrite>
+  }
 }
 
-export class ConceptStore extends Tag("aura.contract.ConceptStore")<ConceptStore, ConceptStoreImpl>() {}
+export class ConceptStore extends Tag("aura.contract.ConceptStore")<ConceptStore, ConceptStore.Interface>() {}
+
+/** @deprecated Use ConceptStore.Interface instead. */
+export type ConceptStoreImpl = ConceptStore.Interface

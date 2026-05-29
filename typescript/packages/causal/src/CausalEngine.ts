@@ -3,6 +3,7 @@ import { Effect, Layer, Option } from "effect"
 import {
   CausalEngine,
   CausalDiscoveryMode,
+  CausalEdgeKind,
   CausalState,
   TemporalBudgetMode,
   EvidenceMode,
@@ -137,7 +138,7 @@ export function extractEdges(
             cause_record_id: rec.caused_by_id,
             effect_record_id: rid,
             namespace: rec.namespace,
-            edge_kind: "explicit",
+            edge_kind: CausalEdgeKind.Explicit,
             gap_seconds: rec.created_at - causeRec.created_at,
             created_at: rec.created_at,
           })
@@ -167,7 +168,7 @@ export function extractEdges(
               cause_record_id: causeId,
               effect_record_id: effectId,
               namespace: rec.namespace,
-              edge_kind: "explicit_causal",
+              edge_kind: CausalEdgeKind.ExplicitCausal,
               gap_seconds: effectTs - causeTs,
               created_at: effectTs,
             })
@@ -226,7 +227,7 @@ export function extractEdges(
             cause_record_id: causeId,
             effect_record_id: effectId,
             namespace: causeRec.namespace,
-            edge_kind: "temporal",
+            edge_kind: CausalEdgeKind.Temporal,
             gap_seconds: gap,
             created_at: effectRec.created_at,
           })
@@ -297,7 +298,8 @@ export function buildRecordToBelief(
 export function aggregateToPatterns(
   edges: ReadonlyArray<CausalEdge>,
   _records: ReadonlyMap<string, AuraRecord>,
-  beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> }
+  beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> },
+  now: number
 ): Effect.Effect<CausalPattern[], never, EpistemicTrace> {
   return Effect.gen(function* () {
     const recordToBelief = buildRecordToBelief(beliefState)
@@ -359,7 +361,7 @@ export function aggregateToPatterns(
       entry.acc.effectRecordIds.add(edge.effect_record_id)
       entry.acc.timeGaps.push(edge.gap_seconds)
 
-      if (edge.edge_kind === "explicit" || edge.edge_kind === "explicit_causal") {
+      if (edge.edge_kind === CausalEdgeKind.Explicit || edge.edge_kind === CausalEdgeKind.ExplicitCausal) {
         entry.acc.explicitCount++
       } else {
         entry.acc.temporalCount++
@@ -387,7 +389,6 @@ export function aggregateToPatterns(
 
     // Convert to CausalPattern[]
     const patterns: CausalPattern[] = []
-    const now = Math.floor(Date.now() / 1000)
 
     for (const [, { key, acc }] of accum) {
       const supportCount = acc.timeGaps.length
@@ -441,8 +442,8 @@ export function aggregateToPatterns(
         positive_effect_signals: 0,
         negative_effect_signals: 0,
         namespace: key.namespace,
-        cause_record_ids: Array.from(acc.causeRecordIds),
-        effect_record_ids: Array.from(acc.effectRecordIds),
+        cause_record_ids: Array.from(acc.causeRecordIds).sort(),
+        effect_record_ids: Array.from(acc.effectRecordIds).sort(),
       })
     }
 
@@ -902,8 +903,17 @@ function deterministicPatternIdFromKey(patternKeyStr: string, edgeHash: string):
   return `cp-${hex.slice(-8)}`
 }
 
+/** xxhash-wasm hasher — lazily initialized; NON-PARITY risk tracked below. */
 let _hasher: { h64: (input: string) => bigint } | null = null
 
+/**
+ * Get or initialize the xxhash hasher.
+ *
+ * NON-PARITY: Lazy async initialization can produce hash drift — the same corpus
+ * may yield different fingerprints depending on whether getHasher() has resolved.
+ * Tracked: migrate to eager module-level initialization (top-level await or
+ * synchronous hasher) to guarantee deterministic fingerprints across all calls.
+ */
 async function getHasher(): Promise<{ h64: (input: string) => bigint }> {
   if (!_hasher) _hasher = await xxhash()
   return _hasher
@@ -920,7 +930,7 @@ async function deterministicPatternId(
   return `cp-${hex.slice(-12)}`
 }
 
-export class CausalEngineImpl {
+export class CausalEngineImpl implements CausalEngine.Interface {
   private state: CausalEngineState = {
     version: 1 as const,
     patterns: {},
@@ -1001,7 +1011,8 @@ export class CausalEngineImpl {
       const beliefState = yield* _belief_engine.stats()
 
       // Phase 3: Aggregate edges to belief-level patterns
-      const rawPatterns = yield* aggregateToPatterns(edges, _records, beliefState)
+      const now = yield* Clock.nowSeconds()
+      const rawPatterns = yield* aggregateToPatterns(edges, _records, beliefState, now)
 
       // Phase 4: Score patterns, apply evidence gates, classify state
       let patternsMeetingSupport = 0
@@ -1057,6 +1068,15 @@ export class CausalEngineImpl {
       const patternsMap: Record<string, CausalPattern> = {}
       for (const p of scoredPatterns) {
         patternsMap[p.id] = p
+      }
+      // Preserve manually invalidated/retracted patterns from previous cycle
+      for (const [id, existing] of Object.entries(self.state.patterns)) {
+        if (
+          (existing.state === CausalState.Invalidated || existing.state === CausalState.Rejected) &&
+          !patternsMap[id]
+        ) {
+          patternsMap[id] = existing
+        }
       }
       self.state = {
         ...self.state,

@@ -44,6 +44,18 @@ export enum CausalState {
 }
 
 /**
+ * Edge derivation kind for causal edges.
+ *
+ * CONTRACT: This MUST be a TypeScript string enum (not an ad hoc string union).
+ * PROJECT RULE D-22: All enum-like Rust equivalents use TS string enums.
+ */
+export enum CausalEdgeKind {
+  Explicit = "explicit",
+  ExplicitCausal = "explicit_causal",
+  Temporal = "temporal"
+}
+
+/**
  * A record-level causal edge extracted from explicit links or temporal proximity.
  *
  * record 级别的因果边（来自显式链接或时序临近）。
@@ -56,7 +68,7 @@ export type CausalEdge = {
   /** Namespace for scope isolation. 命名空间（范围隔离）。 */
   readonly namespace: string
   /** Edge derivation kind. 边的来源类型。 */
-  readonly edge_kind: "explicit" | "explicit_causal" | "temporal"
+  readonly edge_kind: CausalEdgeKind
   /** Time gap in seconds between cause and effect (for temporal edges). 时序边的时间间隔（秒）。 */
   readonly gap_seconds: number
   /** Unix timestamp when this edge was extracted. 边提取时间戳（秒）。 */

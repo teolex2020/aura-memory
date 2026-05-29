@@ -29,6 +29,18 @@ export enum PolicyActionKind {
 }
 
 /**
+ * Polarity classification from effect-side record analysis.
+ *
+ * CONTRACT: This MUST be a TypeScript string enum (not an ad hoc string union).
+ * PROJECT RULE D-22: All enum-like Rust equivalents use TS string enums.
+ */
+export enum Polarity {
+  Positive = "Positive",
+  Negative = "Negative",
+  Neutral = "Neutral"
+}
+
+/**
  * A policy hint extracted from causal patterns — rule/guidance for the MCP layer.
  *
  * 从因果模式中提取的策略提示（向 MCP 层提供的规则/指导）。
@@ -63,7 +75,7 @@ export type PolicyHint = {
 
   // ── New Rust-aligned fields (D-22) ──
   /** Polarity classification from effect-side record analysis. 效果侧record分析得出的极性分类。 */
-  readonly polarity: "Positive" | "Negative" | "Neutral"
+  readonly polarity: Polarity
   /** Human-readable recommendation text (template-based, matching Rust 5 templates). 推荐文本。 */
   readonly recommendation: string
   /** Utility score — expected benefit if hint is followed. 效用分数（遵循提示的预期收益）。 */

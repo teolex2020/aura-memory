@@ -100,7 +100,10 @@ export namespace BeliefEngine {
      *
      * 应用更高层反馈：接受 { belief_id, action, factor? }，对目标 belief 施加修正。
      */
-    apply_layer_feedback: (...args: unknown[]) => Effect.Effect<unknown>
+    apply_layer_feedback: (
+      causalEngine: import("./Causal").CausalEngine.Interface,
+      policyEngine: import("./Policy").PolicyEngine.Interface
+    ) => Effect.Effect<unknown, never, EpistemicTrace>
 
     /**
      * List belief ids currently in Unresolved state.
@@ -121,13 +124,18 @@ export namespace BeliefEngine {
 
 export class BeliefEngine extends Tag("aura.contract.BeliefEngine")<BeliefEngine, BeliefEngine.Interface>() {}
 
-export type BeliefStoreImpl = {
-  load: () => Effect.Effect<
-    BeliefEngineState,
-    FileReadError | JsonParseError,
-    FileRead
-  >
-  save: (engine: BeliefEngineState) => Effect.Effect<void, FileWriteError, FileWrite>
+export namespace BeliefStore {
+  export interface Interface {
+    load: () => Effect.Effect<
+      BeliefEngineState,
+      FileReadError | JsonParseError,
+      FileRead
+    >
+    save: (engine: BeliefEngineState) => Effect.Effect<void, FileWriteError, FileWrite>
+  }
 }
 
-export class BeliefStore extends Tag("aura.contract.BeliefStore")<BeliefStore, BeliefStoreImpl>() {}
+export class BeliefStore extends Tag("aura.contract.BeliefStore")<BeliefStore, BeliefStore.Interface>() {}
+
+/** @deprecated Use BeliefStore.Interface instead. */
+export type BeliefStoreImpl = BeliefStore.Interface

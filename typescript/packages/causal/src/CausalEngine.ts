@@ -297,7 +297,8 @@ export function buildRecordToBelief(
 export function aggregateToPatterns(
   edges: ReadonlyArray<CausalEdge>,
   _records: ReadonlyMap<string, AuraRecord>,
-  beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> }
+  beliefState: { beliefs: Readonly<Record<string, { state: string; id: string }>>; record_index: Readonly<Record<string, string>> },
+  now: number
 ): Effect.Effect<CausalPattern[], never, EpistemicTrace> {
   return Effect.gen(function* () {
     const recordToBelief = buildRecordToBelief(beliefState)
@@ -387,7 +388,6 @@ export function aggregateToPatterns(
 
     // Convert to CausalPattern[]
     const patterns: CausalPattern[] = []
-    const now = Math.floor(Date.now() / 1000)
 
     for (const [, { key, acc }] of accum) {
       const supportCount = acc.timeGaps.length
@@ -1001,7 +1001,8 @@ export class CausalEngineImpl implements CausalEngine.Interface {
       const beliefState = yield* _belief_engine.stats()
 
       // Phase 3: Aggregate edges to belief-level patterns
-      const rawPatterns = yield* aggregateToPatterns(edges, _records, beliefState)
+      const now = yield* Clock.nowSeconds()
+      const rawPatterns = yield* aggregateToPatterns(edges, _records, beliefState, now)
 
       // Phase 4: Score patterns, apply evidence gates, classify state
       let patternsMeetingSupport = 0

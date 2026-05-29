@@ -398,6 +398,8 @@ export function denseBackoffGroupKey(
 
   const picked: string[] = stableTags
     .filter((tag) => recordDeduped.includes(tag))
+  // Defensive sort: stableTags is already sorted, but the filter preserves order
+  // from stableTags — re-sorting ensures determinism even if upstream input order changes.
   picked.sort()
   // dedup picked
   const dedupedPicked = picked.filter((t, i) => i === 0 || t !== picked[i - 1])

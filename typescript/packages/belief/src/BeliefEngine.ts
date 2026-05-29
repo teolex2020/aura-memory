@@ -1374,7 +1374,8 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
    */
   deprecate_belief(belief_id: string): Effect.Effect<void> {
     const self = this
-    return Effect.sync(() => {
+    return Effect.gen(function* () {
+      const now = yield* Clock.nowSeconds()
       const belief = self.state.beliefs[belief_id]
       if (!belief) return
 
@@ -1394,7 +1395,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
             state: BeliefState.Unresolved,
             winner_id: null,
             stability: 0,
-            last_updated: Date.now() / 1000
+            last_updated: now
           }
         }
       }

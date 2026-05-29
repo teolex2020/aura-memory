@@ -517,15 +517,15 @@ export function generateRecommendation(
 ): string {
   // Templates verified against Rust policy.rs generate_recommendation (lines 694-719)
   switch (actionKind) {
-    case "avoid":
+    case PolicyActionKind.Avoid:
       return `Avoid: '${causeSummary}' in domain [${domain}] has been associated with negative outcomes.`
-    case "verify_first":
+    case PolicyActionKind.VerifyFirst:
       return `Verify first: '${causeSummary}' in domain [${domain}] has shown risk signals — check before proceeding.`
-    case "prefer":
+    case PolicyActionKind.Prefer:
       return `Prefer: '${causeSummary}' in domain [${domain}] has consistently led to positive outcomes.`
-    case "recommend":
+    case PolicyActionKind.Recommend:
       return `Recommend: '${causeSummary}' in domain [${domain}] has shown positive signals.`
-    case "warn":
+    case PolicyActionKind.Warn:
       return `Warning: '${causeSummary}' in domain [${domain}] has a strong causal pattern but unclear polarity.`
     default:
       return `Warning: '${causeSummary}' in domain [${domain}] has a strong causal pattern but unclear polarity.`

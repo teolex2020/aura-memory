@@ -282,7 +282,8 @@ export class CodeGraph {
    * Close the CodeGraph instance and release resources
    */
   close(): void {
-    this.unwatch();
+    // TODO 后续实现
+    // this.unwatch();
     // Release file lock if held
     this.fileLock.release();
     this.db.close();

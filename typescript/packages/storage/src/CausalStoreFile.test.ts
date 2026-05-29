@@ -6,8 +6,7 @@ import * as path from "node:path"
 import { Effect } from "effect"
 import { NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import { CausalStoreFile } from "./CausalStoreFile"
-import type { CausalEngineState, TemporalBudgetMode, EvidenceMode } from "@aura/contract"
-import { CausalDiscoveryMode } from "@aura/contract"
+import { CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode, type CausalEngineState } from "@aura/contract"
 
 it("CausalStoreFile load/save roundtrip", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-causal-store-"))
@@ -23,8 +22,8 @@ it("CausalStoreFile load/save roundtrip", async () => {
     patterns: {},
     discovery_mode: CausalDiscoveryMode.Standard,
     edges_found_total: 0,
-    temporal_budget_mode: "NearbySuccessors" as TemporalBudgetMode,
-    evidence_mode: "StrictRepeatedWindows" as EvidenceMode,
+    temporal_budget_mode: TemporalBudgetMode.NearbySuccessors,
+    evidence_mode: EvidenceMode.StrictRepeatedWindows,
     last_corpus_fingerprint: ""
   }
   await Effect.runPromise(file.save(engine).pipe(Effect.provide(NodeFileWriteLive)))

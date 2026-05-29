@@ -1,6 +1,7 @@
 import { Effect } from "effect"
-import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError } from "@aura/contract"
-import type { CausalEngineState, CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode } from "@aura/contract"
+import { FileRead, FileReadError, FileWrite, FileWriteError, JsonParseError,
+  CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode,
+  type CausalEngineState } from "@aura/contract"
 import { CogJsonSnapshotFile } from "./CogJsonSnapshotFile"
 
 export class CausalStoreFile {
@@ -14,10 +15,10 @@ export class CausalStoreFile {
     return {
       version: 1 as const,
       patterns: {},
-      discovery_mode: "Standard" as CausalDiscoveryMode,
+      discovery_mode: CausalDiscoveryMode.Standard,
       edges_found_total: 0,
-      temporal_budget_mode: "NearbySuccessors" as TemporalBudgetMode,
-      evidence_mode: "StrictRepeatedWindows" as EvidenceMode,
+      temporal_budget_mode: TemporalBudgetMode.NearbySuccessors,
+      evidence_mode: EvidenceMode.StrictRepeatedWindows,
       last_corpus_fingerprint: ""
     }
   }

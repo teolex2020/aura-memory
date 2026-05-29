@@ -141,6 +141,9 @@ export class Aura {
       const clock = yield* Clock
       const nowSec = clock.nowSeconds();
       const nowIso = new Date().toISOString();
+      // NON-PARITY: id12() generates random IDs — record IDs must be deterministic
+      // for engine parity. Tracked: defer until Rust-aligned AuraStorage provides
+      // deterministic record ID generation (e.g., content-hash-based).
       const id = id12();
 
       const tags = Array.isArray(options?.tags)

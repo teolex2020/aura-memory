@@ -986,7 +986,7 @@ async function centroidSignatureU32Hex(hasher: Hasher, centroids: ReadonlyArray<
   return u32.toString(16).padStart(8, "0")
 }
 
-export class ConceptEngineImpl {
+export class ConceptEngineImpl implements ConceptEngine.Interface {
   private state: ConceptEngineState = {
     version: 1,
     concepts: {},

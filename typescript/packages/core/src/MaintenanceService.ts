@@ -673,10 +673,10 @@ export function runDiscoveryPhases(
     mt.policyMs = Date.now() - t
 
     // ── Feedback ──
-    // TODO: Full algorithm deferred per D-07 — apply_layer_feedback stub
-    t = Date.now()
+    // TODO: Full algorithm deferred per D-07 — apply_layer_feedback stub.
+    // When the real apply_layer_feedback() is integrated, add phase timing:
+    //   t = Date.now(); const feedback = yield* ...; mt.feedbackMs = Date.now() - t
     const feedback: FeedbackAuditReport = stubFeedback
-    // Feedback timing is minimal since it's a stub
 
     yield* trace.event("maintenance.discovery.end", {
       beliefs: beliefReport.beliefs_built,

@@ -194,7 +194,7 @@ function selectSeeds(
  * Fifth tier of the cognitive hierarchy:
  *   Record → Belief → Concept → Causal Pattern → Policy
  */
-export class PolicyEngineImpl {
+export class PolicyEngineImpl implements PolicyEngine.Interface {
   private state: PolicyEngineState = {
     version: 1 as const,
     hints: {},

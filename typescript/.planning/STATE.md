@@ -71,6 +71,10 @@ Last activity: 2026-05-28
 
 ## Accumulated Context
 
+### Pending Todos
+
+1 pending todo — check with `/gsd:capture --list`
+
 ### Roadmap Evolution
 
 - Phase 06.3 inserted after Phase 06.2: 对齐 Rust 引擎算法 (AUDIT-DIFF.md 14项系统性偏差) — context gathered 2026-05-28

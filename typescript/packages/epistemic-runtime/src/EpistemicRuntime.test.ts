@@ -37,6 +37,10 @@ const sampleBelief = (
 ) => ({
   id,
   key: overrides.key ?? `key-${id}`,
+  // hypothesis_ids defaults to empty — getContradictionClusters reads from
+  // state.hypotheses (via beliefEngine.stats()), not from belief.hypothesis_ids.
+  // The contradiction cluster computation builds record-to-belief mappings from
+  // hypothesis.prototype_record_ids, so this field is dead data in test contexts.
   hypothesis_ids: [] as ReadonlyArray<string>,
   winner_id: null as string | null,
   state: overrides.state ?? "Resolved",

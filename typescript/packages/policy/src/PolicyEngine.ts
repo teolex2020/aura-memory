@@ -16,9 +16,8 @@ import {
   type CausalEngineState,
   type CausalPattern,
   type BeliefEngineState,
-  type BeliefState,
 } from "@aura/contract"
-import { EvidenceMode, CausalState } from "@aura/contract"
+import { EvidenceMode, CausalState, BeliefState } from "@aura/contract"
 import {
   meetsSupportGate,
   meetsEvidenceGate,
@@ -109,7 +108,7 @@ function meetsSeedBeliefGate(
   if (causeBid) {
     const belief = beliefState.beliefs[causeBid]
     if (belief &&
-      (belief.state === "Resolved" as string || belief.state === "Singleton" as string)) {
+      (belief.state === BeliefState.Resolved || belief.state === BeliefState.Singleton)) {
       return true
     }
   }

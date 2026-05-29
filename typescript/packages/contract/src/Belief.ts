@@ -100,7 +100,10 @@ export namespace BeliefEngine {
      *
      * 应用更高层反馈：接受 { belief_id, action, factor? }，对目标 belief 施加修正。
      */
-    apply_layer_feedback: (...args: unknown[]) => Effect.Effect<unknown>
+    apply_layer_feedback: (
+      causalEngine: import("./Causal").CausalEngine.Interface,
+      policyEngine: import("./Policy").PolicyEngine.Interface
+    ) => Effect.Effect<unknown, never, EpistemicTrace>
 
     /**
      * List belief ids currently in Unresolved state.

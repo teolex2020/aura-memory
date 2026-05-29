@@ -1426,8 +1426,10 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
    *
    * 应用来自因果引擎和策略引擎的上层反馈信号。
    */
-  apply_layer_feedback(...args: unknown[]): Effect.Effect<unknown> {
-    const [causalEngine, policyEngine] = args as [CausalEngine.Interface, PolicyEngine.Interface];
+  apply_layer_feedback(
+    causalEngine: CausalEngine.Interface,
+    policyEngine: PolicyEngine.Interface
+  ): Effect.Effect<unknown, never, EpistemicTrace> {
     const self = this
     return Effect.gen(function* () {
       const now = yield* Clock.nowSeconds()

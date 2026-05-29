@@ -5,11 +5,12 @@ import {
   FileReadError,
   JsonParseError,
   RecallViewTag,
+  type Record as AuraRecord,
   type RecallView as ContractRecallView
 } from "@aura/contract"
 import { IndexFormatError, InvertedIndex } from "@aura/indexing"
 import { readBrainAuraFile } from "./BrainAura"
-import { CognitiveRecord, loadCognitiveRecords } from "./CognitiveRecord"
+import { loadCognitiveRecords } from "./CognitiveRecord"
 
 type AuraHeader = { sdr_indices: ReadonlyArray<number> }
 
@@ -41,7 +42,7 @@ function trigramJaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number 
 }
 
 function buildNgramIndex(
-  records: ReadonlyMap<string, CognitiveRecord>
+  records: ReadonlyMap<string, AuraRecord>
 ): ContractRecallView["ngramIndex"] {
   // SIMPLE IMPLEMENTATION: trigram Jaccard over `content` for fuzzy match.
   // FULL IMPLEMENTATION: port Rust `NGramIndex` (minhash/LSH) for recall-scale performance and parity.
@@ -65,7 +66,7 @@ function buildNgramIndex(
   }
 }
 
-function buildTagIndex(records: ReadonlyMap<string, CognitiveRecord>): ReadonlyMap<string, ReadonlySet<string>> {
+function buildTagIndex(records: ReadonlyMap<string, AuraRecord>): ReadonlyMap<string, ReadonlySet<string>> {
   const tagIndex = new Map<string, Set<string>>()
   for (const [id, rec] of records.entries()) {
     const tags = Array.isArray(rec.tags) ? rec.tags : []
@@ -79,7 +80,7 @@ function buildTagIndex(records: ReadonlyMap<string, CognitiveRecord>): ReadonlyM
   return tagIndex
 }
 
-function buildAuraIndex(records: ReadonlyMap<string, CognitiveRecord>): ReadonlyMap<string, string> {
+function buildAuraIndex(records: ReadonlyMap<string, AuraRecord>): ReadonlyMap<string, string> {
   const auraIndex = new Map<string, string>()
   for (const rec of records.values()) {
     if (typeof rec.aura_id === "string" && rec.aura_id.length > 0) {

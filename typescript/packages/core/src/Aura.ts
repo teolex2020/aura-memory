@@ -17,7 +17,6 @@ import {
   loadCognitiveRecords,
   loadPersistenceManifestWithValidation,
   readBrainAuraFile,
-  type CognitiveRecord,
   type BrainAuraRecord,
 } from "@aura/storage";
 import type { RecallPipelineOptions } from "@aura/recall";
@@ -572,23 +571,25 @@ export class Aura {
   }
 }
 
-function toRecordLike(rec: CognitiveRecord, nowSecs: number): AuraRecord | undefined {
+function toRecordLike(rec: AuraRecord, nowSecs: number): AuraRecord {
+  // AuraRecord (contract Record) does not have an index signature,
+  // so we cast for dynamic field access during normalization.
   const o = rec as unknown as { [k: string]: unknown };
-  if (typeof o.id !== "string") return undefined;
-  const id = o.id;
+  const id = rec.id;
   const content = typeof o.content === "string" ? o.content : "";
-  const tags = Array.isArray(o.tags)
-    ? o.tags.filter((t): t is string => typeof t === "string")
-    : [];
-  const connections: { [k: string]: number } =
+  const tags: ReadonlyArray<string> =
+    Array.isArray(o.tags)
+      ? o.tags.filter((t): t is string => typeof t === "string")
+      : [];
+  const connections: { readonly [k: string]: number } =
     o.connections && typeof o.connections === "object"
       ? { ...(o.connections as { [k: string]: number }) }
       : {};
-  const connection_types: { [k: string]: string } =
+  const connection_types: { readonly [k: string]: string } =
     o.connection_types && typeof o.connection_types === "object"
       ? { ...(o.connection_types as { [k: string]: string }) }
       : {};
-  const metadata: { [k: string]: string } =
+  const metadata: { readonly [k: string]: string } =
     o.metadata && typeof o.metadata === "object"
       ? { ...(o.metadata as { [k: string]: string }) }
       : {};

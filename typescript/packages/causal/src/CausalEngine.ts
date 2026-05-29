@@ -3,6 +3,7 @@ import { Effect, Layer, Option } from "effect"
 import {
   CausalEngine,
   CausalDiscoveryMode,
+  CausalEdgeKind,
   CausalState,
   TemporalBudgetMode,
   EvidenceMode,
@@ -137,7 +138,7 @@ export function extractEdges(
             cause_record_id: rec.caused_by_id,
             effect_record_id: rid,
             namespace: rec.namespace,
-            edge_kind: "explicit",
+            edge_kind: CausalEdgeKind.Explicit,
             gap_seconds: rec.created_at - causeRec.created_at,
             created_at: rec.created_at,
           })
@@ -167,7 +168,7 @@ export function extractEdges(
               cause_record_id: causeId,
               effect_record_id: effectId,
               namespace: rec.namespace,
-              edge_kind: "explicit_causal",
+              edge_kind: CausalEdgeKind.ExplicitCausal,
               gap_seconds: effectTs - causeTs,
               created_at: effectTs,
             })
@@ -226,7 +227,7 @@ export function extractEdges(
             cause_record_id: causeId,
             effect_record_id: effectId,
             namespace: causeRec.namespace,
-            edge_kind: "temporal",
+            edge_kind: CausalEdgeKind.Temporal,
             gap_seconds: gap,
             created_at: effectRec.created_at,
           })
@@ -360,7 +361,7 @@ export function aggregateToPatterns(
       entry.acc.effectRecordIds.add(edge.effect_record_id)
       entry.acc.timeGaps.push(edge.gap_seconds)
 
-      if (edge.edge_kind === "explicit" || edge.edge_kind === "explicit_causal") {
+      if (edge.edge_kind === CausalEdgeKind.Explicit || edge.edge_kind === CausalEdgeKind.ExplicitCausal) {
         entry.acc.explicitCount++
       } else {
         entry.acc.temporalCount++

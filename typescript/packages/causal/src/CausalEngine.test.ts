@@ -2,7 +2,7 @@ import { it, describe } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import { EpistemicTrace, BeliefEngine, TemporalBudgetMode, EvidenceMode } from "@aura/contract"
-import { CausalState, CausalDiscoveryMode } from "@aura/contract"
+import { CausalState, CausalDiscoveryMode, CausalEdgeKind } from "@aura/contract"
 import type { BeliefEngineState, BeliefReport } from "@aura/contract"
 import type { SdrLookup, CausalEdge, CausalReport } from "@aura/contract"
 import type { Record as AuraRecord } from "@aura/contract"
@@ -300,7 +300,7 @@ describe("aggregateToPatterns", () => {
       cause_record_id: "r1",
       effect_record_id: "r2",
       namespace: "default",
-      edge_kind: "temporal",
+      edge_kind: CausalEdgeKind.Temporal,
       gap_seconds: 100,
       created_at: 1001,
       ...overrides,
@@ -318,8 +318,8 @@ describe("aggregateToPatterns", () => {
 
   it("1. Edges aggregated to belief-level patterns: same cause_belief → effect_belief grouped together", async () => {
     const edges: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "temporal" }),
-      makeTestEdge({ cause_record_id: "r3", effect_record_id: "r4", edge_kind: "temporal" }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: CausalEdgeKind.Temporal }),
+      makeTestEdge({ cause_record_id: "r3", effect_record_id: "r4", edge_kind: CausalEdgeKind.Temporal }),
     ]
     const records = new Map<string, AuraRecord>()
     records.set("r1", makeRecordWithBelief("r1", "cause-a", "default", 1000))
@@ -346,7 +346,7 @@ describe("aggregateToPatterns", () => {
 
   it("2. Self-loop filtered at belief level: cause_belief_id === effect_belief_id → pattern NOT created", async () => {
     const edges: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "temporal" }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: CausalEdgeKind.Temporal }),
     ]
     const records = new Map<string, AuraRecord>()
     records.set("r1", makeRecordWithBelief("r1", "a", "default", 1000))
@@ -364,9 +364,9 @@ describe("aggregateToPatterns", () => {
 
   it("3. Pattern support counts grouped by edge count: 3 edges between same belief pair → support_count = 3", async () => {
     const edges: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r3", edge_kind: "temporal", gap_seconds: 100 }),
-      makeTestEdge({ cause_record_id: "r2", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 200 }),
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 300 }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r3", edge_kind: CausalEdgeKind.Temporal, gap_seconds: 100 }),
+      makeTestEdge({ cause_record_id: "r2", effect_record_id: "r4", edge_kind: CausalEdgeKind.Temporal, gap_seconds: 200 }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r4", edge_kind: CausalEdgeKind.Temporal, gap_seconds: 300 }),
     ]
     const records = new Map<string, AuraRecord>()
     records.set("r1", makeRecordWithBelief("r1", "c1", "default", 1000))
@@ -395,7 +395,7 @@ describe("aggregateToPatterns", () => {
 
   it("4. CausalPattern has all required fields populated", async () => {
     const edges: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "explicit", gap_seconds: 1, namespace: "ns" }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: CausalEdgeKind.Explicit, gap_seconds: 1, namespace: "ns" }),
     ]
     const records = new Map<string, AuraRecord>()
     records.set("r1", makeRecordWithBelief("r1", "c", "ns", 1000))
@@ -421,10 +421,10 @@ describe("aggregateToPatterns", () => {
 
   it("5. CausalPattern uses deterministic pattern ID (same keys → same ID)", async () => {
     const edges1: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: "explicit", gap_seconds: 1 }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r2", edge_kind: CausalEdgeKind.Explicit, gap_seconds: 1 }),
     ]
     const edges2: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r3", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 100 }),
+      makeTestEdge({ cause_record_id: "r3", effect_record_id: "r4", edge_kind: CausalEdgeKind.Temporal, gap_seconds: 100 }),
     ]
     const records1 = new Map<string, AuraRecord>()
     records1.set("r1", makeRecordWithBelief("r1", "c", "ns", 1000))
@@ -451,8 +451,8 @@ describe("aggregateToPatterns", () => {
 
   it("6. Explicit support counts separated from temporal", async () => {
     const edges: CausalEdge[] = [
-      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r3", edge_kind: "explicit", gap_seconds: 1 }),
-      makeTestEdge({ cause_record_id: "r2", effect_record_id: "r4", edge_kind: "temporal", gap_seconds: 100 }),
+      makeTestEdge({ cause_record_id: "r1", effect_record_id: "r3", edge_kind: CausalEdgeKind.Explicit, gap_seconds: 1 }),
+      makeTestEdge({ cause_record_id: "r2", effect_record_id: "r4", edge_kind: CausalEdgeKind.Temporal, gap_seconds: 100 }),
     ]
     const records = new Map<string, AuraRecord>()
     records.set("r1", makeRecordWithBelief("r1", "c1", "default", 1000))

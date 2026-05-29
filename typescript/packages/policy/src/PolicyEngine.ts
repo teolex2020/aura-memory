@@ -2,6 +2,7 @@ import { Effect, Layer, Option, Clock } from "effect"
 import {
   PolicyEngine,
   PolicyActionKind,
+  Polarity,
   PolicyState,
   EpistemicTrace,
   serviceOption,
@@ -421,15 +422,15 @@ export function polaritySignalCounts(
 export function classifyPolarity(
   effectRecordIds: ReadonlyArray<string>,
   records: ReadonlyMap<string, AuraRecord>
-): "Positive" | "Negative" | "Neutral" {
+): Polarity {
   const { positiveSignals, negativeSignals } = polaritySignalCounts(effectRecordIds, records)
 
   if (negativeSignals > positiveSignals && negativeSignals >= 2) {
-    return "Negative"
+    return Polarity.Negative
   } else if (positiveSignals > negativeSignals && positiveSignals >= 2) {
-    return "Positive"
+    return Polarity.Positive
   } else {
-    return "Neutral"
+    return Polarity.Neutral
   }
 }
 
@@ -451,19 +452,19 @@ export function classifyPolarity(
  * Matches Rust policy.rs map_action_kind (lines 500-508).
  */
 export function mapActionKind(
-  polarity: "Positive" | "Negative" | "Neutral",
+  polarity: Polarity,
   causalStrength: number
 ): PolicyActionKind {
   switch (polarity) {
-    case "Negative":
+    case Polarity.Negative:
       return causalStrength >= 0.75
         ? PolicyActionKind.Avoid
         : PolicyActionKind.VerifyFirst
-    case "Positive":
+    case Polarity.Positive:
       return causalStrength >= 0.75
         ? PolicyActionKind.Prefer
         : PolicyActionKind.Recommend
-    case "Neutral":
+    case Polarity.Neutral:
       return PolicyActionKind.Warn
   }
 }
@@ -649,8 +650,8 @@ function buildHints(
     const utilityScore = Math.min(1.0, pattern.outcome_stability * pattern.temporal_consistency)
 
     // Risk: polarity-based (Rust lines 592-596)
-    const riskScore = polarity === "Negative" ? causal_strength * 0.8
-      : polarity === "Neutral" ? causal_strength * 0.3
+    const riskScore = polarity === Polarity.Negative ? causal_strength * 0.8
+      : polarity === Polarity.Neutral ? causal_strength * 0.3
       : 0.0
 
     // Stability proxy: temporal_consistency (Rust line 599)

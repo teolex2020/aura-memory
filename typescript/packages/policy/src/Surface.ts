@@ -8,7 +8,13 @@
  */
 
 import { Effect } from "effect"
-import { PolicyActionKind, PolicyState, type SurfacedPolicyHint } from "@aura/contract"
+import {
+  PolicyActionKind,
+  PolicyState,
+  type SurfacedPolicyHint,
+  type PolicyEngineState,
+  type PolicyHint as ContractPolicyHint,
+} from "@aura/contract"
 
 // ── Constants ──
 
@@ -38,10 +44,13 @@ function stateString(state: PolicyState): SurfacedPolicyHint["state"] {
 /** A discovered advisory policy hint stored in the engine.
  *
  * @deprecated Use contract PolicyHint from @aura/contract directly.
- *             The local type is retained for backward compatibility with
- *             existing tests. New code should use the contract PolicyHint
- *             (snake_case fields: cause_key, cause_record_ids, effect_keys,
- *             last_updated, etc.).
+ *             This local type is a surface-specific adapter shape with
+ *             camelCase convenience fields (triggerCausalIds, supportingRecordIds,
+ *             key) that the Surface functions depend on for filtering/sorting.
+ *             Use {@link policyEngineFromState} to convert from a real
+ *             PolicyEngine.Interface (via engine.stats()) to this adapter shape.
+ *             New code should use the contract PolicyHint (snake_case fields:
+ *             cause_key, cause_record_ids, effect_keys, last_updated, etc.).
  */
 export interface PolicyHint {
   readonly id: string
@@ -65,14 +74,75 @@ export interface PolicyHint {
 
 // ── PolicyEngine (container) ──
 
-/** Policy hint discovery engine.
+/** Policy hint discovery engine — flat container adapter for surface functions.
  *
  * @deprecated Use PolicyEngine.Interface from @aura/contract directly
  *             with PolicyEngineState for the hints/keyIndex access pattern.
+ *             Use {@link policyEngineFromState} to convert from an engine's
+ *             stats() output to this adapter shape consumed by the surface
+ *             functions.
  */
 export interface PolicyEngine {
   readonly hints: ReadonlyMap<string, PolicyHint>
   readonly keyIndex: ReadonlyMap<string, string>
+}
+
+// ── Adapter: PolicyEngine.Interface → flat container ──
+
+/**
+ * Convert a real PolicyEngine's stats() output to the deprecated flat
+ * PolicyEngine container used by the surface functions.
+ *
+ * This adapter bridges the contract types (PolicyEngine.Interface,
+ * contract PolicyHint with snake_case fields) to the local adapter
+ * types (camelCase convenience fields: triggerCausalIds, supportingRecordIds,
+ * key) that the surface functions depend on for filtering and sorting.
+ *
+ * Mappings:
+ *  - `triggerCausalIds` ← `cause_record_ids` (approximate — contract
+ *    PolicyHint does not carry trigger-level causal IDs; the cause-side
+ *    record IDs are the closest equivalent)
+ *  - `supportingRecordIds` ← `effect_keys` (approximate — contract
+ *    PolicyHint exposes effect-side record IDs as effect_keys, which
+ *    are the closest proxy for provenance tracking)
+ *  - `key` ← `cause_key` (the composite cause-side key serves as the
+ *    primary lookup key)
+ *  - `triggerConceptIds`, `triggerBeliefIds` are initialized to empty
+ *    arrays (contract PolicyHint does not expose per-layer trigger IDs;
+ *    update the adapter when the contract adds these fields)
+ */
+export function policyEngineFromState(state: PolicyEngineState): PolicyEngine {
+  const hints = new Map<string, PolicyHint>()
+  const keyIndex = new Map<string, string>()
+
+  for (const [id, cHint] of Object.entries(state.hints)) {
+    const key = cHint.cause_key
+    hints.set(id, {
+      id: cHint.id,
+      key,
+      namespace: cHint.namespace,
+      domain: cHint.domain,
+      actionKind: cHint.actionKind,
+      recommendation: cHint.recommendation,
+      triggerCausalIds: cHint.cause_record_ids,
+      triggerConceptIds: [],
+      triggerBeliefIds: [],
+      supportingRecordIds: cHint.effect_keys,
+      causeRecordIds: cHint.cause_record_ids,
+      confidence: cHint.confidence,
+      utilityScore: cHint.utilityScore,
+      riskScore: cHint.riskScore,
+      policyStrength: cHint.policyStrength,
+      state: cHint.state,
+      lastUpdated: cHint.last_updated,
+    })
+  }
+
+  for (const [k, id] of Object.entries(state.key_index)) {
+    keyIndex.set(k, id)
+  }
+
+  return { hints, keyIndex }
 }
 
 // ── Helper: is hint eligible for surfacing? ──

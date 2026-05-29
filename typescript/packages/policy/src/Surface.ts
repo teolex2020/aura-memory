@@ -35,7 +35,14 @@ function stateString(state: PolicyState): SurfacedPolicyHint["state"] {
 
 // ── PolicyHint (internal engine hint) ──
 
-/** A discovered advisory policy hint stored in the engine. */
+/** A discovered advisory policy hint stored in the engine.
+ *
+ * @deprecated Use contract PolicyHint from @aura/contract directly.
+ *             The local type is retained for backward compatibility with
+ *             existing tests. New code should use the contract PolicyHint
+ *             (snake_case fields: cause_key, cause_record_ids, effect_keys,
+ *             last_updated, etc.).
+ */
 export interface PolicyHint {
   readonly id: string
   readonly key: string
@@ -58,7 +65,11 @@ export interface PolicyHint {
 
 // ── PolicyEngine (container) ──
 
-/** Policy hint discovery engine. */
+/** Policy hint discovery engine.
+ *
+ * @deprecated Use PolicyEngine.Interface from @aura/contract directly
+ *             with PolicyEngineState for the hints/keyIndex access pattern.
+ */
 export interface PolicyEngine {
   readonly hints: ReadonlyMap<string, PolicyHint>
   readonly keyIndex: ReadonlyMap<string, string>

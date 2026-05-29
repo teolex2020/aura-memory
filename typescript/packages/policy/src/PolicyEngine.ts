@@ -255,7 +255,7 @@ export class PolicyEngineImpl implements PolicyEngine.Interface {
       // ── P2: Build hints from seeds (scoring + recommendation) ──
       yield* concept_engine.stats() // validate concept engine connectivity
       const nowSecs = yield* Clock.nowSeconds()
-      const hints = buildHints(seeds, belief_engine, records, nowSecs)
+      const hints = buildHints(seeds, belief_engine, records, nowSecs, beliefState.beliefs)
       const hintsFound = hints.length
 
       // ── Classify state + store hints ──
@@ -543,17 +543,22 @@ export function generateRecommendation(
 function aggregateBeliefConfidence(
   beliefIds: string[],
   beliefEngine: BeliefEngine.Interface,
+  beliefs?: Readonly<Record<string, { confidence: number }>>,
   records?: ReadonlyMap<string, AuraRecord>,
   recordIds?: string[]
 ): number {
-  // Phase 1: average confidence from Resolved/Singleton beliefs
-  let sum = 0
-  let count = 0
-  for (const bid of beliefIds) {
-    // Access belief state synchronously via belief_engine.stats()
-    // In a sync context, we can't use Effect; this is a pure helper used
-    // during sync hint construction (stats are pre-fetched).
-    // For now, use the pattern's embedded confidence as fallback.
+  // Phase 1: average confidence from pre-fetched belief state
+  if (beliefs && beliefIds.length > 0) {
+    let sum = 0
+    let count = 0
+    for (const bid of beliefIds) {
+      const b = beliefs[bid]
+      if (b) {
+        sum += b.confidence
+        count++
+      }
+    }
+    if (count > 0) return sum / count
   }
 
   // Phase 2: if no belief-based confidence, fall back to record-level
@@ -612,7 +617,8 @@ function buildHints(
   seeds: PolicySeed[],
   beliefEngine: BeliefEngine.Interface,
   records: ReadonlyMap<string, AuraRecord>,
-  nowSecs: number
+  nowSecs: number,
+  beliefs?: Readonly<Record<string, { confidence: number }>>
 ): PolicyHint[] {
   const hints: PolicyHint[] = []
 
@@ -642,6 +648,7 @@ function buildHints(
     const confidence = aggregateBeliefConfidence(
       [pattern.cause_belief_id ?? ""].filter(Boolean),
       beliefEngine,
+      beliefs,
       records,
       allRecordIds
     )

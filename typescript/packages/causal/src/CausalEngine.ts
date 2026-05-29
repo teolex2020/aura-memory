@@ -920,7 +920,7 @@ async function deterministicPatternId(
   return `cp-${hex.slice(-12)}`
 }
 
-export class CausalEngineImpl {
+export class CausalEngineImpl implements CausalEngine.Interface {
   private state: CausalEngineState = {
     version: 1 as const,
     patterns: {},

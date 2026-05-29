@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import {
   BeliefState,
+  CoarseKeyMode,
   EpistemicTrace,
   Level,
   Polarity,
@@ -31,7 +32,6 @@ import {
   sdrSubclusterTagGuarded,
   sdrSubclusterBridgeGuarded,
   sdrSubclusterTagSdrGuarded,
-  CoarseKeyMode,
   NEIGHBORHOOD_POOL_THRESHOLD,
   normalizeBridgeTag,
   denseCorridorStableTags,
@@ -806,7 +806,7 @@ describe("claim_key_with_mode (coarse key alignment)", () => {
   it("Standard mode truncates sorted tags to top 3", async () => {
     const engine = new BeliefEngineImpl()
     const result = await runEffect(
-      engine.claim_key_with_mode("default", ["b", "a", "c", "d"], "fact", "Standard")
+      engine.claim_key_with_mode("default", ["b", "a", "c", "d"], "fact", CoarseKeyMode.Standard)
     )
     // Should be: "default:a,b,c:fact" (top 3 sorted, not all 4)
     expect(result).toBe("default:a,b,c:fact")
@@ -815,7 +815,7 @@ describe("claim_key_with_mode (coarse key alignment)", () => {
   it("TagFamily mode uses alphabetically first tag (not prefix extraction)", async () => {
     const engine = new BeliefEngineImpl()
     const result = await runEffect(
-      engine.claim_key_with_mode("default", ["auth/login", "config"], "fact", "TagFamily")
+      engine.claim_key_with_mode("default", ["auth/login", "config"], "fact", CoarseKeyMode.TagFamily)
     )
     // Alphabetically first: "auth/login" (not "auth" prefix extraction)
     expect(result).toBe("default:auth/login:fact")
@@ -824,7 +824,7 @@ describe("claim_key_with_mode (coarse key alignment)", () => {
   it("DualKey mode produces namespace:semantic_type (no tags in key)", async () => {
     const engine = new BeliefEngineImpl()
     const result = await runEffect(
-      engine.claim_key_with_mode("default", ["a", "b"], "fact", "DualKey")
+      engine.claim_key_with_mode("default", ["a", "b"], "fact", CoarseKeyMode.DualKey)
     )
     expect(result).toBe("default:fact")
   })
@@ -832,7 +832,7 @@ describe("claim_key_with_mode (coarse key alignment)", () => {
   it("NeighborhoodPool mode produces namespace:semantic_type (no tags in key)", async () => {
     const engine = new BeliefEngineImpl()
     const result = await runEffect(
-      engine.claim_key_with_mode("default", ["a", "b", "c"], "fact", "NeighborhoodPool")
+      engine.claim_key_with_mode("default", ["a", "b", "c"], "fact", CoarseKeyMode.NeighborhoodPool)
     )
     expect(result).toBe("default:fact")
   })
@@ -840,7 +840,7 @@ describe("claim_key_with_mode (coarse key alignment)", () => {
   it("BridgeKey mode produces namespace:first_tag:bridge:semantic_type", async () => {
     const engine = new BeliefEngineImpl()
     const result = await runEffect(
-      engine.claim_key_with_mode("default", ["deploy", "safety"], "fact", "BridgeKey")
+      engine.claim_key_with_mode("default", ["deploy", "safety"], "fact", CoarseKeyMode.BridgeKey)
     )
     // Current behavior: namespace:first_tag:bridge:semantic_type (normalizeBridgeTag deferred to Plan 04)
     expect(result).toBe("default:deploy:bridge:fact")
@@ -849,7 +849,7 @@ describe("claim_key_with_mode (coarse key alignment)", () => {
   it("SdrTagPool mode produces namespace:semantic_type (matches Rust)", async () => {
     const engine = new BeliefEngineImpl()
     const result = await runEffect(
-      engine.claim_key_with_mode("default", ["a", "b", "c"], "fact", "SdrTagPool")
+      engine.claim_key_with_mode("default", ["a", "b", "c"], "fact", CoarseKeyMode.SdrTagPool)
     )
     // Rust uses format!("{}:{}", namespace, semantic_type) — verified from belief.rs:508-511
     expect(result).toBe("default:fact")
@@ -858,7 +858,7 @@ describe("claim_key_with_mode (coarse key alignment)", () => {
   it("TagFamilyAdaptive uses alphabetically first tag", async () => {
     const engine = new BeliefEngineImpl()
     const result = await runEffect(
-      engine.claim_key_with_mode("default", ["zebra", "alpha", "beta"], "fact", "TagFamilyAdaptive")
+      engine.claim_key_with_mode("default", ["zebra", "alpha", "beta"], "fact", CoarseKeyMode.TagFamilyAdaptive)
     )
     // Alphabetically first = "alpha"
     expect(result).toBe("default:alpha:fact")

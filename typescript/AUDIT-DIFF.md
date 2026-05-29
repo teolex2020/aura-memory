@@ -34,8 +34,36 @@ Phase 06.3 Engine Algorithm Parity (Plans 02-11) completed all 14 AUDIT-DIFF dev
 
 - **Typecheck**: Engine packages (belief/causal/concept/policy/core/contract/epistemic-runtime) - ZERO type errors
 - **Test Suite**: 450/450 tests pass (41 test files), ZERO failures
-- **Rust Fixture E2E**: UNAVAILABLE - `aura-ts-fixtures` crate not implemented in Rust workspace (marked pending, requires fixture generator creation)
+- **Rust Fixture E2E**: VERIFIED — All 6 Rust binaries confirmed at `target/debug/` (not `target/release/` as previously searched). Fixture data cross-referenced against TS tests. `Recall.parity.test.ts` provides end-to-end recall pipeline parity verification using `cargo run --bin aura-ts-recall-fixtures` + `cargo run --bin aura-ts-verify-recall`. Rust returns `["000000000001","000000000002"]` for query "alpha", TS returns identical result. All 3 fixture sets (minimal_brain, minimal_index, recall_parity) validated.
 - **Per-engine type-level parity**: All constants, thresholds, and formulas verified via grep against Rust source (see per-engine sections below)
+
+### Rust Fixture E2E Detail (2026-05-29 verification)
+
+**Binaries confirmed at `target/debug/`:**
+| Binary | Size | Purpose |
+|--------|------|---------|
+| aura-ts-fixtures.exe | exists | Generates minimal_brain fixture |
+| aura-ts-index-fixtures.exe | exists | Generates minimal_index fixture |
+| aura-ts-recall-fixtures.exe | exists | Generates recall_parity fixture |
+| aura-ts-verify-brain.exe | exists | Reads AuraStorage brain, outputs record JSON |
+| aura-ts-verify-cognitive.exe | exists | Reads CognitiveStore, outputs record JSON |
+| aura-ts-verify-recall.exe | exists | Runs recall pipeline, outputs scored IDs |
+
+**Fixture cross-reference results:**
+
+| Fixture | Generator | Verifier | TS Test | Result |
+|---------|-----------|----------|---------|--------|
+| minimal_brain | aura-ts-fixtures | aura-ts-verify-brain | Aura.test.ts (line 18) | PASS — 3 records, TS reads/writes matching format |
+| minimal_index | aura-ts-index-fixtures | — | InvertedIndex.fixture.test.ts, RecallView.test.ts | PASS — index loads, search returns expected doc |
+| recall_parity | aura-ts-recall-fixtures | aura-ts-verify-recall | Recall.parity.test.ts | PASS — Rust recall IDs match TS recall IDs for query "alpha" |
+
+**recall_parity fixture analysis:**
+- 2 records in brain.aura: `aura_r1` ("alpha") and `aura_r2` ("alpha zeta"), both namespace `user_core`
+- 2 cognitive records: `000000000001` (content "alpha", confidence 0.9) and `000000000002` (content "alpha zeta", confidence 0.9)
+- Index maps: `aura_r1→0`, `aura_r2→1`
+- For query "alpha": both Rust verifier and TS recall return `["000000000001", "000000000002"]`
+
+**Previous false-negative explanation:** The initial Task 2 search looked for binaries at `target/release/aura-ts-fixtures` (release build path). The binaries exist at `target/debug/aura-ts-fixtures.exe` (debug build path, Windows extension). The `Recall.parity.test.ts` was already running successfully via `cargo run`, proving the crate IS defined in the workspace.
 
 ### Per-Engine Type-Level Parity Evidence
 

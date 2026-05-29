@@ -1,4 +1,4 @@
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer, Option, Clock } from "effect"
 import {
   PolicyEngine,
   PolicyActionKind,
@@ -253,7 +253,8 @@ export class PolicyEngineImpl implements PolicyEngine.Interface {
 
       // ── P2: Build hints from seeds (scoring + recommendation) ──
       yield* concept_engine.stats() // validate concept engine connectivity
-      const hints = buildHints(seeds, belief_engine, records)
+      const nowSecs = yield* Clock.nowSeconds()
+      const hints = buildHints(seeds, belief_engine, records, nowSecs)
       const hintsFound = hints.length
 
       // ── Classify state + store hints ──
@@ -609,7 +610,8 @@ function extractDomain(
 function buildHints(
   seeds: PolicySeed[],
   beliefEngine: BeliefEngine.Interface,
-  records: ReadonlyMap<string, AuraRecord>
+  records: ReadonlyMap<string, AuraRecord>,
+  nowSecs: number
 ): PolicyHint[] {
   const hints: PolicyHint[] = []
 
@@ -678,7 +680,7 @@ function buildHints(
       priority: Math.round(policyStrength * 10),
       confidence,
       state: PolicyState.Candidate, // classified later
-      last_updated: Date.now(),
+      last_updated: nowSecs,
       actionKind: actionKind as unknown as import("@aura/contract").PolicyActionKind,
       policyStrength,
       riskScore,

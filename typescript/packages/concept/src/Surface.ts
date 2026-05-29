@@ -25,8 +25,6 @@ export const SURFACE_CANDIDATE_THRESHOLD = 0.70
 const DEFAULT_LIMIT = 20
 
 // ── Pure surface function (Rust-aligned) ──
-// STUB implementation for TDD RED phase.
-// Returns empty array — all surface tests will fail.
 
 /**
  * Compute surfaced concepts from a flat array of concept candidates.

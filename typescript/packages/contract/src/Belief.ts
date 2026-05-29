@@ -1,9 +1,10 @@
 import { Tag } from "./Context"
 import { FileReadError, FileWriteError, JsonParseError } from "./Errors"
-import type { BeliefEngineState, BeliefReport } from "./belief/BeliefTypes"
+import type { BeliefEngineState, BeliefReport, CoarseKeyMode } from "./belief/BeliefTypes"
 import type { SdrLookup } from "./sdr/Sdr"
 import type { Record as AuraRecord } from "./record/Record"
 import type { EpistemicTrace } from "./EpistemicTrace"
+import type { FeedbackAuditReport } from "./Maintenance"
 import type { FileRead } from "./FileRead"
 import type { FileWrite } from "./FileWrite"
 import type { Effect } from "effect"
@@ -22,7 +23,7 @@ export namespace BeliefEngine {
      *
      * 设置 coarse key 的构造模式（在 SDR 子聚类前，先按 key 分桶）。
      */
-    with_coarse_key_mode: (mode: unknown) => Effect.Effect<void>
+    with_coarse_key_mode: (mode: CoarseKeyMode) => Effect.Effect<void>
 
     /**
      * Canonical claim key for a record (using current coarseKeyMode).
@@ -46,7 +47,7 @@ export namespace BeliefEngine {
       namespace: string,
       tags: ReadonlyArray<string>,
       semantic_type: string,
-      mode: unknown
+      mode: CoarseKeyMode
     ) => Effect.Effect<string>
 
     /**
@@ -103,7 +104,7 @@ export namespace BeliefEngine {
     apply_layer_feedback: (
       causalEngine: import("./Causal").CausalEngine.Interface,
       policyEngine: import("./Policy").PolicyEngine.Interface
-    ) => Effect.Effect<unknown, never, EpistemicTrace>
+    ) => Effect.Effect<FeedbackAuditReport, never, EpistemicTrace>
 
     /**
      * List belief ids currently in Unresolved state.

@@ -1,6 +1,29 @@
 export type BeliefId = string
 export type HypothesisId = string
 
+/**
+ * Controls how the coarse belief key is constructed before SDR subclustering.
+ *
+ * 控制 SDR 子聚类前的 coarse belief key 构造策略。
+ *
+ * CONTRACT: This MUST be a TypeScript string enum (not an ad hoc string union).
+ * PROJECT RULE D-22: All enum-like Rust equivalents use TS string enums.
+ */
+export enum CoarseKeyMode {
+  Standard = "Standard",
+  TopOneTag = "TopOneTag",
+  SemanticOnly = "SemanticOnly",
+  TagFamily = "TagFamily",
+  TagFamilyAdaptive = "TagFamilyAdaptive",
+  TagFamilyBackoff = "TagFamilyBackoff",
+  TagFamilyDenseBackoff = "TagFamilyDenseBackoff",
+  TagFamilyPairBackoff = "TagFamilyPairBackoff",
+  DualKey = "DualKey",
+  NeighborhoodPool = "NeighborhoodPool",
+  BridgeKey = "BridgeKey",
+  SdrTagPool = "SdrTagPool"
+}
+
 // Resolution state of a belief.
 // 信念（Belief）的决议状态。
 export enum BeliefState {

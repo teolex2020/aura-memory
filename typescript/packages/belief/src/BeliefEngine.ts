@@ -5,6 +5,7 @@ import {
   BeliefState,
   CausalEngine,
   CausalState,
+  CoarseKeyMode,
   EpistemicTrace,
   PolicyActionKind,
   PolicyEngine,
@@ -15,6 +16,7 @@ import {
   type BeliefReport,
   type CausalEngineState,
   type CausalPattern,
+  type FeedbackAuditReport,
   type Hypothesis,
   type PolicyEngineState,
   type PolicyHint,
@@ -30,20 +32,9 @@ import { SDRInterpreter } from "@aura/recall"
  * Belief 引擎——维护完整的信念层状态（Belief/Hypothesis/索引），用于在 maintenance 周期中从 records
  * 构建更稳定的"主张层"。
  */
-export enum CoarseKeyMode {
-  Standard = "Standard",
-  TopOneTag = "TopOneTag",
-  SemanticOnly = "SemanticOnly",
-  TagFamily = "TagFamily",
-  TagFamilyAdaptive = "TagFamilyAdaptive",
-  TagFamilyBackoff = "TagFamilyBackoff",
-  TagFamilyPairBackoff = "TagFamilyPairBackoff",
-  TagFamilyDenseBackoff = "TagFamilyDenseBackoff",
-  DualKey = "DualKey",
-  NeighborhoodPool = "NeighborhoodPool",
-  BridgeKey = "BridgeKey",
-  SdrTagPool = "SdrTagPool"
-}
+
+/** @deprecated Import CoarseKeyMode from @aura/contract instead. */
+export { CoarseKeyMode }
 
 /**
  * Conflict penalty weight in hypothesis scoring.
@@ -166,21 +157,10 @@ export type FeedbackAuditEntry = {
  * Mirrors Rust BeliefFeedbackReport at belief.rs (with BeliefFeedbackEntry entries).
  *
  * apply_layer_feedback 处理的反馈报告。
+ *
+ * @deprecated Use FeedbackAuditReport from @aura/contract directly.
  */
-export type BeliefFeedbackReport = {
-  /** Number of distinct beliefs affected. */
-  readonly beliefsTouched: number
-  /** Number of beliefs with net positive delta. */
-  readonly beliefsBoosted: number
-  /** Number of beliefs with net negative delta. */
-  readonly beliefsDampened: number
-  /** Sum of all applied confidence deltas. */
-  readonly netConfidenceDelta: number
-  /** Sum of all applied volatility deltas. */
-  readonly netVolatilityDelta: number
-  /** Per-belief audit entries. */
-  readonly entries: ReadonlyArray<FeedbackAuditEntry>
-}
+export type BeliefFeedbackReport = FeedbackAuditReport
 
 /**
  * Record source-type → default confidence map.
@@ -968,8 +948,8 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
   private keyIndex: Map<string, string> = new Map()
   private recordIndex: Map<string, string> = new Map()
 
-  with_coarse_key_mode(mode: unknown): Effect.Effect<void> {
-    this.coarseKeyMode = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
+  with_coarse_key_mode(mode: CoarseKeyMode): Effect.Effect<void> {
+    this.coarseKeyMode = mode
     return Effect.void
   }
 
@@ -985,14 +965,13 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
     namespace: string,
     tags: ReadonlyArray<string>,
     semantic_type: string,
-    mode: unknown
+    mode: CoarseKeyMode
   ): Effect.Effect<string> {
     const ns = namespace.length > 0 ? namespace : "default"
     const st = semantic_type.length > 0 ? semantic_type : "unknown"
-    const m = typeof mode === "string" ? (mode as CoarseKeyMode) : CoarseKeyMode.Standard
     const activeTags = [...tags].filter((x) => x.length > 0).sort()
 
-    switch (m) {
+    switch (mode) {
       case CoarseKeyMode.SemanticOnly:
         return Effect.succeed(`${ns}:${st}`)
       case CoarseKeyMode.TopOneTag:
@@ -1441,7 +1420,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
   apply_layer_feedback(
     causalEngine: CausalEngine.Interface,
     policyEngine: PolicyEngine.Interface
-  ): Effect.Effect<unknown, never, EpistemicTrace> {
+  ): Effect.Effect<FeedbackAuditReport, never, EpistemicTrace> {
     const self = this
     return Effect.gen(function* () {
       const now = yield* Clock.nowSeconds()

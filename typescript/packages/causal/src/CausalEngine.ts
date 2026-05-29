@@ -1060,6 +1060,15 @@ export class CausalEngineImpl implements CausalEngine.Interface {
       for (const p of scoredPatterns) {
         patternsMap[p.id] = p
       }
+      // Preserve manually invalidated/retracted patterns from previous cycle
+      for (const [id, existing] of Object.entries(self.state.patterns)) {
+        if (
+          (existing.state === CausalState.Invalidated || existing.state === CausalState.Rejected) &&
+          !patternsMap[id]
+        ) {
+          patternsMap[id] = existing
+        }
+      }
       self.state = {
         ...self.state,
         patterns: patternsMap,

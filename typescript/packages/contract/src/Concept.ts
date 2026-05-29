@@ -29,15 +29,20 @@ export class ConceptEngine extends Tag("aura.contract.ConceptEngine")<ConceptEng
 /** @deprecated Use ConceptEngine.Interface instead. */
 export type ConceptEngineImpl = ConceptEngine.Interface
 
-export type ConceptStoreImpl = {
-  load: () =>
-    Effect.Effect<
-      ConceptEngineState,
-      FileReadError | JsonParseError,
-      FileRead
-    >
-  save: (engine: ConceptEngineState) =>
-    Effect.Effect<void, FileWriteError, FileWrite>
+export namespace ConceptStore {
+  export interface Interface {
+    load: () =>
+      Effect.Effect<
+        ConceptEngineState,
+        FileReadError | JsonParseError,
+        FileRead
+      >
+    save: (engine: ConceptEngineState) =>
+      Effect.Effect<void, FileWriteError, FileWrite>
+  }
 }
 
-export class ConceptStore extends Tag("aura.contract.ConceptStore")<ConceptStore, ConceptStoreImpl>() {}
+export class ConceptStore extends Tag("aura.contract.ConceptStore")<ConceptStore, ConceptStore.Interface>() {}
+
+/** @deprecated Use ConceptStore.Interface instead. */
+export type ConceptStoreImpl = ConceptStore.Interface

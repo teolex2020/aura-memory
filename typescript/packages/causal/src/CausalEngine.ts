@@ -442,8 +442,8 @@ export function aggregateToPatterns(
         positive_effect_signals: 0,
         negative_effect_signals: 0,
         namespace: key.namespace,
-        cause_record_ids: Array.from(acc.causeRecordIds),
-        effect_record_ids: Array.from(acc.effectRecordIds),
+        cause_record_ids: Array.from(acc.causeRecordIds).sort(),
+        effect_record_ids: Array.from(acc.effectRecordIds).sort(),
       })
     }
 

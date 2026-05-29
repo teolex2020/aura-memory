@@ -16,6 +16,7 @@ import {
   type CausalEngineState,
   type BeliefEngineState,
   type PolicyEngineState,
+  type FeedbackAuditReport,
   type Record as AuraRecord,
 } from "@aura/contract"
 import { EpistemicRuntimeImpl } from "./EpistemicRuntime"
@@ -294,7 +295,10 @@ function mockBeliefEngine(
     claim_key: () => Effect.succeed(""),
     claim_key_with_mode: () => Effect.succeed(""),
     deprecate_belief: () => Effect.void,
-    apply_layer_feedback: () => Effect.succeed({}),
+    apply_layer_feedback: () => Effect.succeed({
+      beliefsTouched: 0, beliefsBoosted: 0, beliefsDampened: 0,
+      netConfidenceDelta: 0, netVolatilityDelta: 0, entries: [],
+    } as FeedbackAuditReport),
     unresolved_beliefs: () => Effect.succeed([] as ReadonlyArray<string>),
   }
 }

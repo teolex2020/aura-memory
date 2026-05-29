@@ -1,7 +1,7 @@
 import { it, describe } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
-import { EpistemicTrace, CausalEngine, BeliefEngine, ConceptEngine } from "@aura/contract"
+import { EpistemicTrace, CausalEngine, BeliefEngine, ConceptEngine, type FeedbackAuditReport } from "@aura/contract"
 import { CausalState, CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode, Polarity } from "@aura/contract"
 import type {
   CausalEngineState,
@@ -108,7 +108,10 @@ function mockBeliefEngine(beliefs: Record<string, { state: string; confidence: n
     update_with_sdr: (_records: ReadonlyMap<string, any>, _sdr: SdrLookup) => Effect.succeed({} as BeliefReport),
     belief_for_record: (_rid: string) => Effect.succeed(null as string | null),
     deprecate_belief: (_bid: string) => Effect.void,
-    apply_layer_feedback: (..._args: unknown[]) => Effect.succeed({} as unknown),
+    apply_layer_feedback: (_c: any, _p: any) => Effect.succeed({
+      beliefsTouched: 0, beliefsBoosted: 0, beliefsDampened: 0,
+      netConfidenceDelta: 0, netVolatilityDelta: 0, entries: [],
+    } as FeedbackAuditReport),
     unresolved_beliefs: () => Effect.succeed([] as readonly string[]),
     stats: () => Effect.succeed({
       version: 1 as const,

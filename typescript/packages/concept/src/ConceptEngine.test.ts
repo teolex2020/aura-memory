@@ -11,6 +11,7 @@ import {
   type BeliefEngineState,
   type BeliefReport,
   type EpistemicTraceImpl,
+  type FeedbackAuditReport,
   type Record as AuraRecord,
   type SdrLookup
 } from "@aura/contract"
@@ -76,7 +77,10 @@ function fakeBeliefEngine(state: BeliefEngineState): BeliefEngine.Interface {
     update_with_sdr: () => Effect.succeed({ coarse_groups: 0, beliefs_built: 0, hypotheses_built: 0, beliefs_created: 0, beliefs_pruned: 0, revisions: 0, resolved: 0, unresolved: 0, total_beliefs: 0, total_hypotheses: 0, churn_rate: 0 } as BeliefReport),
     belief_for_record: (rid) => Effect.succeed(state.record_to_belief[rid] ?? null),
     deprecate_belief: () => Effect.void,
-    apply_layer_feedback: () => Effect.succeed(undefined),
+    apply_layer_feedback: () => Effect.succeed({
+      beliefsTouched: 0, beliefsBoosted: 0, beliefsDampened: 0,
+      netConfidenceDelta: 0, netVolatilityDelta: 0, entries: [],
+    } as FeedbackAuditReport),
     unresolved_beliefs: () =>
       Effect.succeed(Object.values(state.beliefs).filter((b) => b.state === BeliefState.Unresolved).map((b) => b.id)),
     stats: () => Effect.succeed(state)

@@ -184,3 +184,38 @@ Plans:
 - MCP stdio server starts and responds
 - All tools (recall/store/search/insights/maintain/etc.) implemented
 - Rust MCP and TS MCP produce equivalent responses for same brain directory
+
+## Backlog
+
+### Phase 999.1: 代码卫生 — MaintenanceService TODO 清理 (BACKLOG)
+
+**Goal:** 清理 MaintenanceService.ts 中 24 处遗留标记：8 个僵尸类型占位符、15 处 D-07 延期注释、以及 Aura.ts 中 6 个 `Effect.die()` 应改为 `Effect.fail()`
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Source: `06.3-REVIEW.md § TODO-W01, TODO-W02, TODO-W03`
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.2: 跨引擎一致性 — NON-PARITY 标记统一追踪 (BACKLOG)
+
+**Goal:** 统一 3 个引擎中分散的 xxhash NON-PARITY 标记、修复 Aura.runMaintenance 中 BrainAuraRecord 类型转换、Policy Surface.ts contract 类型适配
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Source: `06.3-REVIEW.md § TODO-W04, WR-01, WR-04, WR-05`
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.3: 引擎工具函数去重 — Effect 包装提取到 utils 包 (BACKLOG)
+
+**Goal:** 提取 BeliefEngine/ConceptEngine 中重复的 UnionFind、CausalEngine/PolicyEngine 中重复的 polarity signal counting、以及 xxhash 初始化模式到 `@aura/utils`
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Source: `06.3-REVIEW.md § IN-07, IN-08` + `/gsd:capture` todo `2026-05-29-extract-duplicate-effect-wrappers-to-utils`
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)

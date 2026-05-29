@@ -323,6 +323,7 @@ function mockConceptEngine(
     discover: () => Effect.succeed(emptyConceptReport),
     stats: () => Effect.succeed(state),
     with_seed_mode: () => Effect.void,
+    with_similarity_mode: () => Effect.void,
     stable_concepts: () => Effect.succeed([] as ReadonlyArray<string>),
     active_candidates: () => Effect.succeed([] as ReadonlyArray<string>),
   }

@@ -78,6 +78,7 @@ function mockCausalEngine(patterns: CausalPattern[] = [], evidenceMode: Evidence
 function mockConceptEngine(): ConceptEngine.Interface {
   return {
     with_seed_mode: (_mode: any) => Effect.void,
+    with_similarity_mode: (_mode: any) => Effect.void,
     discover: (_be: BeliefEngine.Interface, _records: ReadonlyMap<string, any>, _sdr: SdrLookup) => Effect.succeed({} as any),
     stable_concepts: () => Effect.succeed([] as readonly string[]),
     active_candidates: () => Effect.succeed([] as readonly string[]),

@@ -1095,8 +1095,8 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
       }
 
       // Trace records skipped by content length filter
-      if (recordsSkippedByLength > 0 && trace) {
-        yield* trace.event("belief.update_with_sdr.records_skipped_by_length", {
+      if (recordsSkippedByLength > 0 && Option.isSome(traceOpt)) {
+        yield* traceOpt.value.event("belief.update_with_sdr.records_skipped_by_length", {
           count: recordsSkippedByLength,
           total: records.size,
         })

@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Clock } from "effect"
+import { Effect, Layer, Option } from "effect"
 import {
   PolicyEngine,
   PolicyActionKind,
@@ -6,6 +6,7 @@ import {
   PolicyState,
   EpistemicTrace,
   serviceOption,
+  Clock,
   type CausalEngine,
   type BeliefEngine,
   type ConceptEngine,

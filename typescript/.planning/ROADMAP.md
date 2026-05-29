@@ -118,7 +118,7 @@ Plans:
 **Requirements:** REQ-011, REQ-012
 **Depends on:** Phase 06.2
 **Source:** AUDIT-DIFF.md, EXPLAIN.md
-**Plans:** 10/11 plans executed
+**Plans:** 11/11 plans complete
 
 **Scope (by priority):**
 
@@ -160,7 +160,7 @@ Plans:
 
 **Wave 6** *(blocked on Waves 1-5)*
 
-- [ ] 06.3-11-PLAN.md — Integration: full typecheck + test suite + AUDIT-DIFF.md status update (checkpoint)
+- [x] 06.3-11-PLAN.md — Integration: full typecheck + test suite + AUDIT-DIFF.md status update (checkpoint)
 
 ### Phase 06.1: 补齐四大引擎未完成功能和修复类型错误 (INSERTED)
 
@@ -196,6 +196,7 @@ Plans:
 Source: `06.3-REVIEW.md § TODO-W01, TODO-W02, TODO-W03`
 
 Plans:
+
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
 ### Phase 999.2: 跨引擎一致性 — NON-PARITY 标记统一追踪 (BACKLOG)
@@ -207,6 +208,7 @@ Plans:
 Source: `06.3-REVIEW.md § TODO-W04, WR-01, WR-04, WR-05`
 
 Plans:
+
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
 ### Phase 999.3: 引擎工具函数去重 — Effect 包装提取到 utils 包 (BACKLOG)
@@ -218,4 +220,5 @@ Plans:
 Source: `06.3-REVIEW.md § IN-07, IN-08` + `/gsd:capture` todo `2026-05-29-extract-duplicate-effect-wrappers-to-utils`
 
 Plans:
+
 - [ ] TBD (promote with /gsd-review-backlog when ready)

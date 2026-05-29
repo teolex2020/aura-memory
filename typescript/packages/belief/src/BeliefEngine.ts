@@ -194,7 +194,7 @@ function byteLength(s: string): number {
  * 取 record 的置信度：优先取显式值，缺失时按 source_type 查默认置信度表。
  */
 function confidenceOf(rec: AuraRecord): number {
-  const v = (rec as unknown as { confidence?: unknown }).confidence
+  const v = rec.confidence
   if (typeof v === "number" && Number.isFinite(v)) return v
   return DEFAULT_CONFIDENCE_BY_SOURCE[rec.source_type] ?? 0.9
 }
@@ -205,7 +205,7 @@ function confidenceOf(rec: AuraRecord): number {
  * 取 record 的支持质量：优先取显式 support_mass，缺失时回退到 strength。
  */
 function supportMassOf(rec: AuraRecord): number {
-  const v = (rec as unknown as { support_mass?: unknown }).support_mass
+  const v = rec.support_mass
   return typeof v === "number" && Number.isFinite(v) ? v : rec.strength
 }
 
@@ -215,7 +215,7 @@ function supportMassOf(rec: AuraRecord): number {
  * 取 record 的冲突质量：优先取显式 conflict_mass，缺失时默认为 0。
  */
 function conflictMassOf(rec: AuraRecord): number {
-  const v = (rec as unknown as { conflict_mass?: unknown }).conflict_mass
+  const v = rec.conflict_mass
   return typeof v === "number" && Number.isFinite(v) ? v : 0
 }
 

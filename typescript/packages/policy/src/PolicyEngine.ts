@@ -539,6 +539,15 @@ export function generateRecommendation(
  * with fallback to record-level confidence or 0.50 neutral default.
  *
  * Matches Rust policy.rs aggregate_belief_confidence (lines 654-677).
+ *
+ * @param beliefIds - IDs of beliefs to aggregate confidence from.
+ * @param beliefEngine - BeliefEngine.Interface; only consumed in Phases 2-3
+ *   when `beliefs` is NOT provided (fallback path). In the primary integration
+ *   path through `discover()`, cached `beliefs` are always passed so this
+ *   parameter is unused.
+ * @param beliefs - Pre-fetched belief state snapshot (Phase 1 cache-bypass).
+ * @param records - Full AuraRecord map for record-level confidence fallback.
+ * @param recordIds - Optional subset of record IDs for fallback computation.
  */
 function aggregateBeliefConfidence(
   beliefIds: string[],

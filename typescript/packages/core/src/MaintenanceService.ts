@@ -74,6 +74,16 @@ const REFLECTION_NAMESPACE_LIMIT = 8
 type _PhaseTimings = { -readonly [K in keyof PhaseTimings]: PhaseTimings[K] }
 type _MaintenanceHotspots = { -readonly [K in keyof MaintenanceHotspots]: MaintenanceHotspots[K] }
 
+/**
+ * Convert readonly contract types to mutable counterparts for in-place mutation
+ * during a maintenance cycle. The single `as unknown as` pays the bridge toll once.
+ *
+ * 将只读合约类型转换为可变副本，用于维护周期中的原地修改。
+ */
+function toMutable<T>(readonly: T): { -readonly [K in keyof T]: T[K] } {
+  return readonly as unknown as { -readonly [K in keyof T]: T[K] }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Internal helpers
 // ═══════════════════════════════════════════════════════════════════════
@@ -410,8 +420,8 @@ export function runInitialPhases(
 ): Effect.Effect<InitialMaintenancePhaseResult, never, EpistemicTrace> {
   return Effect.gen(function* () {
     const trace = yield* Effect.service(EpistemicTrace)
-    const mt = timings as unknown as _PhaseTimings
-    const mh = hotspots as unknown as _MaintenanceHotspots
+    const mt = toMutable(timings)
+    const mh = toMutable(hotspots)
 
     yield* trace.event("maintenance.initial.start", { records: records.size, cycle })
 
@@ -484,8 +494,8 @@ export function buildSdrLookup(
 ): Effect.Effect<SdrLookup, never, EpistemicTrace> {
   return Effect.gen(function* () {
     const trace = yield* Effect.service(EpistemicTrace)
-    const mt = timings as unknown as _PhaseTimings
-    const mh = hotspots as unknown as _MaintenanceHotspots
+    const mt = toMutable(timings)
+    const mh = toMutable(hotspots)
 
     yield* trace.event("maintenance.sdr.build.start", { records: beliefSnapshot.size })
 
@@ -615,8 +625,8 @@ export function runDiscoveryPhases(
 > {
   return Effect.gen(function* () {
     const trace = yield* Effect.service(EpistemicTrace)
-    const mt = timings as unknown as _PhaseTimings
-    const mh = hotspots as unknown as _MaintenanceHotspots
+    const mt = toMutable(timings)
+    const mh = toMutable(hotspots)
 
     yield* trace.event("maintenance.discovery.start", { records: beliefSnapshot.size })
 
@@ -704,8 +714,8 @@ export function runPostDiscoveryPhases(
   hotspots: MaintenanceHotspots
 ): Effect.Effect<PostDiscoveryPhaseResult> {
   return Effect.gen(function* () {
-    const mt = timings as unknown as _PhaseTimings
-    const mh = hotspots as unknown as _MaintenanceHotspots
+    const mt = toMutable(timings)
+    const mh = toMutable(hotspots)
 
     let t = Date.now()
 
@@ -760,7 +770,7 @@ export function finalizeTelemetry(
   counters: ConceptSurfaceCounters
 ): Effect.Effect<ConceptSurfaceTelemetry> {
   return Effect.gen(function* () {
-    const mh = hotspots as unknown as _MaintenanceHotspots
+    const mh = toMutable(hotspots)
 
     // ── Dominant phase detection ──
     const fields: [string, number][] = [

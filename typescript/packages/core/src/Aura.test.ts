@@ -58,7 +58,7 @@ it("Aura.open loads minimal fixture", async () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Aura.runMaintenance", () => {
-  it("returns a MaintenanceReport with mock engines (RED: fails while stub remains)", async () => {
+  it("returns a MaintenanceReport with mock engines", async () => {
     // Mock EpistemicTrace
     const mockTrace = {
       event: () => Effect.succeed(undefined),

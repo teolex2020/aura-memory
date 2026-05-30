@@ -5,13 +5,13 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: mcp-polish
 status: executing
-last_updated: "2026-05-30T20:10:05.271Z"
+last_updated: "2026-05-30T20:37:03.823Z"
 last_activity: 2026-05-30
 progress:
   total_phases: 13
   completed_phases: 4
   total_plans: 33
-  completed_plans: 29
+  completed_plans: 30
   percent: 31
 ---
 
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 07 (mcp-polish) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Current Phase: 07
 Current Phase Name: mcp-polish
 Total Phases: 10
 Status: Ready to execute
 Last activity: 2026-05-30
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [█████████░] 88%
 | Phase 07-mcp-polish P02 | 20min | 1 tasks | 4 files |
 | Phase 07-mcp-polish P03 | 15min | 1 tasks | 6 files |
 | Phase 07-mcp-polish P04 | 14min | 1 tasks | 4 files |
+| Phase 07 P05 | 19min | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,8 @@ See PROJECT.md Key Decisions for full log. Recent decisions:
 - [Phase 07-mcp-polish]: Search view strategy: Aura owns a Map<string, AuraRecord> populated from loadCognitiveRecords() at open/maintenance time and immutably replaced after write-affecting mutations.
 - [Phase 07-mcp-polish]: runMaintenance boundary: brain.cog/brain.snap contract Records are the source of truth; BrainAuraRecord[] remains only for legacy brain.aura listRecords compatibility.
 - [Phase 07-mcp-polish]: belief_instability and policy_lifecycle are Aura facades over EpistemicRuntime, then converted to Rust-shaped DTOs. — Keeps business composition in core/runtime instead of MCP transport.
+- [Phase 07]: Pass 07-05 correction log state is Aura-owned and in-memory; no file-backed correction persistence was added.
+- [Phase 07]: Pass 07-05 evidence bridge uses a trace-capable @aura/recall helper that reruns collectors/walks and accumulates per-record signal buckets.
 
 ### Pending Todos
 
@@ -104,10 +107,10 @@ Items carried forward:
 
 ## Session Continuity
 
-Last session: 2026-05-30T20:09:29.463Z
+Last session: 2026-05-30T20:36:14.666Z
 Stopped at: Completed 07-02-PLAN.md
 Resume file: None
-�� @aura/utils | backlog 999.3 | 2026-05-29 |
+�� @aura/utils | backlog 999.3 | 2026-05-29 |
 
 ## Session Continuity
 

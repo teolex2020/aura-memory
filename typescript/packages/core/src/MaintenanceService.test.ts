@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest"
-import { Effect, Ref } from "effect"
+import { Effect, Layer, Ref } from "effect"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 
 // Helper: create a Ref from a value (replaces Ref.unsafeMake which doesn't exist)
 function mockRef<T>(value: T): Ref.Ref<T> {
@@ -14,6 +17,11 @@ import {
   computeLayerStability,
   MAINTENANCE_TREND_LIMIT,
   REFLECTION_SUMMARY_LIMIT,
+  buildSdrLookup,
+  buildReflectionSummary,
+  createDefaultTagTaxonomy,
+  createNGramIndex,
+  DisabledBackgroundBrain,
 } from "./MaintenanceService"
 import type {
   EpistemicPhaseReport,
@@ -31,7 +39,20 @@ import type {
   ReflectionSummary,
   ReflectionFinding,
   ReflectionJobReport,
+  Record as AuraRecord,
 } from "@aura/contract"
+import { EpistemicTrace, Level } from "@aura/contract"
+import { SDRInterpreter } from "@aura/recall"
+import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
+import {
+  BrainAuraFile,
+  CognitiveStoreFile,
+  currentPersistenceManifest,
+  MaintenanceTrendsFile,
+  ReflectionSummariesFile,
+  savePersistenceManifest,
+} from "@aura/storage"
+import { Aura, DefaultLayer } from "./index"
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helpers
@@ -486,9 +507,8 @@ describe("computeLayerStability", () => {
     expect(result.belief.retained).toBe(0)
     expect(result.belief.newCount).toBe(2)
     expect(result.belief.dropped).toBe(0)
-    // churn = (2 + 0) / max(1, 0) = 2/1 = 2.0
-    // Actually since prev.size=0, max(1,0)=1, and new=2, churn=2.0
-    expect(result.belief.churn).toBe(2.0)
+    // Rust parity: churn = (new + dropped) / max(1, current.size) = 2/2 = 1.0
+    expect(result.belief.churn).toBe(1.0)
   })
 
   it("updates prevKeys Refs after computation", async () => {
@@ -513,3 +533,200 @@ describe("computeLayerStability", () => {
     expect(Effect.runSync(Ref.get(prevPolicy))).toEqual(new Set(["policy1"]))
   })
 })
+
+describe("Phase 07 placeholder replacements", () => {
+  function makeRecord(overrides: Partial<AuraRecord> = {}): AuraRecord {
+    return {
+      id: "r1",
+      content: "Deploy to staging before production release",
+      level: Level.Working,
+      strength: 1,
+      activation_count: 0,
+      created_at: 1,
+      last_activated: 1,
+      tags: ["deploy", "safety"],
+      connections: {},
+      connection_types: {},
+      content_type: "text",
+      source_type: "recorded",
+      namespace: "ops",
+      semantic_type: "decision",
+      metadata: {},
+      caused_by_id: null,
+      ...overrides,
+    }
+  }
+
+  it("TagTaxonomy classifies identity, task, and contradiction cues deterministically", () => {
+    const taxonomy = createDefaultTagTaxonomy()
+
+    expect(taxonomy.classify(makeRecord({ level: Level.Identity, tags: ["profile"] })).identityCue).toBe(true)
+    expect(taxonomy.classify(makeRecord({ tags: ["scheduled-task"] })).taskCue).toBe(true)
+    expect(taxonomy.classify(makeRecord({ semantic_type: "contradiction" })).contradictionCue).toBe(true)
+    expect(taxonomy.classify(makeRecord({ tags: ["todo-item"] })).nonIdentityCue).toBe(true)
+  })
+
+  it("NGramIndex shim returns bounded content-derived candidates", () => {
+    const records = new Map([
+      ["r1", makeRecord({ id: "r1", content: "deploy staging safety checklist" })],
+      ["r2", makeRecord({ id: "r2", content: "banana unrelated note" })],
+    ])
+    const hits = createNGramIndex(records).query("staging safety deploy", 4)
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0]?.[1]).toBe("r1")
+    expect(hits[0]?.[0]).toBeGreaterThan(0)
+  })
+
+  it("DisabledBackgroundBrain returns explicit empty outputs for background-only paths", () => {
+    const records = new Map([["r1", makeRecord()]])
+    expect(DisabledBackgroundBrain.discover_cross_connections(records, 10)).toEqual([])
+    expect(DisabledBackgroundBrain.scheduled_tasks(records)).toEqual([])
+  })
+
+  it("buildSdrLookup computes non-empty SDR vectors for non-empty content", async () => {
+    const sdr = await SDRInterpreter.default()
+    const cache = mockRef(new Map<string, ReadonlyArray<number>>())
+    const timings = emptyTimings()
+    const hotspots = emptyHotspots()
+    const records = new Map([["r1", makeRecord({ id: "r1", content: "non empty deployment memory" })]])
+    const trace = {
+      event: () => Effect.succeed(undefined),
+      span: <A, E, R>(_name: string, _fields: Record<string, string | number | boolean>, effect: Effect.Effect<A, E, R>) => effect,
+    }
+
+    const lookup = await Effect.runPromise(
+      buildSdrLookup(sdr, cache, records, timings, hotspots).pipe(
+        Effect.provideService(EpistemicTrace, trace)
+      )
+    )
+
+    expect(lookup.get("r1")!.length).toBeGreaterThan(0)
+    expect(hotspots.sdrVectorsComputed).toBe(1)
+    expect(hotspots.sdrSourceBytes).toBeGreaterThan(0)
+  })
+
+  it("buildReflectionSummary emits blocker and trend findings from real inputs", async () => {
+    const records = new Map([
+      ["task1", makeRecord({
+        id: "task1",
+        content: "Resolve deploy rollback blocker",
+        tags: ["scheduled-task", "deploy"],
+        metadata: { status: "active", due_date: "2020-01-01T00:00:00Z" },
+        strength: 0.4,
+      })],
+    ])
+    const trendSummary = summarizeTrends([
+      makeSnapshot({ volatileRecords: 0, policySuppressionRate: 0, causalRejectionRate: 0, correctionEvents: 0, beliefChurn: 0.05 }),
+      makeSnapshot({ volatileRecords: 3, policySuppressionRate: 0.3, causalRejectionRate: 0.2, correctionEvents: 1, beliefChurn: 0.2 }),
+    ])
+    const hotspots = { ...emptyHotspots(), dominantPhase: "policy" }
+
+    const summary = await Effect.runPromise(
+      buildReflectionSummary("2026-05-30T00:00:00Z", records, "scheduled-task", [], trendSummary, hotspots)
+    )
+
+    expect(summary.report.blockerFindings).toBe(1)
+    expect(summary.report.trendFindings).toBe(1)
+    expect(summary.findings.length).toBeGreaterThan(0)
+    expect(summary.digest).toContain("reflection finding")
+  })
+
+  it("runMaintenance computes SDR, emits non-zero signals, and persists trend/reflection history", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-maintenance-07-02-"))
+    const ioLayer = Layer.mergeAll(NodeFileReadLive, NodeFileWriteLive, NodeClockLive, NodeCryptoLive)
+
+    const records: AuraRecord[] = [
+      makeRecord({
+        id: "r1",
+        content: "Deploy to staging before production deploy release",
+        tags: ["deploy", "safety"],
+        semantic_type: "decision",
+      }),
+      makeRecord({
+        id: "r2",
+        content: "Always verify staging before production deployment",
+        tags: ["deploy", "safety"],
+        semantic_type: "decision",
+      }),
+      makeRecord({
+        id: "r3",
+        content: "Skip staging and deploy production directly",
+        tags: ["deploy", "safety", "contradiction"],
+        semantic_type: "contradiction",
+      }),
+      makeRecord({
+        id: "task1",
+        content: "Resolve deploy rollback blocker",
+        tags: ["scheduled-task", "deploy"],
+        metadata: { status: "active", due_date: "2020-01-01T00:00:00Z" },
+        strength: 0.4,
+      }),
+    ]
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* savePersistenceManifest(dir, currentPersistenceManifest())
+        const auraFile = yield* BrainAuraFile.open(dir)
+        yield* auraFile.flush()
+        const store = yield* CognitiveStoreFile.open(dir)
+        for (const record of records) {
+          yield* store.appendStore(record)
+        }
+        yield* store.flush()
+      }).pipe(Effect.provide(ioLayer))
+    )
+
+    const first = await Effect.runPromise(
+      Effect.gen(function* () {
+        const aura = yield* Aura.open(dir)
+        return yield* aura.runMaintenance({ ...defaultMaintenanceConfigForTest(), levelFixInterval: 1 })
+      }).pipe(
+        Effect.provide(DefaultLayer(dir)),
+        Effect.provide(ioLayer)
+      )
+    )
+
+    expect(first.hotspots.sdrVectorsComputed).toBeGreaterThan(0)
+    expect(first.insightsFound).toBeGreaterThan(0)
+    expect(first.reflection.findings.length).toBeGreaterThan(0)
+    expect(first.trendSummary.snapshotCount).toBe(1)
+
+    const persistedTrends = await Effect.runPromise(
+      MaintenanceTrendsFile.new(dir).load().pipe(Effect.provide(NodeFileReadLive))
+    )
+    const persistedReflections = await Effect.runPromise(
+      ReflectionSummariesFile.new(dir).load().pipe(Effect.provide(NodeFileReadLive))
+    )
+    expect(persistedTrends).toHaveLength(1)
+    expect(persistedTrends[0]!.insights_found).toBeGreaterThan(0)
+    expect(persistedReflections).toHaveLength(1)
+    expect(persistedReflections[0]!.findings.length).toBeGreaterThan(0)
+
+    const second = await Effect.runPromise(
+      Effect.gen(function* () {
+        const reopened = yield* Aura.open(dir)
+        return yield* reopened.runMaintenance({ ...defaultMaintenanceConfigForTest(), levelFixInterval: 1 })
+      }).pipe(
+        Effect.provide(DefaultLayer(dir)),
+        Effect.provide(ioLayer)
+      )
+    )
+    expect(second.trendSummary.snapshotCount).toBe(2)
+  })
+})
+
+function defaultMaintenanceConfigForTest() {
+  return {
+    decayEnabled: true,
+    reflectEnabled: true,
+    insightsEnabled: true,
+    consolidationEnabled: true,
+    synthesisEnabled: true,
+    archivalEnabled: true,
+    levelFixInterval: 1,
+    maxClustersPerRun: 3,
+    archivalRules: [],
+    completedArchivalRules: [],
+    taskTag: "scheduled-task",
+  }
+}

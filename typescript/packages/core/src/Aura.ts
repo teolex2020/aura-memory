@@ -16,6 +16,8 @@ import {
   CognitiveStoreFile,
   loadCognitiveRecords,
   loadPersistenceManifestWithValidation,
+  MaintenanceTrendsFile,
+  ReflectionSummariesFile,
   readBrainAuraFile,
   type BrainAuraRecord,
 } from "@aura/storage";
@@ -39,6 +41,11 @@ import {
   summarizeTrends,
   buildReflectionSummary,
   pushReflectionSummary,
+  createCognitiveStoreAdapter,
+  createDefaultTagTaxonomy,
+  createNGramIndex,
+  DisabledBackgroundBrain,
+  makeMaintenanceSdrInterpreter,
 } from "./MaintenanceService"
 
 // ── Contract types for MaintenanceService ──
@@ -53,12 +60,16 @@ import {
   type ConceptSurfaceCounters, type ConceptSurfaceMode,
   ConceptSurfaceMode as Csm,
   type ContradictionCluster,
+  type McpMaintenanceTrendSnapshot,
+  type McpReflectionSummary,
 } from "@aura/contract"
 
 export class Aura {
   private constructor(
     private readonly brainDir: string,
     private readonly records: BrainAuraRecord[],
+    private readonly maintenanceTrendHistory: MaintenanceTrendSnapshot[] = [],
+    private readonly reflectionSummaries: ReflectionSummary[] = [],
   ) {}
 
   static open(
@@ -83,7 +94,17 @@ export class Aura {
             message: cause instanceof Error ? cause.message : String(cause),
           }),
       });
-      return new Aura(brainPath, parsed.records);
+      const trendFile = MaintenanceTrendsFile.new(brainPath)
+      const reflectionFile = ReflectionSummariesFile.new(brainPath)
+      const trends = yield* trendFile.load().pipe(
+        Effect.map((history) => history.map(fromMcpMaintenanceTrendSnapshot)),
+        Effect.catch(() => Effect.succeed([] as MaintenanceTrendSnapshot[]))
+      )
+      const reflections = yield* reflectionFile.load().pipe(
+        Effect.map((history) => history.map(fromMcpReflectionSummary)),
+        Effect.catch(() => Effect.succeed([] as ReflectionSummary[]))
+      )
+      return new Aura(brainPath, parsed.records, trends, reflections);
     });
   }
 
@@ -408,6 +429,10 @@ export class Aura {
 
       // ── Build records map ──
       const records = yield* loadCognitiveRecords(dir)
+      const cognitiveStore = yield* CognitiveStoreFile.open(dir)
+      const cognitiveStoreAdapter = createCognitiveStoreAdapter(cognitiveStore)
+      const taxonomy = createDefaultTagTaxonomy()
+      const sdrInterpreter = yield* makeMaintenanceSdrInterpreter()
 
       // ── Initialize timings and hotspots ──
       const timings: PhaseTimings = {
@@ -437,14 +462,14 @@ export class Aura {
       // ── Phase 1: Initial phases ──
       const initial = yield* runInitialPhases(
         records, cfg,
-        undefined as never, // taxonomy (stub — ignored by stub phases)
-        undefined as never, // cognitiveStore (stub — ignored by stub phases)
+        taxonomy,
+        cognitiveStoreAdapter,
         0, timings, hotspots
       )
 
       // ── Phase 2: SDR lookup ──
       const sdrLookup = yield* buildSdrLookup(
-        undefined as never, // SDRInterpreter (stub)
+        sdrInterpreter,
         sdrLookupCache, records, timings, hotspots
       )
 
@@ -464,13 +489,13 @@ export class Aura {
       // ── Phase 5: Post-discovery phases ──
       const postDiscovery = yield* runPostDiscoveryPhases(
         records,
-        undefined as never, // ngramIndex (stub)
+        createNGramIndex(records),
         new Map(), // tagIndex
         new Map(), // auraIndex
-        undefined as never, // cognitiveStore (stub)
-        undefined, // backgroundBrain
+        cognitiveStoreAdapter,
+        DisabledBackgroundBrain,
         cfg,
-        undefined as never, // taxonomy (stub)
+        taxonomy,
         timings, hotspots
       )
 
@@ -480,15 +505,19 @@ export class Aura {
       )
 
       // ── Phase 7: Trends ──
-      const trendHistory: MaintenanceTrendSnapshot[] = []
+      const trendHistory = self.maintenanceTrendHistory
+      const previousCumulativeCorrections = trendHistory[trendHistory.length - 1]?.cumulativeCorrections ?? 0
       const snapshot = buildTrendSnapshot(
         timestamp, records.size, postDiscovery.recordsArchived,
         initial.insightsFound, initial.epistemic,
         discovery.belief, discovery.causal, discovery.policy,
-        discovery.feedback, timings, hotspots, 0, 0
+        discovery.feedback, timings, hotspots, previousCumulativeCorrections, previousCumulativeCorrections
       )
       yield* pushTrendSnapshot(trendHistory, snapshot)
       const trendSummary = summarizeTrends(trendHistory)
+      // NON-PARITY IMPLEMENTATION: TS mirrors Rust in-memory maintenance history to JSON for reopen/introspection.
+      // Rust keeps runtime history as source of truth and persists it through Aura helpers.
+      yield* MaintenanceTrendsFile.new(dir).save(trendHistory.map(toMcpMaintenanceTrendSnapshot))
 
       // ── Phase 8: Reflection ──
       const contradictionClusters: ContradictionCluster[] = []
@@ -496,6 +525,10 @@ export class Aura {
         timestamp, records, cfg.taskTag,
         contradictionClusters, trendSummary, hotspots
       )
+      yield* pushReflectionSummary(self.reflectionSummaries, reflection)
+      // NON-PARITY IMPLEMENTATION: TS mirrors Rust in-memory reflection summaries to JSON for reopen/introspection.
+      // Rust reference: Aura::save_reflection_summaries.
+      yield* ReflectionSummariesFile.new(dir).save(self.reflectionSummaries.map(toMcpReflectionSummary))
 
       // ── Total timing ──
       const timingsMut = timings as { totalMs: number }
@@ -621,4 +654,98 @@ function toRecordLike(rec: AuraRecord, nowSecs: number): AuraRecord {
     aura_id: typeof o.aura_id === "string" ? o.aura_id : null,
     caused_by_id: typeof o.caused_by_id === "string" ? o.caused_by_id : null,
   };
+}
+
+function toMcpMaintenanceTrendSnapshot(snapshot: MaintenanceTrendSnapshot): McpMaintenanceTrendSnapshot {
+  return {
+    timestamp: snapshot.timestamp,
+    total_records: snapshot.totalRecords,
+    records_archived: snapshot.recordsArchived,
+    insights_found: snapshot.insightsFound,
+    volatile_records: snapshot.volatileRecords,
+    belief_churn: snapshot.beliefChurn,
+    causal_rejection_rate: snapshot.causalRejectionRate,
+    policy_suppression_rate: snapshot.policySuppressionRate,
+    feedback_beliefs_touched: snapshot.feedbackBeliefsTouched,
+    feedback_net_confidence_delta: snapshot.feedbackNetConfidenceDelta,
+    feedback_net_volatility_delta: snapshot.feedbackNetVolatilityDelta,
+    correction_events: snapshot.correctionEvents,
+    cumulative_corrections: snapshot.cumulativeCorrections,
+    cycle_time_ms: snapshot.cycleTimeMs,
+    dominant_phase: snapshot.dominantPhase,
+  }
+}
+
+function fromMcpMaintenanceTrendSnapshot(snapshot: McpMaintenanceTrendSnapshot): MaintenanceTrendSnapshot {
+  return {
+    timestamp: snapshot.timestamp,
+    totalRecords: snapshot.total_records,
+    recordsArchived: snapshot.records_archived,
+    insightsFound: snapshot.insights_found,
+    volatileRecords: snapshot.volatile_records,
+    beliefChurn: snapshot.belief_churn,
+    causalRejectionRate: snapshot.causal_rejection_rate,
+    policySuppressionRate: snapshot.policy_suppression_rate,
+    feedbackBeliefsTouched: snapshot.feedback_beliefs_touched,
+    feedbackNetConfidenceDelta: snapshot.feedback_net_confidence_delta,
+    feedbackNetVolatilityDelta: snapshot.feedback_net_volatility_delta,
+    correctionEvents: snapshot.correction_events,
+    cumulativeCorrections: snapshot.cumulative_corrections,
+    cycleTimeMs: snapshot.cycle_time_ms,
+    dominantPhase: snapshot.dominant_phase,
+  }
+}
+
+function toMcpReflectionSummary(summary: ReflectionSummary): McpReflectionSummary {
+  return {
+    timestamp: summary.timestamp,
+    digest: summary.digest,
+    dominant_phase: summary.dominantPhase,
+    report: {
+      jobs_run: summary.report.jobsRun,
+      blocker_findings: summary.report.blockerFindings,
+      contradiction_findings: summary.report.contradictionFindings,
+      trend_findings: summary.report.trendFindings,
+      total_findings: summary.report.totalFindings,
+      capped: summary.report.capped,
+    },
+    findings: summary.findings.map((finding) => ({
+      kind: finding.kind,
+      namespace: finding.namespace,
+      title: finding.title,
+      detail: finding.detail,
+      related_ids: finding.relatedIds,
+      score: finding.score,
+      severity: finding.severity,
+    })),
+  }
+}
+
+function fromMcpReflectionSummary(summary: McpReflectionSummary): ReflectionSummary {
+  return {
+    timestamp: summary.timestamp,
+    digest: summary.digest,
+    dominantPhase: summary.dominant_phase,
+    report: {
+      jobsRun: summary.report.jobs_run,
+      blockerFindings: summary.report.blocker_findings,
+      contradictionFindings: summary.report.contradiction_findings,
+      trendFindings: summary.report.trend_findings,
+      totalFindings: summary.report.total_findings,
+      capped: summary.report.capped,
+    },
+    findings: summary.findings.map((finding) => ({
+      kind: finding.kind,
+      namespace: finding.namespace,
+      title: finding.title,
+      detail: finding.detail,
+      relatedIds: finding.related_ids,
+      score: finding.score,
+      severity: normalizeReflectionSeverity(finding.severity),
+    })),
+  }
+}
+
+function normalizeReflectionSeverity(severity: string): "high" | "medium" | "low" {
+  return severity === "high" || severity === "medium" || severity === "low" ? severity : "low"
 }

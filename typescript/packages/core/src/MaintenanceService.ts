@@ -15,6 +15,7 @@ import {
   ConceptEngine, ConceptStore,
   CausalEngine, CausalStore,
   PolicyEngine, PolicyStore,
+  Level,
 } from "@aura/contract"
 import type {
   MaintenanceConfig, PhaseTimings, MaintenanceHotspots,
@@ -23,7 +24,7 @@ import type {
   ConceptSurfaceCounters, ConceptSurfaceMode,
   DecayReport, ReflectReport, EpistemicPhaseReport,
   BeliefPhaseReport, ConceptPhaseReport, CausalPhaseReport, PolicyPhaseReport,
-  FeedbackAuditReport, FeedbackAuditEntry, ConsolidationReport,
+  FeedbackAuditReport, ConsolidationReport,
   MaintenanceTrendSnapshot, MaintenanceTrendSummary,
   ConceptSurfaceTelemetry,
   ReflectionSummary, ReflectionFinding, ReflectionJobReport, ReflectionDigest, ReflectionKindSummary,
@@ -35,25 +36,48 @@ import type { Record as AuraRecord } from "@aura/contract"
 import type { BeliefEngineState, ConceptEngineState, CausalEngineState, PolicyEngineState } from "@aura/contract"
 import type { FileWrite } from "@aura/contract"
 import type { FileWriteError } from "@aura/contract"
+import { SDRInterpreter } from "@aura/recall"
+import { CognitiveStoreFile } from "@aura/storage"
 
 // ═══════════════════════════════════════════════════════════════════════
-// Placeholder types — TODO: import from proper module once available
+// Typed maintenance dependency adapters
 // ═══════════════════════════════════════════════════════════════════════
 
-// TODO: import from @aura/recall or @aura/core
-type SDRInterpreter = unknown
+export type TaxonomyClassification = {
+  readonly normalizedTags: ReadonlyArray<string>
+  readonly namespace: string
+  readonly semanticType: string
+  readonly level: Level
+  readonly identityCue: boolean
+  readonly nonIdentityCue: boolean
+  readonly taskCue: boolean
+  readonly contradictionCue: boolean
+}
 
-// TODO: import from @aura/concept or @aura/index
-type TagTaxonomy = unknown
+export type TagTaxonomy = {
+  readonly identityTags: ReadonlySet<string>
+  readonly nonIdentityTags: ReadonlySet<string>
+  readonly taskTags: ReadonlySet<string>
+  readonly contradictionTags: ReadonlySet<string>
+  classify: (record: AuraRecord) => TaxonomyClassification
+}
 
-// TODO: import from @aura/index
-type NGramIndex = unknown
+export type NGramIndex = {
+  query: (text: string, topK: number) => ReadonlyArray<readonly [number, string]>
+}
 
-// TODO: import from @aura/storage
-type CognitiveStore = unknown
+export type CognitiveStore = {
+  delete: (id: string) => Effect.Effect<void, FileWriteError, FileWrite>
+  flush: () => Effect.Effect<void, FileWriteError, FileWrite>
+}
 
-// TODO: import from @aura/core
-type BackgroundBrain = unknown
+export type BackgroundBrain = {
+  discover_cross_connections: (
+    records: ReadonlyMap<string, AuraRecord>,
+    maxDiscoveries: number
+  ) => ReadonlyArray<string>
+  scheduled_tasks: (records: ReadonlyMap<string, AuraRecord>) => ReadonlyArray<string>
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Constants (aligned with Rust maintenance_service.rs)
@@ -64,6 +88,21 @@ export const REFLECTION_SUMMARY_LIMIT = 16
 const REFLECTION_FINDING_LIMIT = 6
 const REFLECTION_KIND_LIMIT = 12
 const REFLECTION_NAMESPACE_LIMIT = 8
+const IDENTITY_ACTIVATION_THRESHOLD = 20
+const IDENTITY_STRENGTH_THRESHOLD = 0.9
+const PROMOTION_ACTIVATION_THRESHOLD = 5
+const PROMOTION_STRENGTH_THRESHOLD = 0.7
+const LIVE_STRENGTH_THRESHOLD = 0.05
+
+const DEFAULT_IDENTITY_TAGS = new Set([
+  "identity", "profile", "persona", "preference", "family", "user-profile", "core-memory"
+])
+const DEFAULT_NON_IDENTITY_TAGS = new Set([
+  "todo-item", "scheduled-task", "web-search-cache", "session-summary", "action-plan",
+  "research-finding", "feedback-signal", "autonomous-outcome", "project-note"
+])
+const DEFAULT_TASK_TAGS = new Set(["scheduled-task", "todo-item", "task", "action-plan"])
+const DEFAULT_CONTRADICTION_TAGS = new Set(["contradiction", "conflict", "rejected", "correction"])
 
 // ═══════════════════════════════════════════════════════════════════════
 // Internal mutable type aliases
@@ -73,6 +112,13 @@ const REFLECTION_NAMESPACE_LIMIT = 8
 
 type _PhaseTimings = { -readonly [K in keyof PhaseTimings]: PhaseTimings[K] }
 type _MaintenanceHotspots = { -readonly [K in keyof MaintenanceHotspots]: MaintenanceHotspots[K] }
+type MutableRecord = AuraRecord & {
+  support_mass?: number
+  conflict_mass?: number
+  confidence?: number
+  volatility?: number
+  salience?: number
+}
 
 /**
  * Convert readonly contract types to mutable counterparts for in-place mutation
@@ -82,6 +128,133 @@ type _MaintenanceHotspots = { -readonly [K in keyof MaintenanceHotspots]: Mainte
  */
 function toMutable<T>(readonly: T): { -readonly [K in keyof T]: T[K] } {
   return readonly as unknown as { -readonly [K in keyof T]: T[K] }
+}
+
+function normalizeToken(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function normalizedTags(record: AuraRecord): ReadonlyArray<string> {
+  return record.tags.map(normalizeToken).filter((tag) => tag.length > 0)
+}
+
+function intersects(values: ReadonlyArray<string>, allowed: ReadonlySet<string>): boolean {
+  return values.some((value) => allowed.has(value))
+}
+
+export function createDefaultTagTaxonomy(): TagTaxonomy {
+  const identityTags = DEFAULT_IDENTITY_TAGS
+  const nonIdentityTags = DEFAULT_NON_IDENTITY_TAGS
+  const taskTags = DEFAULT_TASK_TAGS
+  const contradictionTags = DEFAULT_CONTRADICTION_TAGS
+
+  return {
+    identityTags,
+    nonIdentityTags,
+    taskTags,
+    contradictionTags,
+    classify: (record) => {
+      const tags = normalizedTags(record)
+      const semanticType = normalizeToken(record.semantic_type)
+      const namespace = normalizeToken(record.namespace || "default")
+      const identityCue =
+        intersects(tags, identityTags) ||
+        semanticType === "preference" ||
+        namespace === "identity" ||
+        record.level === Level.Identity
+      const taskCue = intersects(tags, taskTags)
+      const contradictionCue = intersects(tags, contradictionTags) || semanticType === "contradiction"
+      const nonIdentityCue =
+        intersects(tags, nonIdentityTags) ||
+        taskCue ||
+        contradictionCue ||
+        semanticType === "decision" ||
+        semanticType === "trend"
+
+      return {
+        normalizedTags: tags,
+        namespace,
+        semanticType,
+        level: record.level,
+        identityCue,
+        nonIdentityCue,
+        taskCue,
+        contradictionCue,
+      }
+    },
+  }
+}
+
+function trigrams(text: string): ReadonlySet<string> {
+  const clean = text
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replaceAll(/\s+/g, " ")
+  if (clean.length === 0) return new Set()
+  if (clean.length < 3) return new Set([clean])
+
+  const out = new Set<string>()
+  for (let i = 0; i <= clean.length - 3; i++) {
+    out.add(clean.slice(i, i + 3))
+  }
+  return out
+}
+
+function jaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+  if (a.size === 0 || b.size === 0) return 0
+  let inter = 0
+  for (const x of a) {
+    if (b.has(x)) inter += 1
+  }
+  const union = a.size + b.size - inter
+  return union === 0 ? 0 : inter / union
+}
+
+export function createNGramIndex(records: ReadonlyMap<string, AuraRecord>): NGramIndex {
+  // NON-PARITY IMPLEMENTATION: 复用 TS 当前 trigram Jaccard 候选查询能力。
+  // Rust reference: `NGramIndex` 使用 MinHash+LSH；Phase 07 仅提供维护/合并可用的有界 adapter。
+  const sigs = new Map<string, ReadonlySet<string>>()
+  for (const [id, record] of records) {
+    sigs.set(id, trigrams(record.content))
+  }
+
+  return {
+    query: (text, topK) => {
+      const q = trigrams(text)
+      const scored: Array<readonly [number, string]> = []
+      for (const [id, sig] of sigs) {
+        const score = jaccard(q, sig)
+        if (score > 0) scored.push([score, id])
+      }
+      scored.sort((a, b) => b[0] - a[0])
+      return scored.slice(0, Math.max(0, topK))
+    }
+  }
+}
+
+export function createCognitiveStoreAdapter(store: CognitiveStoreFile): CognitiveStore {
+  return {
+    delete: (id) => store.appendDelete(id),
+    flush: () => store.flush(),
+  }
+}
+
+export const DisabledBackgroundBrain: BackgroundBrain = {
+  discover_cross_connections: () => {
+    // NON-PARITY IMPLEMENTATION: BackgroundBrain autonomous discovery is disabled in TS Phase 07.
+    // Rust reference: `background_brain::discover_cross_connections`.
+    return []
+  },
+  scheduled_tasks: () => {
+    // NON-PARITY IMPLEMENTATION: scheduled task/reminder production is disabled in TS Phase 07.
+    // Rust reference: BackgroundBrain scheduled-task paths.
+    return []
+  },
+}
+
+export function makeMaintenanceSdrInterpreter(): Effect.Effect<SDRInterpreter> {
+  return Effect.promise(() => SDRInterpreter.default())
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -98,8 +271,303 @@ function layerChurn(prevKeys: ReadonlySet<string>, currentKeys: ReadonlyArray<st
     else newCount++
   }
   const dropped = prevKeys.size - retained
-  const churn = (newCount + dropped) / Math.max(1, prevKeys.size)
+  const churn = (newCount + dropped) / Math.max(1, currentSet.size)
   return { retained, newCount, dropped, churn }
+}
+
+function levelRank(level: Level): number {
+  switch (level) {
+    case Level.Working:
+      return 1
+    case Level.Decisions:
+      return 2
+    case Level.Domain:
+      return 3
+    case Level.Identity:
+      return 4
+  }
+}
+
+function promoteLevel(level: Level): Level {
+  switch (level) {
+    case Level.Working:
+      return Level.Decisions
+    case Level.Decisions:
+      return Level.Domain
+    case Level.Domain:
+      return Level.Identity
+    case Level.Identity:
+      return Level.Identity
+  }
+}
+
+function decayRate(level: Level): number {
+  switch (level) {
+    case Level.Working:
+      return 0.80
+    case Level.Decisions:
+      return 0.90
+    case Level.Domain:
+      return 0.95
+    case Level.Identity:
+      return 0.99
+  }
+}
+
+function isAlive(record: AuraRecord): boolean {
+  return record.strength >= LIVE_STRENGTH_THRESHOLD
+}
+
+function canPromote(record: AuraRecord): boolean {
+  return (
+    record.activation_count >= PROMOTION_ACTIVATION_THRESHOLD &&
+    record.strength >= PROMOTION_STRENGTH_THRESHOLD &&
+    levelRank(record.level) < levelRank(Level.Identity)
+  )
+}
+
+function applyDecay(record: MutableRecord): void {
+  const baseRate = decayRate(record.level)
+  const ceilingFactor = Math.min(record.activation_count / 10, 1)
+  const activationRate = Math.min(baseRate + (0.999 - baseRate) * ceilingFactor, 0.999)
+  const salience = typeof record.salience === "number" ? Math.max(0, Math.min(1, record.salience)) : 0
+  const salienceBias = 0.03 * salience
+  const effectiveRate = Math.min(activationRate + salienceBias, 0.999)
+  record.strength *= effectiveRate
+}
+
+function updateEpistemicSignals(record: MutableRecord, confirming: number, conflicting: number): boolean {
+  const prevConfidence = record.confidence ?? defaultConfidenceForSource(record.source_type)
+  const prevSupport = record.support_mass ?? 0
+  const prevConflict = record.conflict_mass ?? 0
+  const prevVolatility = record.volatility ?? 0
+
+  record.confidence = prevConfidence
+  record.support_mass = confirming
+  record.conflict_mass = conflicting
+
+  const supportDen = Math.max(prevSupport, confirming, 1)
+  const conflictDen = Math.max(prevConflict, conflicting, 1)
+  const supportDelta = (Math.abs(confirming - prevSupport) / supportDen) * 0.2
+  const conflictDelta = (Math.abs(conflicting - prevConflict) / conflictDen) * 0.8
+  const instantVolatility = Math.min(supportDelta + conflictDelta, 1)
+  record.volatility = 0.3 * instantVolatility + 0.7 * prevVolatility
+
+  return (
+    prevSupport !== confirming ||
+    prevConflict !== conflicting ||
+    Math.abs(prevVolatility - record.volatility) > Number.EPSILON
+  )
+}
+
+function defaultConfidenceForSource(sourceType: string): number {
+  switch (sourceType) {
+    case "recorded":
+      return 0.90
+    case "retrieved":
+      return 0.75
+    case "inferred":
+      return 0.60
+    case "generated":
+      return 0.50
+    default:
+      return 0.50
+  }
+}
+
+function sharedTagCount(a: AuraRecord, b: AuraRecord): number {
+  const aTags = new Set(normalizedTags(a))
+  let count = 0
+  for (const tag of normalizedTags(b)) {
+    if (aTags.has(tag)) count += 1
+  }
+  return count
+}
+
+function connectionType(a: AuraRecord, b: AuraRecord): string | undefined {
+  return a.connection_types[b.id] ?? b.connection_types[a.id]
+}
+
+function connectionWeight(a: AuraRecord, b: AuraRecord): number {
+  return a.connections[b.id] ?? b.connections[a.id] ?? 0
+}
+
+function detectInsights(records: ReadonlyMap<string, AuraRecord>, taxonomy: TagTaxonomy): number {
+  const namespaceCounts = new Map<string, number>()
+  const tagCounts = new Map<string, number>()
+  let contradictionRecords = 0
+
+  for (const record of records.values()) {
+    if (!isAlive(record)) continue
+    namespaceCounts.set(record.namespace, (namespaceCounts.get(record.namespace) ?? 0) + 1)
+    const classification = taxonomy.classify(record)
+    if (classification.contradictionCue) contradictionRecords += 1
+    for (const tag of classification.normalizedTags) {
+      tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
+    }
+  }
+
+  let insights = 0
+  for (const count of namespaceCounts.values()) {
+    if (count >= 3) insights += 1
+  }
+  for (const count of tagCounts.values()) {
+    if (count >= 2) insights += 1
+  }
+  if (contradictionRecords > 0) insights += 1
+  return insights
+}
+
+function fixMemoryLevels(records: Map<string, AuraRecord>, taxonomy: TagTaxonomy): { totalIdentity: number; downgraded: number; kept: number } {
+  let totalIdentity = 0
+  let downgraded = 0
+  let kept = 0
+
+  for (const record of records.values()) {
+    if (record.level !== Level.Identity) continue
+    totalIdentity += 1
+    const mutable = record as MutableRecord
+    const classification = taxonomy.classify(record)
+    if (classification.identityCue && !classification.nonIdentityCue) {
+      kept += 1
+      continue
+    }
+    if (classification.nonIdentityCue) {
+      mutable.level = Level.Domain
+      downgraded += 1
+      continue
+    }
+    if (record.activation_count >= IDENTITY_ACTIVATION_THRESHOLD && record.strength >= IDENTITY_STRENGTH_THRESHOLD) {
+      kept += 1
+      continue
+    }
+    mutable.level = Level.Domain
+    downgraded += 1
+  }
+
+  return { totalIdentity, downgraded, kept }
+}
+
+function guardedReflect(records: Map<string, AuraRecord>, _taxonomy: TagTaxonomy): ReflectReport {
+  const originalLevels = new Map<string, Level>()
+  for (const [id, record] of records) {
+    if (record.level !== Level.Identity) originalLevels.set(id, record.level)
+  }
+
+  let promoted = 0
+  for (const record of records.values()) {
+    if (canPromote(record)) {
+      const mutable = record as MutableRecord
+      const next = promoteLevel(record.level)
+      if (next !== record.level) {
+        mutable.level = next
+        promoted += 1
+      }
+    }
+  }
+
+  const dead: string[] = []
+  for (const [id, record] of records) {
+    if (!isAlive(record)) dead.push(id)
+  }
+  for (const id of dead) {
+    records.delete(id)
+  }
+
+  let restored = 0
+  for (const [id, originalLevel] of originalLevels) {
+    const record = records.get(id)
+    if (!record) continue
+    const shouldRestore =
+      (originalLevel === Level.Working && record.level !== Level.Working) ||
+      (record.level === Level.Identity &&
+        (record.activation_count < IDENTITY_ACTIVATION_THRESHOLD || record.strength < IDENTITY_STRENGTH_THRESHOLD))
+    if (shouldRestore) {
+      ;(record as MutableRecord).level = originalLevel
+      restored += 1
+    }
+  }
+
+  return { promoted: Math.max(0, promoted - restored), archived: dead.length }
+}
+
+function updateEpistemicState(records: Map<string, AuraRecord>, taxonomy: TagTaxonomy): EpistemicPhaseReport {
+  const tagGroups = new Map<string, string[]>()
+  for (const record of records.values()) {
+    if (!isAlive(record)) continue
+    for (const tag of normalizedTags(record)) {
+      const group = tagGroups.get(tag) ?? []
+      group.push(record.id)
+      tagGroups.set(tag, group)
+    }
+  }
+
+  const updates: Array<readonly [string, number, number]> = []
+  let totalSupportLinks = 0
+  let totalConflictLinks = 0
+
+  for (const record of records.values()) {
+    if (!isAlive(record)) continue
+    const neighbors = new Set(Object.keys(record.connections))
+    for (const tag of normalizedTags(record)) {
+      for (const id of tagGroups.get(tag) ?? []) {
+        if (id !== record.id) neighbors.add(id)
+      }
+    }
+
+    let confirming = 0
+    let conflicting = 0
+    const recClass = taxonomy.classify(record)
+
+    for (const neighborId of neighbors) {
+      const other = records.get(neighborId)
+      if (!other || !isAlive(other) || other.namespace !== record.namespace) continue
+      const sharedTags = sharedTagCount(record, other)
+      const relation = connectionType(record, other)
+      const connected = connectionWeight(record, other) >= 0.10 || relation !== undefined
+      if (!connected && sharedTags === 0) continue
+
+      const otherClass = taxonomy.classify(other)
+      const explicitConflict =
+        relation !== undefined && (relation.includes("conflict") || relation.includes("contradict"))
+      const contradictionPair = (recClass.contradictionCue || otherClass.contradictionCue) && sharedTags >= 2
+      const levelConflict =
+        sharedTags > 0 &&
+        ((record.level === Level.Working && other.level === Level.Identity) ||
+          (record.level === Level.Identity && other.level === Level.Working))
+
+      if (explicitConflict || contradictionPair || levelConflict) {
+        conflicting += 1
+        continue
+      }
+
+      const reinforcingRelation =
+        relation === "causal" || relation === "associative" || relation === "coactivation"
+      const sharedSemantic = recClass.semanticType === otherClass.semanticType
+      if ((sharedSemantic && sharedTags > 0) || (reinforcingRelation && connected) || sharedTags >= 2) {
+        confirming += 1
+      }
+    }
+
+    totalSupportLinks += confirming
+    totalConflictLinks += conflicting
+    updates.push([record.id, confirming, conflicting])
+  }
+
+  let updatedRecords = 0
+  let volatileRecords = 0
+  for (const [id, confirming, conflicting] of updates) {
+    const record = records.get(id)
+    if (!record) continue
+    if (updateEpistemicSignals(record as MutableRecord, confirming, conflicting)) {
+      updatedRecords += 1
+    }
+    if (((record as MutableRecord).volatility ?? 0) >= 0.05) {
+      volatileRecords += 1
+    }
+  }
+
+  return { updatedRecords, totalSupportLinks, totalConflictLinks, volatileRecords }
 }
 
 /** Map engine BeliefReport → Maintenance BeliefPhaseReport. */
@@ -194,10 +662,15 @@ function toPolicyPhase(report: { hints_found: number; hints_active: number; hint
   }
 }
 
-/** Stub FeedbackAuditReport for phases that haven't been fully implemented yet. */
-const stubFeedback: FeedbackAuditReport = {
-  beliefsTouched: 0, beliefsBoosted: 0, beliefsDampened: 0,
-  netConfidenceDelta: 0, netVolatilityDelta: 0, entries: [],
+function emptyFeedbackReport(): FeedbackAuditReport {
+  return {
+    beliefsTouched: 0,
+    beliefsBoosted: 0,
+    beliefsDampened: 0,
+    netConfidenceDelta: 0,
+    netVolatilityDelta: 0,
+    entries: [],
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -412,12 +885,12 @@ export function summarizeReflections(
 export function runInitialPhases(
   records: Map<string, AuraRecord>,
   config: MaintenanceConfig,
-  _taxonomy: TagTaxonomy,
-  _cognitiveStore: CognitiveStore,
+  taxonomy: TagTaxonomy,
+  cognitiveStore: CognitiveStore,
   cycle: number,
   timings: PhaseTimings,
   hotspots: MaintenanceHotspots
-): Effect.Effect<InitialMaintenancePhaseResult, never, EpistemicTrace> {
+): Effect.Effect<InitialMaintenancePhaseResult, FileWriteError, EpistemicTrace | FileWrite> {
   return Effect.gen(function* () {
     const trace = yield* Effect.service(EpistemicTrace)
     const mt = toMutable(timings)
@@ -428,37 +901,65 @@ export function runInitialPhases(
     let t = Date.now()
 
     // Phase 0: Level fix
-    // TODO: Full algorithm deferred per D-07 — requires TagTaxonomy, NGramIndex, CognitiveStore completion
-    const _shouldFix = config.levelFixInterval > 0 && cycle % config.levelFixInterval === 0
+    if (config.levelFixInterval > 0 && cycle % config.levelFixInterval === 0) {
+      const fixed = fixMemoryLevels(records, taxonomy)
+      yield* trace.event("maintenance.level_fix", {
+        totalIdentity: fixed.totalIdentity,
+        downgraded: fixed.downgraded,
+        kept: fixed.kept,
+      })
+    }
     mt.levelFixMs = Date.now() - t
     t = Date.now()
 
     // Phase 1: Decay
-    // TODO: Full algorithm deferred per D-07 — requires TagTaxonomy, CognitiveStore completion
-    const decay: DecayReport = { decayed: 0, archived: 0 }
+    let decay: DecayReport = { decayed: 0, archived: 0 }
+    if (config.decayEnabled) {
+      let decayed = 0
+      const toArchive: string[] = []
+      for (const record of records.values()) {
+        applyDecay(record as MutableRecord)
+        decayed += 1
+        if (!isAlive(record)) toArchive.push(record.id)
+      }
+
+      for (const record of records.values()) {
+        const nextConnections: { [id: string]: number } = {}
+        const nextConnectionTypes: { [id: string]: string } = {}
+        for (const [id, weight] of Object.entries(record.connections)) {
+          if (weight < 0.05) continue
+          nextConnections[id] = weight * 0.99
+          const type = record.connection_types[id]
+          if (type !== undefined) nextConnectionTypes[id] = type
+        }
+        ;(record as MutableRecord).connections = nextConnections
+        ;(record as MutableRecord).connection_types = nextConnectionTypes
+      }
+
+      for (const id of toArchive) {
+        records.delete(id)
+        yield* cognitiveStore.delete(id)
+      }
+      if (toArchive.length > 0) {
+        yield* cognitiveStore.flush()
+      }
+      decay = { decayed, archived: toArchive.length }
+    }
     mt.decayMs = Date.now() - t
     t = Date.now()
 
     // Phase 2: Reflect
-    // TODO: Full algorithm deferred per D-07 — requires TagTaxonomy, CognitiveStore completion
-    const reflect: ReflectReport = { promoted: 0, archived: 0 }
+    const reflect = config.reflectEnabled ? guardedReflect(records, taxonomy) : { promoted: 0, archived: 0 }
     mt.reflectMs = Date.now() - t
     t = Date.now()
 
     // Phase 2.5: Epistemic state update
-    // TODO: Full algorithm deferred per D-07 — requires TagTaxonomy, NGramIndex, CognitiveStore completion
-    const epistemic: EpistemicPhaseReport = {
-      updatedRecords: 0,
-      totalSupportLinks: 0,
-      totalConflictLinks: 0,
-      volatileRecords: 0,
-    }
+    const epistemic = updateEpistemicState(records, taxonomy)
     mt.epistemicMs = Date.now() - t
     t = Date.now()
 
     // Phase 3: Insights
-    // TODO: Full algorithm deferred per D-07 — requires TagTaxonomy, CognitiveStore completion
-    const insightsFound = 0
+    const insightsFound = config.insightsEnabled ? detectInsights(records, taxonomy) : 0
     mt.insightsMs = Date.now() - t
 
     yield* trace.event("maintenance.initial.end", {
@@ -486,7 +987,7 @@ export function runInitialPhases(
  * Entries no longer present in the belief snapshot are pruned.
  */
 export function buildSdrLookup(
-  _sdr: SDRInterpreter,
+  sdr: SDRInterpreter,
   sdrLookupCache: Ref.Ref<Map<string, ReadonlyArray<number>>>,
   beliefSnapshot: Map<string, AuraRecord>,
   timings: PhaseTimings,
@@ -502,21 +1003,21 @@ export function buildSdrLookup(
     const t0 = Date.now()
     const cache = yield* Ref.get(sdrLookupCache)
 
-    const sdrSourceBytes = 0
+    const sdrSourceBytes = Array.from(beliefSnapshot.values())
+      .reduce((sum, record) => sum + new TextEncoder().encode(record.content).byteLength, 0)
     let built = 0
     let computed = 0
     let reused = 0
 
-    // Compute SDR for new records (stub: return empty array per D-07)
-    // TODO: Full algorithm deferred per D-07 — requires SDRInterpreter implementation
-    for (const [rid] of beliefSnapshot) {
-      if (!cache.has(rid)) {
-        built++
-        computed++
-        cache.set(rid, [])
-      } else {
+    for (const [rid, record] of beliefSnapshot) {
+      const existing = cache.get(rid)
+      if (existing !== undefined) {
         reused++
+        continue
       }
+      const vector = sdr.textToSdr(record.content, false)
+      cache.set(rid, vector)
+      computed++
     }
 
     // Prune entries no longer in the snapshot
@@ -529,6 +1030,7 @@ export function buildSdrLookup(
     yield* Ref.set(sdrLookupCache, cache)
 
     mh.sdrSourceBytes = sdrSourceBytes
+    built = beliefSnapshot.size
     mh.sdrVectorsBuilt = built
     mh.sdrVectorsComputed = computed
     mh.sdrVectorsReused = reused
@@ -659,6 +1161,14 @@ export function runDiscoveryPhases(
 
     mh.conceptPairwiseComparisons = conceptReport.pairwise_comparisons
     mh.conceptPartitionsWithMultipleSeeds = conceptReport.partitions_with_multiple_seeds
+    mh.causalEdgesFound = causalReport.patterns_found
+    mh.causalExplicitEdgesFound = causalReport.explicit_edges
+    mh.causalTemporalEdgesFound = causalReport.temporal_edges
+    mh.causalTemporalNamespacesScanned = causalReport.temporal_namespaces_scanned
+    mh.causalTemporalPairsConsidered = causalReport.temporal_pairs_considered
+    mh.causalTemporalPairsSkippedByBudget = causalReport.temporal_pairs_skipped_by_budget
+    mh.causalTemporalEdgesCapped = causalReport.temporal_edges_capped
+    mh.causalTemporalNamespacesHitCap = causalReport.temporal_namespaces_hit_cap
     const conceptMs = Date.now() - t
     // Concept and causal ran in parallel; attribute the full window to both
     mt.conceptMs = conceptMs
@@ -673,10 +1183,8 @@ export function runDiscoveryPhases(
     mt.policyMs = Date.now() - t
 
     // ── Feedback ──
-    // TODO: Full algorithm deferred per D-07 — apply_layer_feedback stub.
-    // When the real apply_layer_feedback() is integrated, add phase timing:
-    //   t = Date.now(); const feedback = yield* ...; mt.feedbackMs = Date.now() - t
-    const feedback: FeedbackAuditReport = stubFeedback
+    const rawFeedback = yield* beliefEngine.apply_layer_feedback(causalEngine, policyEngine)
+    const feedback = rawFeedback ?? emptyFeedbackReport()
 
     yield* trace.event("maintenance.discovery.end", {
       beliefs: beliefReport.beliefs_built,
@@ -703,13 +1211,13 @@ export function runDiscoveryPhases(
  */
 export function runPostDiscoveryPhases(
   records: Map<string, AuraRecord>,
-  _ngramIndex: NGramIndex,
+  ngramIndex: NGramIndex,
   _tagIndex: Map<string, Set<string>>,
   _auraIndex: Map<string, string>,
   _cognitiveStore: CognitiveStore,
-  _background: BackgroundBrain | undefined,
+  background: BackgroundBrain | undefined,
   config: MaintenanceConfig,
-  _taxonomy: TagTaxonomy,
+  taxonomy: TagTaxonomy,
   timings: PhaseTimings,
   hotspots: MaintenanceHotspots
 ): Effect.Effect<PostDiscoveryPhaseResult> {
@@ -720,29 +1228,45 @@ export function runPostDiscoveryPhases(
     let t = Date.now()
 
     // Consolidation
-    // TODO: Full algorithm deferred per D-07 — requires TagTaxonomy, NGramIndex, CognitiveStore completion
-    const consolidation: ConsolidationReport = {
-      nativeMerged: 0,
-      clustersFound: 0,
-      metaCreated: 0,
+    let clustersFound = 0
+    if (config.consolidationEnabled) {
+      const seen = new Set<string>()
+      for (const [id, record] of records) {
+        if (seen.has(id) || !isAlive(record)) continue
+        const hits = ngramIndex.query(record.content, Math.max(2, config.maxClustersPerRun + 1))
+          .filter(([, hitId]) => hitId !== id)
+        const hasSimilarPeer = hits.some(([score, hitId]) => {
+          const peer = records.get(hitId)
+          return peer !== undefined && peer.namespace === record.namespace && score >= 0.25
+        })
+        if (hasSimilarPeer) {
+          clustersFound += 1
+          seen.add(id)
+        }
+        if (clustersFound >= config.maxClustersPerRun) break
+      }
     }
+    const consolidation: ConsolidationReport = { nativeMerged: 0, clustersFound, metaCreated: 0 }
     mt.consolidationMs = Date.now() - t
 
     // Cross connections
-    // TODO: Full algorithm deferred per D-07 — requires TagTaxonomy, NGramIndex completion
     t = Date.now()
-    const crossConnections = 0
+    const crossConnections = background?.discover_cross_connections(records, 10).length ?? 0
     mh.crossConnectionsFound = crossConnections
     mt.crossConnectionsMs = Date.now() - t
 
     // Task reminders
-    // TODO: Full algorithm deferred per D-07 — requires CognitiveStore completion
     t = Date.now()
-    const taskReminders: ReadonlyArray<string> = []
+    const backgroundTasks = background?.scheduled_tasks(records) ?? []
+    const taskReminders = backgroundTasks.length > 0
+      ? backgroundTasks
+      : Array.from(records.values())
+        .filter((record) => taxonomy.classify(record).taskCue && record.metadata.status === "active")
+        .map((record) => record.id)
+        .slice(0, 8)
     mh.taskRemindersFound = taskReminders.length
 
     // Archival
-    // TODO: Full algorithm deferred per D-07 — requires CognitiveStore, TagTaxonomy completion
     const recordsArchived = 0
     mt.tasksArchivalMs = Date.now() - t
 
@@ -804,7 +1328,6 @@ export function finalizeTelemetry(
     mh.dominantPhaseShare = dominantPhaseShare
 
     // ── Read concept surface telemetry ──
-    // TODO: Full algorithm deferred per D-07 — reads surfaced concept count from engine
     const conceptState = yield* conceptEngine.stats()
     const surfacedConceptsAvailable = Object.keys(conceptState.concepts).length
     const surfacedNamespaces = new Set(
@@ -851,72 +1374,85 @@ export function buildReflectionSummary(
 ): Effect.Effect<ReflectionSummary> {
   return Effect.sync(() => {
     const findings: ReflectionFinding[] = []
+    const todayMs = Date.now()
 
     // ── Blocker findings ──
-    // TODO: Full algorithm deferred per D-07 — requires proper level/tag query from AuraRecord
     let blockerFindings = 0
+    const blockerCandidates: ReflectionFinding[] = []
     for (const [rid, record] of records) {
-      if (record.tags.includes(taskTag)) {
-        // Check if the record appears blocked (stub heuristic)
-        if (record.strength < 0.3) {
-          findings.push({
-            kind: "blocker",
-            namespace: record.namespace,
-            title: `Blocked task: ${rid}`,
-            detail: `Record ${rid} tagged "${taskTag}" has low strength (${record.strength}), possibly blocked`,
-            relatedIds: [rid],
-            score: 0.5,
-            severity: "medium",
-          })
-          blockerFindings++
-        }
-      }
+      if (!record.tags.includes(taskTag) || record.metadata.status !== "active") continue
+      const dueDate = record.metadata.due_date
+      if (typeof dueDate !== "string") continue
+      const dueMs = Date.parse(dueDate)
+      if (!Number.isFinite(dueMs) || dueMs > todayMs) continue
+      const overdueDays = Math.max(0, Math.floor((todayMs - dueMs) / 86_400_000))
+      const salience = typeof (record as MutableRecord).salience === "number" ? (record as MutableRecord).salience! : 0
+      const preview = record.content.length > 56 ? `${record.content.slice(0, 56)}...` : record.content
+      blockerCandidates.push({
+        kind: "repeated_blocker",
+        namespace: record.namespace,
+        title: `Overdue task remains active: ${preview}`,
+        detail: `Task is overdue by ${overdueDays} day(s), salience ${salience.toFixed(2)}, strength ${record.strength.toFixed(2)}.`,
+        relatedIds: [rid],
+        score: overdueDays + salience + Math.max(0, 1 - record.strength),
+        severity: overdueDays >= 3 || salience >= 0.70 ? "high" : overdueDays >= 1 ? "medium" : "low",
+      })
     }
+    blockerCandidates.sort((a, b) => b.score - a.score)
+    findings.push(...blockerCandidates.slice(0, 2))
+    blockerFindings = Math.min(blockerCandidates.length, 2)
 
     // ── Contradiction findings ──
-    // TODO: Full algorithm deferred per D-07 — requires belief key/namespace grouping
     let contradictionFindings = 0
+    const contradictionCandidates: ReflectionFinding[] = []
     for (const cluster of contradictionClusters) {
-      if (cluster.maxConflictMass > 0.3) {
-        findings.push({
-          kind: "contradiction",
-          namespace: cluster.namespace,
-          title: `Contradiction cluster: ${cluster.id}`,
-          detail: `${cluster.unresolvedBeliefCount} unresolved beliefs, conflict mass: ${cluster.maxConflictMass.toFixed(3)}`,
-          relatedIds: [...cluster.beliefIds],
-          score: Math.min(cluster.maxConflictMass, 1.0),
-          severity: cluster.maxConflictMass > 0.7 ? "high" : cluster.maxConflictMass > 0.3 ? "medium" : "low",
-        })
-        contradictionFindings++
-      }
+      if (cluster.unresolvedBeliefCount <= 0 && cluster.maxConflictMass <= 0) continue
+      contradictionCandidates.push({
+        kind: "unresolved_contradiction",
+        namespace: cluster.namespace,
+        title: `Unresolved contradiction corridor with ${cluster.beliefIds.length} beliefs`,
+        detail: `${cluster.unresolvedBeliefCount} unresolved beliefs, conflict mass: ${cluster.maxConflictMass.toFixed(3)}`,
+        relatedIds: [...cluster.beliefIds],
+        score: Math.min(cluster.maxConflictMass, 1.5),
+        severity: cluster.maxConflictMass >= 1.0 ? "high" : cluster.maxConflictMass >= 0.2 ? "medium" : "low",
+      })
     }
+    contradictionCandidates.sort((a, b) => b.score - a.score)
+    findings.push(...contradictionCandidates.slice(0, 2))
+    contradictionFindings = Math.min(contradictionCandidates.length, 2)
 
     // ── Trend findings ──
-    // TODO: Full algorithm deferred per D-07 — proper trend deterioration detection
     let trendFindings = 0
-    if (trendSummary.avgBeliefChurn > 0.5) {
+    const trendDirection = (() => {
+      if (trendSummary.recent.length < 2) return "insufficient_data"
+      const first = trendSummary.recent[0]!
+      const last = trendSummary.recent[trendSummary.recent.length - 1]!
+      const firstPressure =
+        first.volatileRecords + first.correctionEvents +
+        first.policySuppressionRate * 10 + first.causalRejectionRate * 10
+      const lastPressure =
+        last.volatileRecords + last.correctionEvents +
+        last.policySuppressionRate * 10 + last.causalRejectionRate * 10
+      const delta = lastPressure - firstPressure
+      if (delta > 1) return "worsening"
+      if (delta < -1) return "improving"
+      return "stable"
+    })()
+    if (
+      trendDirection === "worsening" ||
+      trendSummary.avgBeliefChurn >= 0.10 ||
+      trendSummary.avgPolicySuppressionRate >= 0.25
+    ) {
       findings.push({
-        kind: "trend",
-        namespace: "belief",
-        title: "High belief churn",
-        detail: `Average belief churn rate (${trendSummary.avgBeliefChurn.toFixed(3)}) exceeds threshold across ${trendSummary.snapshotCount} snapshots`,
+        kind: "trend_tension",
+        namespace: "default",
+        title: `Maintenance trend is ${trendDirection} with dominant phase ${hotspots.dominantPhase}`,
+        detail: `Avg belief churn ${trendSummary.avgBeliefChurn.toFixed(2)}, policy suppression ${trendSummary.avgPolicySuppressionRate.toFixed(2)}, cycle time ${trendSummary.avgCycleTimeMs.toFixed(0)}ms.`,
         relatedIds: [],
-        score: Math.min(trendSummary.avgBeliefChurn, 1.0),
-        severity: trendSummary.avgBeliefChurn > 0.8 ? "high" : "medium",
+        score: trendSummary.avgBeliefChurn + trendSummary.avgPolicySuppressionRate + (trendDirection === "worsening" ? 0.5 : 0),
+        severity: trendDirection === "worsening" ? "high" : "medium",
       })
-      trendFindings++
-    }
-    if (trendSummary.avgPolicySuppressionRate > 0.5) {
-      findings.push({
-        kind: "trend",
-        namespace: "policy",
-        title: "High policy suppression rate",
-        detail: `Average policy suppression rate (${trendSummary.avgPolicySuppressionRate.toFixed(3)}) indicates advisory pressure above threshold`,
-        relatedIds: [],
-        score: Math.min(trendSummary.avgPolicySuppressionRate, 1.0),
-        severity: trendSummary.avgPolicySuppressionRate > 0.8 ? "high" : "medium",
-      })
-      trendFindings++
+      trendFindings = 1
     }
 
     // ── Cap to limit ──
@@ -926,7 +1462,7 @@ export function buildReflectionSummary(
       .slice(0, REFLECTION_FINDING_LIMIT)
 
     const report: ReflectionJobReport = {
-      jobsRun: 1,
+      jobsRun: 3,
       blockerFindings,
       contradictionFindings,
       trendFindings,
@@ -934,9 +1470,13 @@ export function buildReflectionSummary(
       capped,
     }
 
+    const digest = limitedFindings.length === 0
+      ? "No significant reflection findings this cycle."
+      : `${findings.length} reflection finding(s): ${limitedFindings.slice(0, 2).map((finding) => finding.title).join("; ")}`
+
     return {
       timestamp,
-      digest: `Maintenance cycle: ${blockerFindings} blockers, ${contradictionFindings} contradictions, ${trendFindings} trends. Dominant phase: ${hotspots.dominantPhase}`,
+      digest,
       dominantPhase: hotspots.dominantPhase,
       report,
       findings: limitedFindings,

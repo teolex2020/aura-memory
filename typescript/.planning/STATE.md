@@ -5,14 +5,14 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: mcp-polish
 status: executing
-last_updated: "2026-05-30T18:54:16.661Z"
-last_activity: 2026-05-30 -- Phase 07 execution started
+last_updated: "2026-05-30T19:21:10.628Z"
+last_activity: 2026-05-30
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 33
-  completed_plans: 26
-  percent: 79
+  completed_plans: 27
+  percent: 82
 ---
 
 # Project State
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 07 (mcp-polish) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Current Phase: 07
 Current Phase Name: mcp-polish
 Total Phases: 10
-Status: Executing Phase 07
-Last activity: 2026-05-30 -- Phase 07 execution started
+Status: Ready to execute
+Last activity: 2026-05-30
 
-Progress: [████████░░] 79%
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [████████░░] 79%
 
 *Updated after each plan completion*
 | Phase 07-mcp-polish P01 | 10min | 1 tasks | 7 files |
+| Phase 07-mcp-polish P02 | 20min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ See PROJECT.md Key Decisions for full log. Recent decisions:
 - [Phase 07-mcp-polish]: Existing MaintenanceTrendSnapshot and ReflectionSummary exports were preserved; Rust-shaped MCP variants use Mcp* names to avoid shadowing. — Avoids duplicate exported names while keeping MCP serialization Rust-shaped.
 - [Phase 07-mcp-polish]: MCP-facing DTOs use Rust/serde snake_case field names; existing internal camelCase inspection types remain separate. — Keeps Phase 7 external payloads line-traceable to Rust without breaking existing TS consumers.
 - [Phase 07-mcp-polish]: Cross-namespace dimension handling mirrors Rust alias behavior and ignores unknown dimensions. — Matches apply_cross_namespace_dimension_flags for later MCP tool parity.
+- [Phase 07-mcp-polish]: SDRInterpreter is real and imported from @aura/recall; no empty SDR fallback remains for non-empty content.
+- [Phase 07-mcp-polish]: NGramIndex and BackgroundBrain are bounded typed shims with explicit NON-PARITY/disabled dispositions for Wave 2.
 
 ### Pending Todos
 
@@ -94,6 +97,6 @@ Items carried forward:
 
 ## Session Continuity
 
-Last session: 2026-05-30T18:52:15.084Z
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-05-30T19:21:08.491Z
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None

@@ -6,13 +6,15 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import { Aura } from "./index"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
-import { BrainAuraFile } from "@aura/storage"
+import { BrainAuraFile, CognitiveStoreFile } from "@aura/storage"
 import {
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
   BeliefStore, ConceptStore, CausalStore, PolicyStore,
-  EpistemicTrace, FileWrite, FileRead,
+  EpistemicTrace,
   ConceptSeedMode, ConceptSimilarityMode, ConceptPartitionMode, ConceptUnionMode,
   CausalDiscoveryMode,
+  Level,
+  UnsupportedSurfaceError,
 } from "@aura/contract"
 
 it("Aura.open loads minimal fixture", async () => {
@@ -53,6 +55,103 @@ it("Aura.open loads minimal fixture", async () => {
   assert.ok(fs.existsSync(path.join(brainPath, "persistence_manifest.json")))
 })
 
+describe("Aura MCP-facing operational surfaces", () => {
+  function provideNode<A, E, R>(effect: Effect.Effect<A, E, R>) {
+    return effect.pipe(
+      Effect.provide(NodeFileReadLive),
+      Effect.provide(NodeFileWriteLive),
+      Effect.provide(NodeClockLive),
+      Effect.provide(NodeCryptoLive)
+    )
+  }
+
+  async function openWritableAura(): Promise<Aura> {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-mcp-core-"))
+    await Effect.runPromise(provideNode(BrainAuraFile.open(brainPath).pipe(Effect.flatMap((file) => file.flush()))))
+    return Effect.runPromise(provideNode(Aura.open(brainPath)))
+  }
+
+  it("store_code and store_decision are thin store wrappers with Rust-aligned defaults", async () => {
+    const aura = await openWritableAura()
+
+    const code = await Effect.runPromise(provideNode(aura.store_code({
+      language: "ts",
+      code: "export const answer = 42",
+      filename: "answer.ts",
+      namespace: "dev",
+    })))
+    const decision = await Effect.runPromise(provideNode(aura.store_decision({
+      decision: "Use typed unsupported errors",
+      reasoning: "MCP callers need recoverable failures",
+      alternatives: ["Effect.die", "dummy success"],
+    })))
+
+    assert.strictEqual(code.level, Level.Domain)
+    assert.strictEqual(code.content_type, "code")
+    assert.deepStrictEqual(code.tags, ["code", "ts", "file:answer.ts"])
+    assert.include(code.content, "```ts")
+
+    assert.strictEqual(decision.level, Level.Decisions)
+    assert.strictEqual(decision.semantic_type, "decision")
+    assert.include(decision.content, "DECISION: Use typed unsupported errors")
+    assert.include(decision.tags, "decision")
+
+    assert.strictEqual(aura.search({ namespace: "dev", content_type: "code" }).length, 1)
+    assert.strictEqual(aura.stats().domain, 1)
+    assert.strictEqual(aura.insights().decisions, 1)
+  })
+
+  it("search is owned by Aura and refreshes through store/update/connect/delete mutations", async () => {
+    const aura = await openWritableAura()
+
+    const alpha = await Effect.runPromise(provideNode(aura.store("alpha durable memory", {
+      namespace: "default",
+      tags: ["alpha"],
+      content_type: "note",
+      source_type: "user",
+      semantic_type: "memory",
+    })))
+    const beta = await Effect.runPromise(provideNode(aura.store("beta durable memory", {
+      namespace: "default",
+      tags: ["beta"],
+      content_type: "note",
+      source_type: "user",
+      semantic_type: "memory",
+    })))
+    await Effect.runPromise(provideNode(aura.store("ops-only memory", { namespace: "ops", tags: ["alpha"] })))
+
+    await Effect.runPromise(provideNode(aura.update(alpha.id, { strength: 0.10, content: "alpha updated memory" })))
+    await Effect.runPromise(provideNode(aura.update(beta.id, { strength: 0.90 })))
+    await Effect.runPromise(provideNode(aura.connect(beta.id, alpha.id, 0.75)))
+
+    const defaultAlpha = aura.search({ query: "memory", tags: ["alpha"], namespace: "default" })
+    assert.strictEqual(defaultAlpha.length, 1)
+    assert.strictEqual(defaultAlpha[0]!.id, alpha.id)
+
+    const ordered = aura.search({ query: "memory", namespace: "default", limit: 2 })
+    assert.strictEqual(ordered[0]!.id, beta.id)
+    assert.strictEqual(aura.stats().total_connections, 1)
+
+    assert.strictEqual(aura.search({ tags: ["alpha"] }).length, 1)
+    assert.strictEqual(aura.search({ tags: ["alpha"], namespace: "ops" }).length, 1)
+
+    await Effect.runPromise(provideNode(aura.delete(alpha.id)))
+    assert.strictEqual(aura.search({ query: "alpha", namespace: "default" }).length, 0)
+  })
+
+  it("consolidate and explainability gaps fail with typed unsupported errors", async () => {
+    const aura = await openWritableAura()
+
+    const consolidate = await Effect.runPromise(Effect.flip(aura.consolidate()))
+    assert.instanceOf(consolidate, UnsupportedSurfaceError)
+    assert.strictEqual(consolidate.surface, "Aura.consolidate")
+
+    const explain = await Effect.runPromise(Effect.flip(aura.explain_record("missing")))
+    assert.instanceOf(explain, UnsupportedSurfaceError)
+    assert.strictEqual(explain.surface, "Aura.explain_record")
+  })
+})
+
 // ═══════════════════════════════════════════════════════════════════════
 // Aura.runMaintenance integration tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -63,23 +162,6 @@ describe("Aura.runMaintenance", () => {
     const mockTrace = {
       event: () => Effect.succeed(undefined),
       span: (_name: string, _fields: unknown, effect: Effect.Effect<unknown, unknown, unknown>) => effect,
-    }
-
-    // Mock FileWrite (required by runDiscoveryPhases)
-    const mockFileWrite = {
-      mkdirp: () => Effect.succeed(undefined),
-      writeFile: () => Effect.succeed(undefined),
-      appendFile: () => Effect.succeed(undefined),
-      writeAt: () => Effect.succeed(undefined),
-      fsync: () => Effect.succeed(undefined),
-      rename: () => Effect.succeed(undefined),
-    }
-
-    // Mock FileRead (required by runMaintenance pipeline — Phase 06.2 replaced Effect.die stub)
-    const mockFileRead = {
-      readFile: () => Effect.succeed(new Uint8Array()),
-      exists: () => Effect.succeed(false),
-      stat: () => Effect.fail({ _tag: "FileReadError", path: "", cause: "not found" } as never),
     }
 
     // Mock engines — each returns empty state from stats()
@@ -152,9 +234,11 @@ describe("Aura.runMaintenance", () => {
 
     // Build test layer
     const testLayer = Layer.mergeAll(
+      NodeFileReadLive,
+      NodeFileWriteLive,
+      NodeClockLive,
+      NodeCryptoLive,
       Layer.succeed(EpistemicTrace, mockTrace as any),
-      Layer.succeed(FileWrite, mockFileWrite as any),
-      Layer.succeed(FileRead, mockFileRead as any),
       Layer.succeed(BeliefEngine, mockBeliefEngine as any),
       Layer.succeed(ConceptEngine, mockConceptEngine as any),
       Layer.succeed(CausalEngine, mockCausalEngine as any),
@@ -165,14 +249,44 @@ describe("Aura.runMaintenance", () => {
       Layer.succeed(PolicyStore, mockPolicyStore as any),
     )
 
-    // Create Aura instance bypassing private constructor
+    // Create Aura through the same brain.cog normalization boundary used by production open().
     const brainDir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-test-"))
-    const aura = new (Aura as any)(brainDir, [])
+    const aura = await Effect.runPromise(
+      Effect.gen(function* () {
+        const f = yield* BrainAuraFile.open(brainDir)
+        yield* f.flush()
+        const store = yield* CognitiveStoreFile.open(brainDir)
+        yield* store.appendStore({
+          id: "maintain_rec_1",
+          content: "maintenance contract record",
+          level: Level.Working,
+          strength: 1,
+          activation_count: 0,
+          created_at: 1,
+          last_activated: 1,
+          tags: [],
+          connections: {},
+          connection_types: {},
+          content_type: "text",
+          source_type: "recorded",
+          namespace: "default",
+          semantic_type: "memory",
+          metadata: {},
+        })
+        yield* store.flush()
+        return yield* Aura.open(brainDir)
+      }).pipe(
+        Effect.provide(NodeFileReadLive),
+        Effect.provide(NodeFileWriteLive),
+        Effect.provide(NodeClockLive),
+        Effect.provide(NodeCryptoLive)
+      )
+    )
 
-    // This should fail (RED phase) because runMaintenance is still Effect.die
     const result = await Effect.runPromise(
       Effect.provide(aura.runMaintenance(), testLayer)
     )
     expect(result).toBeDefined()
+    expect(result.totalRecords).toBe(1)
   })
 })

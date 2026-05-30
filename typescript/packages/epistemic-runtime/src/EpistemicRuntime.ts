@@ -22,8 +22,6 @@ import type { PolicyHint } from "@aura/contract"
 import type { Record as AuraRecord } from "@aura/contract"
 import { surfaceConcepts, surfaceConceptsFiltered } from "@aura/concept"
 import { surfacePolicyHints, surfacePolicyHintsFiltered } from "@aura/policy"
-import type { PolicyHint as SurfacePolicyHint } from "@aura/policy"
-import type { PolicyEngine as SurfacePolicyEngine } from "@aura/policy"
 
 // ── Telemetry infrastructure ────────────────────────────────────────
 
@@ -571,16 +569,7 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     return Effect.gen(function* () {
       const engine = yield* Effect.service(PolicyEngine)
       const state = yield* engine.stats()
-      const hints = new Map<string, SurfacePolicyHint>()
-      const keyIndex = new Map<string, string>()
-      for (const [id, h] of Object.entries(state.hints)) {
-        const surf = toSurfacePolicyHint(h)
-        hints.set(id, surf)
-        keyIndex.set(surf.key, id)
-      }
-      const adapter: SurfacePolicyEngine = { hints, keyIndex }
-      const surfaced = yield* surfacePolicyHints(adapter, limit)
-      return surfaced.map(toContractSurfacedPolicyHint)
+      return yield* surfacePolicyHints(state, limit)
     })
   }
 
@@ -591,16 +580,7 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     return Effect.gen(function* () {
       const engine = yield* Effect.service(PolicyEngine)
       const state = yield* engine.stats()
-      const hints = new Map<string, SurfacePolicyHint>()
-      const keyIndex = new Map<string, string>()
-      for (const [id, h] of Object.entries(state.hints)) {
-        const surf = toSurfacePolicyHint(h)
-        hints.set(id, surf)
-        keyIndex.set(surf.key, id)
-      }
-      const adapter: SurfacePolicyEngine = { hints, keyIndex }
-      const surfaced = yield* surfacePolicyHintsFiltered(adapter, limit, namespace)
-      return surfaced.map(toContractSurfacedPolicyHint)
+      return yield* surfacePolicyHintsFiltered(state, limit, namespace)
     })
   }
 }
@@ -630,47 +610,6 @@ function computeSharedTags(
   return [...tagCounts.entries()]
     .filter(([, count]) => count >= 2)
     .map(([tag]) => tag)
-}
-
-function toSurfacePolicyHint(h: PolicyHint): SurfacePolicyHint {
-  const stateMap: Record<string, "Stable" | "Candidate" | "Suppressed" | "Rejected"> = {
-    Stable: "Stable", Candidate: "Candidate",
-    Suppressed: "Suppressed", Rejected: "Rejected",
-  }
-  const actionKind = (h.actionKind as SurfacePolicyHint["actionKind"]) ?? "recommend"
-  const hintState = stateMap[h.state] ?? "Candidate"
-  return {
-    id: h.id,
-    key: h.cause_key || h.pattern_id || h.id,
-    namespace: h.namespace,
-    domain: h.domain,
-    actionKind,
-    recommendation: h.action,
-    triggerCausalIds: h.cause_record_ids,
-    triggerConceptIds: [],
-    triggerBeliefIds: [],
-    supportingRecordIds: h.effect_keys,
-    causeRecordIds: h.cause_record_ids,
-    confidence: h.confidence,
-    utilityScore: h.priority / 100,
-    riskScore: h.riskScore,
-    policyStrength: h.policyStrength,
-    state: hintState,
-    lastUpdated: h.last_updated,
-  } as SurfacePolicyHint
-}
-
-function toContractSurfacedPolicyHint(s: {
-  id: string; state: string; actionKind: string; namespace: string; domain: string
-  recommendation: string; policyStrength: number; riskScore: number
-  triggerCausalIds: ReadonlyArray<string>
-}): SurfacedPolicyHint {
-  return {
-    id: s.id, state: s.state, actionKind: s.actionKind,
-    namespace: s.namespace, domain: s.domain,
-    recommendation: s.recommendation, policyStrength: s.policyStrength,
-    riskScore: s.riskScore, triggerCausalIds: s.triggerCausalIds,
-  }
 }
 
 // ── Live Layer ──────────────────────────────────────────────────────

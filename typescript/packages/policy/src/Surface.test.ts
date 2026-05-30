@@ -4,11 +4,11 @@ import { Effect } from "effect"
 import {
   surfacePolicyHints,
   surfacePolicyHintsFiltered,
-  type PolicyEngine,
   type PolicyHint,
   PolicyActionKind,
   PolicyState,
 } from "./Surface"
+import { Polarity, type PolicyEngineState } from "@aura/contract"
 
 // ── Test helpers ──
 
@@ -26,34 +26,36 @@ function makeHint(
 ): PolicyHint {
   return {
     id,
-    key,
+    pattern_id: null,
+    condition: `When ${key}`,
+    action: `Act on ${domain}`,
+    priority: 50,
+    cause_key: key,
     namespace: ns,
     domain,
     actionKind: action,
     recommendation: `Test recommendation for ${domain}`,
-    triggerCausalIds: ["causal_1"],
-    triggerConceptIds: [],
-    triggerBeliefIds: ["belief_1"],
-    supportingRecordIds: ["rec_1", "rec_2"],
-    causeRecordIds: ["rec_1"],
+    effect_keys: ["rec_1", "rec_2"],
+    cause_record_ids: ["rec_1"],
     confidence,
     utilityScore: 0.5,
     riskScore: risk,
     policyStrength: strength,
+    polarity: Polarity.Neutral,
     state,
-    lastUpdated: 0,
+    last_updated: 0,
     ...overrides,
   }
 }
 
-function makeEngine(hints: PolicyHint[]): PolicyEngine {
-  const hintsMap = new Map<string, PolicyHint>()
-  const keyIndexMap = new Map<string, string>()
+function makeState(hints: PolicyHint[]): PolicyEngineState {
+  const hintsMap: Record<string, PolicyHint> = {}
+  const keyIndexMap: Record<string, string> = {}
   for (const h of hints) {
-    hintsMap.set(h.id, h)
-    keyIndexMap.set(h.key, h.id)
+    hintsMap[h.id] = h
+    keyIndexMap[h.cause_key] = h.id
   }
-  return { hints: hintsMap, keyIndex: keyIndexMap }
+  return { version: 1, hints: hintsMap, key_index: keyIndexMap, metadata: {} }
 }
 
 function run<R>(effect: Effect.Effect<R>): R {
@@ -63,7 +65,7 @@ function run<R>(effect: Effect.Effect<R>): R {
 // ── 1. Empty engine returns empty result ──
 
 it("empty engine returns empty result", () => {
-  const engine = makeEngine([])
+  const engine = makeState([])
   const surfaced = run(surfacePolicyHints(engine))
   assert.strictEqual(surfaced.length, 0)
 })
@@ -71,7 +73,7 @@ it("empty engine returns empty result", () => {
 // ── 2. Stable hints are surfaced ──
 
 it("stable hints are surfaced", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0),
   ])
   const surfaced = run(surfacePolicyHints(engine))
@@ -83,7 +85,7 @@ it("stable hints are surfaced", () => {
 // ── 3. Strong candidates can be surfaced ──
 
 it("strong candidates can be surfaced", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Recommend, PolicyState.Candidate, 0.75, 0.60, 0.0),
   ])
   const surfaced = run(surfacePolicyHints(engine))
@@ -95,7 +97,7 @@ it("strong candidates can be surfaced", () => {
 // ── 4. Suppressed hints are not surfaced ──
 
 it("suppressed hints are not surfaced", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Avoid, PolicyState.Suppressed, 0.80, 0.75, 0.5),
   ])
   const surfaced = run(surfacePolicyHints(engine))
@@ -105,7 +107,7 @@ it("suppressed hints are not surfaced", () => {
 // ── 5. Rejected hints are not surfaced ──
 
 it("rejected hints are not surfaced", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Warn, PolicyState.Rejected, 0.30, 0.20, 0.1),
   ])
   const surfaced = run(surfacePolicyHints(engine))
@@ -115,10 +117,10 @@ it("rejected hints are not surfaced", () => {
 // ── 6. Hints without provenance are not surfaced ──
 
 it("hints without provenance are not surfaced", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0, {
-      triggerCausalIds: [],
-      supportingRecordIds: [],
+      cause_record_ids: [],
+      effect_keys: [],
     }),
   ])
   const surfaced = run(surfacePolicyHints(engine))
@@ -131,7 +133,7 @@ it("surface sorting is deterministic — policyStrength -> confidence -> riskSco
   // Same policyStrength=0.80 for all, same confidence=0.70, same riskScore=0.0
   // Rust sort: policy_strength DESC -> confidence DESC -> risk_score DESC -> stable -> key ASC
   // Final tiebreak is key alphabetical
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h_prefer", "k_prefer", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.70, 0.0, { recommendation: "Prefer approach A" }),
     makeHint("h_recommend", "k_recommend", "default", "domain_b", PolicyActionKind.Recommend, PolicyState.Stable, 0.80, 0.70, 0.0, { recommendation: "Recommend approach B" }),
     makeHint("h_verify", "k_verify", "default", "domain_c", PolicyActionKind.VerifyFirst, PolicyState.Stable, 0.80, 0.70, 0.0, { recommendation: "Verify first for C" }),
@@ -163,7 +165,7 @@ it("surface limit is enforced", () => {
   for (let i = 0; i < 15; i++) {
     hints.push(makeHint(`h${i}`, `k${i}`, "default", `domain_${i}`, PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.70, 0.0))
   }
-  const engine = makeEngine(hints)
+  const engine = makeState(hints)
 
   // Default limit (10)
   const surfaced = run(surfacePolicyHints(engine))
@@ -181,7 +183,7 @@ it("per-domain cap enforced", () => {
   for (let i = 0; i < 6; i++) {
     hints.push(makeHint(`h${i}`, `k${i}`, "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80 - i * 0.01, 0.70, 0.0))
   }
-  const engine = makeEngine(hints)
+  const engine = makeState(hints)
 
   const surfaced = run(surfacePolicyHints(engine))
   // MAX_SURFACED_PER_DOMAIN = 3
@@ -192,7 +194,7 @@ it("per-domain cap enforced", () => {
 
 it("weak candidates not surfaced", () => {
   // Candidate with strength below STRONG_CANDIDATE_THRESHOLD (0.70)
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Recommend, PolicyState.Candidate, 0.50, 0.60, 0.0),
   ])
   const surfaced = run(surfacePolicyHints(engine))
@@ -202,12 +204,10 @@ it("weak candidates not surfaced", () => {
 // ── 11. Surfaced hints have full provenance ──
 
 it("surfaced hints have full provenance", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0, {
-      triggerCausalIds: ["c1", "c2"],
-      triggerConceptIds: ["concept_1"],
-      triggerBeliefIds: ["b1", "b2"],
-      supportingRecordIds: ["r1", "r2", "r3"],
+      cause_record_ids: ["c1", "c2"],
+      effect_keys: ["r1", "r2", "r3"],
     }),
   ])
   const surfaced = run(surfacePolicyHints(engine))
@@ -219,7 +219,7 @@ it("surfaced hints have full provenance", () => {
 // ── 12. Namespace filter works ──
 
 it("namespace filter works", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0),
     makeHint("h2", "k2", "ops", "monitoring", PolicyActionKind.Avoid, PolicyState.Stable, 0.90, 0.80, 0.6),
     makeHint("h3", "k3", "default", "logging", PolicyActionKind.Recommend, PolicyState.Stable, 0.70, 0.65, 0.0),
@@ -249,7 +249,7 @@ it("namespace filter works", () => {
 it("surface sorts by policyStrength DESC -> confidence DESC -> riskScore DESC (Rust order)", () => {
   // Same policyStrength=0.80 for all, different confidence/riskScore
   // Rust order: policy_strength DESC -> confidence DESC -> risk_score DESC -> stable -> key
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h1", "k1", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.70, 0.2, { recommendation: "A" }),
     makeHint("h2", "k2", "default", "domain_b", PolicyActionKind.Avoid, PolicyState.Stable, 0.80, 0.90, 0.3, { recommendation: "B" }),
     makeHint("h3", "k3", "default", "domain_c", PolicyActionKind.Warn, PolicyState.Stable, 0.80, 0.80, 0.1, { recommendation: "C" }),
@@ -273,7 +273,7 @@ it("surface sorts by policyStrength DESC -> confidence DESC -> riskScore DESC (R
 it("surface: equal policy_strength + equal confidence -> sorted by risk_score DESC (Rust order)", () => {
   // All same policyStrength=0.75, same confidence=0.80, different riskScore
   // Rust order: risk_score DESC > stable priority > key
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h_low_risk", "k1", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Stable, 0.75, 0.80, 0.1, { recommendation: "Low" }),
     makeHint("h_high_risk", "k2", "default", "domain_b", PolicyActionKind.Recommend, PolicyState.Stable, 0.75, 0.80, 0.9, { recommendation: "High" }),
     makeHint("h_mid_risk", "k3", "default", "domain_c", PolicyActionKind.Avoid, PolicyState.Stable, 0.75, 0.80, 0.5, { recommendation: "Mid" }),
@@ -290,7 +290,7 @@ it("surface: equal policy_strength + equal confidence -> sorted by risk_score DE
 })
 
 it("surface: Stable hints appear before Candidate hints when all scores equal (Rust tiebreak)", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h_candidate", "k1", "default", "domain_a", PolicyActionKind.Prefer, PolicyState.Candidate, 0.80, 0.80, 0.0, { recommendation: "C" }),
     makeHint("h_stable", "k2", "default", "domain_b", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.80, 0.0, { recommendation: "S" }),
   ])
@@ -301,7 +301,7 @@ it("surface: Stable hints appear before Candidate hints when all scores equal (R
 })
 
 it("surface: hint with empty recommendation is filtered out", () => {
-  const engine = makeEngine([
+  const engine = makeState([
     makeHint("h_good", "k1", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0, { recommendation: "Good" }),
     makeHint("h_empty", "k2", "default", "deploy", PolicyActionKind.Prefer, PolicyState.Stable, 0.80, 0.75, 0.0, { recommendation: "" }),
   ])

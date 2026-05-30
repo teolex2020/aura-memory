@@ -9,8 +9,8 @@ import {
   type Record as AuraRecord,
   type StoreOptions,
   type UpdateOptions,
-  UnimplementedError,
   Clock,
+  UnsupportedSurfaceError,
 } from "@aura/contract";
 import {
   CognitiveStoreFile,
@@ -64,10 +64,42 @@ import {
   type McpReflectionSummary,
 } from "@aura/contract"
 
+export type StoreCodeOptions = {
+  readonly language: string
+  readonly code: string
+  readonly filename?: string
+  readonly tags?: ReadonlyArray<string>
+  readonly namespace?: string
+}
+
+export type StoreDecisionOptions = {
+  readonly decision: string
+  readonly reasoning?: string
+  readonly alternatives?: ReadonlyArray<string>
+  readonly tags?: ReadonlyArray<string>
+  readonly caused_by_id?: string
+  readonly namespace?: string
+}
+
+export type AuraSearchOptions = {
+  readonly query?: string
+  readonly level?: Level
+  readonly tags?: ReadonlyArray<string>
+  readonly limit?: number
+  readonly content_type?: string
+  readonly source_type?: string
+  readonly namespaces?: ReadonlyArray<string>
+  readonly namespace?: string
+  readonly semantic_type?: string
+}
+
+export type AuraStats = Readonly<Record<string, number>>
+
 export class Aura {
   private constructor(
     private readonly brainDir: string,
     private readonly records: BrainAuraRecord[],
+    private searchRecords: Map<string, AuraRecord> = new Map(),
     private readonly maintenanceTrendHistory: MaintenanceTrendSnapshot[] = [],
     private readonly reflectionSummaries: ReflectionSummary[] = [],
   ) {}
@@ -104,7 +136,8 @@ export class Aura {
         Effect.map((history) => history.map(fromMcpReflectionSummary)),
         Effect.catch(() => Effect.succeed([] as ReflectionSummary[]))
       )
-      return new Aura(brainPath, parsed.records, trends, reflections);
+      const cognitiveRecords = yield* loadCognitiveRecords(brainPath)
+      return new Aura(brainPath, parsed.records, cognitiveRecords, trends, reflections);
     });
   }
 
@@ -128,6 +161,10 @@ export class Aura {
     return this.records.slice();
   }
 
+  listCognitiveRecords(): AuraRecord[] {
+    return [...this.searchRecords.values()]
+  }
+
   store(
     content: string,
     options?: StoreOptions,
@@ -137,6 +174,59 @@ export class Aura {
     FileRead | FileWrite
   > {
     return this.store_with_channel(content, options);
+  }
+
+  store_code(
+    options: StoreCodeOptions,
+  ): Effect.Effect<
+    AuraRecord,
+    FileReadError | FileWriteError,
+    FileRead | FileWrite
+  > {
+    // Store a code snippet at DOMAIN level with language metadata.
+    // 将代码片段以 DOMAIN level 存储，并写入语言/文件名元数据。
+    // Rust reference: AuraMcpServer::store_code (mcp.rs)
+    const tags = [...(options.tags ?? []), "code", options.language]
+    if (options.filename !== undefined && options.filename.length > 0) {
+      tags.push(`file:${options.filename}`)
+    }
+    const content = "```" + options.language + "\n" + options.code + "\n```"
+    return this.store(content, {
+      level: Level.Domain,
+      tags,
+      content_type: "code",
+      namespace: options.namespace,
+      metadata: {
+        language: options.language,
+        ...(options.filename !== undefined ? { filename: options.filename } : {}),
+      },
+    })
+  }
+
+  store_decision(
+    options: StoreDecisionOptions,
+  ): Effect.Effect<
+    AuraRecord,
+    FileReadError | FileWriteError,
+    FileRead | FileWrite
+  > {
+    // Store a decision with reasoning and rejected alternatives.
+    // 存储决策、理由与被拒绝的备选方案。
+    // Rust reference: AuraMcpServer::store_decision (mcp.rs)
+    let content = `DECISION: ${options.decision}`
+    if (options.reasoning !== undefined && options.reasoning.length > 0) {
+      content += `\nREASONING: ${options.reasoning}`
+    }
+    if (options.alternatives !== undefined && options.alternatives.length > 0) {
+      content += `\nALTERNATIVES: ${options.alternatives.join(", ")}`
+    }
+    return this.store(content, {
+      level: Level.Decisions,
+      tags: [...(options.tags ?? []), "decision"],
+      caused_by_id: options.caused_by_id,
+      namespace: options.namespace,
+      semantic_type: "decision",
+    })
   }
 
   store_with_channel(
@@ -157,6 +247,7 @@ export class Aura {
     // 简化实现：仅追加写入 brain.cog 并 fsync；不维护 brain.aura 与 index/。
     // Rust reference: Aura::store / Aura::store_with_channel (aura.rs)
     const dir = this.brainDir;
+    const self = this;
     return Effect.gen(function* () {
       const clock = yield* Clock
       const nowSec = clock.nowSeconds();
@@ -192,6 +283,7 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendStore(record);
       yield* store.flush();
+      self.replaceSearchRecord(record)
       return record;
     });
   }
@@ -210,6 +302,7 @@ export class Aura {
     // 简化实现：从 brain.cog/brain.snap 回放得到当前视图，再追加写入一条 Update 记录。
     // Rust reference: Aura::update (aura.rs)
     const dir = this.brainDir;
+    const self = this;
     return Effect.gen(function* () {
       const clock = yield* Clock
       const nowSec = clock.nowSeconds();
@@ -245,6 +338,7 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendUpdate(next);
       yield* store.flush();
+      self.replaceSearchRecord(next)
       return next;
     });
   }
@@ -262,10 +356,12 @@ export class Aura {
     // 简化实现：追加写入 delete 操作并返回 true（后续 parity 可返回 existed?）。
     // Rust reference: Aura::delete (aura.rs)
     const dir = this.brainDir;
+    const self = this;
     return Effect.gen(function* () {
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendDelete(record_id);
       yield* store.flush();
+      self.removeSearchRecord(record_id)
       return true;
     });
   }
@@ -292,6 +388,7 @@ export class Aura {
     // 简化实现：加载记录、更新 connections、追加写入完整 record。
     // Rust reference: Aura::connect (aura.rs)
     const dir = this.brainDir;
+    const self = this;
     const w =
       typeof weight === "number" && Number.isFinite(weight) ? weight : 1;
     return Effect.gen(function* () {
@@ -330,6 +427,7 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendUpdate(next);
       yield* store.flush();
+      self.replaceSearchRecord(next)
     });
   }
 
@@ -354,6 +452,121 @@ export class Aura {
     return this.recall_structured(query, options);
   }
 
+  search(
+    options?: AuraSearchOptions,
+  ): ReadonlyArray<AuraRecord>
+  search(
+    query?: string,
+    level?: Level,
+    tags?: ReadonlyArray<string>,
+    limit?: number,
+    content_type?: string,
+    source_type?: string,
+    namespaces?: ReadonlyArray<string>,
+    semantic_type?: string,
+  ): ReadonlyArray<AuraRecord>
+  search(
+    first?: AuraSearchOptions | string,
+    level?: Level,
+    tags?: ReadonlyArray<string>,
+    limit?: number,
+    content_type?: string,
+    source_type?: string,
+    namespaces?: ReadonlyArray<string>,
+    semantic_type?: string,
+  ): ReadonlyArray<AuraRecord> {
+    // Search with filters.
+    // 按过滤条件搜索 records。
+    // Rust reference: Aura::search (aura.rs)
+    const options: AuraSearchOptions =
+      typeof first === "object" && first !== null
+        ? first
+        : {
+            query: first,
+            level,
+            tags,
+            limit,
+            content_type,
+            source_type,
+            namespaces,
+            semantic_type,
+          }
+    const max = options.limit ?? 20
+    const nsList = options.namespaces ?? (options.namespace !== undefined ? [options.namespace] : ["default"])
+    const query = options.query?.toLowerCase()
+    const results = [...this.searchRecords.values()].filter((record) => {
+      if (!nsList.includes(record.namespace)) return false
+      if (options.level !== undefined && record.level !== options.level) return false
+      if (options.tags !== undefined && !options.tags.some((tag) => record.tags.includes(tag))) return false
+      if (options.content_type !== undefined && record.content_type !== options.content_type) return false
+      if (options.source_type !== undefined && record.source_type !== options.source_type) return false
+      if (options.semantic_type !== undefined && record.semantic_type !== options.semantic_type) return false
+      if (query !== undefined && !record.content.toLowerCase().includes(query)) return false
+      return true
+    })
+    results.sort((a, b) => recordImportance(b) - recordImportance(a))
+    return results.slice(0, max)
+  }
+
+  stats(): AuraStats {
+    // Get statistics.
+    // 获取基础统计。
+    // Rust reference: Aura::stats (aura.rs)
+    const records = [...this.searchRecords.values()]
+    const uniqueTags = new Set<string>()
+    let totalConnections = 0
+    let working = 0
+    let decisions = 0
+    let domain = 0
+    let identity = 0
+    for (const record of records) {
+      if (record.level === Level.Working) working += 1
+      if (record.level === Level.Decisions) decisions += 1
+      if (record.level === Level.Domain) domain += 1
+      if (record.level === Level.Identity) identity += 1
+      totalConnections += Object.keys(record.connections).length
+      for (const tag of record.tags) uniqueTags.add(tag)
+    }
+    return {
+      total_records: records.length,
+      working,
+      decisions,
+      domain,
+      identity,
+      total_connections: totalConnections,
+      total_tags: uniqueTags.size,
+    }
+  }
+
+  insights(): AuraStats {
+    // MCP insights intentionally mirrors Rust MCP's stats() call path.
+    // MCP insights 在 Rust server 中实际调用 stats()，TS 侧保持同一契约。
+    // Rust reference: AuraMcpServer::insights (mcp.rs)
+    return this.stats()
+  }
+
+  maintain(config?: MaintenanceConfig) {
+    // Public MCP-facing facade over the maintenance orchestration.
+    // 面向 MCP 的公开维护入口，委托到 runMaintenance。
+    // Rust reference: Aura::run_maintenance / AuraMcpServer maintain path.
+    return this.runMaintenance(config)
+  }
+
+  consolidate(): Effect.Effect<never, UnsupportedSurfaceError> {
+    // UNIMPLEMENTED: consolidation is recoverably unsupported until TS has a real merge algorithm.
+    // 未实现：TS 具备真实 merge 算法前，consolidate 以可恢复 typed error 暴露。
+    // Rust reference: Aura::consolidate (aura.rs)
+    return Effect.fail(new UnsupportedSurfaceError({
+      surface: "Aura.consolidate",
+      reason: "TS core has no Rust-parity consolidation merge/update path yet; dummy success counts are forbidden.",
+      rustReference: "Aura::consolidate (aura.rs)",
+      missingPrerequisites: [
+        "Rust-parity consolidation algorithm",
+        "coherent ngram/tag/aura index mutation during merges",
+      ],
+    }))
+  }
+
   static recallScored(
     brainDir: string,
     query: string,
@@ -371,21 +584,23 @@ export class Aura {
   }
 
   explain_recall(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: explainability surface is intentionally a defect for now.
+    // UNIMPLEMENTED: explainability surface is recoverably unsupported for MCP callers.
     // Reason: TS does not yet have the Rust explainability bundle / trace DTOs.
     // Rust reference: Aura::explain_recall (aura.rs)
-    return Effect.die(
-      new UnimplementedError({ feature: "Aura.explain_recall" }),
-    );
+    return unsupportedSurface("Aura.explain_recall", "Aura::explain_recall (aura.rs)", [
+      "Recall trace DTO construction",
+      "Explainability bundle assembly",
+    ])
   }
 
   explain_record(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: explainability surface is intentionally a defect for now.
+    // UNIMPLEMENTED: explainability surface is recoverably unsupported for MCP callers.
     // Reason: TS does not yet have the Rust explainability bundle / trace DTOs.
     // Rust reference: Aura::explain_record (aura.rs)
-    return Effect.die(
-      new UnimplementedError({ feature: "Aura.explain_record" }),
-    );
+    return unsupportedSurface("Aura.explain_record", "Aura::explain_record (aura.rs)", [
+      "Record-level provenance chain",
+      "Correction log read model",
+    ])
   }
 
   runMaintenance(
@@ -393,12 +608,12 @@ export class Aura {
   ) {
     const cfg = config ?? defaultMaintenanceConfig
     const dir = this.brainDir
-    const recordCount = this.records.length
 
     const self = this
     return Effect.gen(function* () {
+      const records = yield* self.refreshSearchViewFromDisk()
       const trace = yield* Effect.service(EpistemicTrace)
-      yield* trace.event("maintenance.start", { records: recordCount })
+      yield* trace.event("maintenance.start", { records: records.size })
 
       // ── Get engines and stores from Effect context ──
       const beliefEng = yield* Effect.service(BeliefEngine)
@@ -428,7 +643,8 @@ export class Aura {
       }
 
       // ── Build records map ──
-      const records = yield* loadCognitiveRecords(dir)
+      // runMaintenance owns the contract Record boundary through brain.cog/brain.snap.
+      // runMaintenance 通过 brain.cog/brain.snap 维护 contract Record 边界，不再使用 BrainAuraRecord[]。
       const cognitiveStore = yield* CognitiveStoreFile.open(dir)
       const cognitiveStoreAdapter = createCognitiveStoreAdapter(cognitiveStore)
       const taxonomy = createDefaultTagTaxonomy()
@@ -539,6 +755,8 @@ export class Aura {
         dominantPhase: hotspots.dominantPhase,
       })
 
+      self.searchRecords = new Map(records)
+
       return {
         timestamp,
         decay: initial.decay,
@@ -566,40 +784,108 @@ export class Aura {
     })
   }
 
+  private refreshSearchViewFromDisk(): Effect.Effect<
+    Map<string, AuraRecord>,
+    FileReadError | FileFormatError,
+    FileRead
+  > {
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const records = yield* loadCognitiveRecords(dir)
+      self.searchRecords = new Map(records)
+      return records
+    })
+  }
+
+  private replaceSearchRecord(record: AuraRecord): void {
+    this.searchRecords = new Map(this.searchRecords).set(record.id, record)
+  }
+
+  private removeSearchRecord(recordId: string): void {
+    const next = new Map(this.searchRecords)
+    next.delete(recordId)
+    this.searchRecords = next
+  }
+
   get_entity_digest(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: relation/entity graph APIs are intentionally left as defects for now.
+    // UNIMPLEMENTED: relation/entity graph APIs are recoverably unsupported for now.
     // Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.
     // Rust reference: Aura::get_entity_digest (aura.rs)
-    return Effect.die(
-      new UnimplementedError({ feature: "Aura.get_entity_digest" }),
-    );
+    return unsupportedSurface("Aura.get_entity_digest", "Aura::get_entity_digest (aura.rs)", [
+      "Relation graph store",
+      "Entity digest read model",
+    ])
   }
 
   link_entities(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: relation/entity graph APIs are intentionally left as defects for now.
+    // UNIMPLEMENTED: relation/entity graph APIs are recoverably unsupported for now.
     // Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.
     // Rust reference: Aura::link_entities (aura.rs)
-    return Effect.die(
-      new UnimplementedError({ feature: "Aura.link_entities" }),
-    );
+    return unsupportedSurface("Aura.link_entities", "Aura::link_entities (aura.rs)", [
+      "Relation graph store",
+      "Entity link mutation path",
+    ])
   }
 
   get_project_graph(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: project graph APIs are intentionally left as defects for now.
+    // UNIMPLEMENTED: project graph APIs are recoverably unsupported for now.
     // Reason: TS does not have the project graph store/index yet; returning dummy values would hide missing capability.
     // Rust reference: Aura::get_project_graph (aura.rs)
-    return Effect.die(
-      new UnimplementedError({ feature: "Aura.get_project_graph" }),
-    );
+    return unsupportedSurface("Aura.get_project_graph", "Aura::get_project_graph (aura.rs)", [
+      "Project graph store",
+      "Project graph read model",
+    ])
   }
 
   get_family_graph(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: family graph APIs are intentionally left as defects for now.
+    // UNIMPLEMENTED: family graph APIs are recoverably unsupported for now.
     // Reason: TS does not have the family graph store/index yet; returning dummy values would hide missing capability.
     // Rust reference: Aura::get_family_graph (aura.rs)
-    return Effect.die(
-      new UnimplementedError({ feature: "Aura.get_family_graph" }),
-    );
+    return unsupportedSurface("Aura.get_family_graph", "Aura::get_family_graph (aura.rs)", [
+      "Family graph store",
+      "Family graph read model",
+    ])
+  }
+}
+
+function unsupportedSurface(
+  surface: string,
+  rustReference: string,
+  missingPrerequisites: ReadonlyArray<string>,
+): Effect.Effect<never, UnsupportedSurfaceError> {
+  return Effect.fail(new UnsupportedSurfaceError({
+    surface,
+    reason: "TS core does not yet have the Rust-parity implementation for this MCP-facing surface.",
+    rustReference,
+    missingPrerequisites,
+  }))
+}
+
+function recordImportance(record: AuraRecord): number {
+  // Composite importance score (0.0-1.0+).
+  // Formula: strength(40%) + level(25%) + connections(20%) + activations(15%) + bounded salience hint (10%).
+  // 组合重要性分数；与 Rust Record::importance 公式对齐。
+  // Rust reference: Record::importance (record.rs)
+  const levelScore = levelValue(record.level) / 4
+  const connScore = Math.min(Object.keys(record.connections).length / 50, 1)
+  const actScore = Math.min(record.activation_count / 20, 1)
+  // NON-PARITY IMPLEMENTATION: contract Record does not expose Rust salience yet, so search uses 0.
+  // 差异说明：等 contract Record 加入 salience 后再接入最后 10% 权重。
+  const salience = 0
+  return 0.40 * record.strength + 0.25 * levelScore + 0.20 * connScore + 0.15 * actScore + 0.10 * salience
+}
+
+function levelValue(level: Level): number {
+  switch (level) {
+    case Level.Working:
+      return 1
+    case Level.Decisions:
+      return 2
+    case Level.Domain:
+      return 3
+    case Level.Identity:
+      return 4
   }
 }
 

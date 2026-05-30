@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 7
 current_phase_name: MCP + Polish
-status: completed
-last_updated: "2026-05-30T12:39:59.144Z"
-last_activity: 2026-05-29 — Phase 06.3 code review complete (3 rounds, 20+ fix commits, 0 critical)
+status: planned
+last_updated: "2026-05-30T21:25:00.000Z"
+last_activity: 2026-05-30 — Phase 7 planned; backlog 999.1/999.2 and maintenance debt folded into execution plans
 progress:
   total_phases: 13
   completed_phases: 4
@@ -22,15 +22,15 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** AuraSDK TypeScript — Rust engine algorithm parity for Belief/Concept/Causal/Policy engines
-**Current focus:** Phase 7 (MCP + Polish) — next phase to plan
+**Current focus:** Phase 7 (MCP + Polish) — planned and ready to execute
 
 ## Current Position
 
 Current Phase: 7
 Current Phase Name: MCP + Polish
 Total Phases: 10
-Status: Phase 6 Complete — Ready for Phase 7
-Last Activity: 2026-05-29 — Phase 06.3 code review complete (3 rounds, 20+ fix commits, 0 critical)
+Status: Phase 7 Planned — Ready to execute
+Last Activity: 2026-05-30 — Phase 7 planned; backlog 999.1/999.2 and maintenance debt folded into execution plans
 
 Progress: [█████████░] 90%
 
@@ -72,7 +72,7 @@ See PROJECT.md Key Decisions for full log. Recent decisions:
 
 ### Pending Todos
 
-5 pending todos in `.planning/todos/pending/` — check with `/gsd:capture --list`
+3 pending todos in `.planning/todos/pending/` — folded `MaintenanceService` / `Policy surface` todos into Phase 7
 
 ### Blockers/Concerns
 
@@ -84,13 +84,10 @@ Items carried forward:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| TODO cleanup | MaintenanceService zombie types + D-07 markers + Effect.die (24 markers) | backlog 999.1 | 2026-05-29 |
-| NON-PARITY | Cross-engine xxhash tracking (3 engines) + BrainAuraRecord cast + Surface.ts types | backlog 999.2 | 2026-05-29 |
 | Refactor | Engine utils dedup: UnionFind + polarity signals + hash → @aura/utils | backlog 999.3 | 2026-05-29 |
-| Deferred | runDiscoveryPhases full algorithm — requires TagTaxonomy, NGramIndex, CognitiveStore (D-07) | deferred | Phase 5 |
 
 ## Session Continuity
 
 Last session: 2026-05-30T12:39:59.132Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-mcp-polish/07-CONTEXT.md
+Stopped at: Phase 7 planned
+Resume file: .planning/phases/07-mcp-polish/07-01-PLAN.md

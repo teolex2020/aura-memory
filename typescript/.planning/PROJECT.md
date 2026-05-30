@@ -44,7 +44,7 @@
 
 ## Current State
 
-**Phase 06.3 (Engine Algorithm Parity) complete** — 11/11 plans executed. All four engines (BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine) aligned with Rust algorithm implementations. 14/14 AUDIT-DIFF deviations resolved. 449/450 tests pass. Rust fixture E2E verified. Next: Phase 7 (MCP + Polish).
+**Phase 07 (MCP + Polish) planned** — 8 plans across 4 waves. Former backlog `999.1` / `999.2` plus remaining maintenance-service D-07 debt are now folded into the phase so MCP/governance/explainability parity can be closed at the server boundary.
 
 ## Requirements
 

@@ -87,6 +87,10 @@ Downstream agents MUST read `07-SPEC.md` before planning or implementing. Requir
 - **D-34:** MCP E2E 允许按家族共享一个 brain 并顺序累积状态，不强制每个用例都从全新副本开始。状态串扰被视为发现真实偏差的机会，而不是必须规避的噪音。
 - **D-35:** MCP 黑盒 parity 的通过标准同时包含两层：每个 tool 调用都做单次响应比对；每个工具家族末尾再做一次最终 brain 状态 / 派生读取比对。
 
+### Folded Maintenance Debt
+- **D-36:** 用户确认：Phase 7 不只是给当前维护骨架包一层 MCP；`maintain` / `insights` / `memory_health` / explainability/governance 所需的剩余 D-07 maintenance algorithm debt 一并并入本 phase。
+- **D-37:** 因为 maintenance debt 已并入本 phase，原先挂在 pending/backlog 的 `MaintenanceService` TODO 与 Policy surface 清理项不再单独保留 todo，后续在本 phase 的计划、执行与验证工件中统一跟踪。
+
 ### Folded Todos
 - **重构PolicyEngine — 剔除不必要的遗留实现**：原始问题是 `packages/policy/src/Surface.ts` 仍依赖废弃的本地 `PolicyEngine` 扁平容器和 `policyEngineFromState` 适配器，导致 `PolicyEngine.Interface -> stats() -> state -> adapter -> surface` 的多余链路。该问题被折叠进本 phase，因为它直接命中 backlog `999.2` 的 Policy surface/type adaptation gap，并影响 `EpistemicRuntime` 与 MCP-facing policy tools 的收敛路径。执行阶段还应顺手检查 `packages/concept/src/Surface.ts` 是否存在同型冗余适配。
 
@@ -144,6 +148,7 @@ Downstream agents MUST read `07-SPEC.md` before planning or implementing. Requir
 - `packages/core/src/MaintenanceService.ts`: 已有维护编排骨架和 telemetry 汇总逻辑，可直接支撑 `maintain` tool，但需要解决 `unknown` 占位与 backlog `999.1`。
 - `packages/contract/src/EpistemicRuntime.ts` + `packages/epistemic-runtime/src/EpistemicRuntime.ts`: 已经实现 `belief_instability`、`policy_lifecycle`、`getPolicyPressureReport`、`getContradictionClusters`、namespace filtered surfaced helpers 等 inspection primitives。
 - `packages/policy/src/Surface.ts` / `packages/concept/src/Surface.ts`: 已有可复用的 surfaced output 生成逻辑，但 policy 侧存在折叠进 scope 的适配层冗余。
+- `packages/storage/src/PersistenceManifest.ts`: 已为 `maintenance_trends` 与 `reflection_summaries` 预留 manifest surface 版本位，但当前仍缺少对应 store/file helper 与持久化闭环。
 
 ### Established Patterns
 - `@aura/core` 负责门面与编排，底层能力仍留在 `@aura/*` 领域包中；Phase 7 要延续这个边界，不让 `@aura/mcp` 变成第二编排层。
@@ -175,7 +180,7 @@ Downstream agents MUST read `07-SPEC.md` before planning or implementing. Requir
 - 本 phase 不扩到 graph/entity/project 类 Rust public API；若后续需要，应单独立 phase，而不是借 Phase 7 顺手膨胀。
 
 ### Reviewed Todos (not folded)
-- `2026-05-30-policyengine.md` 以外的其余 pending todos 未折叠进入本 phase：它们与当前 MCP inventory、`999.1` / `999.2` 闭环无直接强耦合，保持 backlog 状态，避免 Phase 7 范围继续膨胀。
+- 除已并入本 phase 的 MaintenanceService / Policy surface todo 外，其余 pending todos 未折叠进入本 phase：它们与当前 MCP inventory、`999.1` / `999.2` 闭环无直接强耦合，保持 backlog 状态，避免 Phase 7 范围继续膨胀。
 
 </deferred>
 

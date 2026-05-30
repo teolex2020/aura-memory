@@ -20,6 +20,7 @@
     "nyquist_validation": true,
     "auto_advance": false,
     "node_repair": true,
+    "plan_review_convergence": true,
     "node_repair_budget": 2,
     "ui_phase": true,
     "ui_safety_gate": true,

@@ -177,7 +177,9 @@ Plans:
 
 **Goal:** MCP stdio server + full tool coverage + final parity verification
 
-**Requirements:** REQ-001
+**Requirements:** REQ-001, REQ-012
+**Depends on:** Phase 06.3
+**Source:** `07-SPEC.md`, `07-CONTEXT.md`, former backlog `999.1` + `999.2`
 
 **Success Criteria:**
 
@@ -185,31 +187,35 @@ Plans:
 - All tools (recall/store/search/insights/maintain/etc.) implemented
 - Rust MCP and TS MCP produce equivalent responses for same brain directory
 
+**Scope folded in:**
+
+- Former backlog `999.1` (MaintenanceService TODO cleanup + public `Aura` defect cleanup)
+- Former backlog `999.2` (cross-engine NON-PARITY tracking + Policy surface cleanup + `runMaintenance` record-path fix)
+- Remaining D-07 maintenance-service algorithm debt required to make `maintain` / `insights` / `memory_health` / explainability-governance tools parity-grade
+
+**Plans:** 8 plans, 4 waves
+
+**Wave 1** *(foundation — blocked only by plan ordering inside the wave)*
+
+- [ ] 07-01-PLAN.md — MCP-facing contract DTOs + unsupported error contract + maintenance artifact stores
+- [ ] 07-02-PLAN.md — MaintenanceService parity completion + persisted trend/reflection outputs
+- [ ] 07-03-PLAN.md — Core facade alignment for write/search/maintain/consolidate + backlog `999.1` / `999.2` structural fixes
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 07-04-PLAN.md — Governance/inspection/read-model facades: belief instability, policy lifecycle, namespace governance, memory health, cross-namespace digest
+- [ ] 07-05-PLAN.md — Explainability + correction facades: explain_recall/record/bundle, correction log, review queues, suggested corrections
+
+**Wave 3** *(blocked on Waves 1-2 completion)*
+
+- [ ] 07-06-PLAN.md — `@aura/mcp` package scaffold with Mastra stdio server, env binding, schemas, and inventory smoke test
+- [ ] 07-07-PLAN.md — Full MCP handler wiring, Rust-shaped text payloads, invocation tests, and explicit unsupported mapping
+
+**Wave 4** *(blocked on Waves 1-3 completion)*
+
+- [ ] 07-08-PLAN.md — Rust-vs-TS MCP parity harness, family-level E2E comparison, and final Phase 7 verification/closeout
+
 ## Backlog
-
-### Phase 999.1: 代码卫生 — MaintenanceService TODO 清理 (BACKLOG)
-
-**Goal:** 清理 MaintenanceService.ts 中 24 处遗留标记：8 个僵尸类型占位符、15 处 D-07 延期注释、以及 Aura.ts 中 6 个 `Effect.die()` 应改为 `Effect.fail()`
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Source: `06.3-REVIEW.md § TODO-W01, TODO-W02, TODO-W03`
-
-Plans:
-
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 999.2: 跨引擎一致性 — NON-PARITY 标记统一追踪 (BACKLOG)
-
-**Goal:** 统一 3 个引擎中分散的 xxhash NON-PARITY 标记、修复 Aura.runMaintenance 中 BrainAuraRecord 类型转换、Policy Surface.ts contract 类型适配
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Source: `06.3-REVIEW.md § TODO-W04, WR-01, WR-04, WR-05`
-
-Plans:
-
-- [ ] TBD (promote with /gsd-review-backlog when ready)
 
 ### Phase 999.3: 引擎工具函数去重 — Effect 包装提取到 utils 包 (BACKLOG)
 

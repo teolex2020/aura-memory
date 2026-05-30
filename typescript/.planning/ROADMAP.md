@@ -193,13 +193,13 @@ Plans:
 - Former backlog `999.2` (cross-engine NON-PARITY tracking + Policy surface cleanup + `runMaintenance` record-path fix)
 - Remaining D-07 maintenance-service algorithm debt required to make `maintain` / `insights` / `memory_health` / explainability-governance tools parity-grade
 
-**Plans:** 2/8 plans executed
+**Plans:** 3/8 plans executed
 
 **Wave 1** *(foundation — blocked only by plan ordering inside the wave)*
 
 - [x] 07-01-PLAN.md — MCP-facing contract DTOs + unsupported error contract + maintenance artifact stores
 - [x] 07-02-PLAN.md — MaintenanceService parity completion + persisted trend/reflection outputs
-- [ ] 07-03-PLAN.md — Core facade alignment for write/search/maintain/consolidate + backlog `999.1` / `999.2` structural fixes
+- [x] 07-03-PLAN.md — Core facade alignment for write/search/maintain/consolidate + backlog `999.1` / `999.2` structural fixes
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

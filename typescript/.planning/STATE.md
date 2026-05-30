@@ -5,14 +5,14 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: mcp-polish
 status: executing
-last_updated: "2026-05-30T19:21:10.628Z"
+last_updated: "2026-05-30T19:44:51.806Z"
 last_activity: 2026-05-30
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 4
   total_plans: 33
-  completed_plans: 27
-  percent: 82
+  completed_plans: 28
+  percent: 33
 ---
 
 # Project State
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 07 (mcp-polish) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Current Phase: 07
 Current Phase Name: mcp-polish
 Total Phases: 10
 Status: Ready to execute
 Last activity: 2026-05-30
 
-Progress: [████████░░] 82%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████░░] 82%
 *Updated after each plan completion*
 | Phase 07-mcp-polish P01 | 10min | 1 tasks | 7 files |
 | Phase 07-mcp-polish P02 | 20min | 1 tasks | 4 files |
+| Phase 07-mcp-polish P03 | 15min | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,10 @@ See PROJECT.md Key Decisions for full log. Recent decisions:
 - [Phase 07-mcp-polish]: Cross-namespace dimension handling mirrors Rust alias behavior and ignores unknown dimensions. — Matches apply_cross_namespace_dimension_flags for later MCP tool parity.
 - [Phase 07-mcp-polish]: SDRInterpreter is real and imported from @aura/recall; no empty SDR fallback remains for non-empty content.
 - [Phase 07-mcp-polish]: NGramIndex and BackgroundBrain are bounded typed shims with explicit NON-PARITY/disabled dispositions for Wave 2.
+- [Phase 07-mcp-polish]: MCP insights contract: TS exposes stats() and insights(); insights() intentionally aliases stats() because Rust MCP calls Aura::stats for the insights tool.
+- [Phase 07-mcp-polish]: consolidate disposition: explicit UnsupportedSurfaceError until a Rust-parity merge algorithm and coherent index mutation path exist.
+- [Phase 07-mcp-polish]: Search view strategy: Aura owns a Map<string, AuraRecord> populated from loadCognitiveRecords() at open/maintenance time and immutably replaced after write-affecting mutations.
+- [Phase 07-mcp-polish]: runMaintenance boundary: brain.cog/brain.snap contract Records are the source of truth; BrainAuraRecord[] remains only for legacy brain.aura listRecords compatibility.
 
 ### Pending Todos
 
@@ -97,6 +102,6 @@ Items carried forward:
 
 ## Session Continuity
 
-Last session: 2026-05-30T19:21:08.491Z
+Last session: 2026-05-30T19:43:53.779Z
 Stopped at: Completed 07-02-PLAN.md
 Resume file: None

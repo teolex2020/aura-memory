@@ -1,7 +1,7 @@
 ---
 phase: 7
 reviewers: [claude]
-reviewed_at: 2026-05-30T22:39:10+08:00
+reviewed_at: 2026-05-31T00:16:33.3389427+08:00
 plans_reviewed:
   - 07-01-PLAN.md
   - 07-02-PLAN.md
@@ -17,265 +17,248 @@ plans_reviewed:
 
 ## Claude Review
 
-# Cross-AI Plan Review: Phase 07 (MCP + Polish)
+# Cross-AI Plan Review: Phase 07 — MCP + Polish
 
 ## Overall Assessment
 
-The 8-plan, 4-wave structure is logically sound in its dependency ordering and correctly identifies the full scope of Phase 7's four responsibilities (DTOs, maintenance debt, MCP transport, parity harness). However, several plans carry scope risk, and the deep serial dependency chain from Wave 1 through Wave 4 means any stall in early waves cascades. The key architectural tensions are: (a) whether Plan 07-02's typed shims produce enough real data for downstream plans to be meaningful, and (b) whether Plan 07-05's scope (evidence bridge + correction write paths + 6 explainability surfaces) is executable as a single plan.
+These 8 plans collectively target the right things: shared DTOs first, maintenance debt second, core facades, then MCP transport, then parity. The wave structure is sound and the "contract-first, surface-next, transport-last" ordering prevents the MCP layer from becoming a second orchestration layer. However, several plans carry significant implementation risk from under-specified sub-problems (the recall evidence bridge in 07-05, the SDR/TagTaxonomy subsystem resolution in 07-02), and there is a dependency gap between 07-07 and the Wave 2 plans that would block execution in practice.
 
 ---
 
 ## 07-01 — Contract DTOs + Unsupported Errors + Storage Helpers
 
-**Summary:** Lays the shared type foundation. Correctly places DTOs in `@aura/contract`, defers correction-log file persistence (matching Rust's in-memory model), and reuses existing JSON snapshot infrastructure. Well-scoped for Wave 1.
+**Summary:** Establishes the shared type foundation. The exhaustive Rust-to-TS DTO checklist requirement is the right call — without it, later plans will silently diverge on field shapes. The decision to keep correction-log state in memory rather than inventing file persistence is correct and matches Rust.
 
-**Strengths:**
-- Correct architecture decision: shared DTOs in `@aura/contract`, not duplicated in `@aura/core` or `@aura/mcp`
-- Explicitly avoids creating correction-log file persistence where Rust doesn't have it
-- Reuses `CogJsonSnapshotFile` rather than inventing one-off serializers
-- Dedicated unsupported-error file matches D-26 requirement
+### Strengths
+- DTO checklist from `api_groups.rs` / `aura.rs` prevents later plans from inferring fields ad hoc
+- Dimension flag vocabulary (`concepts`, `tags`, `structural`, `causal`, `belief_states`, `corrections`) is locked upfront, preventing local invention in 07-04
+- Explicit `TaggedError`-based unsupported contract in its own file (decision D-26 compliance)
+- Sensible: no `Date` objects in DTOs, reuses existing JSON snapshot helpers, no invented correction-log file persistence
 
-**Concerns:**
-- **MEDIUM:** The DTO list is illustrative ("at minimum cover these named payloads") rather than exhaustive. The executor could miss types. The plan should reference a concrete checklist derived from `api_groups.rs` — specifically `ExplainabilityBundle` has sub-fields (`explain_record`, `provenance_chain`, `correction_excerpts`, `instability_snapshot`, `maintenance_trend_summary`) that each need DTO definitions.
-- **MEDIUM:** `CrossNamespaceDigestOptions` has an `include_dimensions` string-array flag parsed by `apply_cross_namespace_dimension_flags` in Rust. The plan doesn't mention that helper or its dimension set (`concepts`, `tags`, `structural`, `causal`, `belief_states`, `corrections`). This helper needs a TS equivalent.
-- **LOW:** The "round-trip shape stability" tests need concrete fixtures. If the DTOs use `Date` or `number` for timestamps, JSON round-trip behavior differs from Rust's `String` timestamps.
+### Concerns
+- **MEDIUM** — "Copy the checklist from Rust source" is underspecified. `api_groups.rs` imports types from `aura.rs` which defines them elsewhere. The executor needs to trace the full type dependency graph, not just one file. A grep for `pub struct` / `pub type` across the Rust codebase would be more reliable.
+- **MEDIUM** — "JSON-safe string/number shapes Rust emits today" — Rust uses `serde` with default serialization. The TS DTO field names must decide: camelCase (TS convention) vs snake_case (Rust/serde default). The plan is silent on this, but it affects every downstream consumer. Given D-03 (Rust alignment over TS style), this should be decided explicitly.
+- **LOW** — `MaintenanceTrendSnapshot` and `ReflectionSummary` already exist in `@aura/contract`. The plan says "extend or reuse" but doesn't specify which fields are already present vs. missing from Rust. A diff-first approach would prevent accidental duplication.
 
-**Suggestions:**
-- Add a concrete DTO checklist appendix referencing each Rust struct from `api_groups.rs` with its field set
-- Note that `CrossNamespaceDigestOptions` needs a companion `applyCrossNamespaceDimensionFlags` helper
-- Specify timestamp representation (ISO string vs epoch seconds) to preempt serialization mismatches
+### Suggestions
+- Add a step to grep `pub struct` across `../src/aura.rs`, `../src/api_groups.rs`, `../src/background_brain.rs` to build the checklist rather than limiting to two files
+- Decide and document the field-naming convention (snake_case for Rust parity per D-03, or camelCase with explicit serde rename annotations documented)
+- Diff existing TS types against Rust struct fields before extending, to avoid duplicate shapes
 
 ---
 
 ## 07-02 — MaintenanceService Parity Completion
 
-**Summary:** The most architecturally critical plan. Replaces 5 `unknown` placeholders and 15 D-07 stubs with either real implementations or typed shims. The classification-pass-before-implementation approach is good discipline, but the shim ceiling creates a tension: shims that are too minimal produce empty discovery results, making `maintain` a timing-only no-op that starves downstream plans of real data.
+**Summary:** The most structurally important plan in Wave 1. The classification pass for the five placeholder subsystems is well-designed, and the typed-shim ceiling prevents sprawl. The real risk is that "bounded deterministic" shims may still produce empty/vacuous data that starves downstream governance surfaces.
 
-**Strengths:**
-- Classification pass before implementation prevents sprawl
-- Typed-shim ceiling with explicit per-subsystem disposition prevents "build every missing subsystem"
-- Clear three-state outcome (implemented / typed shim / escalated gap) with documented disposition table
-- Recognizes that in-memory `Aura` state is source of truth, with disk as derived cache
+### Strengths
+- Five-subsystem classification pass with explicit three-state outcomes (implemented / typed shim / escalated) prevents silent half-measures
+- Typed-shim ceiling is explicit and defensible: `SDRInterpreter` must produce non-empty SDR vectors for non-empty content, `TagTaxonomy` must actually classify, not pass through
+- `Aura` runtime ownership of maintenance history is correctly specified as in-memory source of truth with optional derived disk cache
+- Test requirements are concrete: `sdrVectorsComputed > 0`, at least one non-zero discovery signal
 
-**Concerns:**
-- **HIGH:** The `SDRInterpreter` shim is defined as "deterministic empty/identity SDR decode helpers only." In Rust, `build_sdr_lookup` calls `sdr.text_to_sdr(&rec.content, false)` to produce real SDR vectors. These vectors are the foundation of concept discovery, causal discovery, and policy discovery. An empty/identity shim means `buildSdrLookup` produces no useful vectors, which means concept/causal/policy discovery phases produce zero results. The entire maintenance cycle becomes a timing shell. Downstream plans (07-04 `cross_namespace_digest`, 07-05 `explainability_bundle`) will operate on empty data. This is the single biggest parity risk in the phase.
-- **HIGH:** `TagTaxonomy` as "read-only normalization/classification against existing tag strings" — Rust's `fix_memory_levels` and `guarded_reflect` both consume `TagTaxonomy`. If these algorithms can't run, the `levelFix` and `reflect` phases remain stubs.
-- **MEDIUM:** The `insights::detect_all` requirement — Rust's implementation scans records for patterns. The plan says to implement "minimum parity" but doesn't define what "minimum" means. If the SDR and taxonomy shims are empty, insights detection may find nothing.
-- **MEDIUM:** The `BackgroundBrain` shim as "no-op/disabled" is fine for this plan, but `runPostDiscoveryPhases` in Rust uses it for `discover_cross_connections` and `check_scheduled_tasks`. Post-discovery will produce zero cross-connections and zero task reminders.
+### Concerns
+- **HIGH** — `SDRInterpreter` resolution: the plan says "import and use the existing `@aura/recall/SDRInterpreter`." Does this exist as an importable, standalone type? The current `MaintenanceService.ts` types it as `unknown`. If it doesn't exist as a clean import, this becomes a discovery-and-build task, not just an import swap.
+- **HIGH** — `TagTaxonomy` bounded implementation: "must normalize/classify strongly enough for `fix_memory_levels` and `guarded_reflect`." These are Rust algorithms that operate on taxonomy output. The plan doesn't specify what "strongly enough" means — what specific taxonomy outputs do `fix_memory_levels` and `guarded_reflect` consume? Without that, the executor can't validate the shim.
+- **MEDIUM** — `NGramIndex` "typed adapter over the current TS ngram implementation" — does the current TS codebase have an ngram implementation? The plan assumes it does. If it doesn't, this becomes another discovery task.
+- **MEDIUM** — `BackgroundBrain` shim returns empty outputs for cross-connections and task reminders. These feed `cross_namespace_digest` and `consolidate`. If 07-02 leaves these empty, 07-04 and 07-05 need to handle the data gap explicitly.
+- **LOW** — The plan says "stop once the Phase 7 downstream surfaces have real inputs." This is a judgment call that could lead to premature stopping if the executor is conservative.
 
-**Suggestions:**
-- Re-evaluate the SDR shim ceiling. At minimum, `buildSdrLookup` needs to produce real (even if simplified) SDR vectors for records that have content. An "empty array" shim cascades to empty discovery for the entire pipeline. Consider a "minimum viable SDR" that at least produces token-level sparse vectors.
-- Split the plan into two sequential sub-passes: (A) replace `unknown` placeholders with typed shims (safe, mechanical), then (B) implement real algorithms for the phases that feed downstream surfaces. This prevents the executor from stopping at (A) and calling it done.
-- Add a verification gate: after this plan, `runMaintenance()` must produce at least one non-zero discovery report (concept or causal) when run against a brain with real content.
+### Suggestions
+- Before implementation, verify that `@aura/recall` exports a usable `SDRInterpreter` type/instance. If not, add an explicit discovery task as the first step.
+- Define the `TagTaxonomy` output contract: what does `fix_memory_levels` consume? What does `guarded_reflect` consume? Write these as interface assertions before coding the shim.
+- Audit whether an ngram implementation exists in the TS codebase before assuming it does
+- Add a cross-reference table in the summary mapping each `BackgroundBrain` empty output to which downstream plan/tool is affected
 
 ---
 
-## 07-03 — Core Facade Alignment + Backlog 999.1/999.2
+## 07-03 — Core Facade Alignment + Backlog Closures
 
-**Summary:** Adds 6 missing operational surfaces to `Aura`, replaces `Effect.die` defects with typed failures, fixes the `BrainAuraRecord`/`AuraRecord` mismatch in `runMaintenance`, and cleans up the Policy surface zombie adapter. The scope is broad for a single Wave 1 plan.
+**Summary:** Closes the structural debt and adds the basic operational surfaces. The `consolidate` disposition lock (implemented vs. deliberately unsupported, never stub success) and `search` ownership model are the right level of specificity. The Policy surface cleanup is correctly scoped.
 
-**Strengths:**
-- Correctly identifies the `BrainAuraRecord[]` vs `Map<string, AuraRecord>` mismatch in `runMaintenance()` (line 410 of Aura.ts loads cognitive records while the constructor stores `BrainAuraRecord[]`)
-- Policy surface cleanup scope is well-defined: remove the deprecated `PolicyEngine` flat container and `policyEngineFromState` adapter
-- Grep for zombie adapter in `epistemic-runtime/src/` is a good defensive check
-- Centralizing xxhash NON-PARITY markers is practical
+### Strengths
+- Three explicit `consolidate` outcomes with a forbidden state (dummy success) — this prevents the most common class of parity fraud
+- `search` ownership is explicit: `Aura` owns an in-memory view, populated from cognitive-record load, refreshed on write, implementing full Rust filter semantics
+- Policy surface cleanup is concrete: make helpers consume contract-aligned state directly, grep for zombie adapter in epistemic-runtime too
+- `store_code` / `store_decision` are correctly scoped as thin composition wrappers over `store`
 
-**Concerns:**
-- **HIGH:** Adding `search` to the core facade. Rust's `Aura::search` in `api_groups.rs` takes 8 parameters (query, level, tags, limit, content_type, source_type, namespaces, semantic_type) and searches an in-memory record index. TS has no search index — `Aura` stores `BrainAuraRecord[]` in memory but `search` needs to filter across all cognitive records. The plan doesn't address where the search index lives or how it's populated.
-- **HIGH:** Adding `consolidate` — Rust's implementation calls `consolidation::consolidate()` which operates on `records`, `ngram_index`, `tag_index`, and `aura_index`. TS has none of these indexes (they're part of the `NGramIndex` and `CognitiveStore` placeholders from Plan 07-02). The plan needs to specify whether `consolidate` is implemented or explicitly unsupported.
-- **MEDIUM:** `store_code` and `store_decision` are thin wrappers in Rust (they compose content and call `store`). The plan should note this so the executor doesn't over-engineer them — each is ~15 lines in Rust.
-- **MEDIUM:** `insights` — Rust calls `self.brain.stats()` which returns a `(HashMap, usize, f64, f64)` tuple. TS `Aura` has no `stats()` method. The plan should specify what data `insights` returns (record counts by namespace? total records?).
+### Concerns
+- **HIGH** — `runMaintenance()` record-path fix: the plan says "use the contract-compatible cognitive record path instead of any unsafe `BrainAuraRecord` assumptions" but doesn't specify the current problem. Looking at the code, `Aura.runMaintenance()` calls `loadCognitiveRecords(dir)` which already returns `Map<string, AuraRecord>`. The `BrainAuraRecord[]` is only in the constructor (`this.records`). The plan should specify whether the fix is: (a) stop storing `BrainAuraRecord[]` in the constructor, or (b) normalize at constructor time, or (c) something else.
+- **MEDIUM** — `search` in-memory view refresh: "write operations must refresh the same in-memory view." This adds mutation side effects to `store`/`update`/`delete`/`connect`. The plan doesn't specify whether the view is a `Ref` (mutable) or an immutable replacement on each write. The former is simpler but the latter is more Effect-idiomatic.
+- **MEDIUM** — `insights` surface decision: "must decide and document whether the MCP-facing TS method mirrors `Aura.stats()` / analytics summary, `Aura.insights()`, or both." This decision affects 07-07 handler wiring and should reference `mcp.rs` line 457-461 which calls `self.brain.stats()` — so Rust's `insights` tool maps to `Aura::stats()`. The plan should note this.
+- **LOW** — xxhash NON-PARITY centralization: the plan says "centralize remaining xxhash-related NON-PARITY tracking markers" but doesn't say where. A single file or a grep pattern?
 
-**Suggestions:**
-- Downgrade `consolidate` to explicit unsupported in this plan if the consolidation indexes don't exist, or add it as a dependency on 07-02 completing the `NGramIndex` shim
-- Add a note that `store_code` and `store_decision` are composition-only (no new algorithms)
-- Specify the `insights` output shape: should it mirror Rust's `get_analytics()` tuple or be a richer DTO?
+### Suggestions
+- Specify the exact `BrainAuraRecord` → `AuraRecord` boundary fix with a code-level description (e.g., "normalize `BrainAuraRecord[]` to `Map<string, AuraRecord>` in the constructor and drop the `BrainAuraRecord[]` field")
+- For `insights`, reference `mcp.rs:457` which shows Rust maps it to `Aura::stats()` — decide upfront rather than during implementation
+- Specify the search view implementation approach (Ref vs. immutable replacement) to avoid executor ambiguity
 
 ---
 
 ## 07-04 — Governance/Inspection Read Models
 
-**Summary:** Builds 5 core facades (`belief_instability`, `policy_lifecycle`, `namespace_governance_status`, `memory_health`, `cross_namespace_digest`) reusing `EpistemicRuntime` for read-only primitives and composing them with maintenance data. The staged approach (zero/empty correction fields now, backfill in 07-05) is architecturally sound.
+**Summary:** Builds the read-model facades for operator/governance tools. The staged delivery concept (zero baseline in 07-04, backfill from 07-05) is a smart decoupling pattern. The main risk is that 07-02's maintenance outputs may not be rich enough to produce meaningful governance data.
 
-**Strengths:**
-- Reuses `EpistemicRuntime` instead of duplicating business logic (matches D-12)
-- Per-surface input map is explicitly documented
-- Staged delivery with documented zero-data baseline prevents circular dependency with 07-05
-- `cross_namespace_digest` implementation notes cover Rust option handling, clamping, and dimension flags
+### Strengths
+- Per-surface input map requirement forces the executor to trace data dependencies before coding
+- Staged delivery: zero/empty correction fields in 07-04 baseline, backfilled by 07-05 — clean separation of concerns
+- `cross_namespace_digest` has explicit option handling, dimension flags, clamping, and output shape requirements
+- Test requirement for non-vacuous multi-namespace fixture output is critical given the maintenance-data dependency
 
-**Concerns:**
-- **MEDIUM:** `cross_namespace_digest` in Rust computes namespace-level concept overlap, shared tags, structural overlap (shared record IDs), causal signature overlap, belief state summaries, and correction counts. Even with zero correction data, the concept/tag/structural/causal computations need real discovery output from engines. If Plan 07-02's SDR shim produces empty discovery, the cross-namespace digest will show namespaces with zero concepts, zero shared tags, and zero structural overlap. All "parity" tests would pass (deterministic zeros) but be vacuous.
-- **MEDIUM:** `memory_health` in Rust returns a `MemoryHealthDigest` struct. The plan doesn't enumerate the struct's fields or their data sources. Without knowing what `MemoryHealthDigest` contains, the executor can't verify they've wired the right inputs.
-- **LOW:** The plan says to add methods to `Aura` but doesn't specify whether these are instance methods or static methods. Rust uses instance methods (`&self`). TS should match.
+### Concerns
+- **HIGH** — `cross_namespace_digest` algorithm: the Rust implementation computes namespace-level concept overlap, shared tags, structural overlap, and causal-signature overlap. The TS side may have none of these primitives. The plan says "verified Rust option handling" but doesn't acknowledge which algorithmic primitives need to be built vs. already exist.
+- **HIGH** — Data dependency on 07-02: if 07-02's `BackgroundBrain` shim produces empty cross-connections, and `cross_namespace_digest` depends on structural overlap data, the digest will be vacuous. The plan's test requirement ("at least one non-zero digest dimension") may be hard to satisfy with the 07-02 shim ceiling.
+- **MEDIUM** — `memory_health` field checklist from Rust: the plan says "copy the exact MemoryHealthDigest field checklist from Rust into the summary before implementation" but doesn't list what file to copy from. The struct is in `aura.rs`.
+- **LOW** — `namespace_governance_status` "by namespace" grouping: the Rust implementation groups by namespace. The plan doesn't specify whether the TS implementation should pre-group or return flat with namespace field.
 
-**Suggestions:**
-- Add a concrete field checklist for `MemoryHealthDigest` from `aura.rs`
-- Verify that `cross_namespace_digest` has at least one non-zero output dimension when run against a brain with real multi-namespace content (acceptance gate)
-- Make the dependency on Plan 07-02's discovery data quality explicit: if discovery produces no results, note this as a known limitation in 07-04-SUMMARY.md
+### Suggestions
+- Audit which `cross_namespace_digest` algorithmic primitives exist in TS before implementation; flag missing ones as either "build now" or "zero baseline with explicit marker"
+- Specify that `MemoryHealthDigest` fields should be copied from `../src/aura.rs` (the struct definition), not inferred from `api_groups.rs` (which only shows the facade signature)
+- Consider whether 07-04 should have a soft dependency on 07-02 producing meaningful maintenance data, with an explicit "if maintenance is vacuous, governance is vacuous" acceptance clause
 
 ---
 
 ## 07-05 — Explainability + Correction Facades
 
-**Summary:** The highest-risk plan by scope. Builds a recall evidence bridge (provenance layer), correction write paths (deprecate/invalidate/retract), correction read models (log, review queues, suggested corrections), and 3 explainability surfaces. This is a mini-phase unto itself.
+**Summary:** The most ambitious and highest-risk plan. The recall evidence bridge is the linchpin — without it, explainability surfaces collapse to shallow scored-record wrappers. The three-pass structure is correct, but Pass A (evidence bridge) is under-specified for the architectural commitment it requires.
 
-**Strengths:**
-- Evidence bridge concept is architecturally correct — building provenance before explainability prevents shallow implementations
-- Correction write path enumeration is explicit and matches Rust's `CorrectionApi` surface
-- Reuses `EpistemicRuntime.getContradictionClusters()` for the contradiction review queue
-- Requires that empty fields stay present in DTOs as empty arrays rather than being omitted (structural stability)
+### Strengths
+- Three-pass structure (evidence bridge → correction path → explainability surfaces) enforces the right build order
+- Evidence bridge specification is conceptually right: per-contribution buckets (SDR, tags, ngram, graph, causal, trust, recency), not just final scores
+- Correction write path explicitly enumerates the three engine mutations plus log append/list helpers
+- In-memory correction log model correctly mirrors Rust
+- Backfill requirement: rerun 07-04 governance tests with non-zero corrections
 
-**Concerns:**
-- **HIGH:** The evidence bridge requires reconstructing per-record provenance across SDR, tags, ngram, graph, causal, trust, and recency dimensions. This is essentially building a full recall explainability infrastructure. In Rust, this is powered by `RecallExplanation` which is backed by the recall pipeline's internal scoring. TS's recall pipeline (`recallScoredEffect`) returns scored IDs but doesn't expose per-signal contribution breakdowns. The plan needs to either extend the recall pipeline to expose signal-level scores or define a compatible reconstruction.
-- **HIGH:** The correction write path needs mutation methods on engine state. Looking at the existing code, `BeliefEngine.Interface` in the contract likely has `discover()` and `stats()` but not `deprecate_belief()`. The plan says "add the smallest contract-aligned correction writers" but this requires extending engine contracts — a cross-package change that wasn't mentioned in Plan 07-01's contract scope.
-- **MEDIUM:** The plan depends on 07-04 but 07-04's read models are populated with zero correction data. After 07-05 adds correction write paths, 07-04's outputs need to be re-verified with non-zero data. This backfill coupling isn't tracked in either plan's verification steps.
-- **MEDIUM:** `explainability_bundle` in Rust bundles `explain_record`, `provenance_chain`, `correction_excerpts`, `instability_snapshot`, `maintenance_trend_summary`. If any sub-component is unsupported, the bundle is incomplete. The plan should specify what a "degraded but valid" bundle looks like.
+### Concerns
+- **HIGH** — Recall evidence bridge implementation approach: the plan offers two options: (a) trace-capable helper that reruns collectors/walk stages, or (b) trace variant of the recall pipeline. Both are significant architectural changes to the recall pipeline. The plan doesn't assess which is feasible given the current recall code structure. If the recall pipeline doesn't expose intermediate state, this becomes a recall-pipeline refactor disguised as a Phase 7 task.
+- **HIGH** — Engine mutation wiring: "The current TS contracts already expose most of the required engine mutations." This claim needs verification. Do `BeliefEngine.Interface`, `CausalEngine.Interface`, and `PolicyEngine.Interface` actually expose `deprecate_belief`, `invalidate_pattern`, `retract_hint`? The plan should not assume this.
+- **MEDIUM** — `explainability_bundle` has 9 sub-members (explain_record, provenance_chain, record_corrections, belief_corrections, causal_corrections, policy_corrections, reflection_digest, related_reflection_findings, maintenance_trends). Many of these depend on correction data that won't exist until Pass B completes. The plan's Pass C must handle partial data availability.
+- **MEDIUM** — This plan has the most files_modified of any plan (6 packages). The blast radius is large and the executor needs discipline to stay within scope.
+- **LOW** — The plan says "do not attempt to infer provenance only from the already-collapsed final score array" but doesn't specify what to do if the recall pipeline can't be restructured. An explicit fallback decision is needed.
 
-**Suggestions:**
-- Split into two plans: 07-05a (evidence bridge + correction write/read path) and 07-05b (explainability surfaces that consume the bridge). This gives a natural checkpoint and prevents the executor from implementing explainability on top of an incomplete bridge.
-- Add engine contract extension requirements to Plan 07-01's scope or create a new contract addition step
-- Add a cross-plan verification step: after 07-05 completes, re-run 07-04's tests to confirm correction data backfills correctly
+### Suggestions
+- Before starting Pass A, audit the current recall pipeline for intermediate-state observability. If the pipeline is opaque, escalate the architectural decision (refactor pipeline vs. accept degraded explainability) before coding.
+- Verify that `BeliefEngine.Interface`, `CausalEngine.Interface`, and `PolicyEngine.Interface` expose the three mutation methods. If not, add them to 07-03 scope or define typed shims here.
+- Add an explicit acceptance clause: if the recall pipeline cannot be restructured for evidence capture, explainability surfaces must return typed unsupported rather than shallow success
 
 ---
 
-## 07-06 — @aura/mcp Package Scaffold
+## 07-06 — MCP Package Scaffold
 
-**Summary:** Creates the new workspace package with Mastra-based stdio server. The Bun/ESM compatibility spike and explicit fallback to `@modelcontextprotocol/sdk` are good risk management.
+**Summary:** Creates the `@aura/mcp` package with Mastra stdio server. The Bun/ESM compatibility spike with pre-decided fallback is the right approach. The plan is well-scoped as infrastructure-only.
 
-**Strengths:**
-- Bun/ESM compatibility spike before full inventory registration prevents late-stage tooling failures
-- Explicit fallback to `@modelcontextprotocol/sdk` with documented decision point
-- Fail-fast initialization matches Rust's startup contract (D-07)
-- Tool inventory declared up front but split by family for maintainability
+### Strengths
+- Compatibility spike before full scaffold — prevents wasted work if Mastra+Bun doesn't work
+- Fallback to `@modelcontextprotocol/sdk` is pre-decided, not left for executor discovery
+- Rust-aligned startup: env vars, default path, fail-fast
+- Full inventory declared up front, even if handlers aren't wired yet
 
-**Concerns:**
-- **MEDIUM:** The plan depends on 07-03, 07-04, and 07-05 — the entire Wave 1 and Wave 2. If any Wave 2 plan has scope issues, the MCP scaffold can't start. A partial scaffold that registers only the operational tools (store, recall, search — from 07-03) could be built in parallel with Waves 2.
-- **LOW:** The plan doesn't specify whether `package.json` for `@aura/mcp` uses `"type": "module"` (matching the workspace convention) or needs special ESM/CJS configuration for Mastra compatibility.
-- **LOW:** Mastra's MCP server documentation (as noted in RESEARCH.md) needs live verification. If the Mastra API has changed since the research was done, the Bootstrap step might need different imports.
+### Concerns
+- **MEDIUM** — Dependency declared as only 07-03, but tool schema definitions for governance/explainability tools (from 07-04/07-05) will need to be added in 07-07. The split is intentional (07-06 = scaffold, 07-07 = wiring) but means the executor of 07-06 must leave handler stubs for tools whose core surfaces don't exist yet.
+- **MEDIUM** — Mastra dependency addition: the plan says "add the minimum MCP-side dependencies." Mastra may pull in transitive dependencies that conflict with the workspace's strict TS/ESM setup. The spike should include `bun run typecheck` after dependency installation.
+- **LOW** — No mention of the MCP server binary entry point. The Rust side has `aura-mcp.rs` as a separate binary. The TS side needs a similar entry script (e.g., `packages/mcp/src/bin.ts` or a `bin` field in package.json). The plan should specify where the stdio entry point lives.
 
-**Suggestions:**
-- Relax the dependency to `depends_on: [07-03]` with a note that tool handlers for governance/explainability tools are wired in 07-07 after 07-04/07-05 complete. This allows parallel work.
-- Add a `"type": "module"` verification step for the new package
+### Suggestions
+- Add a step to verify `bun run typecheck` passes after adding Mastra/zod dependencies, before writing any MCP code
+- Specify the MCP server entry point location (e.g., `packages/mcp/src/server.ts` or `bin/server.ts`) and how it's invoked
+- Note that handler stubs for 07-04/07-05 tools can be placeholder `unsupported` handlers until 07-07 wires them properly
 
 ---
 
 ## 07-07 — Full MCP Handler Wiring
 
-**Summary:** Wires all tool handlers as thin adapters over `@aura/core`. The inventory ledger is a good visibility mechanism for 07-08.
+**Summary:** Wires all tool handlers as thin adapters over `@aura/core`. The inventory ledger requirement is good discipline. But there's a dependency gap: the plan depends only on 07-06, yet needs governance/explainability core surfaces from 07-04 and 07-05.
 
-**Strengths:**
-- Handlers delegate only to `@aura/core` (matches D-08)
-- Preserves Rust output media decisions (text-vs-JSON)
-- Deterministic error mapping for unsupported paths
-- Inventory ledger visible to 07-08
+### Strengths
+- Every tool must be invocable and return either success or standardized unsupported — no silent omissions
+- Rust output media decisions preserved (text content wrapping JSON, not structured payloads)
+- Centralized MCP error mapping from core typed errors
+- Inventory ledger marks each tool as implemented or explicitly unsupported for 07-08 consumption
 
-**Concerns:**
-- **MEDIUM:** The `maintain` tool doesn't exist in Rust's MCP. The plan needs to define the MCP response shape for `maintain`. Should it return the full `MaintenanceReport` as JSON text? The plan says "follow Rust closely" but there's no Rust reference for this tool's MCP shape.
-- **MEDIUM:** The plan says to test "every advertised tool can be called and returns either success or the standardized explicit unsupported response." Without comparing to Rust (that's 07-08), these tests only verify the tools don't crash — not that they produce Rust-equivalent outputs. A tool could return a "success" with completely wrong data.
-- **LOW:** `recall` and `recall_structured` in Rust's MCP return `Content::text(json_string)`. The plan should explicitly test that the TS response is `Content::text(...)` with a JSON string body, not structured content.
+### Concerns
+- **HIGH** — Dependency gap: `depends_on: [07-06]` is incomplete. Governance handlers (`namespace_governance_status`, `memory_health`, `cross_namespace_digest`, `policy_lifecycle`, `belief_instability`) need core surfaces from 07-04. Explainability/correction handlers need surfaces from 07-05. If 07-07 starts before 07-04 and 07-05 complete, those handlers can only be unsupported stubs. The plan should either depend on `[07-04, 07-05, 07-06]` or explicitly document the partial-wiring strategy.
+- **MEDIUM** — "Every declared Phase 7 tool" — but the declared inventory spans 20+ tools (from RESEARCH.md's Rust-to-TS mapping table). The plan doesn't reference the canonical tool list. A cross-reference to 07-SPEC.md's inventory would prevent drift.
+- **LOW** — "Add deterministic MCP error mapping" — the plan doesn't specify what MCP error codes map to what core error types. The Rust side uses `McpError::internal_error`. The TS side should be similarly explicit.
 
-**Suggestions:**
-- Define the `maintain` tool's MCP response shape explicitly: recommend `MaintenanceReport` serialized as JSON text
-- Add at least one golden-file test per tool family that compares against a saved Rust MCP response for a known fixture
-
----
-
-## 07-08 — MCP Parity Harness + Phase Closeout
-
-**Summary:** The final verification plan. Black-box Rust-vs-TS comparison, explicit normalization, and closeout artifacts. The binary discovery/skip contract is necessary for environments without Rust.
-
-**Strengths:**
-- Explicit normalization pass (JSON key sorting, float/time normalization, whitespace)
-- Binary discovery contract with build/skip states
-- Final inventory accounting
-- Closeout updates for ROADMAP.md and STATE.md
-
-**Concerns:**
-- **MEDIUM:** Rust's `aura-mcp` binary is feature-gated: `#[cfg(feature = "mcp")]`. The build command must be `cargo build --bin aura-mcp --features mcp`. The plan doesn't mention the feature flag.
-- **MEDIUM:** The `maintain` tool has no Rust counterpart. The harness needs a documented exception for tools that are TS-only.
-- **MEDIUM:** If Rust can't be built (no Cargo, wrong platform), the entire parity verification collapses to "skipped." The plan should specify minimum fixture-based tests that can run without Rust — comparing TS MCP output against saved golden files from a previous Rust run.
-- **LOW:** The recall_parity directory already exists with `brain.aura`, `brain.cog`, `brain.snap`, `index/`, `temporal.bin`. The plan should reference whether these are reused or new MCP-specific fixtures are created.
-
-**Suggestions:**
-- Add `--features mcp` to the Rust build command
-- Define golden-file fallback tests for environments without Rust
-- Reference the existing `recall_parity/` directory and decide reuse vs new fixtures
+### Suggestions
+- Broaden `depends_on` to include `[07-04, 07-05]` or add an explicit note that governance/explainability handlers start as documented unsupported stubs until those plans deliver
+- Cross-reference the exact tool inventory from 07-SPEC.md so the executor doesn't need to rediscover it
+- Define the error mapping table: which core `TaggedError` types map to which MCP error codes
 
 ---
 
-## Cross-Cutting Concerns
+## 07-08 — MCP Parity Harness + Closeout
 
-### 1. Aura Instance State Management (HIGH)
+**Summary:** The final verification layer. The Rust binary build/discovery/skip contract is thorough, and the normalization pass rules are correctly aligned with D-21. The two special branches (TS-only tools, golden fallback) cover important edge cases.
 
-The Rust `Aura` struct holds in-memory state: `correction_log: Vec<CorrectionLogEntry>`, maintenance trend history, reflection history. The TS `Aura` class currently has only `brainDir: string` and `records: BrainAuraRecord[]`. Plans 07-02, 07-04, and 07-05 all need to add state fields to `Aura`. Without coordination, they'll produce merge conflicts or inconsistent state management. No plan mentions adding instance fields to the `Aura` class.
+### Strengths
+- Rust binary contract: pre-flight cargo detection, build attempt, binary path discovery, explicit skip conditions
+- Normalization pass is explicit: recursive JSON key sorting, float/time normalization, whitespace only where allowed, never field/media-type changes
+- Two special verification branches: TS-only tools validated locally, golden payload fallback when Rust can't build
+- Final closeout explicitly accounts for implemented vs. unsupported tools
 
-**Suggestion:** Plan 07-02 should explicitly add the maintenance history state fields to `Aura` (trend history, reflection history). Plan 07-05 should add correction log state. Document the state ownership in each plan's implementation notes.
+### Concerns
+- **MEDIUM** — Golden payload fallback: "compare TS MCP responses against saved Rust golden payloads generated from a previous verified run." This requires someone to have run the Rust MCP against the fixtures at least once. If the executor is on a machine without Rust, there are no golden payloads. The plan should specify how to generate or obtain them.
+- **MEDIUM** — Windows-specific concerns: Rust `cargo build` on Windows may produce `.exe` binaries. The binary discovery path should account for platform-specific extensions. The plan mentions "Windows workspaces" but doesn't specify the path convention.
+- **LOW** — The plan modifies `.planning/STATE.md` and `.planning/ROADMAP.md`. These are project-level tracking files. The closeout should be additive (marking Phase 7 complete) not destructive.
+- **LOW** — `recall_parity/*` appears in files_modified. The existing `recall_parity/` directory contains `brain.aura`, `brain.cog`, `brain.snap`, `index/`, `temporal.bin`. The parity harness will need MCP-specific fixtures, not just the recall-parity fixtures. The plan should clarify whether it reuses or creates new fixture directories.
 
-### 2. SDR Shim Cascading Failure (HIGH)
-
-Plan 07-02's `SDRInterpreter` as "empty/identity" shim is the single biggest risk to phase success. In Rust's maintenance cycle, SDR vectors are computed from record content in `build_sdr_lookup`, then consumed by belief, concept, and causal discovery. If SDR is empty:
-- Concept discovery finds no seeds (no meaningful SDR clusters)
-- Causal discovery finds no patterns (no SDR-based correlation)
-- Policy discovery finds no hints (depends on causal output)
-- `cross_namespace_digest` shows empty concepts and zero overlap
-- `memory_health` shows no real health indicators
-- `insights` detects nothing
-
-The entire governance/explainability stack would operate on empty data. All tests would pass (deterministic zeros are correct), but real parity would be zero.
-
-**Suggestion:** The SDR shim must produce at minimum a token-level sparse vector from record content. A simple word-level hash-to-sparse-vector is sufficient for maintenance bookkeeping and would enable non-empty discovery. Mark it `NON-PARITY IMPLEMENTATION:` to document that the encoding differs from Rust's SDR.
-
-### 3. Deep Serial Dependency Chain (MEDIUM)
-
-The wave structure is strictly serial: Wave 1 -> Wave 2 -> Wave 3 -> Wave 4. Within waves, some plans could be parallelized:
-- 07-06 (MCP scaffold) only needs 07-03's operational surfaces, not 07-04/07-05. The governance/explainability tool handlers can be added in 07-07.
-- 07-04 and 07-05 could be partially parallelized: 07-04's read models and 07-05's correction write paths are independent; only the backfill step needs sequencing.
-
-**Suggestion:** Relax 07-06's dependency to `[07-03]` and relax 07-05's dependency to `[07-01, 07-02, 07-03]` (removing 07-04). Add a cross-plan note that 07-05's correction data backfills 07-04's read models.
-
-### 4. Missing Engine Contract Extensions (MEDIUM)
-
-Plan 07-05 needs to mutate belief/causal/policy engine state (deprecate, invalidate, retract). The existing engine contracts (`BeliefEngine.Interface`, etc.) may not expose these mutation methods. Extending engine contracts is a cross-package change that should be scoped in Plan 07-01 or a dedicated contract-extension step.
-
-**Suggestion:** Add engine contract method requirements to Plan 07-01's DTO checklist, or add a note in Plan 07-05 that it may need to extend engine contracts.
-
-### 5. No Integration Test Between Waves (LOW)
-
-The first end-to-end integration test of core facades happens at the MCP boundary in Plan 07-07. If core facades compose incorrectly (e.g., 07-04's `cross_namespace_digest` calling 07-02's maintenance data in the wrong format), the failure is discovered late.
-
-**Suggestion:** Add a lightweight integration test step to Plan 07-04 (or 07-05) that instantiates Aura, runs maintenance, and calls the new facades in sequence.
+### Suggestions
+- Add a golden-payload generation step: if Rust MCP can build, generate golden payloads from the Rust side as the first verification step, then compare TS against them
+- Specify platform-specific binary discovery: `target/debug/aura-mcp` on Linux/macOS, `target/debug/aura-mcp.exe` on Windows
+- Clarify fixture directory strategy: reuse `recall_parity/` as a base fixture set, create new `mcp_parity/` for MCP-specific multi-namespace fixtures
 
 ---
 
-## Risk Assessment: **MEDIUM-HIGH**
+## Cross-Cutting Issues
 
-**Justification:** The plan structure is architecturally correct and the wave decomposition is logical. The two HIGH risks are:
+### 1. Wave 1 Capacity Risk (HIGH)
+07-01, 07-02, and 07-03 together represent: new DTO families (~15+ structs), 5 subsystem classifications with implementations or typed shims, MaintenanceService algorithm completion, new core surfaces (search, consolidate, store_code, store_decision), backlog closures, and Policy surface refactoring. This is 3 plans that each could be their own phase. If the executor underestimates any one, the wave stalls.
 
-1. **SDR shim quality (Plan 07-02):** If the SDR shim is too minimal, the entire maintenance -> governance -> explainability chain produces empty data. All tests pass but parity is vacuous. This is a single-point failure that affects 5 of 8 plans.
+### 2. Dependency Graph Gap (HIGH)
+07-07 depends on `[07-06]` only, but governance/explainability handlers need core surfaces from 07-04 and 07-05. Either the dependency should be broadened or the plan should document a partial-wiring strategy with explicit unsupported markers for not-yet-built surfaces.
 
-2. **Plan 07-05 scope:** The evidence bridge + correction write paths + 6 explainability surfaces is a mini-phase worth of work. If it stalls, Plans 07-06, 07-07, and 07-08 can't complete (they depend on it).
+### 3. Mastra + Bun/ESM Compatibility (MEDIUM)
+The entire MCP layer assumes Mastra works under Bun with ESM. The plan has a fallback (`@modelcontextprotocol/sdk` direct wiring) but switching mid-phase would be costly. A compatibility spike should be the very first action in Wave 3, not part of 07-06's normal task flow.
 
-The phase can succeed if: (a) the SDR shim produces real (even if simplified) vectors, and (b) Plan 07-05 is either split or given explicit scope boundaries with a "degraded but complete" baseline for each surface.
+### 4. Explainability Data Dependency Chain (MEDIUM)
+explainability surfaces (07-05) depend on: recall evidence bridge (architectural change to recall pipeline) → correction data (new write paths) → maintenance data (07-02 completion) → engine state (existing). Any break in this chain makes explainability tools return vacuous or unsupported responses. The chain has 4 links, each in a different plan.
+
+### 5. MCP Tool Inventory Canonical Source (LOW)
+The tool inventory appears in RESEARCH.md (Rust-to-TS mapping table), 07-SPEC.md, and is referenced in 07-06/07-07/07-08. There's no single canonical inventory file that all plans can reference. If the inventory drifts between plans, the final closeout will have inconsistencies.
+
+---
+
+## Risk Assessment: **HIGH**
+
+**Justification:** The phase scope is large (8 plans, 4 waves, 20+ MCP tools, 3 folded backlogs) and three plans carry implementation risks that could cascade:
+
+1. **07-02's subsystem classification** — if `SDRInterpreter` or `TagTaxonomy` can't be resolved within the typed-shim ceiling, downstream governance/explainability data will be vacuous
+2. **07-05's recall evidence bridge** — this is an architectural change to the recall pipeline disguised as a feature task; if the pipeline can't be restructured, explainability collapses to unsupported
+3. **07-07's dependency gap** — governance/explainability handlers can't be wired until 07-04 and 07-05 deliver, but the plan doesn't declare that dependency
+
+The wave structure is correct, but Wave 1 is overloaded and the Wave 2→3 handoff has a dependency gap. Mitigation: broaden 07-07's dependencies, run the Mastra compatibility spike before any Wave 3 code, and ensure 07-02's summary includes explicit go/no-go signals for each subsystem before 07-04/07-05 start.
 
 ---
 
 ## Consensus Summary
 
-Single-reviewer cycle with `claude`. No cross-reviewer disagreement data is available in this cycle, so the summary records the highest-signal findings from this review.
+Single-reviewer cycle with `claude`. No cross-reviewer disagreement data is available in this cycle, so the summary captures the highest-signal findings from this run.
 
 ### Agreed Strengths
 
-- The 8-plan / 4-wave decomposition matches the real dependency chain and keeps MCP transport layered on top of `@aura/core`.
-- Rust's in-memory correction-log behavior is now reflected in the review baseline instead of forcing unnecessary file persistence.
-- The Mastra/Bun compatibility spike plus fallback to `@modelcontextprotocol/sdk` is a sound risk-control pattern for the transport layer.
+- The overall wave ordering is sound: contract/maintenance/core surfaces first, MCP transport later, parity last.
+- `07-01`'s DTO-first approach and explicit unsupported-error contract reduce downstream shape drift.
+- `07-06`'s Mastra compatibility spike plus fallback to `@modelcontextprotocol/sdk` is the right containment strategy for transport risk.
+- `07-08`'s normalization and explicit Rust-binary/golden fallback rules are strong closeout mechanics.
 
 ### Agreed Concerns
 
-- `07-02` still carries two unresolved HIGH risks: the SDR shim currently remains too weak for downstream discovery, and `TagTaxonomy`-dependent maintenance phases may remain stubbed without a concrete bounded implementation strategy.
-- `07-03` still overpromises `search` and `consolidate` without locking whether they are implemented or explicitly unsupported when the required indexes do not exist.
-- `07-05` still bundles a large recall evidence bridge, correction writers, and explainability surfaces into one plan, with missing engine-contract extension details.
-- Cross-plan state ownership inside `Aura` is still implicit even though maintenance history and correction logs both need in-memory instance state to match Rust behavior.
-- `07-08` still needs to encode the Rust `--features mcp` build path and a fallback verification strategy when the Rust binary cannot be built locally.
+- `07-02` still has the highest execution risk because `SDRInterpreter` and `TagTaxonomy` are not yet concretely resolved at the contract/implementation boundary.
+- `07-05` remains a likely scope and architecture hotspot because the recall evidence bridge may require a recall-pipeline refactor, not just facade work.
+- `07-07` has a real dependency bug: governance and explainability handlers depend on `07-04` and `07-05`, but the plan currently depends only on `07-06`.
+- Wave 1 is overloaded enough that a miss in `07-02` or `07-03` can stall the entire phase.
+- The MCP inventory still needs one canonical source to avoid drift between `07-SPEC.md`, `07-RESEARCH.md`, and the handler/parity plans.
 
 ### Divergent Views
 

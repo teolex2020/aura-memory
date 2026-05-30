@@ -215,6 +215,13 @@ Plans:
 
 - [ ] 07-08-PLAN.md — Rust-vs-TS MCP parity harness, family-level E2E comparison, and final Phase 7 verification/closeout
 
+**Cross-cutting constraints:**
+
+- Rust outward shape and method traceability take priority over TS-only stylistic cleanup across all Phase 7 surfaces.
+- Unsupported behavior must be typed, explicit, test-covered, and carried through code, MCP mapping, and final verification artifacts.
+- MCP transport stays thin: business composition lands in `@aura/core` / `Aura`, not in `@aura/mcp` handlers.
+- Phase 7 verification rejects vacuous success: maintenance/governance outputs must show real non-zero evidence where required, and MCP parity is checked at the black-box server boundary.
+
 ## Backlog
 
 ### Phase 999.3: 引擎工具函数去重 — Effect 包装提取到 utils 包 (BACKLOG)

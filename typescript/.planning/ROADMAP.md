@@ -248,3 +248,16 @@ Source: `/gsd:capture --backlog` 2026-05-31
 Plans:
 
 - [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.5: Rust 同名类型字段命名对齐审计 (BACKLOG)
+
+**Goal:** 审计所有与 Rust 原版同名（struct/type 名称一一对应）的 TS 类型/接口，找出字段命名与 Rust 原始 `snake_case` 不一致的项。对不一致字段：保留现有注释，添加注释说明 Rust 原始字段名称，便于后续对齐。
+
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Source: `/gsd:capture --backlog` 2026-05-31
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)

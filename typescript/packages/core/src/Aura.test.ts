@@ -10,7 +10,7 @@ import { BrainAuraFile } from "@aura/storage"
 import {
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
   BeliefStore, ConceptStore, CausalStore, PolicyStore,
-  EpistemicTrace, FileWrite,
+  EpistemicTrace, FileWrite, FileRead,
   ConceptSeedMode, ConceptSimilarityMode, ConceptPartitionMode, ConceptUnionMode,
   CausalDiscoveryMode,
 } from "@aura/contract"
@@ -73,6 +73,13 @@ describe("Aura.runMaintenance", () => {
       writeAt: () => Effect.succeed(undefined),
       fsync: () => Effect.succeed(undefined),
       rename: () => Effect.succeed(undefined),
+    }
+
+    // Mock FileRead (required by runMaintenance pipeline — Phase 06.2 replaced Effect.die stub)
+    const mockFileRead = {
+      readFile: () => Effect.succeed(new Uint8Array()),
+      exists: () => Effect.succeed(false),
+      stat: () => Effect.fail({ _tag: "FileReadError", path: "", cause: "not found" } as never),
     }
 
     // Mock engines — each returns empty state from stats()
@@ -147,6 +154,7 @@ describe("Aura.runMaintenance", () => {
     const testLayer = Layer.mergeAll(
       Layer.succeed(EpistemicTrace, mockTrace as any),
       Layer.succeed(FileWrite, mockFileWrite as any),
+      Layer.succeed(FileRead, mockFileRead as any),
       Layer.succeed(BeliefEngine, mockBeliefEngine as any),
       Layer.succeed(ConceptEngine, mockConceptEngine as any),
       Layer.succeed(CausalEngine, mockCausalEngine as any),

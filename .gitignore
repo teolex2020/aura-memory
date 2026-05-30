@@ -93,7 +93,7 @@ marketing/
 ci_smoke_brain/
 
 # Claude Code local config
-.claude/
+./.claude/
 
 # Node/Bun dependencies
 node_modules/

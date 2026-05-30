@@ -11,6 +11,7 @@
 3) 不确定性先消除：Rust reference 若含随机性/非确定性，优先让 verifier/fixture 可复现，再做 TS 对齐。  
 4) 依赖注入与分层边界必须守住：core/storage/codec/indexing/recall 禁止直接依赖 `node:*`。  
 5) 注释与差异必须显式：保留 Rust 同位置注释并翻译为中文；差异要能全局搜索定位。  
+6) Effect 代码遵循项目规范：写 Effect-TS 代码时自动应用 `effect-project-pattern` skill（合约接口、Layer 构建、错误处理、已知陷阱），通用 API 回退到 `effect-ts`，源码验证回退到 `effect`。  
 
 ---
 
@@ -280,6 +281,45 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - 中优先级对齐项：SDR overlap 权重/排序细节、Record schema 的默认值与校验、graph/causal 扩展所需字段的写入侧闭环。
 - 低-中优先级对齐项：召回缓存与 trace/可观测性、BoundedRerankerLive（四阶段 belief/concept/causal/policy bounded rerank + guardrails）。
 - 编排缺口：`@aura/core` 中尚未实现 MaintenanceService（写入后自动触发四层维护的编排服务），各引擎已独立可用但缺少统一入口。
+
+## 9. Phase Learnings（跨 phase 经验沉淀）
+
+每个 phase 完成后由 `/gsd:extract-learnings` 生成 `LEARNINGS.md`，记录该 phase 的 decisions、lessons、patterns、surprises。以下文件是必读上下文：
+
+| Phase | File | 关键教训数 |
+|-------|------|-----------|
+| 06 | `.planning/phases/06-maintenance-pipeline-completion/06-LEARNINGS.md` | 7D + 5L + 5P + 4S |
+| 06.1 | `.planning/phases/06.1-/06.1-LEARNINGS.md` | 1D + 2L + 1P + 1S |
+| 06.2 | `.planning/phases/06.2-epistemicruntime-maintain-maintenanceservice-rust/06.2-LEARNINGS.md` | 12D + 7L + 6P + 6S |
+| 06.3 | `.planning/phases/06.3-engine-algorithm-parity/06.3-LEARNINGS.md` | 5D + 5L + 4P + 4S |
+
+### 9.1 浓缩关键教训（新 phase 讨论/规划前必须过一遍）
+
+| # | 教训 | 来源 |
+|---|------|------|
+| 1 | **PLAN 是假设，不是规格** — 公式/常量/阈值必须在实现时 grep Rust 源码验证，不能盲信 PLAN | 06.3-L5 |
+| 2 | **规划前检查依赖是否已实现** — 别只看目标代码，要扫一遍是否有已存在但被标成 TODO/unknown 的依赖（如 MaintenanceService 5 个 `type X = unknown`） | 06.3-L2 |
+| 3 | **Code review fix 可能引入垃圾代码** — review 修一个问题时可能引入废弃接口+无用适配器（如 `policyEngineFromState`），修完后检查是否引入了零调用者的代码 | 06.3-L5 |
+| 4 | **测试全绿不代表架构正确** — 06.2 的 GAP-01/02 都是在 104 tests pass 的情况下发现的（Surface.ts 用本地类型而非 contract import、Aura.runMaintenance 是 Effect.die stub） | 06.2-S4 |
+| 5 | **Type cascade 需要协调多文件同时更新** — 加一个 contract 字段可能波及 9+ 文件的 test mock/factory，大部分 breakage 在测试代码而非实现代码 | 06.3-S2, 06-L2 |
+| 6 | **可选服务模式会掩盖缺失实现** — `serviceOption()` 让 pipeline 静默跳过未注册服务，BoundedReranker/RecallFinalizer 因此零实现跑了多个 phase 才被发现 | 06-S2 |
+| 7 | **Worktree 并发执行脆弱** — agent 完成后 worktree 锁可能残留，`gsd-tools phase.complete` 可能覆盖手动修复的 STATE.md | 06.3-L3, L4 |
+| 8 | **Windows: Edit 工具可能引入智能引号** — 编辑含中文注释的文件时可能把 `"` 变成 `"` `"`，导致 TS1127 错误。恢复方法是 `git checkout` 后用 Write 重写 | 06.1-L2 |
+| 9 | **Effect 版本 API 差异** — beta.68 的 `Effect.gen` 不支持 `$` 参数模式、没有 `Effect.dieMessage`、`satisfies` 不缩窄返回类型、Ref 类型是 `Ref.Ref` 不是 `Effect.Ref.Ref` | 06.2-L1, 06.1-S1 |
+| 10 | **遵循已有 engine 模式可大幅加速实现** — ConceptEngine 模式被 CausalEngine/PolicyEngine 复用，减少设计开销到几乎为零 | 06-L1 |
+
+### 9.2 已确立的模式（新 engine/模块应遵循）
+
+| # | 模式 | 何时使用 |
+|---|------|---------|
+| P1 | `namespace.Interface` + `implements X.Interface` + `Context.Tag` | 所有 Effect 服务 |
+| P2 | `Layer.effect(Tag, Effect.gen(...))` | 服务构造需要 Effect 操作（如 Ref.make） |
+| P3 | `Effect.gen` + `yield*` 顺序编排 | 组合多个 Effect 操作 |
+| P4 | `serviceOption(Tag)` 可选服务 | 可插拔的横切关注点（trace、rerank、finalize） |
+| P5 | Surface 管线：filter → sort → limit → map | 引擎内部状态 → 公开视图类型转换 |
+| P6 | TypeScript string enum（非 string union） | 跨包类型对齐 Rust enum |
+| P7 | grep-verified constant parity | 常量/阈值/公式对齐 Rust（比运行时 E2E 快） |
+| P8 | TDD RED-GREEN commit pairs | 所有行为添加型任务 |
 
 ### 8.3 下一步建议（推进顺序）
 

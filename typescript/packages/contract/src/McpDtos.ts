@@ -321,6 +321,60 @@ export type McpBeliefInstabilitySummary = {
   readonly volatility_bands: McpBeliefVolatilityBands
 }
 
+/** PolicyActionSummary: Rust `crate::epistemic_runtime::PolicyActionSummary`. */
+export type McpPolicyActionSummary = {
+  readonly action_kind: string
+  readonly total_hints: number
+  readonly stable_hints: number
+  readonly candidate_hints: number
+  readonly suppressed_hints: number
+  readonly rejected_hints: number
+  readonly avg_policy_strength: number
+  readonly avg_risk_score: number
+}
+
+/** PolicyDomainSummary: Rust `crate::epistemic_runtime::PolicyDomainSummary`. */
+export type McpPolicyDomainSummary = {
+  readonly namespace: string
+  readonly domain: string
+  readonly total_hints: number
+  readonly active_hints: number
+  readonly stable_hints: number
+  readonly candidate_hints: number
+  readonly suppressed_hints: number
+  readonly rejected_hints: number
+  readonly avg_policy_strength: number
+  readonly avg_risk_score: number
+  readonly advisory_pressure: number
+}
+
+/** PolicyPressureArea: Rust `crate::epistemic_runtime::PolicyPressureArea`. */
+export type McpPolicyPressureArea = {
+  readonly namespace: string
+  readonly domain: string
+  readonly advisory_pressure: number
+  readonly active_hints: number
+  readonly suppressed_hints: number
+  readonly rejected_hints: number
+  readonly strongest_hint_id: string
+  readonly strongest_action_kind: string
+  readonly strongest_policy_strength: number
+}
+
+/** PolicyLifecycleSummary: Rust `crate::epistemic_runtime::PolicyLifecycleSummary`. */
+export type McpPolicyLifecycleSummary = {
+  readonly total_hints: number
+  readonly active_hints: number
+  readonly stable_hints: number
+  readonly candidate_hints: number
+  readonly suppressed_hints: number
+  readonly rejected_hints: number
+  readonly avg_policy_strength: number
+  readonly avg_risk_score: number
+  readonly action_summaries: ReadonlyArray<McpPolicyActionSummary>
+  readonly domain_summaries: ReadonlyArray<McpPolicyDomainSummary>
+}
+
 /** CorrectionLogEntry: Rust `crate::aura::CorrectionLogEntry`. */
 export type CorrectionLogEntry = {
   readonly timestamp: number

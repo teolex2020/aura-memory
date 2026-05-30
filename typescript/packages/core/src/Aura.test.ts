@@ -7,12 +7,14 @@ import * as os from "node:os"
 import { Aura } from "./index"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import { BrainAuraFile, CognitiveStoreFile } from "@aura/storage"
+import { EpistemicRuntimeLive } from "@aura/epistemic-runtime"
 import {
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
   BeliefStore, ConceptStore, CausalStore, PolicyStore,
   EpistemicTrace,
   ConceptSeedMode, ConceptSimilarityMode, ConceptPartitionMode, ConceptUnionMode,
   CausalDiscoveryMode,
+  BeliefState, ConceptState, PolicyActionKind, PolicyState, Polarity,
   Level,
   UnsupportedSurfaceError,
 } from "@aura/contract"
@@ -150,7 +152,227 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.instanceOf(explain, UnsupportedSurfaceError)
     assert.strictEqual(explain.surface, "Aura.explain_record")
   })
+
+  it("cross_namespace_digest is deterministic and non-vacuous for a seeded multi-namespace fixture", async () => {
+    const aura = await openWritableAura()
+    const alpha = await Effect.runPromise(provideNode(aura.store("Alpha deploy recovery", {
+      namespace: "alpha",
+      tags: ["deploy", "ops"],
+      content_type: "note",
+      semantic_type: "fact",
+    })))
+    const beta = await Effect.runPromise(provideNode(aura.store("Beta deploy recovery", {
+      namespace: "beta",
+      tags: ["deploy", "ops"],
+      content_type: "note",
+      semantic_type: "fact",
+    })))
+
+    const layer = governanceLayer({
+      concepts: {
+        "concept-alpha": {
+          id: "concept-alpha",
+          key: "alpha:deploy",
+          namespace: "alpha",
+          semantic_type: "fact",
+          belief_ids: ["belief-alpha"],
+          record_ids: [alpha.id],
+          core_terms: ["deploy"],
+          shell_terms: ["ops"],
+          tags: ["deploy"],
+          support_mass: 1,
+          confidence: 0.9,
+          stability: 1,
+          cohesion: 1,
+          abstraction_score: 0.8,
+          state: ConceptState.Stable,
+          last_updated: 1,
+        },
+        "concept-beta": {
+          id: "concept-beta",
+          key: "beta:deploy",
+          namespace: "beta",
+          semantic_type: "fact",
+          belief_ids: ["belief-beta"],
+          record_ids: [beta.id],
+          core_terms: ["deploy"],
+          shell_terms: ["ops"],
+          tags: ["deploy"],
+          support_mass: 1,
+          confidence: 0.85,
+          stability: 1,
+          cohesion: 1,
+          abstraction_score: 0.75,
+          state: ConceptState.Stable,
+          last_updated: 1,
+        },
+      },
+      beliefs: {
+        "belief-alpha": makeBelief("belief-alpha", "alpha:deploy:fact", BeliefState.Unresolved, 0.3, 0.6),
+        "belief-beta": makeBelief("belief-beta", "beta:deploy:fact", BeliefState.Resolved, 0.1, 1.2),
+      },
+    })
+
+    const digest = await Effect.runPromise(Effect.provide(
+      aura.cross_namespace_digest_with_options(undefined, {
+        include_dimensions: ["concepts", "tags", "beliefs", "correction_density", "unknown"],
+        pairwise_similarity_threshold: 0,
+      }),
+      layer
+    ))
+    const repeat = await Effect.runPromise(Effect.provide(
+      aura.cross_namespace_digest_with_options(undefined, {
+        include_dimensions: ["concepts", "tags", "beliefs", "correction_density", "unknown"],
+        pairwise_similarity_threshold: 0,
+      }),
+      layer
+    ))
+
+    assert.deepStrictEqual(digest.namespaces, repeat.namespaces)
+    assert.deepStrictEqual(digest.pairs, repeat.pairs)
+    assert.deepStrictEqual(digest.included_dimensions, ["concepts", "tags", "belief_states", "corrections"])
+    assert.strictEqual(digest.namespace_count, 2)
+    assert.ok(digest.pairs.some((pair) => pair.tag_jaccard > 0 || pair.concept_signature_similarity > 0))
+    assert.ok(digest.namespaces.some((namespace) => namespace.belief_state_summary?.high_volatility_count === 1))
+    assert.ok(digest.namespaces.every((namespace) => namespace.correction_count === 0))
+  })
+
+  it("operator governance facades reuse runtime data and keep staged correction fields at zero", async () => {
+    const aura = await openWritableAura()
+    await Effect.runPromise(provideNode(aura.store("Alpha policy pressure", { namespace: "alpha", tags: ["policy"] })))
+    await Effect.runPromise(provideNode(aura.store("Beta baseline", { namespace: "beta", tags: ["baseline"] })))
+
+    const layer = governanceLayer({
+      beliefs: {
+        "belief-alpha": makeBelief("belief-alpha", "alpha:policy:fact", BeliefState.Unresolved, 0.36, 0.5),
+        "belief-beta": makeBelief("belief-beta", "beta:baseline:fact", BeliefState.Resolved, 0.08, 1.2),
+      },
+      policies: {
+        "policy-alpha": {
+          id: "policy-alpha",
+          pattern_id: null,
+          condition: "alpha deploy has risk",
+          action: "verify alpha",
+          priority: 1,
+          confidence: 0.8,
+          state: PolicyState.Suppressed,
+          last_updated: 2,
+          actionKind: PolicyActionKind.VerifyFirst,
+          policyStrength: 0.72,
+          riskScore: 0.81,
+          namespace: "alpha",
+          domain: "deploy",
+          polarity: Polarity.Negative,
+          recommendation: "Verify alpha deploy",
+          utilityScore: 0.3,
+          cause_key: "alpha:policy:fact",
+          effect_keys: [],
+          cause_record_ids: [],
+        },
+      },
+    })
+
+    const instability = await Effect.runPromise(Effect.provide(aura.belief_instability(), layer))
+    const lifecycle = await Effect.runPromise(Effect.provide(aura.policy_lifecycle(), layer))
+    const health = await Effect.runPromise(Effect.provide(aura.memory_health(5), layer))
+    const governance = await Effect.runPromise(Effect.provide(aura.namespace_governance_status(["alpha", "beta"]), layer))
+
+    assert.strictEqual(instability.high_volatility_count, 1)
+    assert.strictEqual(lifecycle.suppressed_hints, 1)
+    assert.strictEqual(health.total_records, 2)
+    assert.strictEqual(health.high_volatility_belief_count, 1)
+    assert.strictEqual(health.recent_correction_count, 0)
+    assert.strictEqual(health.high_salience_record_count, 0)
+    assert.ok(health.policy_pressure_area_count > 0)
+    assert.ok(health.top_issues.some((issue) => issue.kind === "belief_instability"))
+
+    const alpha = governance.find((status) => status.namespace === "alpha")
+    if (!alpha) throw new Error("alpha namespace status missing")
+    assert.strictEqual(alpha.correction_count, 0)
+    assert.strictEqual(alpha.suggested_correction_count, 0)
+    assert.ok(alpha.instability_score > 0)
+    assert.deepStrictEqual(governance.map((status) => status.namespace).sort(), ["alpha", "beta"])
+  })
 })
+
+function makeBelief(
+  id: string,
+  key: string,
+  state: BeliefState,
+  volatility: number,
+  stability: number,
+) {
+  return {
+    id,
+    key,
+    hypothesis_ids: [],
+    winner_id: null,
+    state,
+    score: 0.5,
+    confidence: 0.7,
+    support_mass: 1,
+    conflict_mass: volatility,
+    stability,
+    volatility,
+    last_updated: 1,
+  }
+}
+
+function governanceLayer(overrides: {
+  readonly beliefs?: Record<string, ReturnType<typeof makeBelief>>
+  readonly concepts?: Record<string, unknown>
+  readonly causal?: Record<string, unknown>
+  readonly policies?: Record<string, unknown>
+}) {
+  const beliefEngine = {
+    stats: () => Effect.succeed({
+      version: 1,
+      beliefs: overrides.beliefs ?? {},
+      hypotheses: {},
+      record_to_belief: {},
+      key_index: {},
+      record_index: {},
+    }),
+    belief_for_record: () => Effect.succeed(null),
+  }
+  const conceptEngine = {
+    stats: () => Effect.succeed({
+      version: 1,
+      concepts: overrides.concepts ?? {},
+      key_index: {},
+      seed_mode: ConceptSeedMode.Standard,
+      similarity_mode: ConceptSimilarityMode.SdrTanimoto,
+      partition_mode: ConceptPartitionMode.Standard,
+      union_mode: ConceptUnionMode.Standard,
+    }),
+  }
+  const causalEngine = {
+    stats: () => Effect.succeed({
+      version: 1,
+      patterns: overrides.causal ?? {},
+      discovery_mode: CausalDiscoveryMode.Standard,
+      edges_found_total: 0,
+      temporal_budget_mode: "ExhaustiveCapped",
+      evidence_mode: "StrictRepeatedWindows",
+      last_corpus_fingerprint: "",
+    }),
+  }
+  const policyEngine = {
+    stats: () => Effect.succeed({
+      version: 1,
+      hints: overrides.policies ?? {},
+      metadata: {},
+      key_index: {},
+    }),
+  }
+  return Layer.mergeAll(
+    EpistemicRuntimeLive,
+    Layer.succeed(BeliefEngine, beliefEngine as any),
+    Layer.succeed(ConceptEngine, conceptEngine as any),
+    Layer.succeed(CausalEngine, causalEngine as any),
+    Layer.succeed(PolicyEngine, policyEngine as any),
+  )
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Aura.runMaintenance integration tests

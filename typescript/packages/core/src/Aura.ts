@@ -10,7 +10,10 @@ import {
   type StoreOptions,
   type UpdateOptions,
   Clock,
+  EpistemicRuntime,
   UnsupportedSurfaceError,
+  applyCrossNamespaceDimensionFlags,
+  defaultCrossNamespaceDigestOptions,
 } from "@aura/contract";
 import {
   CognitiveStoreFile,
@@ -39,6 +42,7 @@ import {
   buildTrendSnapshot,
   pushTrendSnapshot,
   summarizeTrends,
+  summarizeReflections,
   buildReflectionSummary,
   pushReflectionSummary,
   createCognitiveStoreAdapter,
@@ -62,6 +66,22 @@ import {
   type ContradictionCluster,
   type McpMaintenanceTrendSnapshot,
   type McpReflectionSummary,
+  type Belief,
+  type BeliefInstabilitySummary,
+  type PolicyLifecycleSummary,
+  type PolicyPressureArea,
+  type ConceptCandidate,
+  type CausalPattern,
+  type CrossNamespaceBeliefStateSummary,
+  type CrossNamespaceDigest,
+  type CrossNamespaceDigestOptions,
+  type MaintenanceTrendSummary,
+  type McpBeliefInstabilitySummary,
+  type McpPolicyLifecycleSummary,
+  type McpPolicyPressureArea,
+  type MemoryHealthDigest,
+  type NamespaceGovernanceStatus,
+  type OperatorReviewIssue,
 } from "@aura/contract"
 
 export type StoreCodeOptions = {
@@ -91,6 +111,10 @@ export type AuraSearchOptions = {
   readonly namespaces?: ReadonlyArray<string>
   readonly namespace?: string
   readonly semantic_type?: string
+}
+
+export type AuraCrossNamespaceDigestOptions = Partial<CrossNamespaceDigestOptions> & {
+  readonly include_dimensions?: ReadonlyArray<string> | null
 }
 
 export type AuraStats = Readonly<Record<string, number>>
@@ -567,6 +591,358 @@ export class Aura {
     }))
   }
 
+  get_belief_instability_summary(): Effect.Effect<McpBeliefInstabilitySummary, never, EpistemicRuntime | BeliefEngine> {
+    // Reuse the EpistemicRuntime read model instead of recomposing belief logic in the MCP layer.
+    // 复用 EpistemicRuntime 读模型，避免 MCP 传输层重复组合业务逻辑。
+    // Rust reference: Aura::get_belief_instability_summary (aura.rs)
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const summary = yield* runtime.getBeliefInstabilitySummary()
+      return toMcpBeliefInstabilitySummary(summary)
+    })
+  }
+
+  belief_instability(): Effect.Effect<McpBeliefInstabilitySummary, never, EpistemicRuntime | BeliefEngine> {
+    return this.get_belief_instability_summary()
+  }
+
+  get_policy_lifecycle_summary(
+    actionLimit?: number,
+    domainLimit?: number,
+  ): Effect.Effect<McpPolicyLifecycleSummary, never, EpistemicRuntime | PolicyEngine> {
+    // Reuse the EpistemicRuntime policy lifecycle aggregation.
+    // 复用 EpistemicRuntime 的 policy lifecycle 聚合。
+    // Rust reference: Aura::get_policy_lifecycle_summary (aura.rs)
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const summary = yield* runtime.getPolicyLifecycleSummary(actionLimit, domainLimit)
+      return toMcpPolicyLifecycleSummary(summary)
+    })
+  }
+
+  policy_lifecycle(
+    actionLimit?: number,
+    domainLimit?: number,
+  ): Effect.Effect<McpPolicyLifecycleSummary, never, EpistemicRuntime | PolicyEngine> {
+    return this.get_policy_lifecycle_summary(actionLimit, domainLimit)
+  }
+
+  get_policy_pressure_report(
+    namespace?: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<McpPolicyPressureArea>, never, EpistemicRuntime | PolicyEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const pressure = yield* runtime.getPolicyPressureReport(namespace, limit)
+      return pressure.map(toMcpPolicyPressureArea)
+    })
+  }
+
+  cross_namespace_digest(): Effect.Effect<CrossNamespaceDigest, never, ConceptEngine | CausalEngine | BeliefEngine> {
+    return this.cross_namespace_digest_with_options(undefined, defaultCrossNamespaceDigestOptions())
+  }
+
+  cross_namespace_digest_filtered(
+    namespaces?: ReadonlyArray<string>,
+    topConceptsLimit?: number,
+  ): Effect.Effect<CrossNamespaceDigest, never, ConceptEngine | CausalEngine | BeliefEngine> {
+    const options: AuraCrossNamespaceDigestOptions = {
+      top_concepts_limit: clampInt(topConceptsLimit ?? 5, 1, 10),
+    }
+    return this.cross_namespace_digest_with_options(namespaces, options)
+  }
+
+  cross_namespace_digest_with_options(
+    namespaces?: ReadonlyArray<string>,
+    inputOptions?: AuraCrossNamespaceDigestOptions,
+  ): Effect.Effect<CrossNamespaceDigest, never, ConceptEngine | CausalEngine | BeliefEngine> {
+    // Build a read-only bounded analytics digest across namespaces.
+    // 构建跨 namespace 的只读有界分析摘要。
+    // Rust reference: Aura::cross_namespace_digest_with_options (aura.rs)
+    const started = Date.now()
+    const records = [...this.searchRecords.values()]
+    const recordsById = new Map(records.map((record) => [record.id, record]))
+    const options = normalizeCrossNamespaceOptions(inputOptions)
+    const allowed = namespaces !== undefined ? new Set(namespaces) : null
+
+    return Effect.gen(function* () {
+      const conceptEngine = yield* Effect.service(ConceptEngine)
+      const causalEngine = yield* Effect.service(CausalEngine)
+      const beliefEngine = yield* Effect.service(BeliefEngine)
+      const conceptState = yield* conceptEngine.stats()
+      const causalState = yield* causalEngine.stats()
+      const beliefState = yield* beliefEngine.stats()
+      const concepts = Object.values(conceptState.concepts)
+      const causalPatterns = Object.values(causalState.patterns)
+      const beliefs = Object.values(beliefState.beliefs)
+
+      let namespaceList = [...new Set(records.map((record) => record.namespace))]
+        .filter((namespace) => allowed === null || allowed.has(namespace))
+        .filter((namespace) => records.filter((record) => record.namespace === namespace).length >= options.min_record_count)
+      namespaceList.sort()
+
+      const namespaceDigests = namespaceList.map((namespace) => {
+        const namespaceRecords = records.filter((record) => record.namespace === namespace)
+        const tags = options.include_tags && !options.compact_summary
+          ? sortedUnique(namespaceRecords.flatMap((record) => record.tags.map((tag) => tag.toLowerCase())))
+          : []
+        const structuralRelationTypes = options.include_structural && !options.compact_summary
+          ? sortedUnique(namespaceRecords.flatMap((record) =>
+              Object.values(record.connection_types).filter(isStructuralRelationType)
+            ))
+          : []
+
+        const namespaceConcepts = concepts
+          .filter((concept) => concept.namespace === namespace)
+          .sort((a, b) => b.confidence - a.confidence || a.key.localeCompare(b.key))
+        const topConcepts = options.include_concepts && !options.compact_summary
+          ? namespaceConcepts.slice(0, options.top_concepts_limit).map((concept) => ({
+              concept_id: concept.id,
+              key: concept.key,
+              confidence: concept.confidence,
+              state: concept.state.toLowerCase(),
+              record_count: concept.record_ids.length,
+              belief_count: concept.belief_ids.length,
+            }))
+          : []
+        const conceptSignatures = options.include_concepts && !options.compact_summary
+          ? sortedUnique(namespaceConcepts.map(canonicalConceptSignature))
+          : []
+
+        const causalSignatures = options.include_causal && !options.compact_summary
+          ? sortedUnique(
+              causalPatterns
+                .filter((pattern) => pattern.namespace === namespace)
+                .map((pattern) => canonicalCausalSignature(pattern, recordsById))
+            )
+          : []
+
+        const namespaceBeliefs = beliefs.filter((belief) => belief.key.startsWith(`${namespace}:`))
+        const beliefStateSummary = options.include_belief_states
+          ? summarizeNamespaceBeliefStates(namespaceBeliefs)
+          : null
+        const correctionCount = options.include_corrections ? 0 : null
+        const correctionDensity = options.include_corrections
+          ? (namespaceRecords.length === 0 ? 0 : correctionCount! / namespaceRecords.length)
+          : null
+
+        return {
+          namespace,
+          record_count: namespaceRecords.length,
+          concept_count: namespaceConcepts.length,
+          stable_concept_count: namespaceConcepts.filter((concept) => concept.state === "Stable").length,
+          top_concepts: topConcepts,
+          concept_signatures: conceptSignatures,
+          tags,
+          structural_relation_types: structuralRelationTypes,
+          causal_signatures: causalSignatures,
+          belief_state_summary: beliefStateSummary,
+          correction_count: correctionCount,
+          correction_density: correctionDensity,
+        }
+      })
+
+      const pairs = []
+      for (let left = 0; left < namespaceDigests.length; left++) {
+        for (let right = left + 1; right < namespaceDigests.length; right++) {
+          const a = namespaceDigests[left]!
+          const b = namespaceDigests[right]!
+          const sharedConceptSignatures = options.include_concepts && !options.compact_summary
+            ? sortedIntersection(a.concept_signatures, b.concept_signatures)
+            : []
+          const sharedTags = options.include_tags && !options.compact_summary
+            ? sortedIntersection(a.tags, b.tags)
+            : []
+          const sharedStructuralRelationTypes = options.include_structural && !options.compact_summary
+            ? sortedIntersection(a.structural_relation_types, b.structural_relation_types)
+            : []
+          const sharedCausalSignatures = options.include_causal && !options.compact_summary
+            ? sortedIntersection(a.causal_signatures, b.causal_signatures)
+            : []
+          const conceptSimilarity = jaccardSimilarity(a.concept_signatures, b.concept_signatures)
+          const tagSimilarity = jaccardSimilarity(a.tags, b.tags)
+          const structuralSimilarity = jaccardSimilarity(a.structural_relation_types, b.structural_relation_types)
+          const causalSimilarity = jaccardSimilarity(a.causal_signatures, b.causal_signatures)
+          const maxSimilarity = Math.max(conceptSimilarity, tagSimilarity, structuralSimilarity, causalSimilarity)
+          if (maxSimilarity < options.pairwise_similarity_threshold) continue
+          pairs.push({
+            namespace_a: a.namespace,
+            namespace_b: b.namespace,
+            shared_concept_signatures: sharedConceptSignatures,
+            concept_signature_similarity: conceptSimilarity,
+            shared_tags: sharedTags,
+            tag_jaccard: tagSimilarity,
+            shared_structural_relation_types: sharedStructuralRelationTypes,
+            structural_similarity: structuralSimilarity,
+            shared_causal_signatures: sharedCausalSignatures,
+            causal_signature_similarity: causalSimilarity,
+          })
+        }
+      }
+
+      return {
+        namespace_count: namespaceDigests.length,
+        latency_ms: Date.now() - started,
+        compact_summary: options.compact_summary,
+        included_dimensions: includedCrossNamespaceDimensions(options),
+        namespaces: namespaceDigests,
+        pairs,
+      }
+    })
+  }
+
+  memory_health(limit?: number): Effect.Effect<MemoryHealthDigest, never, EpistemicRuntime | BeliefEngine | PolicyEngine> {
+    return this.get_memory_health_digest(limit)
+  }
+
+  get_memory_health_digest(limit?: number): Effect.Effect<MemoryHealthDigest, never, EpistemicRuntime | BeliefEngine | PolicyEngine> {
+    // Return an operator-facing digest from runtime read models plus persisted maintenance history.
+    // 从 runtime 读模型和已持久化维护历史生成面向 operator 的健康摘要。
+    // Rust reference: Aura::get_memory_health_digest (aura.rs)
+    const max = Math.min(20, Math.max(1, limit ?? 8))
+    const records = this.searchRecords
+    const reflection = summarizeReflections(this.reflectionSummaries)
+    const trendSummary = summarizeTrends(this.maintenanceTrendHistory)
+    const trendDirection = deriveMaintenanceTrendDirection(trendSummary)
+
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const instability = yield* runtime.getBeliefInstabilitySummary()
+      const lifecycle = yield* runtime.getPolicyLifecycleSummary(max, max)
+      const pressure = yield* runtime.getPolicyPressureReport(undefined, max)
+      const highVolatility = yield* runtime.getHighVolatilityBeliefs(0.20, max)
+      const contradictionClusters = yield* runtime.getContradictionClusters(records, undefined, max)
+
+      const issues: OperatorReviewIssue[] = []
+      for (const belief of highVolatility) {
+        issues.push({
+          kind: "belief_instability",
+          target_id: belief.id,
+          namespace: namespaceFromBeliefKey(belief.key),
+          title: `High-volatility belief ${belief.key}`,
+          score: belief.volatility,
+          severity: issueSeverity(belief.volatility, 0.45, 0.25),
+        })
+      }
+      for (const cluster of contradictionClusters.slice(0, max)) {
+        const score = cluster.avgVolatility + Math.min(cluster.totalConflictMass, 1)
+        issues.push({
+          kind: "contradiction_cluster",
+          target_id: cluster.id,
+          namespace: cluster.namespace,
+          title: `Contradiction cluster with ${cluster.beliefIds.length} beliefs`,
+          score,
+          severity: issueSeverity(score, 1.2, 0.6),
+        })
+      }
+      for (const finding of reflection.topFindings.slice(0, max)) {
+        issues.push({
+          kind: "reflection_finding",
+          target_id: finding.relatedIds[0] ?? "",
+          namespace: finding.namespace,
+          title: finding.title,
+          score: finding.score,
+          severity: finding.severity,
+        })
+      }
+      for (const area of pressure.slice(0, max)) {
+        issues.push({
+          kind: "policy_pressure",
+          target_id: area.strongestHintId,
+          namespace: area.namespace,
+          title: `Policy pressure in ${area.namespace}:${area.domain}`,
+          score: area.advisoryPressure,
+          severity: issueSeverity(area.advisoryPressure, 1.2, 0.7),
+        })
+      }
+      issues.sort((a, b) => b.score - a.score || a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id))
+
+      return {
+        total_records: records.size,
+        startup_has_recovery_warnings: false,
+        high_salience_record_count: 0,
+        avg_salience: 0,
+        max_salience: 0,
+        reflection_summary_count: reflection.summaryCount,
+        reflection_high_severity_findings: reflection.highSeverityFindings,
+        contradiction_cluster_count: contradictionClusters.length,
+        high_volatility_belief_count: instability.highVolatilityCount,
+        low_stability_belief_count: instability.lowStabilityCount,
+        recent_correction_count: 0,
+        suppressed_policy_hint_count: lifecycle.suppressedHints,
+        rejected_policy_hint_count: lifecycle.rejectedHints,
+        policy_pressure_area_count: pressure.length,
+        maintenance_trend_direction: trendDirection,
+        latest_dominant_phase: trendSummary.latestDominantPhase,
+        top_issues: issues.slice(0, max),
+      }
+    })
+  }
+
+  namespace_governance_status(
+    namespaces?: ReadonlyArray<string>,
+  ): Effect.Effect<ReadonlyArray<NamespaceGovernanceStatus>, never, EpistemicRuntime | BeliefEngine | PolicyEngine> {
+    return this.get_namespace_governance_status_filtered(namespaces)
+  }
+
+  get_namespace_governance_status(): Effect.Effect<ReadonlyArray<NamespaceGovernanceStatus>, never, EpistemicRuntime | BeliefEngine | PolicyEngine> {
+    return this.get_namespace_governance_status_filtered(undefined)
+  }
+
+  get_namespace_governance_status_filtered(
+    namespaces?: ReadonlyArray<string>,
+  ): Effect.Effect<ReadonlyArray<NamespaceGovernanceStatus>, never, EpistemicRuntime | BeliefEngine | PolicyEngine> {
+    // Return read-only governance status grouped per namespace.
+    // 返回按 namespace 聚合的只读治理状态。
+    // Rust reference: Aura::get_namespace_governance_status_filtered (aura.rs)
+    const allowed = namespaces !== undefined ? new Set(namespaces) : null
+    const namespaceList = [...new Set([...this.searchRecords.values()].map((record) => record.namespace))]
+      .filter((namespace) => allowed === null || allowed.has(namespace))
+      .sort()
+    const lastCycle = this.maintenanceTrendHistory[this.maintenanceTrendHistory.length - 1]
+    const lastMaintenanceCycle = lastCycle?.timestamp ?? null
+    const latestDominantPhase = lastCycle?.dominantPhase ?? "none"
+    const records = this.searchRecords
+
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const beliefs = yield* runtime.getBeliefs()
+      const statuses: NamespaceGovernanceStatus[] = []
+      for (const namespace of namespaceList) {
+        const recordCount = [...records.values()].filter((record) => record.namespace === namespace).length
+        const namespaceBeliefs = beliefs.filter((belief) => belief.key.startsWith(`${namespace}:`))
+        const highVolatilityBeliefCount = namespaceBeliefs.filter((belief) => belief.volatility >= 0.20).length
+        const lowStabilityBeliefCount = namespaceBeliefs.filter((belief) => belief.stability <= 1.0).length
+        const correctionCount = 0
+        const correctionDensity = recordCount === 0 ? 0 : correctionCount / recordCount
+        const policyPressureAreaCount = (yield* runtime.getPolicyPressureReport(namespace, 64)).length
+        const suggestedCorrectionCount = 0
+        const instabilityScore =
+          highVolatilityBeliefCount * 1.5 +
+          lowStabilityBeliefCount * 1.2 +
+          correctionDensity * 3.0 +
+          policyPressureAreaCount * 0.8
+        statuses.push({
+          namespace,
+          record_count: recordCount,
+          belief_count: namespaceBeliefs.length,
+          correction_count: correctionCount,
+          correction_density: correctionDensity,
+          high_volatility_belief_count: highVolatilityBeliefCount,
+          low_stability_belief_count: lowStabilityBeliefCount,
+          instability_score: instabilityScore,
+          instability_level: issueSeverity(instabilityScore, 4.0, 1.8),
+          policy_pressure_area_count: policyPressureAreaCount,
+          suggested_correction_count: suggestedCorrectionCount,
+          last_maintenance_cycle: lastMaintenanceCycle,
+          latest_dominant_phase: latestDominantPhase,
+        })
+      }
+      statuses.sort((a, b) => b.instability_score - a.instability_score || a.namespace.localeCompare(b.namespace))
+      return statuses
+    })
+  }
+
   static recallScored(
     brainDir: string,
     query: string,
@@ -860,6 +1236,218 @@ function unsupportedSurface(
     rustReference,
     missingPrerequisites,
   }))
+}
+
+function normalizeCrossNamespaceOptions(
+  input?: AuraCrossNamespaceDigestOptions,
+): CrossNamespaceDigestOptions {
+  const base: CrossNamespaceDigestOptions = {
+    ...defaultCrossNamespaceDigestOptions(),
+    ...input,
+    min_record_count: Math.max(0, Math.trunc(input?.min_record_count ?? 1)),
+    top_concepts_limit: clampInt(input?.top_concepts_limit ?? 5, 1, 10),
+    pairwise_similarity_threshold: clamp(input?.pairwise_similarity_threshold ?? 0, 0, 1),
+    compact_summary: input?.compact_summary ?? false,
+  }
+  return applyCrossNamespaceDimensionFlags(base, input?.include_dimensions)
+}
+
+function includedCrossNamespaceDimensions(options: CrossNamespaceDigestOptions): ReadonlyArray<string> {
+  const dimensions: string[] = []
+  if (options.include_concepts) dimensions.push("concepts")
+  if (options.include_tags) dimensions.push("tags")
+  if (options.include_structural) dimensions.push("structural")
+  if (options.include_causal) dimensions.push("causal")
+  if (options.include_belief_states) dimensions.push("belief_states")
+  if (options.include_corrections) dimensions.push("corrections")
+  return dimensions
+}
+
+function summarizeNamespaceBeliefStates(
+  beliefs: ReadonlyArray<Belief>,
+): CrossNamespaceBeliefStateSummary {
+  const total = beliefs.length
+  const avgVolatility = total === 0
+    ? 0
+    : beliefs.reduce((sum, belief) => sum + belief.volatility, 0) / total
+  return {
+    resolved: beliefs.filter((belief) => belief.state === "Resolved").length,
+    unresolved: beliefs.filter((belief) => belief.state === "Unresolved").length,
+    singleton: beliefs.filter((belief) => belief.state === "Singleton").length,
+    empty: beliefs.filter((belief) => belief.state === "Empty").length,
+    high_volatility_count: beliefs.filter((belief) => belief.volatility >= 0.20).length,
+    avg_volatility: avgVolatility,
+  }
+}
+
+function canonicalConceptSignature(concept: ConceptCandidate): string {
+  const terms = sortedUnique([...concept.core_terms, ...concept.tags].map(normalizeAnalyticsTerm).filter((term) => term.length > 0))
+    .slice(0, 4)
+  return `${concept.semantic_type}:${terms.join("+")}`
+}
+
+function canonicalCausalSignature(
+  pattern: CausalPattern,
+  records: ReadonlyMap<string, AuraRecord>,
+): string {
+  const causeTerms = collectRecordSignatureTerms(pattern.cause_record_ids, records)
+  const effectTerms = collectRecordSignatureTerms(pattern.effect_record_ids, records)
+  return `${causeTerms.join("+")}=>${effectTerms.join("+")}`
+}
+
+function collectRecordSignatureTerms(
+  recordIds: ReadonlyArray<string>,
+  records: ReadonlyMap<string, AuraRecord>,
+): ReadonlyArray<string> {
+  const terms: string[] = []
+  for (const recordId of recordIds) {
+    const record = records.get(recordId)
+    if (!record) continue
+    for (const tag of record.tags) terms.push(normalizeAnalyticsTerm(tag))
+    terms.push(normalizeAnalyticsTerm(record.content_type))
+    terms.push(normalizeAnalyticsTerm(record.semantic_type))
+  }
+  return sortedUnique(terms.filter((term) => term.length > 0)).slice(0, 4)
+}
+
+function normalizeAnalyticsTerm(term: string): string {
+  let normalized = ""
+  let lastWasSpace = true
+  for (const char of term.toLowerCase()) {
+    if (/^[a-z0-9]$/.test(char)) {
+      normalized += char
+      lastWasSpace = false
+    } else if (!lastWasSpace) {
+      normalized += " "
+      lastWasSpace = true
+    }
+  }
+  return normalized.trim()
+}
+
+function isStructuralRelationType(relationType: string): boolean {
+  return relationType.startsWith("family.") || relationType === "belongs_to_project"
+}
+
+function jaccardSimilarity(left: ReadonlyArray<string>, right: ReadonlyArray<string>): number {
+  const leftSet = new Set(left)
+  const rightSet = new Set(right)
+  const union = new Set([...leftSet, ...rightSet]).size
+  if (union === 0) return 0
+  let intersection = 0
+  for (const item of leftSet) {
+    if (rightSet.has(item)) intersection++
+  }
+  return intersection / union
+}
+
+function sortedUnique(values: ReadonlyArray<string>): string[] {
+  return [...new Set(values)].sort()
+}
+
+function sortedIntersection(left: ReadonlyArray<string>, right: ReadonlyArray<string>): string[] {
+  const rightSet = new Set(right)
+  return sortedUnique(left.filter((item) => rightSet.has(item)))
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.trunc(clamp(Number.isFinite(value) ? value : min, min, max))
+}
+
+function toMcpBeliefInstabilitySummary(summary: BeliefInstabilitySummary): McpBeliefInstabilitySummary {
+  return {
+    total_beliefs: summary.totalBeliefs,
+    resolved: summary.resolved,
+    unresolved: summary.unresolved,
+    singleton: summary.singleton,
+    empty: summary.empty,
+    contradiction_cluster_count: summary.contradictionClusterCount,
+    high_volatility_count: summary.highVolatilityCount,
+    low_stability_count: summary.lowStabilityCount,
+    avg_volatility: summary.avgVolatility,
+    avg_stability: summary.avgStability,
+    volatility_bands: {
+      low: summary.volatilityBands.low,
+      medium: summary.volatilityBands.medium,
+      high: summary.volatilityBands.high,
+    },
+  }
+}
+
+function toMcpPolicyLifecycleSummary(summary: PolicyLifecycleSummary): McpPolicyLifecycleSummary {
+  return {
+    total_hints: summary.totalHints,
+    active_hints: summary.activeHints,
+    stable_hints: summary.stableHints,
+    candidate_hints: summary.candidateHints,
+    suppressed_hints: summary.suppressedHints,
+    rejected_hints: summary.rejectedHints,
+    avg_policy_strength: summary.avgPolicyStrength,
+    avg_risk_score: summary.avgRiskScore,
+    action_summaries: summary.actionSummaries.map((item) => ({
+      action_kind: item.actionKind,
+      total_hints: item.totalHints,
+      stable_hints: item.stableHints,
+      candidate_hints: item.candidateHints,
+      suppressed_hints: item.suppressedHints,
+      rejected_hints: item.rejectedHints,
+      avg_policy_strength: item.avgPolicyStrength,
+      avg_risk_score: item.avgRiskScore,
+    })),
+    domain_summaries: summary.domainSummaries.map((item) => ({
+      namespace: item.namespace,
+      domain: item.domain,
+      total_hints: item.totalHints,
+      active_hints: item.activeHints,
+      stable_hints: item.stableHints,
+      candidate_hints: item.candidateHints,
+      suppressed_hints: item.suppressedHints,
+      rejected_hints: item.rejectedHints,
+      avg_policy_strength: item.avgPolicyStrength,
+      avg_risk_score: item.avgRiskScore,
+      advisory_pressure: item.advisoryPressure,
+    })),
+  }
+}
+
+function toMcpPolicyPressureArea(area: PolicyPressureArea): McpPolicyPressureArea {
+  return {
+    namespace: area.namespace,
+    domain: area.domain,
+    advisory_pressure: area.advisoryPressure,
+    active_hints: area.activeHints,
+    suppressed_hints: area.suppressedHints,
+    rejected_hints: area.rejectedHints,
+    strongest_hint_id: area.strongestHintId,
+    strongest_action_kind: area.strongestActionKind,
+    strongest_policy_strength: area.strongestPolicyStrength,
+  }
+}
+
+function deriveMaintenanceTrendDirection(summary: MaintenanceTrendSummary): string {
+  if (summary.recent.length < 2) return "insufficient_data"
+  const first = summary.recent[0]!
+  const last = summary.recent[summary.recent.length - 1]!
+  const firstPressure = first.volatileRecords + first.correctionEvents + first.policySuppressionRate * 10 + first.causalRejectionRate * 10
+  const lastPressure = last.volatileRecords + last.correctionEvents + last.policySuppressionRate * 10 + last.causalRejectionRate * 10
+  const delta = lastPressure - firstPressure
+  if (delta > 1) return "worsening"
+  if (delta < -1) return "improving"
+  return "stable"
+}
+
+function issueSeverity(score: number, highThreshold: number, mediumThreshold: number): string {
+  if (score >= highThreshold) return "high"
+  if (score >= mediumThreshold) return "medium"
+  return "low"
+}
+
+function namespaceFromBeliefKey(key: string): string {
+  return key.split(":")[0] || "default"
 }
 
 function recordImportance(record: AuraRecord): number {

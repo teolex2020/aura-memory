@@ -13,7 +13,7 @@ import {
   BeliefStore, ConceptStore, CausalStore, PolicyStore,
   EpistemicTrace,
   ConceptSeedMode, ConceptSimilarityMode, ConceptPartitionMode, ConceptUnionMode,
-  CausalDiscoveryMode,
+  CausalDiscoveryMode, CausalState, TemporalBudgetMode, EvidenceMode,
   BeliefState, ConceptState, PolicyActionKind, PolicyState, Polarity,
   Level,
   UnsupportedSurfaceError,
@@ -141,16 +141,12 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.search({ query: "alpha", namespace: "default" }).length, 0)
   })
 
-  it("consolidate and explainability gaps fail with typed unsupported errors", async () => {
+  it("consolidate gap fails with a typed unsupported error", async () => {
     const aura = await openWritableAura()
 
     const consolidate = await Effect.runPromise(Effect.flip(aura.consolidate()))
     assert.instanceOf(consolidate, UnsupportedSurfaceError)
     assert.strictEqual(consolidate.surface, "Aura.consolidate")
-
-    const explain = await Effect.runPromise(Effect.flip(aura.explain_record("missing")))
-    assert.instanceOf(explain, UnsupportedSurfaceError)
-    assert.strictEqual(explain.surface, "Aura.explain_record")
   })
 
   it("cross_namespace_digest is deterministic and non-vacuous for a seeded multi-namespace fixture", async () => {
@@ -237,7 +233,7 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.ok(digest.namespaces.every((namespace) => namespace.correction_count === 0))
   })
 
-  it("operator governance facades reuse runtime data and keep staged correction fields at zero", async () => {
+  it("operator governance facades reuse runtime data and expose suggested correction pressure", async () => {
     const aura = await openWritableAura()
     await Effect.runPromise(provideNode(aura.store("Alpha policy pressure", { namespace: "alpha", tags: ["policy"] })))
     await Effect.runPromise(provideNode(aura.store("Beta baseline", { namespace: "beta", tags: ["baseline"] })))
@@ -289,9 +285,84 @@ describe("Aura MCP-facing operational surfaces", () => {
     const alpha = governance.find((status) => status.namespace === "alpha")
     if (!alpha) throw new Error("alpha namespace status missing")
     assert.strictEqual(alpha.correction_count, 0)
-    assert.strictEqual(alpha.suggested_correction_count, 0)
+    assert.strictEqual(alpha.suggested_correction_count, 1)
     assert.ok(alpha.instability_score > 0)
     assert.deepStrictEqual(governance.map((status) => status.namespace).sort(), ["alpha", "beta"])
+  })
+
+  it("correction writers populate logs, review queues, and 07-04 governance backfills", async () => {
+    const aura = await openWritableAura()
+    const record = await Effect.runPromise(provideNode(aura.store("Alpha deploy correction evidence", {
+      namespace: "alpha",
+      tags: ["deploy", "ops"],
+      semantic_type: "fact",
+    })))
+
+    const layer = correctionLayer(record.id)
+    const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.runPromise(provideNode(Effect.provide(effect, layer)) as Effect.Effect<A, E, never>)
+
+    assert.strictEqual(await run(aura.deprecate_belief_with_reason("belief-alpha", "manual_review")), true)
+    assert.strictEqual(await run(aura.invalidate_causal_pattern_with_reason("causal-alpha", "spurious_correlation")), true)
+    assert.strictEqual(await run(aura.retract_policy_hint_with_reason("policy-alpha", "superseded_runbook")), true)
+
+    assert.strictEqual(aura.get_correction_log().length, 3)
+
+    const queue = await run(aura.correction_review_queue(10))
+    assert.strictEqual(queue.length, 3)
+    assert.ok(queue.some((item) => item.target_kind === "belief" && item.namespace === "alpha"))
+
+    const health = await run(aura.memory_health(10))
+    assert.strictEqual(health.recent_correction_count, 3)
+
+    const governance = await run(aura.namespace_governance_status(["alpha"]))
+    assert.strictEqual(governance[0]?.correction_count, 3)
+    assert.ok((governance[0]?.correction_density ?? 0) > 0)
+
+    const digest = await run(aura.cross_namespace_digest_with_options(["alpha"], {
+      include_dimensions: ["corrections", "beliefs"],
+    }))
+    assert.strictEqual(digest.namespaces[0]?.correction_count, 3)
+  })
+
+  it("explainability surfaces use recall trace plus maintenance evidence", async () => {
+    const aura = await openWritableAura()
+    const source = await Effect.runPromise(provideNode(aura.store("Alpha deploy source", {
+      namespace: "alpha",
+      tags: ["deploy"],
+      semantic_type: "fact",
+    })))
+    const record = await Effect.runPromise(provideNode(aura.store("Alpha deploy policy evidence", {
+      namespace: "alpha",
+      tags: ["deploy", "policy"],
+      semantic_type: "fact",
+      caused_by_id: source.id,
+    })))
+
+    const layer = correctionLayer(record.id)
+    const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.runPromise(provideNode(Effect.provide(effect, layer)) as Effect.Effect<A, E, never>)
+
+    await run(aura.invalidate_causal_pattern_with_reason("causal-alpha", "bundle_correction"))
+
+    const explanation = await run(aura.explain_record(record.id))
+    if (explanation === null) throw new Error("explanation missing")
+    assert.strictEqual(explanation.record_id, record.id)
+    assert.strictEqual(explanation.belief?.id, "belief-alpha")
+    assert.ok(explanation.concepts.some((concept) => concept.id === "concept-alpha"))
+    assert.ok(explanation.causal_patterns.some((pattern) => pattern.id === "causal-alpha"))
+    assert.ok(explanation.policy_hints.some((hint) => hint.id === "policy-alpha"))
+    assert.strictEqual(explanation.because_record_id, source.id)
+
+    const recall = await run(aura.explain_recall("deploy policy", 5, 0, true, ["alpha"]))
+    assert.ok(recall.items.length > 0)
+    assert.ok(recall.items.some((item) => item.trace.tags !== null || item.trace.ngram !== null || item.trace.sdr !== null))
+
+    const bundle = await run(aura.explainability_bundle(record.id))
+    if (bundle === null) throw new Error("bundle missing")
+    assert.strictEqual(bundle.record_id, record.id)
+    assert.ok(bundle.provenance.steps.length > 0)
+    assert.strictEqual(bundle.causal_corrections.length, 1)
   })
 })
 
@@ -371,6 +442,176 @@ function governanceLayer(overrides: {
     Layer.succeed(ConceptEngine, conceptEngine as any),
     Layer.succeed(CausalEngine, causalEngine as any),
     Layer.succeed(PolicyEngine, policyEngine as any),
+  )
+}
+
+function correctionLayer(recordId: string) {
+  let beliefState: any = {
+    version: 1 as const,
+    beliefs: {
+      "belief-alpha": makeBelief("belief-alpha", "alpha:deploy:fact", BeliefState.Unresolved, 0.36, 0.5),
+    },
+    hypotheses: {},
+    record_to_belief: { [recordId]: "belief-alpha" },
+    key_index: { "alpha:deploy:fact": "belief-alpha" },
+    record_index: { [recordId]: "belief-alpha" },
+  }
+  let causalState: any = {
+    version: 1 as const,
+    patterns: {
+      "causal-alpha": {
+        id: "causal-alpha",
+        cause_belief_id: "belief-alpha",
+        effect_belief_id: "belief-alpha",
+        cause_key: "alpha:deploy:fact",
+        effect_key: "alpha:policy:fact",
+        edge_hash: "edge-alpha",
+        support: 2,
+        confidence: 0.8,
+        lift: 1.2,
+        state: CausalState.Stable,
+        last_updated: 1,
+        transition_lift: 1,
+        temporal_consistency: 1,
+        outcome_stability: 0.9,
+        causal_strength: 0.82,
+        support_count: 2,
+        explicit_support_count: 1,
+        temporal_support_count: 1,
+        counterevidence_count: 0,
+        temporal_windows: 1,
+        explicit_support_total_for_cause: 1,
+        explicit_effect_variants_for_cause: 1,
+        effect_record_signature_variants: 1,
+        positive_effect_signals: 1,
+        negative_effect_signals: 0,
+        namespace: "alpha",
+        cause_record_ids: [recordId],
+        effect_record_ids: [recordId],
+      },
+    },
+    discovery_mode: CausalDiscoveryMode.Standard,
+    edges_found_total: 0,
+    temporal_budget_mode: TemporalBudgetMode.ExhaustiveCapped,
+    evidence_mode: EvidenceMode.StrictRepeatedWindows,
+    last_corpus_fingerprint: "",
+  }
+  let policyState: any = {
+    version: 1 as const,
+    hints: {
+      "policy-alpha": {
+        id: "policy-alpha",
+        pattern_id: "causal-alpha",
+        condition: "alpha deploy needs verification",
+        action: "verify alpha deploy",
+        priority: 1,
+        confidence: 0.8,
+        state: PolicyState.Stable,
+        last_updated: 1,
+        actionKind: PolicyActionKind.VerifyFirst,
+        policyStrength: 0.75,
+        riskScore: 0.7,
+        namespace: "alpha",
+        domain: "deploy",
+        polarity: Polarity.Negative,
+        recommendation: "Verify alpha deploy",
+        utilityScore: 0.3,
+        cause_key: "alpha:deploy:fact",
+        effect_keys: [recordId],
+        cause_record_ids: [recordId],
+      },
+    },
+    metadata: {},
+    key_index: { "alpha:deploy:policy": "policy-alpha" },
+  }
+  const conceptState: any = {
+    version: 1 as const,
+    concepts: {
+      "concept-alpha": {
+        id: "concept-alpha",
+        key: "alpha:deploy",
+        namespace: "alpha",
+        semantic_type: "fact",
+        belief_ids: ["belief-alpha"],
+        record_ids: [recordId],
+        core_terms: ["deploy"],
+        shell_terms: ["ops"],
+        tags: ["deploy"],
+        support_mass: 1,
+        confidence: 0.9,
+        stability: 1,
+        cohesion: 1,
+        abstraction_score: 0.8,
+        state: ConceptState.Stable,
+        last_updated: 1,
+      },
+    },
+    key_index: { "alpha:deploy": "concept-alpha" },
+    seed_mode: ConceptSeedMode.Standard,
+    similarity_mode: ConceptSimilarityMode.SdrTanimoto,
+    partition_mode: ConceptPartitionMode.Standard,
+    union_mode: ConceptUnionMode.Standard,
+  }
+
+  const beliefEngine = {
+    stats: () => Effect.succeed(beliefState),
+    belief_for_record: (rid: string) => Effect.succeed(beliefState.record_to_belief[rid] ?? null),
+    deprecate_belief: (beliefId: string) =>
+      Effect.sync(() => {
+        const belief = beliefState.beliefs[beliefId as "belief-alpha"]
+        if (belief === undefined) return
+        beliefState = {
+          ...beliefState,
+          beliefs: {
+            ...beliefState.beliefs,
+            [beliefId]: {
+              ...belief,
+              confidence: belief.confidence * 0.5,
+              state: BeliefState.Unresolved,
+              winner_id: null,
+              stability: 0,
+            },
+          },
+        }
+      }),
+  }
+  const conceptEngine = {
+    stats: () => Effect.succeed(conceptState),
+  }
+  const causalEngine = {
+    stats: () => Effect.succeed(causalState),
+    invalidate_pattern: (id: string) =>
+      Effect.sync(() => {
+        const pattern = causalState.patterns[id as "causal-alpha"]
+        if (pattern === undefined) return
+        causalState = {
+          ...causalState,
+          patterns: {
+            ...causalState.patterns,
+            [id]: { ...pattern, state: CausalState.Invalidated },
+          },
+        }
+      }),
+    retract_pattern: () => Effect.void,
+  }
+  const policyEngine = {
+    stats: () => Effect.succeed(policyState),
+    retract_hint: (id: string) =>
+      Effect.sync(() => {
+        const { [id]: _removed, ...remaining } = policyState.hints
+        policyState = { ...policyState, hints: remaining }
+      }),
+  }
+  return Layer.mergeAll(
+    EpistemicRuntimeLive,
+    Layer.succeed(BeliefEngine, beliefEngine as any),
+    Layer.succeed(ConceptEngine, conceptEngine as any),
+    Layer.succeed(CausalEngine, causalEngine as any),
+    Layer.succeed(PolicyEngine, policyEngine as any),
+    Layer.succeed(BeliefStore, { load: () => Effect.succeed(beliefState), save: (state: typeof beliefState) => Effect.sync(() => { beliefState = state }) } as any),
+    Layer.succeed(ConceptStore, { load: () => Effect.succeed(conceptState), save: () => Effect.void } as any),
+    Layer.succeed(CausalStore, { load: () => Effect.succeed(causalState), save: (state: typeof causalState) => Effect.sync(() => { causalState = state }) } as any),
+    Layer.succeed(PolicyStore, { load: () => Effect.succeed(policyState), save: (state: typeof policyState) => Effect.sync(() => { policyState = state }) } as any),
   )
 }
 

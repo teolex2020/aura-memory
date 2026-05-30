@@ -5,7 +5,11 @@ import {
   FileReadError,
   FileWrite,
   FileWriteError,
+  EmbeddingQueryError,
+  FinalizeError,
+  JsonParseError,
   Level,
+  RerankError,
   type Record as AuraRecord,
   type StoreOptions,
   type UpdateOptions,
@@ -24,10 +28,12 @@ import {
   readBrainAuraFile,
   type BrainAuraRecord,
 } from "@aura/storage";
-import type { RecallPipelineOptions } from "@aura/recall";
+import type { IndexFormatError } from "@aura/indexing";
+import type { RecallPipelineOptions, RecallRecordEvidence, SdrInterpreterError } from "@aura/recall";
 import {
   recallRecords as recallRecordsEffect,
   recallScored as recallScoredEffect,
+  recallWithTrace as recallWithTraceEffect,
 } from "./Recall";
 import { id12 } from "@aura/utils";
 
@@ -61,6 +67,7 @@ import {
   defaultMaintenanceConfig,
   type PhaseTimings, type MaintenanceHotspots,
   type MaintenanceTrendSnapshot, type ReflectionSummary,
+  type ReflectionFinding,
   type ConceptSurfaceCounters, type ConceptSurfaceMode,
   ConceptSurfaceMode as Csm,
   type ContradictionCluster,
@@ -70,6 +77,7 @@ import {
   type BeliefInstabilitySummary,
   type PolicyLifecycleSummary,
   type PolicyPressureArea,
+  type PolicyHint,
   type ConceptCandidate,
   type CausalPattern,
   type CrossNamespaceBeliefStateSummary,
@@ -82,6 +90,23 @@ import {
   type MemoryHealthDigest,
   type NamespaceGovernanceStatus,
   type OperatorReviewIssue,
+  type CorrectionLogEntry,
+  type CorrectionReviewCandidate,
+  type ContradictionReviewCandidate,
+  type ExplainabilityBundle,
+  type McpMaintenanceTrendSummary,
+  type McpReflectionDigest,
+  type McpReflectionFinding,
+  type ProvenanceChain,
+  type RecallBeliefExplanation,
+  type RecallCausalExplanation,
+  type RecallConceptExplanation,
+  type RecallExplanation,
+  type RecallExplanationItem,
+  type RecallPolicyExplanation,
+  type RecallSignalScore,
+  type RecallTraceScore,
+  type SuggestedCorrection,
 } from "@aura/contract"
 
 export type StoreCodeOptions = {
@@ -126,6 +151,7 @@ export class Aura {
     private searchRecords: Map<string, AuraRecord> = new Map(),
     private readonly maintenanceTrendHistory: MaintenanceTrendSnapshot[] = [],
     private readonly reflectionSummaries: ReflectionSummary[] = [],
+    private readonly correctionLog: CorrectionLogEntry[] = [],
   ) {}
 
   static open(
@@ -664,6 +690,7 @@ export class Aura {
     const recordsById = new Map(records.map((record) => [record.id, record]))
     const options = normalizeCrossNamespaceOptions(inputOptions)
     const allowed = namespaces !== undefined ? new Set(namespaces) : null
+    const correctionLog = this.correctionLog
 
     return Effect.gen(function* () {
       const conceptEngine = yield* Effect.service(ConceptEngine)
@@ -721,7 +748,12 @@ export class Aura {
         const beliefStateSummary = options.include_belief_states
           ? summarizeNamespaceBeliefStates(namespaceBeliefs)
           : null
-        const correctionCount = options.include_corrections ? 0 : null
+        const correctionCount = options.include_corrections
+          ? correctionLog.filter((entry) =>
+              namespaceForCorrection(entry, recordsById, causalPatterns, []) === namespace ||
+              (entry.target_kind === "belief" && namespaceBeliefs.some((belief) => belief.id === entry.target_id))
+            ).length
+          : null
         const correctionDensity = options.include_corrections
           ? (namespaceRecords.length === 0 ? 0 : correctionCount! / namespaceRecords.length)
           : null
@@ -804,6 +836,7 @@ export class Aura {
     const reflection = summarizeReflections(this.reflectionSummaries)
     const trendSummary = summarizeTrends(this.maintenanceTrendHistory)
     const trendDirection = deriveMaintenanceTrendDirection(trendSummary)
+    const recentCorrectionCount = this.correctionLog.length
 
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
@@ -868,7 +901,7 @@ export class Aura {
         contradiction_cluster_count: contradictionClusters.length,
         high_volatility_belief_count: instability.highVolatilityCount,
         low_stability_belief_count: instability.lowStabilityCount,
-        recent_correction_count: 0,
+        recent_correction_count: recentCorrectionCount,
         suppressed_policy_hint_count: lifecycle.suppressedHints,
         rejected_policy_hint_count: lifecycle.rejectedHints,
         policy_pressure_area_count: pressure.length,
@@ -903,6 +936,7 @@ export class Aura {
     const lastMaintenanceCycle = lastCycle?.timestamp ?? null
     const latestDominantPhase = lastCycle?.dominantPhase ?? "none"
     const records = this.searchRecords
+    const correctionLog = this.correctionLog
 
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
@@ -913,10 +947,13 @@ export class Aura {
         const namespaceBeliefs = beliefs.filter((belief) => belief.key.startsWith(`${namespace}:`))
         const highVolatilityBeliefCount = namespaceBeliefs.filter((belief) => belief.volatility >= 0.20).length
         const lowStabilityBeliefCount = namespaceBeliefs.filter((belief) => belief.stability <= 1.0).length
-        const correctionCount = 0
+        const correctionCount = correctionLog.filter((entry) =>
+          namespaceForCorrection(entry, records, [], []) === namespace ||
+          (entry.target_kind === "belief" && namespaceBeliefs.some((belief) => belief.id === entry.target_id))
+        ).length
         const correctionDensity = recordCount === 0 ? 0 : correctionCount / recordCount
         const policyPressureAreaCount = (yield* runtime.getPolicyPressureReport(namespace, 64)).length
-        const suggestedCorrectionCount = 0
+        const suggestedCorrectionCount = namespaceBeliefs.filter((belief) => belief.volatility >= 0.20 || belief.stability <= 1.0).length
         const instabilityScore =
           highVolatilityBeliefCount * 1.5 +
           lowStabilityBeliefCount * 1.2 +
@@ -959,24 +996,635 @@ export class Aura {
     return recallRecordsEffect<TRecord>(brainDir, query, options);
   }
 
-  explain_recall(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: explainability surface is recoverably unsupported for MCP callers.
-    // Reason: TS does not yet have the Rust explainability bundle / trace DTOs.
+  explain_recall(
+    query: string,
+    topK?: number,
+    minStrength?: number,
+    expandConnections?: boolean,
+    namespaces?: ReadonlyArray<string>,
+  ): Effect.Effect<
+    RecallExplanation,
+    | FileReadError
+    | JsonParseError
+    | FileFormatError
+    | IndexFormatError
+    | SdrInterpreterError
+    | EmbeddingQueryError
+    | RerankError
+    | FinalizeError,
+    FileRead | EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
+  > {
+    // Explain recall results using persisted provenance across belief/concept/causal/policy layers.
+    // 使用 belief/concept/causal/policy 持久化 provenance 解释召回结果。
     // Rust reference: Aura::explain_recall (aura.rs)
-    return unsupportedSurface("Aura.explain_recall", "Aura::explain_recall (aura.rs)", [
-      "Recall trace DTO construction",
-      "Explainability bundle assembly",
-    ])
+    const started = Date.now()
+    const top = clampInt(topK ?? 20, 1, 100)
+    const options: Partial<RecallPipelineOptions> = {
+      topK: top,
+      minStrength: minStrength ?? 0.1,
+      expandConnections: expandConnections ?? true,
+      namespaces: namespaces ?? ["default"],
+    }
+    const self = this
+    return Effect.gen(function* () {
+      const traced = yield* recallWithTraceEffect(self.brainDir, query, options)
+      const items: RecallExplanationItem[] = []
+      for (let index = 0; index < traced.scored.length; index++) {
+        const [score, recordId] = traced.scored[index]!
+        const item = yield* self.buildRecallExplanationItem(
+          recordId,
+          index + 1,
+          score,
+          traced.evidence.get(recordId),
+        )
+        if (item !== null) items.push(item)
+      }
+      return {
+        query,
+        top_k: top,
+        result_count: items.length,
+        latency_ms: Date.now() - started,
+        belief_rerank_mode: "default",
+        concept_surface_mode: "inspect",
+        causal_rerank_mode: "default",
+        policy_rerank_mode: "default",
+        items,
+      }
+    })
   }
 
-  explain_record(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: explainability surface is recoverably unsupported for MCP callers.
-    // Reason: TS does not yet have the Rust explainability bundle / trace DTOs.
+  explain_record(
+    recordId: string,
+  ): Effect.Effect<
+    RecallExplanationItem | null,
+    never,
+    EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
+  > {
+    // Explain a single record using current persisted provenance.
+    // 用当前持久化 provenance 解释单条 record；不依赖召回排序。
     // Rust reference: Aura::explain_record (aura.rs)
-    return unsupportedSurface("Aura.explain_record", "Aura::explain_record (aura.rs)", [
-      "Record-level provenance chain",
-      "Correction log read model",
-    ])
+    return this.buildRecallExplanationItem(recordId, 1, this.searchRecords.get(recordId)?.strength ?? 0, undefined)
+  }
+
+  provenance_chain(
+    recordId: string,
+  ): Effect.Effect<
+    ProvenanceChain | null,
+    never,
+    EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
+  > {
+    const started = Date.now()
+    const self = this
+    return Effect.gen(function* () {
+      const item = yield* self.explain_record(recordId)
+      return item === null ? null : buildProvenanceChain(item, Date.now() - started)
+    })
+  }
+
+  explainability_bundle(
+    recordId: string,
+  ): Effect.Effect<
+    ExplainabilityBundle | null,
+    never,
+    EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
+  > {
+    // Build one bounded explainability bundle for UI/debugging.
+    // 构建单条 record 的有界解释包，包含 provenance、修正摘录和运行时摘要。
+    // Rust reference: Aura::explainability_bundle (aura.rs)
+    const self = this
+    return Effect.gen(function* () {
+      const explanation = yield* self.explain_record(recordId)
+      if (explanation === null) return null
+      const provenance = buildProvenanceChain(explanation, 0)
+      const beliefInstability = yield* self.get_belief_instability_summary()
+      return {
+        record_id: recordId,
+        explanation,
+        provenance,
+        record_corrections: self.get_correction_log_for_target("record", recordId),
+        belief_corrections: explanation.belief === null
+          ? []
+          : self.get_correction_log_for_target("belief", explanation.belief.id),
+        causal_corrections: explanation.causal_patterns.flatMap((pattern) =>
+          self.get_correction_log_for_target("causal_pattern", pattern.id)
+        ),
+        policy_corrections: explanation.policy_hints.flatMap((hint) =>
+          self.get_correction_log_for_target("policy_hint", hint.id)
+        ),
+        belief_instability: beliefInstability,
+        reflection_digest: self.get_reflection_digest(8),
+        related_reflection_findings: self.relatedReflectionFindings(recordId, explanation.namespace, 8),
+        maintenance_trends: self.get_maintenance_trend_summary(),
+      }
+    })
+  }
+
+  deprecate_belief_with_reason(
+    beliefId: string,
+    reason: string,
+  ): Effect.Effect<boolean, FileWriteError, BeliefEngine | BeliefStore | FileWrite> {
+    // Soft-deprecate a belief and append an in-memory correction-log entry.
+    // 软废弃 belief 并追加内存 correction log；与 Rust runtime Vec<CorrectionLogEntry> 模型对齐。
+    // Rust reference: Aura::deprecate_belief_with_reason (aura.rs)
+    const self = this
+    return Effect.gen(function* () {
+      const engine = yield* Effect.service(BeliefEngine)
+      const store = yield* Effect.service(BeliefStore)
+      const before = yield* engine.stats()
+      if (before.beliefs[beliefId] === undefined) return false
+      yield* engine.deprecate_belief(beliefId)
+      const after = yield* engine.stats()
+      yield* store.save(after)
+      const clock = yield* Clock
+      self.appendCorrectionLogEntry(clock.nowSeconds(), "belief", beliefId, "deprecate", reason)
+      return true
+    })
+  }
+
+  invalidate_causal_pattern_with_reason(
+    patternId: string,
+    reason: string,
+  ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
+    // Invalidate a causal pattern and preserve the reason in the correction log.
+    // 使 causal pattern 失效，并在 correction log 中保留原因。
+    // Rust reference: Aura::invalidate_causal_pattern_with_reason (aura.rs)
+    const self = this
+    return Effect.gen(function* () {
+      const engine = yield* Effect.service(CausalEngine)
+      const store = yield* Effect.service(CausalStore)
+      const before = yield* engine.stats()
+      if (before.patterns[patternId] === undefined) return false
+      yield* engine.invalidate_pattern(patternId)
+      const after = yield* engine.stats()
+      yield* store.save(after)
+      const clock = yield* Clock
+      self.appendCorrectionLogEntry(clock.nowSeconds(), "causal_pattern", patternId, "invalidate", reason)
+      return true
+    })
+  }
+
+  retract_policy_hint_with_reason(
+    hintId: string,
+    reason: string,
+  ): Effect.Effect<boolean, FileWriteError, PolicyEngine | PolicyStore | FileWrite> {
+    // Retract a policy hint and append an in-memory correction-log entry.
+    // 撤回 policy hint 并追加内存 correction log。
+    // Rust reference: Aura::retract_policy_hint_with_reason (aura.rs)
+    const self = this
+    return Effect.gen(function* () {
+      const engine = yield* Effect.service(PolicyEngine)
+      const store = yield* Effect.service(PolicyStore)
+      const before = yield* engine.stats()
+      if (before.hints[hintId] === undefined) return false
+      yield* engine.retract_hint(hintId)
+      const after = yield* engine.stats()
+      yield* store.save(after)
+      const clock = yield* Clock
+      self.appendCorrectionLogEntry(clock.nowSeconds(), "policy_hint", hintId, "retract", reason)
+      return true
+    })
+  }
+
+  correction_log(): ReadonlyArray<CorrectionLogEntry> {
+    return this.get_correction_log()
+  }
+
+  get_correction_log(): ReadonlyArray<CorrectionLogEntry> {
+    return this.correctionLog.slice()
+  }
+
+  get_correction_log_for_target(
+    targetKind: string,
+    targetId: string,
+  ): ReadonlyArray<CorrectionLogEntry> {
+    return this.correctionLog.filter((entry) => entry.target_kind === targetKind && entry.target_id === targetId)
+  }
+
+  correction_review_queue(
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<CorrectionReviewCandidate>, never, BeliefEngine | CausalEngine | PolicyEngine> {
+    return this.get_correction_review_queue(limit)
+  }
+
+  get_correction_review_queue(
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<CorrectionReviewCandidate>, never, BeliefEngine | CausalEngine | PolicyEngine> {
+    // Return correction candidates sorted by repeated correction pressure, recency, and downstream impact.
+    // 返回按重复修正压力、新近度和下游影响排序的 correction review 队列。
+    // Rust reference: Aura::get_correction_review_queue (aura.rs)
+    const max = clampInt(limit ?? 10, 1, 50)
+    const records = this.searchRecords
+    const corrections = this.correctionLog.slice().sort((a, b) => b.timestamp - a.timestamp)
+    return Effect.gen(function* () {
+      if (corrections.length === 0) return []
+      const belief = yield* Effect.service(BeliefEngine)
+      const causal = yield* Effect.service(CausalEngine)
+      const policy = yield* Effect.service(PolicyEngine)
+      const beliefs = Object.values((yield* belief.stats()).beliefs)
+      const causalPatterns = Object.values((yield* causal.stats()).patterns)
+      const policyHints = Object.values((yield* policy.stats()).hints)
+      const repeatCounts = new Map<string, number>()
+      for (const entry of corrections) {
+        const key = `${entry.target_kind}:${entry.target_id}`
+        repeatCounts.set(key, (repeatCounts.get(key) ?? 0) + 1)
+      }
+      const total = Math.max(corrections.length, 1)
+      const queue = corrections.map((entry, index) => {
+        const dependentCausalPatterns = dependentCausalCount(entry, causalPatterns)
+        const dependentPolicyHints = dependentPolicyCount(entry, policyHints)
+        const downstreamImpact = dependentCausalPatterns + dependentPolicyHints
+        const repeatCount = repeatCounts.get(`${entry.target_kind}:${entry.target_id}`) ?? 1
+        const recencyScore = clamp(1 - (index / total) * 0.85, 0.15, 1)
+        const priorityScore = downstreamImpact * 1.6 + Math.max(0, repeatCount - 1) * 0.9 + recencyScore
+        return {
+          timestamp: entry.timestamp,
+          time_iso: entry.time_iso,
+          target_kind: entry.target_kind,
+          target_id: entry.target_id,
+          operation: entry.operation,
+          reason: entry.reason,
+          session_id: entry.session_id,
+          namespace: namespaceForCorrectionWithBeliefs(entry, records, beliefs, causalPatterns, policyHints),
+          title: `Review ${entry.operation} ${entry.target_kind} (${entry.reason})`,
+          repeat_count: repeatCount,
+          dependent_causal_patterns: dependentCausalPatterns,
+          dependent_policy_hints: dependentPolicyHints,
+          downstream_impact: downstreamImpact,
+          priority_score: priorityScore,
+          severity: issueSeverity(priorityScore, 5.0, 2.5),
+        }
+      })
+      queue.sort((a, b) =>
+        b.priority_score - a.priority_score ||
+        b.timestamp - a.timestamp ||
+        a.target_kind.localeCompare(b.target_kind) ||
+        a.target_id.localeCompare(b.target_id)
+      )
+      return queue.slice(0, max)
+    })
+  }
+
+  contradiction_review_queue(
+    namespace?: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<ContradictionReviewCandidate>, never, EpistemicRuntime | BeliefEngine | CausalEngine | PolicyEngine> {
+    return this.get_contradiction_review_queue(namespace, limit)
+  }
+
+  get_contradiction_review_queue(
+    namespace?: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<ContradictionReviewCandidate>, never, EpistemicRuntime | BeliefEngine | CausalEngine | PolicyEngine> {
+    // Reuse EpistemicRuntime contradiction clusters and add Rust-style review prioritization.
+    // 复用 EpistemicRuntime contradiction clusters，并添加 Rust 风格 review 排序层。
+    // Rust reference: Aura::get_contradiction_review_queue (aura.rs)
+    const max = clampInt(limit ?? 10, 1, 50)
+    const records = this.searchRecords
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const causal = yield* Effect.service(CausalEngine)
+      const policy = yield* Effect.service(PolicyEngine)
+      const clusters = yield* runtime.getContradictionClusters(records, namespace, max * 3)
+      const causalPatterns = Object.values((yield* causal.stats()).patterns)
+      const policyHints = Object.values((yield* policy.stats()).hints)
+      const queue = clusters.map((cluster) => {
+        const dependentCausalPatterns = causalPatterns.filter((pattern) =>
+          isActiveCausalPattern(pattern) &&
+          cluster.beliefIds.some((beliefId) => pattern.cause_belief_id === beliefId || pattern.effect_belief_id === beliefId)
+        ).length
+        const dependentPolicyHints = policyHints.filter((hint) =>
+          hint.state !== "Rejected" &&
+          cluster.beliefKeys.some((beliefKey) => hint.cause_key.includes(beliefKey))
+        ).length
+        const downstreamImpact = dependentCausalPatterns + dependentPolicyHints
+        const priorityScore = Math.min(
+          10,
+          cluster.avgVolatility * 4 +
+            Math.min(cluster.totalConflictMass, 2) +
+            cluster.unresolvedBeliefCount * 0.8 +
+            cluster.highVolatilityBeliefCount * 0.6 +
+            downstreamImpact * 0.9 +
+            (1.5 - Math.min(cluster.avgStability, 1.5)),
+        )
+        return {
+          cluster_id: cluster.id,
+          namespace: cluster.namespace,
+          title: `Review contradiction cluster in ${cluster.namespace} (${cluster.beliefIds.length} beliefs, ${cluster.recordIds.length} records)`,
+          belief_ids: cluster.beliefIds,
+          belief_keys: cluster.beliefKeys,
+          record_ids: cluster.recordIds,
+          shared_tags: cluster.sharedTags,
+          unresolved_belief_count: cluster.unresolvedBeliefCount,
+          high_volatility_belief_count: cluster.highVolatilityBeliefCount,
+          dependent_causal_patterns: dependentCausalPatterns,
+          dependent_policy_hints: dependentPolicyHints,
+          downstream_impact: downstreamImpact,
+          total_conflict_mass: cluster.totalConflictMass,
+          avg_volatility: cluster.avgVolatility,
+          avg_stability: cluster.avgStability,
+          priority_score: priorityScore,
+          severity: issueSeverity(priorityScore, 5.0, 2.5),
+        }
+      })
+      queue.sort((a, b) =>
+        b.priority_score - a.priority_score ||
+        b.downstream_impact - a.downstream_impact ||
+        b.unresolved_belief_count - a.unresolved_belief_count ||
+        a.cluster_id.localeCompare(b.cluster_id)
+      )
+      return queue.slice(0, max)
+    })
+  }
+
+  suggested_corrections(
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<SuggestedCorrection>, never, EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine> {
+    return this.get_suggested_corrections(limit)
+  }
+
+  get_suggested_corrections(
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<SuggestedCorrection>, never, EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine> {
+    // Return bounded advisory corrections without auto-applying them.
+    // 返回有界建议修正，不自动执行。
+    // Rust reference: Aura::get_suggested_corrections (aura.rs)
+    const max = clampInt(limit ?? 10, 1, 50)
+    const self = this
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const highVolatility = yield* runtime.getHighVolatilityBeliefs(0.2, max * 2)
+      const lowStability = yield* runtime.getLowStabilityBeliefs(1.0, max * 2)
+      const contradictionQueue = yield* self.get_contradiction_review_queue(undefined, max)
+      const suggestions = new Map<string, SuggestedCorrection>()
+
+      const upsert = (candidate: SuggestedCorrection) => {
+        const key = `${candidate.target_kind}:${candidate.target_id}`
+        const existing = suggestions.get(key)
+        if (existing === undefined || existing.priority_score < candidate.priority_score) {
+          suggestions.set(key, candidate)
+        }
+      }
+
+      for (const belief of highVolatility) {
+        const recordId = firstRecordForBelief(belief, self.searchRecords)
+        const provenance = recordId === null ? null : yield* self.provenance_chain(recordId)
+        const score = belief.volatility * 4
+        upsert({
+          target_kind: "belief",
+          target_id: belief.id,
+          namespace: namespaceFromBeliefKey(belief.key),
+          reason_kind: "HighVolatility",
+          suggested_action: "Deprecate",
+          reason_detail: `belief volatility ${belief.volatility.toFixed(2)} exceeded bounded review threshold`,
+          priority_score: score,
+          severity: issueSeverity(score, 3.8, 2.2),
+          supporting_record_id: recordId,
+          provenance,
+        })
+      }
+
+      for (const belief of lowStability) {
+        const recordId = firstRecordForBelief(belief, self.searchRecords)
+        const score = Math.max(0, 2 - belief.stability) * 1.5
+        if (score <= 0) continue
+        const provenance = recordId === null ? null : yield* self.provenance_chain(recordId)
+        upsert({
+          target_kind: "belief",
+          target_id: belief.id,
+          namespace: namespaceFromBeliefKey(belief.key),
+          reason_kind: "LowStability",
+          suggested_action: "Review",
+          reason_detail: `belief stability ${belief.stability.toFixed(2)} is low`,
+          priority_score: score,
+          severity: issueSeverity(score, 3.8, 2.2),
+          supporting_record_id: recordId,
+          provenance,
+        })
+      }
+
+      for (const candidate of contradictionQueue) {
+        const recordId = candidate.record_ids[0] ?? null
+        const provenance = recordId === null ? null : yield* self.provenance_chain(recordId)
+        upsert({
+          target_kind: "belief",
+          target_id: candidate.belief_ids[0] ?? candidate.cluster_id,
+          namespace: candidate.namespace,
+          reason_kind: "ContradictionCluster",
+          suggested_action: "ReviewContradiction",
+          reason_detail: candidate.title,
+          priority_score: candidate.priority_score,
+          severity: candidate.severity,
+          supporting_record_id: recordId,
+          provenance,
+        })
+      }
+
+      return [...suggestions.values()]
+        .sort((a, b) => b.priority_score - a.priority_score || a.target_kind.localeCompare(b.target_kind) || a.target_id.localeCompare(b.target_id))
+        .slice(0, max)
+    })
+  }
+
+  get_maintenance_trend_summary(): McpMaintenanceTrendSummary {
+    return toMcpMaintenanceTrendSummary(summarizeTrends(this.maintenanceTrendHistory))
+  }
+
+  get_reflection_digest(limit?: number): McpReflectionDigest {
+    const max = clampInt(limit ?? 8, 1, 50)
+    const digest = summarizeReflections(this.reflectionSummaries)
+    return {
+      summary_count: digest.summaryCount,
+      total_findings: digest.totalFindings,
+      high_severity_findings: digest.highSeverityFindings,
+      latest_timestamp: digest.latestTimestamp,
+      latest_dominant_phase: digest.latestDominantPhase,
+      kinds: digest.kinds.map((kind) => ({
+        kind: kind.kind,
+        count: kind.count,
+        high_severity_count: kind.highSeverityCount,
+        avg_score: kind.avgScore,
+      })),
+      namespaces: digest.namespaces,
+      top_findings: digest.topFindings.slice(0, max).map(toMcpReflectionFinding),
+    }
+  }
+
+  private relatedReflectionFindings(
+    recordId: string,
+    namespace: string,
+    limit: number,
+  ): ReadonlyArray<McpReflectionFinding> {
+    return this.reflectionSummaries
+      .flatMap((summary) => summary.findings)
+      .filter((finding) => finding.relatedIds.includes(recordId) || finding.namespace === namespace)
+      .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+      .slice(0, limit)
+      .map(toMcpReflectionFinding)
+  }
+
+  private appendCorrectionLogEntry(
+    timestampSeconds: number,
+    targetKind: string,
+    targetId: string,
+    operation: string,
+    reason: string,
+  ): void {
+    const timestamp = Math.trunc(timestampSeconds)
+    this.correctionLog.push({
+      timestamp,
+      time_iso: new Date(timestamp * 1000).toISOString(),
+      target_kind: targetKind,
+      target_id: targetId,
+      operation,
+      reason,
+      session_id: "ts-core",
+    })
+  }
+
+  private buildRecallExplanationItem(
+    recordId: string,
+    rank: number,
+    score: number,
+    evidence: RecallRecordEvidence | undefined,
+  ): Effect.Effect<
+    RecallExplanationItem | null,
+    never,
+    EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
+  > {
+    const record = this.searchRecords.get(recordId)
+    if (record === undefined) return Effect.succeed(null)
+    const records = this.searchRecords
+    const corrections = this.correctionLog
+    const reflections = this.reflectionSummaries
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const belief = yield* runtime.getBeliefForRecord(recordId)
+      const concepts = yield* runtime.getConcepts()
+      const causalPatterns = yield* runtime.getCausalPatterns()
+      const policyHints = yield* runtime.getPolicyHints()
+
+      const beliefExplanation: RecallBeliefExplanation | null = belief === null
+        ? null
+        : {
+            id: belief.id,
+            state: belief.state.toLowerCase(),
+            confidence: belief.confidence,
+            support_mass: belief.support_mass,
+            conflict_mass: belief.conflict_mass,
+            stability: belief.stability,
+            volatility: belief.volatility,
+            has_unresolved_evidence:
+              belief.state === "Unresolved" ||
+              belief.state === "Empty" ||
+              belief.volatility >= 0.2 ||
+              belief.conflict_mass > belief.support_mass,
+          }
+      const beliefId = beliefExplanation?.id ?? null
+      const hasUnresolvedEvidence = beliefExplanation?.has_unresolved_evidence ?? false
+      const contradictionDependency =
+        beliefExplanation !== null &&
+        (beliefExplanation.conflict_mass > 0 || beliefExplanation.has_unresolved_evidence)
+
+      const conceptExplanations: RecallConceptExplanation[] = concepts
+        .filter((concept) =>
+          concept.record_ids.includes(recordId) ||
+          (beliefId !== null && concept.belief_ids.includes(beliefId))
+        )
+        .sort((a, b) => b.confidence - a.confidence || a.key.localeCompare(b.key))
+        .map((concept) => ({
+          id: concept.id,
+          key: concept.key,
+          state: concept.state.toLowerCase(),
+          confidence: concept.confidence,
+        }))
+
+      const causalExplanations: RecallCausalExplanation[] = causalPatterns
+        .filter((pattern) =>
+          pattern.cause_record_ids.includes(recordId) ||
+          pattern.effect_record_ids.includes(recordId) ||
+          (beliefId !== null && (pattern.cause_belief_id === beliefId || pattern.effect_belief_id === beliefId))
+        )
+        .sort((a, b) => b.causal_strength - a.causal_strength || a.id.localeCompare(b.id))
+        .map((pattern) => ({
+          id: pattern.id,
+          key: `${pattern.cause_key}:${pattern.effect_key}`,
+          state: pattern.state.toLowerCase(),
+          causal_strength: pattern.causal_strength,
+          invalidation_reason: latestCorrectionReason(corrections, "causal_pattern", pattern.id, "invalidate"),
+          invalidated_at: latestCorrectionTimestamp(corrections, "causal_pattern", pattern.id, "invalidate"),
+          corrections: corrections.filter((entry) => entry.target_kind === "causal_pattern" && entry.target_id === pattern.id),
+        }))
+
+      const policyExplanations: RecallPolicyExplanation[] = policyHints
+        .filter((hint) =>
+          hint.cause_record_ids.includes(recordId) ||
+          hint.effect_keys.includes(recordId) ||
+          (belief !== null && hint.cause_key.includes(belief.key))
+        )
+        .sort((a, b) => b.policyStrength - a.policyStrength || a.id.localeCompare(b.id))
+        .map((hint) => ({
+          id: hint.id,
+          key: hint.cause_key,
+          state: hint.state.toLowerCase(),
+          action_kind: hint.actionKind,
+          policy_strength: hint.policyStrength,
+        }))
+
+      const becauseRecordId = typeof record.caused_by_id === "string" ? record.caused_by_id : null
+      const becausePreview = becauseRecordId === null
+        ? null
+        : previewText(records.get(becauseRecordId)?.content ?? "", 120)
+      const reflectionReferences = reflections
+        .flatMap((summary) => summary.findings)
+        .filter((finding) => finding.relatedIds.includes(recordId) || finding.namespace === record.namespace)
+        .map((finding) => finding.title)
+      const uniqueReflectionReferences = sortedUnique(reflectionReferences).slice(0, 4)
+      const honestyNote = hasUnresolvedEvidence
+        ? (policyExplanations.length > 0
+            ? "This recommendation depends on unresolved evidence."
+            : "This memory is linked to unstable or conflicting evidence.")
+        : null
+      const salience = 0
+      const salienceReason = record.metadata["salience_reason"] ?? null
+      const salienceExplanation = salience > 0
+        ? "This memory carries non-zero significance weighting."
+        : null
+
+      return {
+        rank,
+        record_id: record.id,
+        score,
+        namespace: record.namespace,
+        salience,
+        salience_reason: salienceReason,
+        salience_explanation: salienceExplanation,
+        content_preview: previewText(record.content, 160),
+        because_record_id: becauseRecordId,
+        because_preview: becausePreview,
+        belief: beliefExplanation,
+        has_unresolved_evidence: hasUnresolvedEvidence,
+        honesty_note: honestyNote,
+        contradiction_dependency: contradictionDependency,
+        reflection_references: uniqueReflectionReferences,
+        answer_support: {
+          significance_phrase: salienceExplanation,
+          uncertainty_phrase: honestyNote,
+          contradiction_phrase: contradictionDependency
+            ? "This answer should acknowledge conflicting or unresolved evidence."
+            : null,
+          reflection_phrase: uniqueReflectionReferences.length === 0
+            ? null
+            : `Recent reflection findings touching this area: ${uniqueReflectionReferences.join(", ")}.`,
+          recommended_framing: hasUnresolvedEvidence
+            ? "State the useful evidence, then explicitly note uncertainty or conflict."
+            : "State the answer directly without anthropomorphic language.",
+        },
+        concepts: conceptExplanations,
+        causal_patterns: causalExplanations,
+        policy_hints: policyExplanations,
+        trace: toRecallTraceScore(evidence, score),
+      }
+    })
   }
 
   runMaintenance(
@@ -1099,11 +1747,12 @@ export class Aura {
       // ── Phase 7: Trends ──
       const trendHistory = self.maintenanceTrendHistory
       const previousCumulativeCorrections = trendHistory[trendHistory.length - 1]?.cumulativeCorrections ?? 0
+      const cumulativeCorrections = self.correctionLog.length
       const snapshot = buildTrendSnapshot(
         timestamp, records.size, postDiscovery.recordsArchived,
         initial.insightsFound, initial.epistemic,
         discovery.belief, discovery.causal, discovery.policy,
-        discovery.feedback, timings, hotspots, previousCumulativeCorrections, previousCumulativeCorrections
+        discovery.feedback, timings, hotspots, cumulativeCorrections, previousCumulativeCorrections
       )
       yield* pushTrendSnapshot(trendHistory, snapshot)
       const trendSummary = summarizeTrends(trendHistory)
@@ -1236,6 +1885,206 @@ function unsupportedSurface(
     rustReference,
     missingPrerequisites,
   }))
+}
+
+function toRecallSignalScore(signal: RecallRecordEvidence["signals"][keyof RecallRecordEvidence["signals"]]): RecallSignalScore | null {
+  return signal === undefined
+    ? null
+    : {
+        raw_score: signal.rawScore,
+        rank: signal.rank,
+        rrf_share: signal.rrfShare,
+      }
+}
+
+function toRecallTraceScore(evidence: RecallRecordEvidence | undefined, finalScore: number): RecallTraceScore {
+  return {
+    sdr: toRecallSignalScore(evidence?.signals.sdr),
+    ngram: toRecallSignalScore(evidence?.signals.ngram),
+    tags: toRecallSignalScore(evidence?.signals.tags),
+    embedding: toRecallSignalScore(evidence?.signals.embedding),
+    rrf_score: evidence?.rrfScore ?? 0,
+    graph_score: evidence?.graphScore ?? 0,
+    causal_score: evidence?.causalScore ?? 0,
+    pre_trust_score: evidence?.preTrustScore ?? 0,
+    trust_multiplier: evidence?.trustMultiplier ?? 1,
+    pre_rerank_score: evidence?.preRerankScore ?? finalScore,
+    rerank_delta: evidence?.rerankDelta ?? 0,
+    final_score: finalScore,
+  }
+}
+
+function buildProvenanceChain(item: RecallExplanationItem, buildLatencyMs: number): ProvenanceChain {
+  const steps: string[] = [`record ${item.record_id} in namespace ${item.namespace}`]
+  if (item.because_record_id !== null) {
+    steps.push(item.because_preview === null
+      ? `caused_by ${item.because_record_id}`
+      : `caused_by ${item.because_record_id} from "${previewText(item.because_preview, 80)}"`)
+  }
+  if (item.belief !== null) {
+    steps.push(`belief ${item.belief.id} is ${item.belief.state} at confidence ${item.belief.confidence.toFixed(2)}`)
+    if (item.belief.has_unresolved_evidence) {
+      steps.push(`belief ${item.belief.id} carries unresolved evidence`)
+    }
+  }
+  for (const concept of item.concepts) {
+    steps.push(`concept ${concept.id} (${concept.key}) is ${concept.state} at confidence ${concept.confidence.toFixed(2)}`)
+  }
+  for (const pattern of item.causal_patterns) {
+    const lastCorrection = pattern.corrections[pattern.corrections.length - 1]
+    steps.push(lastCorrection === undefined
+      ? `causal pattern ${pattern.id} (${pattern.key}) is ${pattern.state} with strength ${pattern.causal_strength.toFixed(2)}`
+      : `causal pattern ${pattern.id} (${pattern.key}) is ${pattern.state}; last correction ${lastCorrection.operation} at ${lastCorrection.time_iso}`)
+  }
+  for (const hint of item.policy_hints) {
+    steps.push(`policy hint ${hint.id} (${hint.key}) is ${hint.state} as ${hint.action_kind} with strength ${hint.policy_strength.toFixed(2)}`)
+  }
+
+  const narrativeParts = [`Record ${item.record_id} surfaced in namespace ${item.namespace}`]
+  if (item.belief !== null) {
+    narrativeParts.push(`it maps to belief ${item.belief.id} (${item.belief.state}, confidence ${item.belief.confidence.toFixed(2)})`)
+  }
+  if (item.concepts.length > 0) {
+    narrativeParts.push(`it participates in concepts ${item.concepts.map((concept) => concept.key).join(", ")}`)
+  }
+  if (item.causal_patterns.length > 0) {
+    narrativeParts.push(`causal evidence includes ${item.causal_patterns.length} pattern(s)`)
+  }
+  if (item.policy_hints.length > 0) {
+    narrativeParts.push(`policy guidance includes ${item.policy_hints.length} hint(s)`)
+  }
+
+  return {
+    record_id: item.record_id,
+    namespace: item.namespace,
+    content_preview: item.content_preview,
+    build_latency_ms: buildLatencyMs,
+    because_record_id: item.because_record_id,
+    because_preview: item.because_preview,
+    belief: item.belief,
+    concepts: item.concepts,
+    causal_patterns: item.causal_patterns,
+    policy_hints: item.policy_hints,
+    steps,
+    narrative: `${narrativeParts.join("; ")}.`,
+  }
+}
+
+function latestCorrectionReason(
+  entries: ReadonlyArray<CorrectionLogEntry>,
+  targetKind: string,
+  targetId: string,
+  operation: string,
+): string | null {
+  const entry = entries
+    .filter((item) => item.target_kind === targetKind && item.target_id === targetId && item.operation === operation)
+    .sort((a, b) => b.timestamp - a.timestamp)[0]
+  return entry?.reason ?? null
+}
+
+function latestCorrectionTimestamp(
+  entries: ReadonlyArray<CorrectionLogEntry>,
+  targetKind: string,
+  targetId: string,
+  operation: string,
+): number | null {
+  const entry = entries
+    .filter((item) => item.target_kind === targetKind && item.target_id === targetId && item.operation === operation)
+    .sort((a, b) => b.timestamp - a.timestamp)[0]
+  return entry?.timestamp ?? null
+}
+
+function dependentCausalCount(
+  entry: CorrectionLogEntry,
+  patterns: ReadonlyArray<CausalPattern>,
+): number {
+  return patterns.filter((pattern) => {
+    if (!isActiveCausalPattern(pattern)) return false
+    if (entry.target_kind === "belief") {
+      return pattern.cause_belief_id === entry.target_id || pattern.effect_belief_id === entry.target_id
+    }
+    if (entry.target_kind === "record") {
+      return pattern.cause_record_ids.includes(entry.target_id) || pattern.effect_record_ids.includes(entry.target_id)
+    }
+    return false
+  }).length
+}
+
+function dependentPolicyCount(
+  entry: CorrectionLogEntry,
+  hints: ReadonlyArray<PolicyHint>,
+): number {
+  return hints.filter((hint) => {
+    if (hint.state === "Rejected") return false
+    if (entry.target_kind === "causal_pattern") return hint.pattern_id === entry.target_id
+    if (entry.target_kind === "record") {
+      return hint.cause_record_ids.includes(entry.target_id) || hint.effect_keys.includes(entry.target_id)
+    }
+    if (entry.target_kind === "belief") return hint.cause_key.includes(entry.target_id)
+    return false
+  }).length
+}
+
+function namespaceForCorrection(
+  entry: CorrectionLogEntry,
+  records: ReadonlyMap<string, AuraRecord>,
+  patterns: ReadonlyArray<CausalPattern>,
+  hints: ReadonlyArray<PolicyHint>,
+): string {
+  if (entry.target_kind === "record") return records.get(entry.target_id)?.namespace ?? inferNamespaceFromTarget(entry.target_id)
+  if (entry.target_kind === "causal_pattern") {
+    return patterns.find((pattern) => pattern.id === entry.target_id)?.namespace ?? inferNamespaceFromTarget(entry.target_id)
+  }
+  if (entry.target_kind === "policy_hint") {
+    return hints.find((hint) => hint.id === entry.target_id)?.namespace ?? inferNamespaceFromTarget(entry.target_id)
+  }
+  return inferNamespaceFromTarget(entry.target_id)
+}
+
+function namespaceForCorrectionWithBeliefs(
+  entry: CorrectionLogEntry,
+  records: ReadonlyMap<string, AuraRecord>,
+  beliefs: ReadonlyArray<Belief>,
+  patterns: ReadonlyArray<CausalPattern>,
+  hints: ReadonlyArray<PolicyHint>,
+): string {
+  if (entry.target_kind === "belief") {
+    const belief = beliefs.find((item) => item.id === entry.target_id)
+    if (belief !== undefined) return namespaceFromBeliefKey(belief.key)
+  }
+  return namespaceForCorrection(entry, records, patterns, hints)
+}
+
+function inferNamespaceFromTarget(targetId: string): string {
+  const [namespace] = targetId.split(":")
+  if (namespace && namespace.length > 0 && namespace !== targetId) return namespace
+  const dashParts = targetId.split("-")
+  const suffix = dashParts[dashParts.length - 1]
+  return suffix && suffix.length > 0 && suffix !== targetId ? suffix : "default"
+}
+
+function isActiveCausalPattern(pattern: CausalPattern): boolean {
+  return pattern.state === "Candidate" || pattern.state === "Stable"
+}
+
+function firstRecordForBelief(
+  belief: Belief,
+  records: ReadonlyMap<string, AuraRecord>,
+): string | null {
+  for (const record of records.values()) {
+    const keyParts = belief.key.split(":")
+    const semantic = keyParts[keyParts.length - 1]
+    if (record.namespace === namespaceFromBeliefKey(belief.key) && semantic !== undefined && record.semantic_type === semantic) {
+      return record.id
+    }
+  }
+  return null
+}
+
+function previewText(text: string, max: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim()
+  if (normalized.length <= max) return normalized
+  return `${normalized.slice(0, Math.max(0, max - 1))}...`
 }
 
 function normalizeCrossNamespaceOptions(
@@ -1425,6 +2274,32 @@ function toMcpPolicyPressureArea(area: PolicyPressureArea): McpPolicyPressureAre
     strongest_hint_id: area.strongestHintId,
     strongest_action_kind: area.strongestActionKind,
     strongest_policy_strength: area.strongestPolicyStrength,
+  }
+}
+
+function toMcpMaintenanceTrendSummary(summary: MaintenanceTrendSummary): McpMaintenanceTrendSummary {
+  return {
+    snapshot_count: summary.snapshotCount,
+    recent: summary.recent.map(toMcpMaintenanceTrendSnapshot),
+    avg_belief_churn: summary.avgBeliefChurn,
+    avg_causal_rejection_rate: summary.avgCausalRejectionRate,
+    avg_policy_suppression_rate: summary.avgPolicySuppressionRate,
+    avg_cycle_time_ms: summary.avgCycleTimeMs,
+    avg_correction_events: summary.avgCorrectionEvents,
+    total_corrections_in_window: summary.totalCorrectionsInWindow,
+    latest_dominant_phase: summary.latestDominantPhase,
+  }
+}
+
+function toMcpReflectionFinding(finding: ReflectionFinding): McpReflectionFinding {
+  return {
+    kind: finding.kind,
+    namespace: finding.namespace,
+    title: finding.title,
+    detail: finding.detail,
+    related_ids: finding.relatedIds,
+    score: finding.score,
+    severity: finding.severity,
   }
 }
 

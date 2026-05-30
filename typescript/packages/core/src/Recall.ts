@@ -12,7 +12,13 @@ import {
 } from "@aura/contract"
 import { type IndexFormatError } from "@aura/indexing"
 import { RecallViewLive } from "@aura/storage"
-import { recallPipeline, SdrInterpreterError, type RecallPipelineOptions } from "@aura/recall"
+import {
+  recallPipeline,
+  recallPipelineWithTrace,
+  SdrInterpreterError,
+  type RecallPipelineOptions,
+  type RecallTraceResult,
+} from "@aura/recall"
 
 export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRecord]
 
@@ -69,4 +75,25 @@ export function recallRecords<TRecord = unknown>(
   })
 
   return program.pipe(Effect.provide(RecallViewLive(dir)))
+}
+
+export function recallWithTrace(
+  dir: string,
+  query: string,
+  options?: Partial<RecallPipelineOptions>
+): Effect.Effect<
+  RecallTraceResult,
+  | FileReadError
+  | JsonParseError
+  | FileFormatError
+  | IndexFormatError
+  | SdrInterpreterError
+  | EmbeddingQueryError
+  | RerankError
+  | FinalizeError,
+  FileRead
+> {
+  // SIMPLE IMPLEMENTATION: expose @aura/recall trace helper with the same RecallViewLive provider as recallScored.
+  // Rust reference: Aura::explain_recall / RecallTraceScore (aura.rs)
+  return recallPipelineWithTrace(query, options).pipe(Effect.provide(RecallViewLive(dir)))
 }

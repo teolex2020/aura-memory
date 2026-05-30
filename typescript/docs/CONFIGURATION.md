@@ -11,7 +11,7 @@ description: Project configuration reference for the Aura monorepo
 
 The project uses **Bun** as the primary package manager. The lock file is `bun.lock`.
 
-The `package.json` root declares a `"workspaces": ["packages/*"]` field. An alternative `pnpm-workspace.yaml` also exists in the project root, but Bun is the actively committed package manager as indicated by the tracked `bun.lock`.
+The `package.json` root declares a `"workspaces": ["packages/*"]` field.
 
 ### Install dependencies
 
@@ -64,7 +64,6 @@ Wildcard sub-path aliases (`@aura/<name>/*`) are also configured for each packag
 
 The compiler includes:
 
-- `./*.ts` (root-level TypeScript files)
 - `packages/**/*.ts` (all workspace packages)
 - `vitest.config.ts` (the test runner config)
 
@@ -90,11 +89,11 @@ Tests are run with **Vitest** (configured in `vitest.config.ts` in the project r
 
 ### Resolve aliases
 
-The Vitest config defines path aliases for the core and shared packages so that `@aura/<name>` imports resolve correctly during test runs:
+The Vitest config defines path aliases for all 13 workspace packages so that `@aura/<name>` imports resolve correctly during test runs:
 
-- `@aura/codec`, `@aura/storage`, `@aura/core`, `@aura/contract`, `@aura/utils`, `@aura/platform-node`, `@aura/indexing`, `@aura/recall`
+- `@aura/codec`, `@aura/storage`, `@aura/core`, `@aura/contract`, `@aura/utils`, `@aura/platform-node`, `@aura/indexing`, `@aura/recall`, `@aura/belief`, `@aura/concept`, `@aura/causal`, `@aura/policy`, `@aura/epistemic-runtime`
 
-Additional packages (belief, concept, causal, policy, epistemic-runtime) are only aliased in `tsconfig.json` and not replicated in the Vitest config.
+All 13 packages are aliased in both `tsconfig.json` and `vitest.config.ts`. The `@aura/code-extraction` package is not aliased in either config — it is resolved directly by Bun via the workspace protocol.
 
 ### Test commands
 
@@ -147,10 +146,6 @@ All workspace packages are:
 - **Private** (`"private": true` in each `package.json`) -- not published to npm.
 - **ESM** (`"type": "module"` in each `package.json`).
 - **Entry-point** exports use `"exports": { ".": "./src/index.ts" }`, pointing directly to TypeScript source. Bun (and Vitest) resolve `.ts` files natively.
-
-### Alternative workspace config
-
-A `pnpm-workspace.yaml` file exists at the project root with the same `packages: ["packages/*"]` glob and build-dependency overrides for `better-sqlite3`. This file allows the project to be used with pnpm, though Bun is the primary package manager.
 
 ## Environment variables
 

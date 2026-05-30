@@ -116,6 +116,7 @@ import {
   NodeClockLive,
   NodeCryptoLive,
 } from "@aura/platform-node";
+import { Level } from "@aura/contract";
 import { Effect, Layer } from "effect";
 
 // Step 1: Assemble the platform layer.
@@ -130,7 +131,7 @@ const platformLive = Layer.mergeAll(
 // Step 2: Define the application logic using Effect.gen.
 const program = Effect.gen(function* () {
   // Open a brain at the given path.
-  // If the brain does not exist, it will be created on first store.
+  // The brain directory must contain a brain.aura file (see setup below).
   const aura = yield* Aura.open("./my_brain");
 
   // Store a plain-text record.
@@ -140,13 +141,13 @@ const program = Effect.gen(function* () {
   // Store a tagged record with options.
   const tagged = yield* aura.store("Meeting notes: Q1 retro", {
     tags: ["meeting", "retro", "Q1"],
-    level: "Important",
+    level: Level.Decisions,
   });
   console.log("Stored tagged:", tagged.id);
 
   // Recall records matching a query.
   const results = yield* aura.recall_structured("user preferences", {
-    top_k: 5,
+    topK: 5,
   });
   console.log("Recalled:", results.length, "records");
 
@@ -164,7 +165,7 @@ Effect.runPromise(Effect.provide(program, mainLayer));
 
 **Key concepts in this example:**
 
-- **`Aura.open(path)`** -- Opens a brain directory. Reads `brain.aura` for the record index and validates the persistence manifest.
+- **`Aura.open(path)`** -- Opens a brain directory. Reads `brain.aura` for the record index and validates the persistence manifest. The brain directory must already contain a `brain.aura` file.
 - **`aura.store(content, options?)`** -- Writes a record to the append-only cognitive log (`brain.cog`) with optional tags, level, namespace, and metadata.
 - **`aura.recall_structured(query, options?)`** -- Runs the multi-signal recall pipeline (tag index, SDR similarity, n-gram matching, RRF fusion, graph expansion) and returns scored, full records.
 - **Layer composition** -- The `platformLive` layer (file I/O, clock, crypto) is merged with `DefaultLayer` (belief/concept/causal/policy engines). Core logic stays pure; platform specifics are injected.
@@ -195,9 +196,9 @@ The workspace uses TypeScript path aliases (e.g., `@aura/core` maps to `packages
 1. Ensure the workspace root `tsconfig.json` is the active TypeScript project (VS Code: open the `typescript/` folder as the workspace root, not a sub-package).
 2. Run `tsc -p tsconfig.json --noEmit` to verify the aliases resolve correctly from the command line.
 
-### Missing `temporal.bin` when opening a fresh brain
+### Missing `brain.aura` when opening a fresh brain
 
-`Aura.open()` expects a valid brain directory with a `temporal.bin` file. If you are creating a new brain for experimentation, copy the minimal fixture:
+`Aura.open()` requires a valid brain directory containing a `brain.aura` file. If you are creating a new brain for experimentation, copy the minimal fixture:
 
 ```bash
 cp -r test/fixtures/minimal_brain ./my_brain

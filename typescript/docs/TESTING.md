@@ -72,19 +72,33 @@ packages/recall/src/Trust.ts
 packages/recall/src/Trust.test.ts       <-- co-located test
 ```
 
-There are currently **32 test files** across 8 packages. Fixture data common to multiple packages lives under `test/fixtures/` at the monorepo root.
+There are currently **41 test files** across 11 packages (codec, contract, core, indexing, recall, storage, belief, concept, policy, causal, epistemic-runtime). Fixture data common to multiple packages lives under `test/fixtures/` at the monorepo root.
 
 ### File naming
 
-All test files use the `*.test.ts` suffix. The project does not use `*.spec.ts`.
+All test files use the `*.test.ts` suffix. The project does not use `*.spec.ts`. Chinese-language tests use the suffix `.zh.test.ts` (e.g., `packages/belief/src/BeliefEngine.zh.test.ts`).
 
 ### Test organization
 
-Tests use flat `it` blocks directly at the top level of the file. The project does **not** use `describe` blocks for test grouping. Each `it` block is self-contained with a descriptive name that explains the behavior being verified.
+Most test files (32 of 41) use flat `it` blocks directly at the top level of the file. Each `it` block is self-contained with a descriptive name that explains the behavior being verified.
+
+Larger test files with heavy organizational needs (9 of 41) use `describe` blocks for grouping related test suites. Files that use `describe` include:
+
+- `packages/belief/src/BeliefEngine.test.ts` (21 describe blocks covering subcluster strategies, consistency, constants, and integration scenarios)
+- `packages/epistemic-runtime/src/EpistemicRuntime.test.ts`
+- `packages/causal/src/CausalEngine.test.ts`
+- `packages/core/src/Aura.test.ts`
+- `packages/core/src/MaintenanceService.test.ts`
+- `packages/policy/src/PolicyEngine.test.ts`
+- `packages/concept/src/Surface.test.ts`
+- `packages/recall/src/BoundedReranker.test.ts`
+- `packages/recall/src/RecallFinalizer.test.ts`
+
+Prefer flat `it` blocks for new tests unless the test file naturally requires grouping.
 
 ### Imports convention
 
-Every test file follows a consistent import pattern:
+The dominant import pattern (used in 38 of 41 test files) is:
 
 ```typescript
 import { it } from "vitest"
@@ -92,11 +106,21 @@ import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 ```
 
+Some test files that use `describe`-based organization also import `describe` and `expect` from vitest alongside `assert`:
+
+```typescript
+import { describe, it, expect } from "vitest"
+import { assert } from "@effect/vitest"
+import { Effect } from "effect"
+```
+
+A single test file (`MaintenanceService.test.ts`) also imports `vi` from vitest for inline mocking (`vi.fn()`).
+
 Additional imports depend on what the test exercises -- source-under-test imports and any required Effect Layer implementations.
 
 ## Assertions
 
-The project uses `assert` from `@effect/vitest` rather than vitest's built-in `expect`. The `@effect/vitest` assert object provides a familiar chai-like API:
+The project primarily uses `assert` from `@effect/vitest` (38 of 41 test files). The `@effect/vitest` assert object provides a chai-like API:
 
 | Method | Usage |
 |---|---|
@@ -106,6 +130,8 @@ The project uses `assert` from `@effect/vitest` rather than vitest's built-in `e
 | `assert.isTrue(condition)` | Strict `true` check |
 | `assert.isDefined(value)` | Not `undefined` check |
 | `assert.isFalse(condition)` | Strict `false` check |
+
+A few test files additionally use vitest's `expect` for assertions that benefit from `.toBe()` / `.toEqual()` matcher chains (e.g., `BeliefEngine.test.ts`, `EpistemicRuntime.test.ts`, `Aura.test.ts`, `MaintenanceService.test.ts`). For new tests, prefer `assert` from `@effect/vitest` as the primary assertion API.
 
 ## Patterns
 
@@ -216,9 +242,10 @@ Available fixture sets:
 
 | Fixture | Contents | Used by |
 |---|---|---|
-| `minimal_brain/` | `temporal.bin` | Integration tests for BrainAura, Aura.open |
+| `minimal_brain/` | `brain.aura`, `temporal.bin` | Integration tests for BrainAura, Aura.open |
 | `minimal_index/` | `index_manifest.json`, `sdr.idx` (Rust-generated) | InvertedIndex.load, recall pipeline tests |
 | `epistemic_belief_v1/` | `records.json`, `expected.json` | BeliefEngine.update snapshot tests |
+| `recall_parity/` | `brain.aura`, `brain.cog`, `brain.snap`, `index/`, `temporal.bin` | Cross-language parity tests (Recall.parity.test.ts) |
 
 ### Factory functions for test data
 
@@ -347,7 +374,7 @@ Follow these steps to add a test following the project's conventions:
 
 5. **For tests that need file I/O**, use `fs.mkdtempSync(path.join(os.tmpdir(), "aura-<domain>-"))` to create a temp directory, and provide the platform layers (`NodeFileReadLive`, `NodeFileWriteLive`, etc.) from `@aura/platform-node`.
 
-6. **For tests with dependencies on service interfaces**, create a fake or stub implementation as a plain object literal, then inject it with `Effect.provideService(Tag, fake)`. Do not use mocking libraries.
+6. **For tests with dependencies on service interfaces**, create a fake or stub implementation as a plain object literal, then inject it with `Effect.provideService(Tag, fake)`. Do not use external mocking libraries.
 
 7. **For time-dependent logic**, inject `Clock.fixed(timestamp)` via `Effect.provideService(Clock, clock)` to make the test deterministic.
 
@@ -359,8 +386,8 @@ Follow these steps to add a test following the project's conventions:
 
 ### Anti-patterns to avoid
 
-- Do not use `describe` blocks -- the project convention is flat `it` blocks.
-- Do not import `expect` from vitest -- use `assert` from `@effect/vitest`.
-- Do not install mocking libraries -- use hand-written fake/stub objects.
+- Prefer flat `it` blocks; use `describe` blocks only when test organization genuinely requires grouping.
+- Prefer `assert` from `@effect/vitest` (used in 38 of 41 test files); avoid `expect` from vitest unless a specific matcher chain is needed.
+- Do not install external mocking libraries -- use hand-written fake/stub objects. (Vitest's built-in `vi` utility is acceptable for inline mocking in rare cases.)
 - Do not write tests that depend on real time passing -- use `Clock.fixed()`.
 - Do not write tests that mutate shared global state between `it` blocks.

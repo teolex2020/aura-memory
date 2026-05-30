@@ -20,7 +20,7 @@ Built with [Effect-TS](https://effect.website/) for layered dependency injection
 
 | Package | Role |
 |---------|------|
-| `@aura/contract` | Domain types, enums (`Level`, `Record`, `SourceType`), context tags (`FileRead`, `FileWrite`, `Clock`, `Crypto`), errors |
+| `@aura/contract` | Domain types (`Record`, `StoreOptions`), enums (`Level`), context tags (`FileRead`, `FileWrite`, `Clock`, `Crypto`), errors |
 | `@aura/utils` | Pure utilities: bytes/hex encoding, CRC32, ID generation (`id12`), time helpers |
 | `@aura/codec` | Binary serialization primitives (bincode-style), crypto operations |
 | `@aura/indexing` | Inverted index with Roaring bitmap storage for tag and SDR lookups |
@@ -68,15 +68,15 @@ bun run test
 ```typescript
 import { Aura, DefaultLayer } from "@aura/core";
 import { FileRead, FileWrite, Clock, Crypto } from "@aura/contract";
-import { NodeFileRead, NodeFileWrite, NodeClock, NodeCrypto } from "@aura/platform-node";
+import { NodeFileReadLive, NodeFileWriteLive, NodeClockLive, NodeCryptoLive } from "@aura/platform-node";
 import { Effect, Layer } from "effect";
 
 // Assemble the platform layer (only layer importing node:*)
 const platformLive = Layer.mergeAll(
-  NodeFileRead.Live,
-  NodeFileWrite.Live,
-  NodeClock.Live,
-  NodeCrypto.Live,
+  NodeFileReadLive,
+  NodeFileWriteLive,
+  NodeClockLive,
+  NodeCryptoLive,
 );
 
 // Compose with Aura's default cognitive layer and run

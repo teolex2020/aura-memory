@@ -16,7 +16,7 @@ Records flow through five ascending tiers of abstraction:
 Raw Text  --->  Record  --->  Belief  --->  Concept  --->  Causal Pattern  --->  Policy
                  |               |              |                |                   |
            brain.cog       belief engine    concept engine    causal engine     policy engine
-          (append log)    (claim grouping,  (SDR clustering,  (stub --          (stub --
+          (append log)    (claim grouping,  (SDR clustering,  (stub --           (stub --
                            hypothesis        abstraction       Unimplemented)     Unimplemented)
                            resolution)       scoring)
 ```
@@ -119,19 +119,24 @@ export const NodeFileReadLive = Layer.succeed(FileRead, {
 
 This pattern is used for: `FileRead`, `FileWrite`, `Clock`, `Crypto`, `BeliefEngine`, `BeliefStore`, `ConceptEngine`, `ConceptStore`, `CausalEngine`, `CausalStore`, `PolicyEngine`, `PolicyStore`, `RecallViewTag`, `EmbeddingStore`, `BoundedReranker`, `RecallFinalizer`, `TrustConfigTag`, `EpistemicRuntime`, `EpistemicTrace`.
 
-The `serviceOption` utility (`packages/contract/src/Optional.ts`) allows optional service resolution -- downstream code can check `Option.isSome(service)` to branch on whether a service is available, which is used by the recall pipeline for optional embedding, reranker, and trust config services.
+The `serviceOption` utility (`packages/contract/src/Optional.ts`) allows optional service resolution -- downstream code can check `Option.isSome(service)` to branch on whether a service is available, which is used by the recall pipeline for optional embedding, reranker, trust config, and recall finalizer services.
 
 ### Aura Facade (`packages/core/src/Aura.ts`)
 
-The primary public API. Provides `Aura.open(path)` and `Aura.open_with_password(path, password?)` to instantiate the system from a brain directory. All operations return `Effect` values, making them lazy, composable, and testable:
+The primary public API. Provides `Aura.open(brainPath)` to instantiate the system from a brain directory. `open_with_password(brainPath, password?)` delegates to `open` (encryption is not yet wired). All operations return `Effect` values, making them lazy, composable, and testable:
 
 - `store(content, options?)` -- append a new record to the cognitive log
+- `store_with_channel(content, options?)` -- store with explicit channel for provenance stamping
 - `update(recordId, patch)` -- apply a partial update as an append-only event
 - `delete(recordId)` -- append a delete tombstone
 - `connect(fromId, toId, weight?)` -- link two records with a weighted connection
-- `recall(query, options?)` -- run the multi-signal recall pipeline
-- `explain_recall(...)` / `explain_record(...)` -- explainability stubs
-- `get_entity_digest(...)` / `link_entities(...)` -- entity/relation graph stubs
+- `recall(query, options?)` -- run the multi-signal recall pipeline, returns scored IDs
+- `recall_structured(query, options?)` -- structured recall via `recallRecords`
+- `recall_full(query, options?)` -- full recall (delegates to `recall_structured` for now)
+- `runMaintenance(config?)` -- run the full 8-phase maintenance cycle (decay, SDR build, belief/concept/causal/policy discovery, consolidation, trends, reflection)
+- `explain_recall(...)` / `explain_record(...)` -- explainability stubs (Unimplemented)
+- `get_entity_digest(...)` / `link_entities(...)` -- entity/relation graph stubs (Unimplemented)
+- `get_project_graph(...)` / `get_family_graph(...)` -- graph query stubs (Unimplemented)
 
 ### Engine / Store Pairs
 
@@ -162,6 +167,8 @@ PolicyStoreLive(brainDir)   -- policy persistence (stub)
 PolicyEngineLive             -- policy engine (stub)
 EpistemicRuntimeLive         -- epistemic runtime (stub)
 EpistemicTraceLive           -- trace/logging via Effect.log
+BoundedRerankerLive          -- bounded reranker (from @aura/recall)
+RecallFinalizerLive          -- recall finalizer (from @aura/recall)
 ```
 
 ### InvertedIndex (`packages/indexing/src/InvertedIndex.ts`)
@@ -188,8 +195,10 @@ A multi-signal recall system that fuses results from independent retrieval signa
 6. **Graph Walk** (`GraphWalk.graphWalk`): 2-hop connection graph expansion with damping (0.6) and min score (0.05)
 7. **Causal Walk** (`CausalWalk.causalWalk`): Traces `caused_by_id` chains up to depth 3 with decaying weights
 8. **Trust scoring**: Applies source trust, recency boost, and half-life decay from `TrustConfig`
-9. **Optional reranker** (`BoundedReranker`): Pluggable reranking service
-10. **Optional finalizer** (`RecallFinalizer`): Post-recall hook (e.g., logging, session tracking)
+9. **Optional reranker** (`BoundedReranker`): Pluggable reranking service resolved via `serviceOption`
+10. **Optional finalizer** (`RecallFinalizer`): Post-recall hook (e.g., logging, session tracking) resolved via `serviceOption`
+
+The pipeline resolves four optional services via `serviceOption`: `EmbeddingStore`, `TrustConfigTag`, `BoundedReranker`, and `RecallFinalizer`. Each falls back gracefully to a default or no-op when not provided.
 
 ### Binary Codec (`packages/codec`)
 
@@ -234,25 +243,43 @@ Provides `BinaryReader` and `BinaryWriter` for reading/writing the binary file f
       - Tokenizes query into lowercase tags
       - Scores records by Jaccard(tag intersection / tag union)
    d. (Optional) collectEmbedding(view, EmbeddingStore, query, topK, namespaces):
-      - Delegates to an external embedding service
+      - Delegates to an external embedding service, resolved via serviceOption
    e. rrfFuse([sdrRanked, ngramRanked, tagRanked, embeddingRanked?]):
       - Reciprocal Rank Fusion: score = sum(1 / (K + rank_i)) per result list
       - Normalizes against theoretical max
 4. filterByStrengthAndNamespace(view, fused, minStrength, namespaces)
-5. graphWalk(view, matched, minStrength, namespaces):
+5. graphWalk(view, matched, minStrength, namespaces) -- gated by expandConnections option:
    - 2-hop expansion from matched record connections
    - Damping factor 0.6 per hop, min score threshold 0.05
    - Max 30 expanded records
-6. causalWalk(view, matched, minStrength, namespaces):
+6. causalWalk(view, matched, minStrength, namespaces) -- gated by expandConnections option:
    - Traces caused_by_id chains up to depth 3
    - Decay formula: score * 0.8 * 0.9^depth
 7. applyRecencyScoring(view, scored, topK, nowSec, trustConfig):
+   - TrustConfig resolved via serviceOption (falls back to defaultTrustConfig)
    - Multiplies each score by record.strength * computeEffectiveTrust()
    - Sorts by final score, truncates to topK
-8. (Optional) BoundedReranker.rerank(scored, query)
-9. (Optional) RecallFinalizer.finalize(scored, sessionId)
+8. (Optional) BoundedReranker.rerank(scored, query) -- resolved via serviceOption
+9. (Optional) RecallFinalizer.finalize(scored, sessionId) -- resolved via serviceOption
 10. Returns RecallScored: Array<[score: number, recordId: string]>
 ```
+
+## Data Flow: Maintenance Cycle
+
+The maintenance cycle (`Aura.runMaintenance`) runs the full cognitive pipeline across all tiers:
+
+```
+1. runInitialPhases -- decay, reflect, epistemic introspection
+2. buildSdrLookup -- build SDR vector lookup from records and SDRInterpreter
+3. computeLayerStability -- compare current engine state keys against previous cycle
+4. runDiscoveryPhases -- belief clustering, concept abstraction, causal edge discovery, policy seed generation
+5. runPostDiscoveryPhases -- consolidation, cross-connections, task reminders/archival
+6. finalizeTelemetry -- aggregate timings, hotspots, and concept surface counters
+7. buildTrendSnapshot / pushTrendSnapshot / summarizeTrends -- trend history
+8. buildReflectionSummary -- final reflection summary with contradiction clusters
+```
+
+Returns a `MaintenanceReport` with per-phase timings, stability metrics, hotspot counters, trend summary, and reflection summary. The implementation lives in `packages/core/src/MaintenanceService.ts`.
 
 ## Directory Structure
 
@@ -269,17 +296,21 @@ typescript/
 │   │       ├── concept/ConceptTypes.ts  # ConceptCandidate, ConceptState
 │   │       ├── Context.ts         # Effect-TS Tag helper
 │   │       ├── Crypto.ts          # Crypto service Tag (encrypt/decrypt/hmac)
+│   │       ├── EpistemicInspection.ts  # Belief instability, concept surface telemetry types
 │   │       ├── EpistemicRuntime.ts # EpistemicRuntime Tag
 │   │       ├── EpistemicTrace.ts  # EpistemicTrace Tag (event/span)
 │   │       ├── Errors.ts          # Unified error types (TaggedError)
 │   │       ├── FileRead.ts        # FileRead service Tag
 │   │       ├── FileWrite.ts       # FileWrite service Tag
+│   │       ├── Maintenance.ts     # Maintenance config types and report shapes
 │   │       ├── Optional.ts        # serviceOption helper
 │   │       ├── Policy.ts          # PolicyEngine/PolicyStore Tag + impl type
 │   │       ├── Recall.ts          # RecallViewTag, EmbeddingStore, BoundedReranker
 │   │       ├── record/Record.ts   # Record, StoreOptions, UpdateOptions types
 │   │       ├── relation/Relation.ts # RelationEdge, EntityDigest
-│   │       └── sdr/Sdr.ts         # Sdr, SdrLookup types
+│   │       ├── sdr/Sdr.ts         # Sdr, SdrLookup types
+│   │       ├── levels/Level.ts    # Level enum (Working, Stable, Archival, etc.)
+│   │       └── index.ts           # Barrel export
 │   │
 │   ├── utils/             # Zero-dependency utility functions
 │   │   └── src/
@@ -298,7 +329,7 @@ typescript/
 │   │
 │   ├── indexing/          # Inverted index with Roaring Bitmaps
 │   │   └── src/
-│   │       ├── InvertedIndex.ts   # SDR bit → document set index
+│   │       ├── InvertedIndex.ts   # SDR bit to document set index
 │   │       └── Roaring.ts         # Roaring Bitmap wrapper (roaring-wasm)
 │   │
 │   ├── storage/           # File-based persistence layer
@@ -317,7 +348,8 @@ typescript/
 │   │       ├── PolicyStoreFile.ts          # Policy state persistence
 │   │       ├── RecallView.ts               # RecallView builder (records + indexes)
 │   │       ├── Temporal.ts                 # Temporal utilities
-│   │       └── Versioning.ts               # Data versioning logic
+│   │       ├── Versioning.ts               # Data versioning logic
+│   │       └── index.ts                    # Barrel export
 │   │
 │   ├── belief/            # Belief engine (tier 2 of cognitive hierarchy)
 │   │   └── src/
@@ -348,14 +380,19 @@ typescript/
 │   │       ├── CausalWalk.ts      # Causal chain traversal (caused_by_id)
 │   │       ├── SDRInterpreter.ts  # Text-to-SDR encoding
 │   │       ├── Trust.ts           # Trust scoring with recency decay
+│   │       ├── BoundedReranker.ts # Pluggable reranking service (Tag + Live)
+│   │       ├── RecallFinalizer.ts # Post-recall hook service (Tag + Live)
 │   │       ├── Types.ts           # RecallPipelineOptions, Scored, RankedList
-│   │       └── Errors.ts          # SdrInterpreterError
+│   │       ├── Errors.ts          # SdrInterpreterError
+│   │       └── index.ts           # Barrel export
 │   │
 │   ├── core/              # Top-level facade and wiring
 │   │   └── src/
-│   │       ├── Aura.ts            # Main Aura class (open, store, update, delete, recall, connect)
+│   │       ├── Aura.ts            # Main Aura class (open, store, update, delete, recall, connect, maintenance)
 │   │       ├── Recall.ts          # recallScored / recallRecords effect wrappers
-│   │       └── DefaultLayer.ts    # Layer.mergeAll of all engine/store layers
+│   │       ├── DefaultLayer.ts    # Layer.mergeAll of all engine/store/platform layers
+│   │       ├── MaintenanceService.ts  # 8-phase maintenance cycle implementation
+│   │       └── index.ts           # Barrel export
 │   │
 │   ├── platform-node/     # Node.js platform implementations
 │   │   └── src/
@@ -379,10 +416,9 @@ typescript/
 │           ├── search/            # Query parsing
 │           └── context/           # Context formatter
 │
-├── package.json           # Root workspace config (pnpm workspaces)
-├── pnpm-workspace.yaml    # pnpm workspace definition
+├── package.json           # Root workspace config (workspaces: ["packages/*"])
 ├── tsconfig.json          # TypeScript configuration
-└── vitest.config.ts       # Vitest test runner configuration (implied)
+└── vitest.config.ts       # Vitest test runner configuration
 ```
 
 ## File Formats

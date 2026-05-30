@@ -93,6 +93,8 @@ All cross-package imports use `@aura/*` aliases. Relative imports across package
 
 Wildcard sub-path aliases (`@aura/<name>/*`) are also configured for each package.
 
+Note: the `@aura/code-extraction` package exists in `packages/code-extraction/` but does not have `@aura/*` path aliases configured in `tsconfig.json` or `vitest.config.ts`. It is not currently imported by any other workspace package.
+
 ## Branch conventions
 
 No branch naming conventions are documented in the repository. The main branch is called `main`.
@@ -141,8 +143,7 @@ typescript/
     ├── policy/            # Policy engine and store
     ├── epistemic-runtime/ # Runtime orchestration and tracing
     ├── platform-node/     # Node.js Live layers (FileRead, FileWrite, Clock, Crypto)
-    ├── code-extraction/   # Source code parsing and extraction
-    └── utils/             # Shared utility functions
+    └── code-extraction/   # CodeGraph: local-first semantic code knowledge graph
 ```
 
 ### Package internal structure
@@ -416,7 +417,7 @@ Shared test fixtures live in `test/fixtures/` at the project root. Tests referen
 
 ### Coverage
 
-No coverage threshold is configured. Test coverage is uneven across packages -- `@aura/storage` has the most tests (13 files), while `@aura/causal`, `@aura/policy`, `@aura/epistemic-runtime`, and `@aura/platform-node` have none.
+No coverage threshold is configured. Test coverage is uneven across packages -- `@aura/storage` has the most tests (13 files), while `@aura/platform-node` and `@aura/code-extraction` have none. `@aura/causal` has 1 test file, `@aura/policy` has 2 test files, and `@aura/epistemic-runtime` has 1 test file.
 
 ## Common development tasks
 

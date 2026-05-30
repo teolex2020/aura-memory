@@ -10,7 +10,7 @@
 2) 可验证性优先：任何改动必须可通过 `bun run --cwd typescript typecheck` 与相关测试；不允许“只凭肉眼”对齐。  
 3) 不确定性先消除：Rust reference 若含随机性/非确定性，优先让 verifier/fixture 可复现，再做 TS 对齐。  
 4) 依赖注入与分层边界必须守住：core/storage/codec/indexing/recall 禁止直接依赖 `node:*`。  
-5) 注释与差异必须显式：保留 Rust 同位置注释并翻译为中文；差异要能全局搜索定位。  
+5) 注释与差异必须显式：保留 Rust 同位置注释并翻译为中文；差异要能全局搜索定位。同样的结构/类型/方法/函数名称如果在ts端进行了重命名（含大小写），则必须在注视中说明并保留原始命名。
 6) Effect 代码遵循项目规范：写 Effect-TS 代码时自动应用 `effect-project-pattern` skill（合约接口、Layer 构建、错误处理、已知陷阱），通用 API 回退到 `effect-ts`，源码验证回退到 `effect`。  
 
 ---

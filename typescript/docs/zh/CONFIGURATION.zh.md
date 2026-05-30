@@ -11,7 +11,7 @@ description: Aura monorepo 项目配置参考
 
 项目使用 **Bun** 作为主要包管理器。锁文件为 `bun.lock`。
 
-根 `package.json` 声明了 `"workspaces": ["packages/*"]` 字段。项目根目录还有一个可选的 `pnpm-workspace.yaml`，但 Bun 是当前提交的主要包管理器（以 tracked 的 `bun.lock` 为准）。
+根 `package.json` 声明了 `"workspaces": ["packages/*"]` 字段。当前提交以 tracked 的 `bun.lock` 为准，未额外提供单独的 pnpm workspace 清单文件。
 
 ### 安装依赖
 
@@ -148,9 +148,9 @@ packages/*
 - **ESM**（每个 `package.json` 中 `"type": "module"`）。
 - **入口导出** 使用 `"exports": { ".": "./src/index.ts" }`，直接指向 TypeScript 源码。Bun（和 Vitest）原生解析 `.ts` 文件。
 
-### 备用工作区配置
+### 工作区配置
 
-项目根目录存在一个 `pnpm-workspace.yaml` 文件，包含相同的 `packages: ["packages/*"]` glob 和 `better-sqlite3` 的构建依赖覆盖。此文件允许项目同时使用 pnpm，但 Bun 是主要包管理器。
+工作区配置直接由根 `package.json` 中的 `"workspaces": ["packages/*"]` 声明提供。仓库当前没有单独提交 pnpm workspace 清单文件，因此 Bun 是文档化的唯一包管理器入口。
 
 ## 环境变量
 

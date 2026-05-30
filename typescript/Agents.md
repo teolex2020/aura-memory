@@ -74,7 +74,7 @@
 
 ## 3. workspace 结构（按职责分包）
 
-`typescript/` 是一个 workspaces 仓库（见 `typescript/package.json`）。核心意图是把“纯逻辑”“二进制格式”“平台 IO”“门面编排”拆开，便于对齐 Rust 与测试。
+`typescript/` 是一个 workspaces 仓库（见 `package.json`）。核心意图是把“纯逻辑”“二进制格式”“平台 IO”“门面编排”拆开，便于对齐 Rust 与测试。
 
 - `packages/contract`
   - 只放“契约”：Effect Context/Tag 定义与领域类型。
@@ -128,8 +128,8 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 ### 5.1 NGram 相似检索算法不一致（高影响）
 
 - Rust reference
-  - `NGramIndex`：MinHash + LSH（`src/ngram.rs`）。
-  - recall 使用：`collect_ngram`（`src/recall.rs`）。
+  - `NGramIndex`：MinHash + LSH（`../src/ngram.rs`）。
+  - recall 使用：`collect_ngram`（`../src/recall.rs`）。
 - TS 当前实现
   - 在 `storage/RecallView` 内构建了一个 trigram Jaccard 的 `ngramIndex`（简单实现，用于召回先跑通）：
     - `packages/storage/src/RecallView.ts`
@@ -142,7 +142,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 ### 5.2 InvertedIndex 搜索语义不一致（高影响）—— ✅ 已完成
 
 - Rust reference
-  - `InvertedIndex::search(query_indices, top_k, min_overlap)` 有一套性能与剪枝策略（`src/index.rs`）。
+  - `InvertedIndex::search(query_indices, top_k, min_overlap)` 有一套性能与剪枝策略（`../src/index.rs`）。
 - TS 当前实现
   - `searchScored(bits, topK, minOverlap)`（`packages/indexing/src/InvertedIndex.ts`）已与 Rust 语义对齐：
     - max_bits 选择：top_k ≤ 10 → 128，≤ 50 → 256，else → 512
@@ -156,7 +156,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 ### 5.3 SDR collect_sdr 的细节差异（中-高影响）
 
 - Rust reference
-  - `collect_sdr`：倒排候选 → aura_id→record_id 映射 → 取 header.sdr_indices → tanimoto（`src/recall.rs`）。
+  - `collect_sdr`：倒排候选 → aura_id→record_id 映射 → 取 header.sdr_indices → tanimoto（`../src/recall.rs`）。
 - TS 当前实现
   - 同样走 aura_id→record_id + tanimoto，但明确写了简化：目前 invertedIndex 的 overlap 不参与权重，只用 tanimoto（`packages/recall/src/Signals.ts`）。
 - 影响
@@ -167,7 +167,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 ### 5.4 Trust/Recency 计算公式不一致（高影响，且隐蔽）—— ✅ 已完成
 
 - Rust reference
-  - `compute_effective_trust`（`src/trust.rs`）：
+  - `compute_effective_trust`（`../src/trust.rs`）：
     - recency_boost = max * (1 - age_days/half_life_days)，下限 0
     - effective = (trust + recency_boost) * authority * source_type_factor，clamp(0.05, 1.0)
 - TS 当前实现
@@ -193,7 +193,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 ### 5.6 Record 模型与默认字段不一致（中影响）
 
 - Rust reference
-  - `Record` 字段较多，并有默认值/校验（`src/record.rs`、`src/levels.rs`）。
+  - `Record` 字段较多，并有默认值/校验（`../src/record.rs`、`../src/levels.rs`）。
 - TS 当前实现
   - `storage/CognitiveRecord.normalizeCognitiveRecord` 只做最小字段兜底（content_type/metadata/connections），其余字段保留 raw JSON（`packages/storage/src/CognitiveRecord.ts`）。
 - 影响
@@ -206,7 +206,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - Rust reference
   - graph_walk 依赖 `Record.connections`（权重）；
   - causal_walk 依赖 `Record.caused_by_id`；
-  - 并有 min_strength 与 namespace 限制（`src/recall.rs`）。
+  - 并有 min_strength 与 namespace 限制（`../src/recall.rs`）。
 - TS 当前实现
   - 算法已对齐 Rust 的公式与阈值（`packages/recall/src/GraphWalk.ts`、`CausalWalk.ts`），但 records 的 connections/caused_by_id 目前取自 cognitive JSON 的 raw 字段（若数据源未写入这两类字段，则扩展效果与 Rust 环境不同）。
 - 影响
@@ -232,8 +232,8 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 - `brain.aura` / `index/` / `brain.cog+snap` 的最小读取已具备，且可构建 `RecallView`（TS）。
 - TS/Rust parity 测试已建立（覆盖 SDR + tags + ngram 参与 RRF）：
-  - Rust 生成 fixture：`src/bin/aura-ts-recall-fixtures.rs`
-  - Rust verifier：`src/bin/aura-ts-verify-recall.rs`
+  - Rust 生成 fixture：`../src/bin/aura-ts-recall-fixtures.rs`
+  - Rust verifier：`../src/bin/aura-ts-verify-recall.rs`
   - TS parity：`packages/core/src/Recall.parity.test.ts`
 
 后续对齐工作建议都先通过扩展 parity fixture/断言来推进，而不是仅靠肉眼比对。
@@ -284,7 +284,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ## 9. Phase Learnings（跨 phase 经验沉淀）
 
-每个 phase 完成后由 `/gsd:extract-learnings` 生成 `LEARNINGS.md`，记录该 phase 的 decisions、lessons、patterns、surprises。以下文件是必读上下文：
+每个 phase 完成后由 `/gsd:extract-learnings` 生成对应 phase 的 learnings 文档（例如 `.planning/phases/06-maintenance-pipeline-completion/06-LEARNINGS.md`），记录该 phase 的 decisions、lessons、patterns、surprises。以下文件是必读上下文：
 
 | Phase | File | 关键教训数 |
 |-------|------|-----------|
@@ -351,7 +351,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
   - `packages/causal/src/CausalEngine.ts`
   - `packages/causal/src/CausalStore.ts`（`CausalStoreImpl` + `CausalStoreLive`）
 - 目标 spec：
-  - `docs/superpowers/specs/2026-05-22-typescript-maintenance-belief-concept-causal-policy-design.md`
+  - `../docs/superpowers/specs/2026-05-22-typescript-maintenance-belief-concept-causal-policy-design.md`
 
 #### Phase 4：Policy（已完成）
 

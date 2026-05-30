@@ -1,4 +1,7 @@
 .claude/*
 !.claude/skills/
 !.claude/CLAUDE.md
-!.claude/settings.local.json
+!.claude/settings.local.
+
+
+recall_parity/

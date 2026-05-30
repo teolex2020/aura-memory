@@ -235,3 +235,16 @@ Source: `06.3-REVIEW.md § IN-07, IN-08` + `/gsd:capture` todo `2026-05-29-extra
 Plans:
 
 - [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.4: SDRInterpreter Promise→Effect 统一包装 (BACKLOG)
+
+**Goal:** 项目中多次 `SDRInterpreter.default()` 返回 Promise 再手动 `Effect.promise`/`Effect.tryPromise` 包装，应提取为统一 Effect/缓存函数，或通过 Context 注入 + `Layer.effect` 包装消除重复模式。
+
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Source: `/gsd:capture --backlog` 2026-05-31
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)

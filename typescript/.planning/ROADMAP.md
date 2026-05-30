@@ -193,7 +193,7 @@ Plans:
 - Former backlog `999.2` (cross-engine NON-PARITY tracking + Policy surface cleanup + `runMaintenance` record-path fix)
 - Remaining D-07 maintenance-service algorithm debt required to make `maintain` / `insights` / `memory_health` / explainability-governance tools parity-grade
 
-**Plans:** 3/8 plans executed
+**Plans:** 4/8 plans executed
 
 **Wave 1** *(foundation — blocked only by plan ordering inside the wave)*
 
@@ -203,7 +203,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 07-04-PLAN.md — Governance/inspection/read-model facades: belief instability, policy lifecycle, namespace governance, memory health, cross-namespace digest
+- [x] 07-04-PLAN.md — Governance/inspection/read-model facades: belief instability, policy lifecycle, namespace governance, memory health, cross-namespace digest
 - [ ] 07-05-PLAN.md — Explainability + correction facades: explain_recall/record/bundle, correction log, review queues, suggested corrections
 
 **Wave 3** *(blocked on Waves 1-2 completion)*

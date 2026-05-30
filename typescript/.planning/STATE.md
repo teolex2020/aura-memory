@@ -5,14 +5,14 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: mcp-polish
 status: executing
-last_updated: "2026-05-30T19:44:51.806Z"
+last_updated: "2026-05-30T20:10:05.271Z"
 last_activity: 2026-05-30
 progress:
-  total_phases: 12
+  total_phases: 13
   completed_phases: 4
   total_plans: 33
-  completed_plans: 28
-  percent: 33
+  completed_plans: 29
+  percent: 31
 ---
 
 # Project State
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 07 (mcp-polish) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Current Phase: 07
 Current Phase Name: mcp-polish
 Total Phases: 10
 Status: Ready to execute
 Last activity: 2026-05-30
 
-Progress: [█████████░] 85%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [█████████░] 85%
 | Phase 07-mcp-polish P01 | 10min | 1 tasks | 7 files |
 | Phase 07-mcp-polish P02 | 20min | 1 tasks | 4 files |
 | Phase 07-mcp-polish P03 | 15min | 1 tasks | 6 files |
+| Phase 07-mcp-polish P04 | 14min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,7 @@ See PROJECT.md Key Decisions for full log. Recent decisions:
 - [Phase 07-mcp-polish]: consolidate disposition: explicit UnsupportedSurfaceError until a Rust-parity merge algorithm and coherent index mutation path exist.
 - [Phase 07-mcp-polish]: Search view strategy: Aura owns a Map<string, AuraRecord> populated from loadCognitiveRecords() at open/maintenance time and immutably replaced after write-affecting mutations.
 - [Phase 07-mcp-polish]: runMaintenance boundary: brain.cog/brain.snap contract Records are the source of truth; BrainAuraRecord[] remains only for legacy brain.aura listRecords compatibility.
+- [Phase 07-mcp-polish]: belief_instability and policy_lifecycle are Aura facades over EpistemicRuntime, then converted to Rust-shaped DTOs. — Keeps business composition in core/runtime instead of MCP transport.
 
 ### Pending Todos
 
@@ -102,6 +104,13 @@ Items carried forward:
 
 ## Session Continuity
 
-Last session: 2026-05-30T19:43:53.779Z
+Last session: 2026-05-30T20:09:29.463Z
+Stopped at: Completed 07-02-PLAN.md
+Resume file: None
+�� @aura/utils | backlog 999.3 | 2026-05-29 |
+
+## Session Continuity
+
+Last session: 2026-05-30T20:09:29.463Z
 Stopped at: Completed 07-02-PLAN.md
 Resume file: None

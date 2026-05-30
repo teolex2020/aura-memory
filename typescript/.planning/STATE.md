@@ -64,7 +64,7 @@ See PROJECT.md Key Decisions for full log. Recent decisions:
 
 ### Pending Todos
 
-4 pending todos in `.planning/todos/pending/` — check with `/gsd:capture --list`
+5 pending todos in `.planning/todos/pending/` — check with `/gsd:capture --list`
 
 ### Blockers/Concerns
 

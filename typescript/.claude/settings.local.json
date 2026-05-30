@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"EXIT: $?\")",
+      "Skill(gsd:stats)",
+      "Skill(gsd:plan-phase)",
+      "Bash(bun run *)",
+      "Bash(git add *)",
+      "Bash(gsd-sdk query *)",
+      "Bash(bun --version)",
+      "Bash(git commit -m ' *)",
+      "Bash(bun vitest *)",
+      "Bash(bun test *)",
+      "Bash(node *)",
+      "Bash(git worktree *)",
+      "Bash(git branch *)",
+      "mcp__codegraph__codegraph_*",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(cargo run *)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "codegraph"
+  ],
+  "enabledPlugins": {
+    "fp@sablier-plugins": true,
+    "improve-code-architecture@improve-code-architecture-marketplace": true
+  }
+}

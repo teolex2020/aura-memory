@@ -271,12 +271,15 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - 已完成维护链路 Phase 1/2 的核心骨架与实现：Record → Belief → Concept（含 EpistemicTrace、BeliefEngine/Store、ConceptEngine/Store），并通过全量测试回归。
 - 已将 Rust 枚举在 TS 侧从 string union type 统一迁移为 TypeScript string enum，并同步修复字面量赋值/比较/默认值；提供运行期枚举值测试。
 - 已将 `nowSecs()` 抽取到 `packages/utils` 并替换代码库内同算法表达式，避免时间戳计算分散与不一致。
+- 已完成维护链路 Phase 3/4 的完整实现：CausalEngine（edge 提取 → pattern 聚合 → score/gates → corpus fingerprint → discover）、PolicyEngine（seed 选择 6 gates → polarity 分类 → action mapping → 强度评分 → suppression → discover），含 CausalStore/PolicyStore 持久化。
+- 已完成 EpistemicRuntime 完整实现（694 行，18+ inspection 方法覆盖 Belief/Concept/Causal/Policy 四层），含 telemetry 计数与 EpistemicRuntimeLive Layer。
 
 ### 8.2 当前差异与风险（下一步优先级）
 
 - 高优先级对齐项：NGramIndex（MinHash+LSH）。
 - 中优先级对齐项：SDR overlap 权重/排序细节、Record schema 的默认值与校验、graph/causal 扩展所需字段的写入侧闭环。
-- 低-中优先级对齐项：召回缓存与 trace/可观测性。
+- 低-中优先级对齐项：召回缓存与 trace/可观测性、BoundedRerankerLive（四阶段 belief/concept/causal/policy bounded rerank + guardrails）。
+- 编排缺口：`@aura/core` 中尚未实现 MaintenanceService（写入后自动触发四层维护的编排服务），各引擎已独立可用但缺少统一入口。
 
 ### 8.3 下一步建议（推进顺序）
 
@@ -284,37 +287,64 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 2) 把 SDR overlap 权重/排序细节补齐（InvertedIndex 已返回 overlap count，需在 `collectSdr` 中引入权重参与排序）。  
 3) 在 core 层补齐默认 bounded rerank/finalize 的 Live Layer（或明确区分 recallRaw/recallCore），再推进写入侧对照测试。  
 4) 完整实现 Record schema 的默认值与校验逻辑。  
+5) 实现 MaintenanceService 编排层：串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine 的自动维护流程，并在 `Aura.store/update/delete/connect` 中可选触发。
 
 ### 8.4 维护流程分阶段状态（Phase 3+）
 
-本项目的维护链路按 `Record → Belief → Concept → Causal → Policy` 推进；为避免上下文漂移，本节固定记录 Phase 3 及之后的“实现现状 + 缺口”。
+本项目的维护链路按 `Record → Belief → Concept → Causal → Policy` 推进；为避免上下文漂移，本节固定记录 Phase 3 及之后的”实现现状 + 缺口”。
 
-#### Phase 3：Causal（未实现）
+#### Phase 3：Causal（已完成）
 
-- contract 状态：`CausalEngineImpl` 与 `CausalStoreImpl` 仍为 `unknown + UnimplementedError` 占位：
+- contract 状态：`CausalEngine.Interface` 定义了完整的 `discover()` / `invalidate_pattern()` / `retract_pattern()` / `stats()` 契约；`CausalStore.Interface` 定义了 `load()` / `save()` 持久化契约。`CausalEngineImpl` 与 `CausalStoreImpl` 为指向对应 Interface 的 deprecated type alias：
   - `packages/contract/src/Causal.ts`
-- storage 状态：`causal.cog` 的 load/save 已存在，但 engine schema 仍为 `unknown`：
+  - `packages/contract/src/causal/CausalTypes.ts`（`CausalPattern`、`CausalEngineState`、`CausalReport`、`CausalEdgeKind`、`CausalState`、`CausalDiscoveryMode`、`TemporalBudgetMode`、`EvidenceMode` 等类型定义）
+- storage 状态：`CausalStoreFile` 完整实现 `causal.cog` 的 load/save，通过 `CogJsonSnapshotFile` 统一读写：
   - `packages/storage/src/CausalStoreFile.ts`
-- engine 状态：`CausalEngineImpl` 仍为 Unimplemented（当前仅为骨架 Layer）：
+- engine 状态：`CausalEngineImpl`（1175 行）完整实现，含：
+  - `extractEdges()`：从 records 的显式链接与时间接近性中提取 record-level causal edges
+  - `aggregateToPatterns()`：将 record-level edges 聚合为 belief-level `CausalPattern`（含 support/confidence/lift/transition_lift/temporal_consistency/causal_strength 等 20+ 字段）
+  - `scorePattern()`：计算 causal_strength 综合得分
+  - `computeCorpusFingerprint()`：corpus 指纹用于 skip detection
+  - Gates：`meetsSupportGate` / `meetsEvidenceGate` / `meetsCounterfactualGate`
+  - `discover()`：完整四阶段发现流程（extract → aggregate → score → gate → persist）
+  - `CausalEngineLive` Layer
   - `packages/causal/src/CausalEngine.ts`
-- 目标缺口（来自维护设计 spec）：实现 record-level edge 提取 → belief-level pattern 聚合 → score/gates → fingerprint skip，并提供与 Rust 高一致的单测与 fixtures：
+  - `packages/causal/src/CausalStore.ts`（`CausalStoreImpl` + `CausalStoreLive`）
+- 目标 spec：
   - `docs/superpowers/specs/2026-05-22-typescript-maintenance-belief-concept-causal-policy-design.md`
 
-#### Phase 4：Policy（未实现）
+#### Phase 4：Policy（已完成）
 
-- contract 状态：`PolicyEngineImpl` 与 `PolicyStoreImpl` 仍为 `unknown + UnimplementedError` 占位：
+- contract 状态：`PolicyEngine.Interface` 定义了完整的 `discover()` / `retract_hint()` / `stats()` 契约（依赖 CausalEngine + ConceptEngine + BeliefEngine）；`PolicyStore.Interface` 定义了 `load()` / `save()` 持久化契约。`PolicyEngineImpl` 与 `PolicyStoreImpl` 为指向对应 Interface 的 deprecated type alias：
   - `packages/contract/src/Policy.ts`
-- storage 状态：`policies.cog` 的 load/save 已存在，但 engine schema 仍为 `unknown`：
+  - `packages/contract/src/policy/PolicyTypes.ts`（`PolicyHint`、`PolicyEngineState`、`PolicyReport`、`PolicyState`、`PolicyActionKind`、`Polarity` 等类型定义）
+- storage 状态：`PolicyStoreFile` 完整实现 `policies.cog` 的 load/save，通过 `CogJsonSnapshotFile` 统一读写：
   - `packages/storage/src/PolicyStoreFile.ts`
-- engine 状态：`PolicyEngineImpl` 仍为 Unimplemented（当前仅为骨架 Layer）：
+- engine 状态：`PolicyEngineImpl`（777 行）完整实现，含：
+  - `selectSeeds()`：从 causal patterns 中筛选种子（6 gates：Strength / Support / Evidence / Counterevidence / Counterfactual / Belief）
+  - `buildHints()`：从 seeds 构建 `PolicyHint`（含 condition/action/priority/confidence/riskScore/polarity/recommendation 等字段）
+  - `classifyPolarity()`：基于 effect-side record 信号计数分类为 Positive/Negative/Neutral
+  - `mapActionKind()`：映射为 Avoid/VerifyFirst/Prefer/Recommend/Warn 五种 action kind
+  - `computePolicyStrength()`：计算 policy 强度分数（0–1）
+  - `generateRecommendation()`：基于模板生成推荐文本
+  - `applySuppression()`：冲突检测与抑制
+  - `discover()`：完整发现流程（seed → hint → score → suppress → persist）
+  - `PolicyEngineLive` Layer
   - `packages/policy/src/PolicyEngine.ts`
-- 目标缺口（来自维护设计 spec）：从 causal patterns seeds → polarity/action mapping → hints → suppression → state classify，并提供与 Rust 高一致的单测与 fixtures。
+  - `packages/policy/src/PolicyStore.ts`（`PolicyStoreImpl` + `PolicyStoreLive`）
 
-#### Phase 5：端到端维护编排（未实现）
+#### Phase 5：端到端维护编排（部分完成）
 
-- MaintenanceService：尚未在 `@aura/core` 中实现“写入后自动维护 + 四层落盘”的编排服务（spec 中定义为核心入口）。
-- EpistemicRuntime：contract 与 runtime 层已存在，但仍为 Unimplemented（用于缓存与提供当前 states 给 rerank/explain 等）：
+- EpistemicRuntime：已完成（694 行），`EpistemicRuntimeImpl` 实现 `EpistemicRuntime.Interface`，提供 18+ inspection 方法：
+  - Belief 层（6 方法）：`getBeliefs()` / `getBeliefForRecord()` / `getHighVolatilityBeliefs()` / `getLowStabilityBeliefs()` / `getBeliefInstabilitySummary()` / `getContradictionClusters()`
+  - Concept 层（4 方法）：`getConcepts()` / `getSurfacedConcepts()` / `getSurfacedConceptsForNamespace()` / `getSurfacedConceptsForRecord()`
+  - Causal 层（1 方法）：`getCausalPatterns()`
+  - Policy 层（7 方法）：`getPolicyHints()` / `getSuppressedPolicyHints()` / `getRejectedPolicyHints()` / `getPolicyLifecycleSummary()` / `getPolicyPressureReport()` / `getSurfacedPolicyHints()` / `getSurfacedPolicyHintsForNamespace()`
+  - 含 telemetry 计数（global/namespace/record 调用次数、concepts/hints 返回量）
+  - `EpistemicRuntimeLive` Layer
   - `packages/contract/src/EpistemicRuntime.ts`
   - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
+  - `packages/epistemic-runtime/src/EpistemicTrace.ts`（`EpistemicTraceImpl` + `EpistemicTraceLive`）
+- MaintenanceService：尚未在 `@aura/core` 中实现”写入后自动维护 + 四层落盘”的编排服务（各引擎已独立可用，缺少统一入口串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine）。
 - BoundedRerankerLive：`recallPipeline` 已支持可选注入 `BoundedReranker`，但目前缺少与 Rust 对齐的 live 实现（四阶段 belief/concept/causal/policy bounded rerank + guardrails）。
 - Aura 写入触发：`Aura.store/update/delete/connect` 目前只负责写入 `brain.cog`（以及 snapshot），尚未触发维护服务（Phase 5 完成后应默认开启，可配置关闭）。

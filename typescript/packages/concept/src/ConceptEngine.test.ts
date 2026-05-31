@@ -59,12 +59,15 @@ function makeRecord(
     source_type: "recorded",
     namespace: "default",
     semantic_type,
+    activation_velocity: 0,
+    salience: 0,
     metadata: {},
     aura_id: null,
     caused_by_id: null,
     confidence: 0.9,
     support_mass: 2,
-    conflict_mass: 0
+    conflict_mass: 0,
+    volatility: 0
   }
 }
 

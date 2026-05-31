@@ -6,12 +6,12 @@
 
 ## 1. 最高优先级原则（按顺序执行）
 
-1) 对齐 Rust 行为与持久化格式：优先确保磁盘格式互通（必要时字节级一致），其次对齐算法语义与输出。  
-2) 可验证性优先：任何改动必须可通过 `bun run --cwd typescript typecheck` 与相关测试；不允许“只凭肉眼”对齐。  
-3) 不确定性先消除：Rust reference 若含随机性/非确定性，优先让 verifier/fixture 可复现，再做 TS 对齐。  
-4) 依赖注入与分层边界必须守住：core/storage/codec/indexing/recall 禁止直接依赖 `node:*`。  
+1) 对齐 Rust 行为与持久化格式：优先确保磁盘格式互通（必要时字节级一致），其次对齐算法语义与输出。
+2) 可验证性优先：任何改动必须可通过 `bun run --cwd typescript typecheck` 与相关测试；不允许“只凭肉眼”对齐。
+3) 不确定性先消除：Rust reference 若含随机性/非确定性，优先让 verifier/fixture 可复现，再做 TS 对齐。
+4) 依赖注入与分层边界必须守住：core/storage/codec/indexing/recall 禁止直接依赖 `node:*`。
 5) 注释与差异必须显式：保留 Rust 同位置注释并翻译为中文；差异要能全局搜索定位。同样的结构/类型/方法/函数名称如果在ts端进行了重命名（含大小写），则必须在注视中说明并保留原始命名。
-6) Effect 代码遵循项目规范：写 Effect-TS 代码时自动应用 `effect-project-pattern` skill（合约接口、Layer 构建、错误处理、已知陷阱），通用 API 回退到 `effect-ts`，源码验证回退到 `effect`。  
+6) Effect 代码遵循项目规范：写 Effect-TS 代码时自动应用 `effect-project-pattern` skill（合约接口、Layer 构建、错误处理、已知陷阱），通用 API 回退到 `effect-ts`，源码验证回退到 `effect`。
 
 ---
 
@@ -125,19 +125,24 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 本节以“后续对齐任务列表”的形式记录差异点。每一项都说明 Rust reference、TS 现状、影响与后续建议。
 
-### 5.1 NGram 相似检索算法不一致（高影响）
+### 5.1 NGram 相似检索算法不一致（高影响）—— ✅ 已完成（核心算法）
 
 - Rust reference
   - `NGramIndex`：MinHash + LSH（`../src/ngram.rs`）。
   - recall 使用：`collect_ngram`（`../src/recall.rs`）。
 - TS 当前实现
-  - 在 `storage/RecallView` 内构建了一个 trigram Jaccard 的 `ngramIndex`（简单实现，用于召回先跑通）：
-    - `packages/storage/src/RecallView.ts`
-- 影响
-  - 候选集合、相似度分布、排序稳定性与 Rust 不同；RRF 融合的最终排序会偏离 Rust。
-- 后续对齐建议
-  - 在 TS 侧实现一个与 Rust 相同的 MinHash+LSH NGramIndex，并通过 parity fixture 校验 query 输出一致。
-  - 同时明确 seed/系数生成的确定性（用于测试可复现）。
+  - `packages/indexing/src/NGramIndex.ts` 已实现 Rust 等价的 MinHash + LSH NGramIndex：
+    - 文本规范化：lowercase + alphanumeric 保留 + whitespace join；
+    - tokenization：UTF-8 byte trigram；
+    - hash：`xxh3_64 & 0x7FFFFFFF` 的 0..3 byte 路径；
+    - MinHash：使用 Rust `StdRng::seed_from_u64(0)` 生成的 128 组系数；
+    - query/jaccard/remove/contains/find_similar_pairs 语义投影。
+  - `packages/storage/src/RecallView.ts` 与 `packages/core/src/MaintenanceService.ts` 已改为复用该实现，不再使用 trigram Jaccard shim。
+  - Rust verifier：`../src/bin/aura-ts-verify-ngram.rs`；TS 测试：`packages/indexing/src/NGramIndex.test.ts`。
+- 影响（核心召回差异已消除）
+  - `collect_ngram` 参与 RRF 的候选集合与相似度已通过固定 seed verifier 对齐。
+- 剩余 caveat
+  - Rust 的 `SynonymRing` 扩展尚未在 TS 接入；`NGramIndex.random()` 使用 JS `Math.random`，生产随机系数不追求与 Rust `thread_rng` 字节级一致。对照测试统一使用固定 seed。
 
 ### 5.2 InvertedIndex 搜索语义不一致（高影响）—— ✅ 已完成
 
@@ -153,16 +158,16 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - 影响（已消除）
   - 候选集合、topK 截断与 Rust 在大数据量下的差异已消除。
 
-### 5.3 SDR collect_sdr 的细节差异（中-高影响）
+### 5.3 SDR collect_sdr 的细节差异（中-高影响）—— ✅ 已确认对齐
 
 - Rust reference
   - `collect_sdr`：倒排候选 → aura_id→record_id 映射 → 取 header.sdr_indices → tanimoto（`../src/recall.rs`）。
 - TS 当前实现
-  - 同样走 aura_id→record_id + tanimoto，但明确写了简化：目前 invertedIndex 的 overlap 不参与权重，只用 tanimoto（`packages/recall/src/Signals.ts`）。
-- 影响
-  - 在同 tanimoto 情况下，Rust 可能会因为 overlap/候选策略出现不同排序或不同候选集合。
-- 后续对齐建议
-  - 把 overlap 引入打分/排序策略，或至少在 tie-break 中使用 overlap，确保对齐 Rust 行为。
+  - `collectSdr` 同样走 aura_id→record_id + header.sdr_indices + Tanimoto（`packages/recall/src/Signals.ts`）。
+  - `InvertedIndex.searchScored` 已在候选阶段按 overlap 计数排序/截断；`collectSdr` 与 Rust 一样忽略返回的 `_overlap`，最终按 Tanimoto 排序。
+  - 回归测试：`packages/recall/src/Signals.test.ts` 锁定“overlap 不覆盖最终 Tanimoto 排序”的 Rust 行为。
+- 影响（已消除）
+  - SDR 候选召回、aura_id 映射、header 取值、Tanimoto 打分与最终截断路径已对齐。
 
 ### 5.4 Trust/Recency 计算公式不一致（高影响，且隐蔽）—— ✅ 已完成
 
@@ -190,16 +195,17 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
   - 提供默认的 Live Layer：在 core 层默认装配与 Rust 等价的 bounded rerank/finalize（或明确对外区分 recallRaw vs recallCore）。
   - 同时将副作用的落盘（更新 records / session tracker）后置到写入阶段对照测试中。
 
-### 5.6 Record 模型与默认字段不一致（中影响）
+### 5.6 Record 模型与默认字段不一致（中影响）—— ✅ 已完成
 
 - Rust reference
   - `Record` 字段较多，并有默认值/校验（`../src/record.rs`、`../src/levels.rs`）。
 - TS 当前实现
-  - `storage/CognitiveRecord.normalizeCognitiveRecord` 只做最小字段兜底（content_type/metadata/connections），其余字段保留 raw JSON（`packages/storage/src/CognitiveRecord.ts`）。
-- 影响
-  - tags/namespace/source_type/strength 等若缺失或类型不一致，TS 召回的过滤与打分会与 Rust 不一致。
-- 后续对齐建议
-  - 完整实现 Record schema 的默认值与校验逻辑，并在加载时标准化字段，确保后续 recall 不靠“松散 any”行为。
+  - `packages/contract/src/record/Record.ts` 已补齐 Rust 默认字段、valid source/semantic 常量、`defaultConfidenceForSource` 与 store/update validation helper。
+  - `packages/storage/src/CognitiveRecord.ts` 已在读取 brain.cog / brain.snap 时标准化 tags/connections/metadata 与默认字段：`source_type=recorded`、`semantic_type=fact`、`activation_velocity/salience/volatility=0`、`confidence=0.90`、`support_mass/conflict_mass=0`。
+  - `packages/core/src/Aura.ts` 已在 store/update/connect/delete 边界使用 Rust 对齐校验，并在 `Aura.open` 迁移 legacy confidence：非 recorded source 若从 serde 默认 `0.90` 读入，会按 source_type 改写并追加 update。
+  - salience 已接入 `recordImportance`、structured recall explanation、`memory_health` summary 与 high-salience review issue。
+- 影响（已消除）
+  - 新写入与旧持久化读取路径不再依赖松散 `any`/缺省字段；source/semantic/namespace 校验和 Rust store/update 边界一致。
 
 ### 5.7 graph/causal 扩展的输入数据来源不一致（中影响）
 
@@ -274,11 +280,12 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - 已将 `nowSecs()` 抽取到 `packages/utils` 并替换代码库内同算法表达式，避免时间戳计算分散与不一致。
 - 已完成维护链路 Phase 3/4 的完整实现：CausalEngine（edge 提取 → pattern 聚合 → score/gates → corpus fingerprint → discover）、PolicyEngine（seed 选择 6 gates → polarity 分类 → action mapping → 强度评分 → suppression → discover），含 CausalStore/PolicyStore 持久化。
 - 已完成 EpistemicRuntime 完整实现（694 行，18+ inspection 方法覆盖 Belief/Concept/Causal/Policy 四层），含 telemetry 计数与 EpistemicRuntimeLive Layer。
+- 已补齐 Record schema 默认字段、source/semantic/namespace 校验、store/update/delete/connect 写入边界语义，并接入 salience 到重要性与 memory_health 表面。
 
 ### 8.2 当前差异与风险（下一步优先级）
 
-- 高优先级对齐项：NGramIndex（MinHash+LSH）。
-- 中优先级对齐项：SDR overlap 权重/排序细节、Record schema 的默认值与校验、graph/causal 扩展所需字段的写入侧闭环。
+- 高优先级对齐项：默认 bounded rerank/finalize 的 Live Layer 与 recall_core 副作用落盘。
+- 中优先级对齐项：graph/causal 扩展所需字段的写入侧闭环、NGramIndex 的 SynonymRing 可选扩展。
 - 低-中优先级对齐项：召回缓存与 trace/可观测性、BoundedRerankerLive（四阶段 belief/concept/causal/policy bounded rerank + guardrails）。
 - 编排缺口：`@aura/core` 中尚未实现 MaintenanceService（写入后自动触发四层维护的编排服务），各引擎已独立可用但缺少统一入口。
 
@@ -323,11 +330,11 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ### 8.3 下一步建议（推进顺序）
 
-1) 在 TS 侧实现 Rust 等价的 MinHash+LSH NGramIndex，再用 parity fixture 对齐 query 输出。  
-2) 把 SDR overlap 权重/排序细节补齐（InvertedIndex 已返回 overlap count，需在 `collectSdr` 中引入权重参与排序）。  
-3) 在 core 层补齐默认 bounded rerank/finalize 的 Live Layer（或明确区分 recallRaw/recallCore），再推进写入侧对照测试。  
-4) 完整实现 Record schema 的默认值与校验逻辑。  
-5) 实现 MaintenanceService 编排层：串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine 的自动维护流程，并在 `Aura.store/update/delete/connect` 中可选触发。
+1) 在 core 层补齐默认 bounded rerank/finalize 的 Live Layer（或明确区分 recallRaw/recallCore），再推进写入侧对照测试。
+2) 审计 graph/causal 扩展所需字段的写入侧闭环（connections / caused_by_id / finalize-strengthen）。
+3) 对照 Rust store_with_channel 继续收敛 dedup / guard / provenance / surprise promotion 等剩余写入语义。
+4) 实现 MaintenanceService 编排层：串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine 的自动维护流程，并在 `Aura.store/update/delete/connect` 中可选触发。
+5) 后续如启用 Rust `SynonymRing`，在 TS `NGramIndex` 内接入同义词扩展并补 verifier。
 
 ### 8.4 维护流程分阶段状态（Phase 3+）
 

@@ -8,62 +8,23 @@ import {
   type Record as AuraRecord,
   type RecallView as ContractRecallView
 } from "@aura/contract"
-import { IndexFormatError, InvertedIndex } from "@aura/indexing"
+import { IndexFormatError, InvertedIndex, NGramIndex } from "@aura/indexing"
 import { readBrainAuraFile } from "./BrainAura"
 import { loadCognitiveRecords } from "./CognitiveRecord"
 
 type AuraHeader = { sdr_indices: ReadonlyArray<number> }
 
-function trigrams(text: string): ReadonlySet<string> {
-  const clean = text
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replaceAll(/\s+/g, " ")
-  if (clean.length === 0) return new Set()
-  if (clean.length < 3) return new Set([clean])
-
-  const out = new Set<string>()
-  for (let i = 0; i <= clean.length - 3; i++) {
-    out.add(clean.slice(i, i + 3))
-  }
-  return out
-}
-
-function trigramJaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
-  if (a.size === 0 || b.size === 0) return 0
-  let inter = 0
-  for (const x of a) {
-    if (b.has(x)) inter++
-  }
-  const union = a.size + b.size - inter
-  if (union === 0) return 0
-  return inter / union
-}
-
 function buildNgramIndex(
   records: ReadonlyMap<string, AuraRecord>
 ): ContractRecallView["ngramIndex"] {
-  // SIMPLE IMPLEMENTATION: trigram Jaccard over `content` for fuzzy match.
-  // FULL IMPLEMENTATION: port Rust `NGramIndex` (minhash/LSH) for recall-scale performance and parity.
-  const sigs = new Map<string, ReadonlySet<string>>()
+  // Rust reference: `NGramIndex::with_seed(None, None, 0)` used by `aura-ts-verify-recall`.
+  // 中文说明：召回 parity 使用固定 seed，避免 Rust 默认随机系数导致 TS/Rust 对照不稳定。
+  const index = NGramIndex.withSeed0()
   for (const [id, rec] of records.entries()) {
-    sigs.set(id, trigrams(String(rec.content ?? "")))
+    index.add(id, String(rec.content ?? ""))
   }
 
-  return {
-    query: (text: string, topK: number) => {
-      const q = trigrams(text)
-      const scored: Array<[number, string]> = []
-      for (const [id, s] of sigs.entries()) {
-        const sim = trigramJaccard(q, s)
-        if (sim > 0) scored.push([sim, id])
-      }
-      scored.sort((a, b) => b[0] - a[0])
-      scored.length = Math.min(scored.length, topK)
-      return scored
-    }
-  }
+  return index
 }
 
 function buildTagIndex(records: ReadonlyMap<string, AuraRecord>): ReadonlyMap<string, ReadonlySet<string>> {

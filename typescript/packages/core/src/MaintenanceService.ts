@@ -38,6 +38,7 @@ import type { FileWrite } from "@aura/contract"
 import type { FileWriteError } from "@aura/contract"
 import { SDRInterpreter } from "@aura/recall"
 import { CognitiveStoreFile } from "@aura/storage"
+import { NGramIndex as MinHashNGramIndex } from "@aura/indexing"
 
 // ═══════════════════════════════════════════════════════════════════════
 // Typed maintenance dependency adapters
@@ -185,52 +186,14 @@ export function createDefaultTagTaxonomy(): TagTaxonomy {
   }
 }
 
-function trigrams(text: string): ReadonlySet<string> {
-  const clean = text
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replaceAll(/\s+/g, " ")
-  if (clean.length === 0) return new Set()
-  if (clean.length < 3) return new Set([clean])
-
-  const out = new Set<string>()
-  for (let i = 0; i <= clean.length - 3; i++) {
-    out.add(clean.slice(i, i + 3))
-  }
-  return out
-}
-
-function jaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
-  if (a.size === 0 || b.size === 0) return 0
-  let inter = 0
-  for (const x of a) {
-    if (b.has(x)) inter += 1
-  }
-  const union = a.size + b.size - inter
-  return union === 0 ? 0 : inter / union
-}
-
 export function createNGramIndex(records: ReadonlyMap<string, AuraRecord>): NGramIndex {
-  // NON-PARITY IMPLEMENTATION: 复用 TS 当前 trigram Jaccard 候选查询能力。
-  // Rust reference: `NGramIndex` 使用 MinHash+LSH；Phase 07 仅提供维护/合并可用的有界 adapter。
-  const sigs = new Map<string, ReadonlySet<string>>()
+  // Rust reference: `NGramIndex` 使用 MinHash + LSH；TS 复用 @aura/indexing 的同语义实现。
+  // 中文说明：固定 seed 对齐 parity verifier，避免 Rust 默认随机系数造成不可复现排序。
+  const index = MinHashNGramIndex.withSeed0()
   for (const [id, record] of records) {
-    sigs.set(id, trigrams(record.content))
+    index.add(id, record.content)
   }
-
-  return {
-    query: (text, topK) => {
-      const q = trigrams(text)
-      const scored: Array<readonly [number, string]> = []
-      for (const [id, sig] of sigs) {
-        const score = jaccard(q, sig)
-        if (score > 0) scored.push([score, id])
-      }
-      scored.sort((a, b) => b[0] - a[0])
-      return scored.slice(0, Math.max(0, topK))
-    }
-  }
+  return index
 }
 
 export function createCognitiveStoreAdapter(store: CognitiveStoreFile): CognitiveStore {

@@ -172,6 +172,11 @@ function filterByStrengthAndNamespace(
   return out
 }
 
+function truncateTopK(scored: Scored, topK: number): Scored {
+  if (topK > 0 && scored.length > topK) scored.length = topK
+  return scored
+}
+
 function scoreMap(scored: Scored): Map<string, number> {
   const out = new Map<string, number>()
   for (const [score, recordId] of scored) out.set(recordId, score)
@@ -277,6 +282,9 @@ export function recallPipelineWithTrace(
     for (const [rrfScore, recordId] of matched) patchEvidence(evidence, recordId, { rrfScore })
 
     matched = filterByStrengthAndNamespace(view, matched, opts.minStrength, opts.namespaces)
+    // Rust `rrf_fuse` applies topK before graph/causal expansion.
+    // 中文说明：trace 路径保持与主 pipeline 相同的候选扩展边界。
+    matched = truncateTopK(matched, opts.topK)
 
     if (opts.expandConnections) {
       const beforeGraph = scoreMap(matched)

@@ -551,8 +551,15 @@ describe("Phase 07 placeholder replacements", () => {
       source_type: "recorded",
       namespace: "ops",
       semantic_type: "decision",
+      activation_velocity: 0,
+      salience: 0,
       metadata: {},
+      aura_id: null,
       caused_by_id: null,
+      confidence: 0.9,
+      support_mass: 0,
+      conflict_mass: 0,
+      volatility: 0,
       ...overrides,
     }
   }
@@ -566,7 +573,7 @@ describe("Phase 07 placeholder replacements", () => {
     expect(taxonomy.classify(makeRecord({ tags: ["todo-item"] })).nonIdentityCue).toBe(true)
   })
 
-  it("NGramIndex shim returns bounded content-derived candidates", () => {
+  it("NGramIndex returns bounded MinHash content-derived candidates", () => {
     const records = new Map([
       ["r1", makeRecord({ id: "r1", content: "deploy staging safety checklist" })],
       ["r2", makeRecord({ id: "r2", content: "banana unrelated note" })],

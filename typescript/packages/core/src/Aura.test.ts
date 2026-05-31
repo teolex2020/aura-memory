@@ -6,7 +6,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import { Aura } from "./index"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
-import { BrainAuraFile, CognitiveStoreFile } from "@aura/storage"
+import { BrainAuraFile, CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
 import { EpistemicRuntimeLive } from "@aura/epistemic-runtime"
 import {
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
@@ -16,6 +16,7 @@ import {
   CausalDiscoveryMode, CausalState, TemporalBudgetMode, EvidenceMode,
   BeliefState, ConceptState, PolicyActionKind, PolicyState, Polarity,
   Level,
+  RecordValidationError,
   UnsupportedSurfaceError,
 } from "@aura/contract"
 
@@ -135,6 +136,19 @@ describe("Aura MCP-facing operational surfaces", () => {
     })))
 
     assert.strictEqual(first.semantic_type, "fact")
+    assert.strictEqual(first.source_type, "recorded")
+    assert.strictEqual(first.activation_velocity, 0)
+    assert.strictEqual(first.salience, 0)
+    assert.strictEqual(first.confidence, 0.9)
+    assert.strictEqual(first.support_mass, 0)
+    assert.strictEqual(first.conflict_mass, 0)
+    assert.strictEqual(first.volatility, 0)
+
+    const generated = await Effect.runPromise(provideNode(aura.store("generated MCP parity record", {
+      namespace: "gamma",
+      source_type: "generated",
+    })))
+    assert.strictEqual(generated.confidence, 0.5)
 
     const records = new Map(
       aura.search({ namespace: "alpha", tags: ["phase07"], limit: 10 })
@@ -156,6 +170,40 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.stats().total_connections, 6)
   })
 
+  it("open migrates legacy deserialized confidence to source_type defaults", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-legacy-confidence-"))
+    await Effect.runPromise(provideNode(Effect.gen(function* () {
+      const brain = yield* BrainAuraFile.open(brainPath)
+      yield* brain.flush()
+      const store = yield* CognitiveStoreFile.open(brainPath)
+      yield* store.appendStore({
+        id: "legacy_retrieved",
+        content: "legacy retrieved memory",
+        level: Level.Working,
+        strength: 1,
+        activation_count: 0,
+        created_at: 1,
+        last_activated: 1,
+        tags: [],
+        connections: {},
+        connection_types: {},
+        content_type: "text",
+        source_type: "retrieved",
+        namespace: "default",
+        semantic_type: "fact",
+        metadata: {},
+      })
+      yield* store.flush()
+    })))
+
+    const aura = await Effect.runPromise(provideNode(Aura.open(brainPath)))
+    const opened = aura.listCognitiveRecords().find((record) => record.id === "legacy_retrieved")
+    assert.strictEqual(opened?.confidence, 0.75)
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get("legacy_retrieved")?.confidence, 0.75)
+  })
+
   it("search is owned by Aura and refreshes through store/update/connect/delete mutations", async () => {
     const aura = await openWritableAura()
 
@@ -163,15 +211,15 @@ describe("Aura MCP-facing operational surfaces", () => {
       namespace: "default",
       tags: ["alpha"],
       content_type: "note",
-      source_type: "user",
-      semantic_type: "memory",
+      source_type: "retrieved",
+      semantic_type: "fact",
     })))
     const beta = await Effect.runPromise(provideNode(aura.store("beta durable memory", {
       namespace: "default",
       tags: ["beta"],
       content_type: "note",
-      source_type: "user",
-      semantic_type: "memory",
+      source_type: "retrieved",
+      semantic_type: "fact",
     })))
     await Effect.runPromise(provideNode(aura.store("ops-only memory", { namespace: "ops", tags: ["alpha"] })))
 
@@ -185,13 +233,68 @@ describe("Aura MCP-facing operational surfaces", () => {
 
     const ordered = aura.search({ query: "memory", namespace: "default", limit: 2 })
     assert.strictEqual(ordered[0]!.id, beta.id)
-    assert.strictEqual(aura.stats().total_connections, 1)
+    assert.strictEqual(aura.stats().total_connections, 2)
 
     assert.strictEqual(aura.search({ tags: ["alpha"] }).length, 1)
     assert.strictEqual(aura.search({ tags: ["alpha"], namespace: "ops" }).length, 1)
 
     await Effect.runPromise(provideNode(aura.delete(alpha.id)))
     assert.strictEqual(aura.search({ query: "alpha", namespace: "default" }).length, 0)
+  })
+
+  it("store/update/delete/connect follow Rust record validation boundaries", async () => {
+    const aura = await openWritableAura()
+
+    const invalidSource = await Effect.runPromise(Effect.flip(provideNode(aura.store("bad source", {
+      source_type: "user",
+    }))))
+    assert.instanceOf(invalidSource, RecordValidationError)
+    assert.strictEqual((invalidSource as RecordValidationError).field, "source_type")
+
+    const invalidSemantic = await Effect.runPromise(Effect.flip(provideNode(aura.store("bad semantic", {
+      semantic_type: "memory",
+    }))))
+    assert.instanceOf(invalidSemantic, RecordValidationError)
+    assert.strictEqual((invalidSemantic as RecordValidationError).field, "semantic_type")
+
+    const invalidNamespace = await Effect.runPromise(Effect.flip(provideNode(aura.store("bad namespace", {
+      namespace: "ns/path",
+    }))))
+    assert.instanceOf(invalidNamespace, RecordValidationError)
+    assert.strictEqual((invalidNamespace as RecordValidationError).field, "namespace")
+
+    const first = await Effect.runPromise(provideNode(aura.store("first writable record", { namespace: "alpha" })))
+    const second = await Effect.runPromise(provideNode(aura.store("second writable record", { namespace: "alpha" })))
+    const otherNs = await Effect.runPromise(provideNode(aura.store("other namespace record", { namespace: "beta" })))
+
+    const missingUpdate = await Effect.runPromise(provideNode(aura.update("missing-record", { content: "ignored" })))
+    assert.strictEqual(missingUpdate, null)
+
+    const updated = await Effect.runPromise(provideNode(aura.update(first.id, {
+      level: Level.Decisions,
+      strength: 2,
+      metadata: { source: "replacement" },
+      source_type: "generated",
+    })))
+    if (updated === null) throw new Error("expected update to return existing record")
+    assert.strictEqual(updated.level, Level.Decisions)
+    assert.strictEqual(updated.strength, 1)
+    assert.deepStrictEqual(updated.metadata, { source: "replacement" })
+    assert.strictEqual(updated.source_type, "generated")
+
+    await Effect.runPromise(provideNode(aura.connect(first.id, second.id, 2, "causal")))
+    const firstView = aura.search({ namespace: "alpha" }).find((record) => record.id === first.id)!
+    const secondView = aura.search({ namespace: "alpha" }).find((record) => record.id === second.id)!
+    assert.strictEqual(firstView.connections[second.id], 1)
+    assert.strictEqual(secondView.connections[first.id], 1)
+    assert.strictEqual(firstView.connection_types[second.id], "causal")
+    assert.strictEqual(secondView.connection_types[first.id], "causal")
+
+    const crossNamespace = await Effect.runPromise(Effect.flip(provideNode(aura.connect(first.id, otherNs.id))))
+    assert.instanceOf(crossNamespace, RecordValidationError)
+    assert.strictEqual((crossNamespace as RecordValidationError).field, "namespace")
+
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.delete("missing-record"))), false)
   })
 
   it("consolidate gap fails with a typed unsupported error", async () => {
@@ -341,6 +444,53 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(alpha.suggested_correction_count, 1)
     assert.ok(alpha.instability_score > 0)
     assert.deepStrictEqual(governance.map((status) => status.namespace).sort(), ["alpha", "beta"])
+  })
+
+  it("memory_health projects high-salience records into summary and review issues", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-salience-health-"))
+    const aura = await Effect.runPromise(provideNode(Effect.gen(function* () {
+      const brain = yield* BrainAuraFile.open(brainPath)
+      yield* brain.flush()
+      const store = yield* CognitiveStoreFile.open(brainPath)
+      yield* store.appendStore({
+        id: "salient_record",
+        content: "Alpha deploy record marked as operator priority",
+        level: Level.Working,
+        strength: 1,
+        activation_count: 0,
+        created_at: 1,
+        last_activated: 1,
+        tags: ["deploy"],
+        connections: {},
+        connection_types: {},
+        content_type: "text",
+        source_type: "recorded",
+        namespace: "alpha",
+        semantic_type: "fact",
+        activation_velocity: 0,
+        salience: 0.88,
+        metadata: { salience_reason: "operator_priority" },
+        aura_id: null,
+        caused_by_id: null,
+        confidence: 0.9,
+        support_mass: 0,
+        conflict_mass: 0,
+        volatility: 0,
+      })
+      yield* store.flush()
+      return yield* Aura.open(brainPath)
+    })))
+
+    const health = await Effect.runPromise(Effect.provide(aura.memory_health(10), governanceLayer({})))
+
+    assert.strictEqual(health.high_salience_record_count, 1)
+    assert.ok(health.avg_salience > 0)
+    assert.ok(health.max_salience >= 0.88)
+    assert.ok(health.top_issues.some((issue) =>
+      issue.kind === "high_salience_record" &&
+      issue.target_id === "salient_record" &&
+      issue.severity === "medium"
+    ))
   })
 
   it("correction writers populate logs, review queues, and 07-04 governance backfills", async () => {
@@ -786,7 +936,7 @@ describe("Aura.runMaintenance", () => {
           content_type: "text",
           source_type: "recorded",
           namespace: "default",
-          semantic_type: "memory",
+          semantic_type: "fact",
           metadata: {},
         })
         yield* store.flush()

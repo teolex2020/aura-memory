@@ -40,3 +40,9 @@ export class RerankError extends Data.TaggedError("RerankError")<{
 export class FinalizeError extends Data.TaggedError("FinalizeError")<{
   readonly cause: unknown
 }> {}
+
+export class RecordValidationError extends Data.TaggedError("RecordValidationError")<{
+  readonly field: string
+  readonly message: string
+  readonly rustReference: string
+}> {}

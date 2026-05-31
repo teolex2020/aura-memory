@@ -132,6 +132,72 @@ it("embedding is skipped when missing, used when present", async () => {
   assert.deepStrictEqual(withEmb.map(([, id]) => id), ["r1", "r3"])
 })
 
+it("truncates RRF topK before graph expansion like Rust", async () => {
+  const records = new Map<string, unknown>([
+    ["r1", {
+      id: "r1",
+      content: "first",
+      tags: [],
+      strength: 1,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { trust_score: "0.5", source: "user-confirmed" },
+      connections: {}
+    }],
+    ["r2", {
+      id: "r2",
+      content: "second",
+      tags: [],
+      strength: 1,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { trust_score: "0.5", source: "user-confirmed" },
+      connections: {}
+    }],
+    ["r3", {
+      id: "r3",
+      content: "third",
+      tags: [],
+      strength: 1,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { trust_score: "0.5", source: "user-confirmed" },
+      connections: { r4: 1 }
+    }],
+    ["r4", {
+      id: "r4",
+      content: "graph child",
+      tags: [],
+      strength: 100,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { trust_score: "0.5", source: "user-confirmed" },
+      connections: {}
+    }]
+  ])
+  const view: RecallView = {
+    records,
+    auraIndex: new Map(),
+    auraHeaders: new Map(),
+    invertedIndex: { search: () => [] },
+    ngramIndex: { query: () => [] },
+    tagIndex: new Map(),
+  }
+  const { clock } = fixedClock(1_700_000_000)
+
+  const scored = await Effect.runPromise(
+    recallPipeline("alpha", { topK: 2, expandConnections: true }).pipe(
+      Effect.provideService(RecallViewTag, view),
+      Effect.provideService(Clock, clock),
+      Effect.provideService(EmbeddingStore, {
+        query: () => Effect.succeed([["r1", 1], ["r2", 0.9], ["r3", 0.8]])
+      })
+    )
+  )
+
+  assert.deepStrictEqual(scored.map(([, id]) => id), ["r1", "r2"])
+})
+
 it("reranker is skipped when missing, used when present", async () => {
   const query = "alpha"
   const view = await makeView(query)

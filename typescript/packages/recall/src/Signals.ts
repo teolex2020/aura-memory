@@ -37,8 +37,8 @@ export function collectSdr(
   topK: number,
   namespaces: ReadonlyArray<string>
 ): RankedList {
-  // SIMPLE IMPLEMENTATION: 复刻 Rust 的 aura_id → record_id 映射与 Tanimoto 打分，但 invertedIndex.search 的 overlap 未参与权重。
-  // FULL IMPLEMENTATION: 对齐 Rust [collect_sdr](file:///workspace/src/recall.rs#L85-L137) 的候选召回、overlap 参与、以及缓存/剪枝策略。
+  // Rust reference: `collect_sdr` ignores the returned overlap after candidate retrieval.
+  // 中文说明：overlap 只影响 `InvertedIndex::search` 的候选顺序/截断；最终信号分数按 Tanimoto 重新计算并排序。
   const queryBits = sdr.textToSdr(query, false)
   if (queryBits.length === 0) return []
 
@@ -72,8 +72,8 @@ export function collectNgram(
   topK: number,
   namespaces: ReadonlyArray<string>
 ): RankedList {
-  // SIMPLE IMPLEMENTATION: 直接使用 RecallView.ngramIndex.query 的结果并做 namespace filter。
-  // FULL IMPLEMENTATION: 对齐 Rust [collect_ngram](file:///workspace/src/recall.rs#L141-L159) 的 topK*4 召回、稳定排序与 tie-break。
+  // Rust reference: `collect_ngram` queries topK * 4, filters namespaces, then takes topK.
+  // 中文说明：NGramIndex 自身负责 MinHash+LSH 相似度排序；这里仅投影 Rust 的过滤与截断流程。
   const hits = view.ngramIndex.query(query, topK * 4)
   const out: RankedList = []
   for (const [sim, rid] of hits) {

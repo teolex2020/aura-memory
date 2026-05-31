@@ -115,6 +115,11 @@ function filterByStrengthAndNamespace(
   return out
 }
 
+function truncateTopK(scored: Scored, topK: number): Scored {
+  if (topK > 0 && scored.length > topK) scored.length = topK
+  return scored
+}
+
 export function recallPipeline(
   query: string,
   options?: Partial<RecallPipelineOptions>
@@ -153,6 +158,9 @@ export function recallPipeline(
 
     let matched: Scored = rrfFuse(rankedLists)
     matched = filterByStrengthAndNamespace(view, matched, opts.minStrength, opts.namespaces)
+    // Rust `rrf_fuse` filters and truncates before graph/causal expansion.
+    // 中文说明：graph walk 的种子必须限于 RRF topK，否则会从 Rust 已截断的候选继续扩展。
+    matched = truncateTopK(matched, opts.topK)
 
     if (opts.expandConnections) {
       matched = graphWalk(view, matched, opts.minStrength, opts.namespaces)

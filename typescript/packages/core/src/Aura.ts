@@ -9,6 +9,7 @@ import {
   FinalizeError,
   JsonParseError,
   Level,
+  RecordValidationError,
   RerankError,
   type Record as AuraRecord,
   type StoreOptions,
@@ -17,7 +18,13 @@ import {
   EpistemicRuntime,
   UnsupportedSurfaceError,
   applyCrossNamespaceDimensionFlags,
+  DEFAULT_NAMESPACE,
+  DEFAULT_SOURCE_TYPE,
+  DEFAULT_SEMANTIC_TYPE,
   defaultCrossNamespaceDigestOptions,
+  defaultConfidenceForSource,
+  validateRecordSourceType,
+  validateRecordStoreInput,
 } from "@aura/contract";
 import {
   CognitiveStoreFile,
@@ -37,8 +44,25 @@ import {
 } from "./Recall";
 import { id12 } from "@aura/utils";
 
-const DEFAULT_SEMANTIC_TYPE = "fact"
+const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
+const RECORD_SALIENCE_REASON_KEY = "salience_reason"
 const MAX_AUTO_CONNECTIONS = 50
+
+function numberOr(raw: unknown, fallback: number): number {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
+function migrateLegacyConfidence(record: AuraRecord): AuraRecord | undefined {
+  const expected = defaultConfidenceForSource(record.source_type)
+  if (Math.abs(record.confidence - DEFAULT_CONFIDENCE) < 0.001 && Math.abs(expected - DEFAULT_CONFIDENCE) > 0.001) {
+    return { ...record, confidence: expected }
+  }
+  return undefined
+}
 
 // ── MaintenanceService function imports ──
 import {
@@ -190,6 +214,21 @@ export class Aura {
         Effect.catch(() => Effect.succeed([] as ReflectionSummary[]))
       )
       const cognitiveRecords = yield* loadCognitiveRecords(brainPath)
+      const migratedRecords: AuraRecord[] = []
+      for (const [id, record] of cognitiveRecords) {
+        const migrated = migrateLegacyConfidence(record)
+        if (migrated !== undefined) {
+          cognitiveRecords.set(id, migrated)
+          migratedRecords.push(migrated)
+        }
+      }
+      if (migratedRecords.length > 0) {
+        const store = yield* CognitiveStoreFile.open(brainPath)
+        for (const record of migratedRecords) {
+          yield* store.appendUpdate(record)
+        }
+        yield* store.flush()
+      }
       return new Aura(brainPath, parsed.records, cognitiveRecords, trends, reflections);
     });
   }
@@ -231,7 +270,7 @@ export class Aura {
     options?: StoreOptions,
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError,
+    FileReadError | FileWriteError | RecordValidationError,
     FileRead | FileWrite
   > {
     return this.store_with_channel(content, options);
@@ -241,7 +280,7 @@ export class Aura {
     options: StoreCodeOptions,
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError,
+    FileReadError | FileWriteError | RecordValidationError,
     FileRead | FileWrite
   > {
     // Store a code snippet at DOMAIN level.
@@ -264,7 +303,7 @@ export class Aura {
     options: StoreDecisionOptions,
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError,
+    FileReadError | FileWriteError | RecordValidationError,
     FileRead | FileWrite
   > {
     // Store a decision with reasoning and rejected alternatives.
@@ -294,7 +333,7 @@ export class Aura {
     },
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError,
+    FileReadError | FileWriteError | RecordValidationError,
     FileRead | FileWrite
   > {
     // Store with explicit channel for provenance stamping.
@@ -318,6 +357,19 @@ export class Aura {
         ? options!.tags.filter((t): t is string => typeof t === "string")
         : [];
 
+      const sourceType = options?.source_type ?? DEFAULT_SOURCE_TYPE
+      const namespace = options?.namespace ?? DEFAULT_NAMESPACE
+      const semanticType = options?.semantic_type ?? DEFAULT_SEMANTIC_TYPE
+      const validationError = validateRecordStoreInput({
+        content,
+        tags,
+        source_type: sourceType,
+        semantic_type: semanticType,
+        namespace,
+      })
+      if (validationError !== undefined) {
+        return yield* Effect.fail(validationError)
+      }
       let record: AuraRecord = {
         id,
         content,
@@ -330,11 +382,17 @@ export class Aura {
         connections: {},
         connection_types: {},
         content_type: options?.content_type ?? "text",
-        source_type: options?.source_type ?? "recorded",
-        namespace: options?.namespace ?? "default",
-        semantic_type: options?.semantic_type ?? DEFAULT_SEMANTIC_TYPE,
+        source_type: sourceType,
+        namespace,
+        semantic_type: semanticType,
+        activation_velocity: 0,
+        salience: 0,
         metadata: { ...(options?.metadata ?? {}), timestamp: nowIso },
         caused_by_id: options?.caused_by_id ?? null,
+        confidence: defaultConfidenceForSource(sourceType),
+        support_mass: 0,
+        conflict_mass: 0,
+        volatility: 0,
       };
 
       record = self.autoConnectRecord(record)
@@ -350,8 +408,8 @@ export class Aura {
     record_id: string,
     patch?: UpdateOptions,
   ): Effect.Effect<
-    AuraRecord,
-    FileReadError | FileWriteError | FileFormatError,
+    AuraRecord | null,
+    FileReadError | FileWriteError | FileFormatError | RecordValidationError,
     FileRead | FileWrite
   > {
     // Update a record.
@@ -362,35 +420,45 @@ export class Aura {
     const dir = this.brainDir;
     const self = this;
     return Effect.gen(function* () {
+      if (patch?.source_type !== undefined) {
+        const validationError = validateRecordSourceType(patch.source_type)
+        if (validationError !== undefined) {
+          return yield* Effect.fail(validationError)
+        }
+      }
       const clock = yield* Clock
       const nowSec = clock.nowSeconds();
       const records = yield* loadCognitiveRecords(dir);
       const existing = records.get(record_id);
       const base = existing ? toRecordLike(existing, nowSec) : undefined;
-      const nowIso = new Date().toISOString();
+      if (base === undefined) {
+        return null
+      }
 
       const next: AuraRecord = {
         id: record_id,
-        content: patch?.content ?? base?.content ?? "",
-        level: base?.level ?? Level.Working,
-        strength: patch?.strength ?? base?.strength ?? 1,
-        activation_count: base?.activation_count ?? 0,
-        created_at: base?.created_at ?? nowSec,
-        last_activated: nowSec,
-        tags: patch?.tags ?? base?.tags ?? [],
-        connections: base?.connections ?? {},
-        connection_types: base?.connection_types ?? {},
-        content_type: base?.content_type ?? "text",
-        source_type: base?.source_type ?? "recorded",
-        namespace: base?.namespace ?? "default",
-        semantic_type: base?.semantic_type ?? DEFAULT_SEMANTIC_TYPE,
-        metadata: {
-          ...(base?.metadata ?? {}),
-          ...(patch?.metadata ?? {}),
-          timestamp: nowIso,
-        },
-        aura_id: base?.aura_id ?? null,
-        caused_by_id: base?.caused_by_id ?? null,
+        content: patch?.content ?? base.content,
+        level: patch?.level ?? base.level,
+        strength: patch?.strength !== undefined ? clamp01(patch.strength) : base.strength,
+        activation_count: base.activation_count,
+        created_at: base.created_at,
+        last_activated: base.last_activated,
+        tags: patch?.tags ?? base.tags,
+        connections: base.connections,
+        connection_types: base.connection_types,
+        content_type: base.content_type,
+        source_type: patch?.source_type ?? base.source_type,
+        namespace: base.namespace,
+        semantic_type: base.semantic_type,
+        activation_velocity: base.activation_velocity,
+        salience: base.salience,
+        metadata: patch?.metadata ?? base.metadata,
+        aura_id: base.aura_id ?? null,
+        caused_by_id: base.caused_by_id ?? null,
+        confidence: base.confidence,
+        support_mass: base.support_mass,
+        conflict_mass: base.conflict_mass,
+        volatility: base.volatility,
       };
 
       const store = yield* CognitiveStoreFile.open(dir);
@@ -405,7 +473,7 @@ export class Aura {
     record_id: string,
   ): Effect.Effect<
     boolean,
-    FileReadError | FileWriteError,
+    FileReadError | FileWriteError | FileFormatError,
     FileRead | FileWrite
   > {
     // Delete a record.
@@ -416,6 +484,10 @@ export class Aura {
     const dir = this.brainDir;
     const self = this;
     return Effect.gen(function* () {
+      const records = yield* loadCognitiveRecords(dir);
+      if (!records.has(record_id)) {
+        return false
+      }
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendDelete(record_id);
       yield* store.flush();
@@ -428,9 +500,10 @@ export class Aura {
     from_id: string,
     to_id: string,
     weight?: number,
+    relationship?: string,
   ): Effect.Effect<
     void,
-    FileReadError | FileWriteError | FileFormatError,
+    FileReadError | FileWriteError | FileFormatError | RecordValidationError,
     FileRead | FileWrite
   > {
     // Connect two records with optional relationship type.
@@ -441,51 +514,64 @@ export class Aura {
     // - `"associative"` — A and B are thematically related
     // - `"coactivation"` — A and B were recalled together in a session
     // - Any custom string
-    // 连接两条 records（Rust 支持 relationship 类型；TS 当前仅支持权重）。
-    // SIMPLE IMPLEMENTATION: load record, mutate connections, appendUpdate full record.
+    // 连接两条 records（可选 relationship 类型）。
+    // SIMPLE IMPLEMENTATION: load records, mutate connections, appendUpdate full records.
     // 简化实现：加载记录、更新 connections、追加写入完整 record。
     // Rust reference: Aura::connect (aura.rs)
     const dir = this.brainDir;
     const self = this;
     const w =
-      typeof weight === "number" && Number.isFinite(weight) ? weight : 1;
+      typeof weight === "number" && Number.isFinite(weight) ? clamp01(weight) : 0.5;
     return Effect.gen(function* () {
       const clock = yield* Clock
       const nowSec = clock.nowSeconds();
       const records = yield* loadCognitiveRecords(dir);
-      const existing = records.get(from_id);
-      const base = existing ? toRecordLike(existing, nowSec) : undefined;
-      const nowIso = new Date().toISOString();
+      const fromBase = records.get(from_id) !== undefined ? toRecordLike(records.get(from_id)!, nowSec) : undefined;
+      const toBase = records.get(to_id) !== undefined ? toRecordLike(records.get(to_id)!, nowSec) : undefined;
+      if (fromBase === undefined) {
+        return yield* Effect.fail(recordValidationError("from_id", `Record ${from_id} not found`, "Aura::connect (aura.rs)"))
+      }
+      if (toBase === undefined) {
+        return yield* Effect.fail(recordValidationError("to_id", `Record ${to_id} not found`, "Aura::connect (aura.rs)"))
+      }
+      if (fromBase.namespace !== toBase.namespace) {
+        return yield* Effect.fail(recordValidationError(
+          "namespace",
+          `Cannot connect records across namespaces ('${fromBase.namespace}' vs '${toBase.namespace}')`,
+          "Aura::connect (aura.rs)"
+        ))
+      }
 
-      const connections: { [k: string]: number } = {
-        ...(base?.connections ?? {}),
-      };
-      connections[to_id] = w;
+      const fromConnections: { [k: string]: number } = { ...fromBase.connections };
+      fromConnections[to_id] = w;
+      const toConnections: { [k: string]: number } = { ...toBase.connections };
+      toConnections[from_id] = w;
+      const fromConnectionTypes: { [k: string]: string } = { ...fromBase.connection_types }
+      const toConnectionTypes: { [k: string]: string } = { ...toBase.connection_types }
+      if (relationship !== undefined) {
+        fromConnectionTypes[to_id] = relationship
+        toConnectionTypes[from_id] = relationship
+      }
 
-      const next: AuraRecord = {
+      const fromNext: AuraRecord = {
+        ...fromBase,
         id: from_id,
-        content: base?.content ?? "",
-        level: base?.level ?? Level.Working,
-        strength: base?.strength ?? 1,
-        activation_count: base?.activation_count ?? 0,
-        created_at: base?.created_at ?? nowSec,
-        last_activated: nowSec,
-        tags: base?.tags ?? [],
-        connections,
-        connection_types: base?.connection_types ?? {},
-        content_type: base?.content_type ?? "text",
-        source_type: base?.source_type ?? "recorded",
-        namespace: base?.namespace ?? "default",
-        semantic_type: base?.semantic_type ?? DEFAULT_SEMANTIC_TYPE,
-        metadata: { ...(base?.metadata ?? {}), timestamp: nowIso },
-        aura_id: base?.aura_id ?? null,
-        caused_by_id: base?.caused_by_id ?? null,
+        connections: fromConnections,
+        connection_types: fromConnectionTypes,
+      };
+      const toNext: AuraRecord = {
+        ...toBase,
+        id: to_id,
+        connections: toConnections,
+        connection_types: toConnectionTypes,
       };
 
       const store = yield* CognitiveStoreFile.open(dir);
-      yield* store.appendUpdate(next);
+      yield* store.appendUpdate(fromNext);
+      yield* store.appendUpdate(toNext);
       yield* store.flush();
-      self.replaceSearchRecord(next)
+      self.replaceSearchRecord(fromNext)
+      self.replaceSearchRecord(toNext)
     });
   }
 
@@ -921,6 +1007,7 @@ export class Aura {
       const pressure = yield* runtime.getPolicyPressureReport(undefined, max)
       const highVolatility = yield* runtime.getHighVolatilityBeliefs(0.20, max)
       const contradictionClusters = yield* runtime.getContradictionClusters(records, undefined, max)
+      const recordValues = Array.from(records.values())
 
       const issues: OperatorReviewIssue[] = []
       for (const belief of highVolatility) {
@@ -954,6 +1041,16 @@ export class Aura {
           severity: finding.severity,
         })
       }
+      for (const record of highSalienceRecords(recordValues, 0.70, max)) {
+        issues.push({
+          kind: "high_salience_record",
+          target_id: record.id,
+          namespace: record.namespace,
+          title: `High-salience record ${previewText(record.content, 48)}`,
+          score: clamp01(record.salience),
+          severity: issueSeverity(clamp01(record.salience), 0.90, 0.70),
+        })
+      }
       for (const area of pressure.slice(0, max)) {
         issues.push({
           kind: "policy_pressure",
@@ -966,12 +1063,16 @@ export class Aura {
       }
       issues.sort((a, b) => b.score - a.score || a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id))
 
+      const saliences = recordValues.map((record) => clamp01(record.salience ?? 0))
+      const totalSalience = saliences.reduce((sum, salience) => sum + salience, 0)
+      const maxSalience = saliences.length === 0 ? 0 : Math.max(...saliences)
+
       return {
         total_records: records.size,
         startup_has_recovery_warnings: false,
-        high_salience_record_count: 0,
-        avg_salience: 0,
-        max_salience: 0,
+        high_salience_record_count: saliences.filter((salience) => salience >= 0.70).length,
+        avg_salience: saliences.length === 0 ? 0 : totalSalience / saliences.length,
+        max_salience: maxSalience,
         reflection_summary_count: reflection.summaryCount,
         reflection_high_severity_findings: reflection.highSeverityFindings,
         contradiction_cluster_count: contradictionClusters.length,
@@ -1660,8 +1761,8 @@ export class Aura {
             ? "This recommendation depends on unresolved evidence."
             : "This memory is linked to unstable or conflicting evidence.")
         : null
-      const salience = 0
-      const salienceReason = record.metadata["salience_reason"] ?? null
+      const salience = clamp01(record.salience ?? 0)
+      const salienceReason = record.metadata[RECORD_SALIENCE_REASON_KEY] ?? null
       const salienceExplanation = salience > 0
         ? "This memory carries non-zero significance weighting."
         : null
@@ -2203,6 +2304,22 @@ function previewText(text: string, max: number): string {
   return `${normalized.slice(0, Math.max(0, max - 1))}...`
 }
 
+function highSalienceRecords(
+  records: ReadonlyArray<AuraRecord>,
+  minSalience: number,
+  limit: number,
+): ReadonlyArray<AuraRecord> {
+  const threshold = clamp01(minSalience)
+  return records
+    .filter((record) => clamp01(record.salience ?? 0) >= threshold)
+    .sort((a, b) => {
+      const salienceDelta = clamp01(b.salience ?? 0) - clamp01(a.salience ?? 0)
+      if (salienceDelta !== 0) return salienceDelta
+      return recordImportance(b) - recordImportance(a)
+    })
+    .slice(0, Math.min(100, Math.max(0, limit)))
+}
+
 function normalizeCrossNamespaceOptions(
   input?: AuraCrossNamespaceDigestOptions,
 ): CrossNamespaceDigestOptions {
@@ -2449,9 +2566,7 @@ function recordImportance(record: AuraRecord): number {
   const levelScore = levelValue(record.level) / 4
   const connScore = Math.min(Object.keys(record.connections).length / 50, 1)
   const actScore = Math.min(record.activation_count / 20, 1)
-  // NON-PARITY IMPLEMENTATION: contract Record does not expose Rust salience yet, so search uses 0.
-  // 差异说明：等 contract Record 加入 salience 后再接入最后 10% 权重。
-  const salience = 0
+  const salience = clamp01(record.salience ?? 0)
   return 0.40 * record.strength + 0.25 * levelScore + 0.20 * connScore + 0.15 * actScore + 0.10 * salience
 }
 
@@ -2497,27 +2612,34 @@ function toRecordLike(rec: AuraRecord, nowSecs: number): AuraRecord {
       ? (o.level as Level)
       : Level.Working;
 
+  const source_type = typeof o.source_type === "string" ? o.source_type : DEFAULT_SOURCE_TYPE
   return {
     id,
     content,
     level,
-    strength: typeof o.strength === "number" ? o.strength : 1,
+    strength: numberOr(o.strength, 1),
     activation_count:
-      typeof o.activation_count === "number" ? o.activation_count : 0,
-    created_at: typeof o.created_at === "number" ? o.created_at : nowSecs,
+      numberOr(o.activation_count, 0),
+    created_at: numberOr(o.created_at, nowSecs),
     last_activated:
-      typeof o.last_activated === "number" ? o.last_activated : nowSecs,
+      numberOr(o.last_activated, nowSecs),
     tags,
     connections,
     connection_types,
     content_type: typeof o.content_type === "string" ? o.content_type : "text",
-    source_type: typeof o.source_type === "string" ? o.source_type : "recorded",
-    namespace: typeof o.namespace === "string" ? o.namespace : "default",
+    source_type,
+    namespace: typeof o.namespace === "string" ? o.namespace : DEFAULT_NAMESPACE,
     semantic_type:
       typeof o.semantic_type === "string" ? o.semantic_type : DEFAULT_SEMANTIC_TYPE,
+    activation_velocity: numberOr(o.activation_velocity, 0),
+    salience: numberOr(o.salience, 0),
     metadata,
     aura_id: typeof o.aura_id === "string" ? o.aura_id : null,
     caused_by_id: typeof o.caused_by_id === "string" ? o.caused_by_id : null,
+    confidence: numberOr(o.confidence, defaultConfidenceForSource(source_type)),
+    support_mass: numberOr(o.support_mass, 0),
+    conflict_mass: numberOr(o.conflict_mass, 0),
+    volatility: numberOr(o.volatility, 0),
   };
 }
 
@@ -2551,6 +2673,14 @@ function toMcpMaintenanceTrendSnapshot(snapshot: MaintenanceTrendSnapshot): McpM
     cycle_time_ms: snapshot.cycleTimeMs,
     dominant_phase: snapshot.dominantPhase,
   }
+}
+
+function recordValidationError(field: string, message: string, rustReference: string): RecordValidationError {
+  return new RecordValidationError({
+    field,
+    message,
+    rustReference,
+  })
 }
 
 function fromMcpMaintenanceTrendSnapshot(snapshot: McpMaintenanceTrendSnapshot): MaintenanceTrendSnapshot {

@@ -46,3 +46,8 @@ export class RecordValidationError extends Data.TaggedError("RecordValidationErr
   readonly message: string
   readonly rustReference: string
 }> {}
+
+export class RecordNotFoundError extends Data.TaggedError("RecordNotFoundError")<{
+  readonly recordId: string
+  readonly rustReference: string
+}> {}

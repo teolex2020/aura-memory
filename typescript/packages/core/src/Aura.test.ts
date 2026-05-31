@@ -486,6 +486,59 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.stats().total_connections, 6)
   })
 
+  it("basic read facades mirror Rust PyO3 get/count/namespace/history semantics", async () => {
+    const aura = await openWritableAura()
+    const alpha = await Effect.runPromise(provideNode(aura.store("alpha tagged record", {
+      namespace: "alpha",
+      level: Level.Domain,
+      tags: ["shared", "alpha-only"],
+      metadata: { salience_reason: "operator boost" },
+    })))
+    const beta = await Effect.runPromise(provideNode(aura.store("beta tagged record", {
+      namespace: "beta",
+      level: Level.Working,
+      tags: ["shared", "beta-only"],
+    })))
+    const defaultRecord = await Effect.runPromise(provideNode(aura.store("default tagged record", {
+      tags: ["default-only"],
+    })))
+
+    const fetchedAlpha = aura.get(alpha.id)
+    assert.strictEqual(fetchedAlpha?.id, alpha.id)
+    fetchedAlpha!.content = "mutated outside Aura"
+    assert.strictEqual(aura.get(alpha.id)?.content, "alpha tagged record")
+    assert.strictEqual(aura.get("missing"), null)
+    assert.strictEqual(aura.count(), 3)
+    assert.strictEqual(aura.count(Level.Domain), 1)
+    assert.deepStrictEqual(aura.list_namespaces(), ["alpha", "beta", "default"])
+    assert.deepStrictEqual(aura.namespace_stats(), { alpha: 1, beta: 1, default: 1 })
+
+    const anyTagMatches = aura.search({
+      tags: ["alpha-only", "beta-only"],
+      namespaces: ["alpha", "beta", "default"],
+      limit: 10,
+    })
+    assert.deepStrictEqual(new Set(anyTagMatches.map((record) => record.id)), new Set([alpha.id, beta.id]))
+    assert.ok(!anyTagMatches.some((record) => record.id === defaultRecord.id))
+
+    const history = await Effect.runPromise(aura.history(alpha.id))
+    assert.strictEqual(history.id, alpha.id)
+    assert.strictEqual(history.level, "DOMAIN")
+    assert.strictEqual(history.strength, alpha.strength.toFixed(4))
+    assert.strictEqual(history.activation_count, String(alpha.activation_count))
+    assert.strictEqual(history.namespace, "alpha")
+    assert.strictEqual(history.source_type, "recorded")
+    assert.strictEqual(history.tags, "shared, alpha-only")
+    assert.strictEqual(history.salience, "0.0000")
+    assert.strictEqual(history.salience_reason, "operator boost")
+    assert.strictEqual(history.connections, "0")
+
+    await expect(Effect.runPromise(aura.history("missing"))).rejects.toMatchObject({
+      _tag: "RecordNotFoundError",
+      recordId: "missing",
+    })
+  })
+
   it("open migrates legacy deserialized confidence to source_type defaults", async () => {
     const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-legacy-confidence-"))
     await Effect.runPromise(provideNode(Effect.gen(function* () {

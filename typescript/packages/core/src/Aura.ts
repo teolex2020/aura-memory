@@ -9,6 +9,7 @@ import {
   FinalizeError,
   JsonParseError,
   Level,
+  RecordNotFoundError,
   RecordValidationError,
   RerankError,
   type RecallScored,
@@ -57,7 +58,7 @@ import {
   recallScored as recallScoredEffect,
   recallWithTrace as recallWithTraceEffect,
 } from "./Recall";
-import { id12 } from "@aura/utils";
+import { id12, nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
 const RECORD_SALIENCE_REASON_KEY = "salience_reason"
@@ -612,7 +613,99 @@ export class Aura {
   }
 
   listCognitiveRecords(): AuraRecord[] {
-    return [...this.searchRecords.values()]
+    return [...this.searchRecords.values()].map(cloneAuraRecord)
+  }
+
+  /**
+   * Get a single record by ID.
+   * 按 ID 获取单条 record。
+   *
+   * Rust reference: `Aura::get` and `py_get` (`../src/aura.rs`).
+   */
+  get(recordId: string): AuraRecord | null {
+    const record = this.searchRecords.get(recordId)
+    return record === undefined ? null : cloneAuraRecord(record)
+  }
+
+  /**
+   * Count records, optionally filtered by level.
+   * 统计 record 数量，可按 level 过滤。
+   *
+   * Rust reference: `Aura::count` and `py_count` (`../src/aura.rs`).
+   */
+  count(level?: Level): number {
+    if (level === undefined) return this.searchRecords.size
+    let total = 0
+    for (const record of this.searchRecords.values()) {
+      if (record.level === level) total++
+    }
+    return total
+  }
+
+  /**
+   * List all distinct namespaces present in the brain.
+   * 列出当前 brain 中出现过的 namespace；始终包含 Rust 默认 namespace。
+   *
+   * Rust reference: `Aura::list_namespaces` and `py_list_namespaces` (`../src/aura.rs`).
+   */
+  list_namespaces(): ReadonlyArray<string> {
+    const namespaces = new Set<string>([DEFAULT_NAMESPACE])
+    for (const record of this.searchRecords.values()) {
+      namespaces.add(record.namespace)
+    }
+    return [...namespaces].sort()
+  }
+
+  /**
+   * Get record counts per namespace.
+   * 获取每个 namespace 的 record 数量。
+   *
+   * Rust reference: `Aura::namespace_stats` and `py_namespace_stats` (`../src/aura.rs`).
+   */
+  namespace_stats(): Readonly<Record<string, number>> {
+    const counts: Record<string, number> = {}
+    for (const record of this.searchRecords.values()) {
+      counts[record.namespace] = (counts[record.namespace] ?? 0) + 1
+    }
+    return counts
+  }
+
+  /**
+   * Return the access/strength timeline for a single record.
+   * 返回单条 record 的访问/强度时间线快照。
+   *
+   * Rust reference: `Aura::history` and `py_history` (`../src/aura.rs`).
+   */
+  history(recordId: string): Effect.Effect<Readonly<Record<string, string>>, RecordNotFoundError> {
+    const record = this.searchRecords.get(recordId)
+    if (record === undefined) {
+      return Effect.fail(new RecordNotFoundError({
+        recordId,
+        rustReference: "Aura::history (../src/aura.rs)",
+      }))
+    }
+    const now = nowSecs()
+    const out: Record<string, string> = {
+      id: record.id,
+      content: record.content,
+      level: levelDisplayName(record.level),
+      strength: record.strength.toFixed(4),
+      activation_count: String(record.activation_count),
+      created_at: record.created_at.toFixed(3),
+      last_activated: record.last_activated.toFixed(3),
+      age_days: ((now - record.created_at) / 86400).toFixed(2),
+      days_since_activation: ((now - record.last_activated) / 86400).toFixed(2),
+      namespace: record.namespace,
+      source_type: record.source_type,
+      tags: record.tags.join(", "),
+      salience: record.salience.toFixed(4),
+      connections: String(Object.keys(record.connections).length),
+    }
+    const salienceReason = record.metadata[RECORD_SALIENCE_REASON_KEY]
+    if (salienceReason !== undefined) {
+      out.salience_reason = salienceReason
+    }
+    return Effect.succeed(out)
   }
 
   store(
@@ -1246,7 +1339,7 @@ export class Aura {
     const results = [...this.searchRecords.values()].filter((record) => {
       if (!nsList.includes(record.namespace)) return false
       if (options.level !== undefined && record.level !== options.level) return false
-      if (options.tags !== undefined && !options.tags.every((tag) => record.tags.includes(tag))) return false
+      if (options.tags !== undefined && !options.tags.some((tag) => record.tags.includes(tag))) return false
       if (options.content_type !== undefined && record.content_type !== options.content_type) return false
       if (options.source_type !== undefined && record.source_type !== options.source_type) return false
       if (options.semantic_type !== undefined && record.semantic_type !== options.semantic_type) return false
@@ -1254,7 +1347,7 @@ export class Aura {
       return true
     })
     results.sort((a, b) => recordImportance(b) - recordImportance(a))
-    return results.slice(0, max)
+    return results.slice(0, max).map(cloneAuraRecord)
   }
 
   stats(): AuraStats {
@@ -3262,6 +3355,34 @@ function levelValue(level: Level): number {
       return 3
     case Level.Identity:
       return 4
+  }
+}
+
+function levelDisplayName(level: Level): string {
+  // Display name for the level.
+  // level 的展示名；与 Rust `Level::name` 保持一致。
+  // Rust reference: Level::name (levels.rs)
+  switch (level) {
+    case Level.Working:
+      return "WORKING"
+    case Level.Decisions:
+      return "DECISIONS"
+    case Level.Domain:
+      return "DOMAIN"
+    case Level.Identity:
+      return "IDENTITY"
+  }
+}
+
+function cloneAuraRecord(record: AuraRecord): AuraRecord {
+  // Rust facades return owned `Record` clones; copy mutable containers on the TS side.
+  // Rust 的 facade 返回 owned `Record`；TS 侧复制可变容器，避免泄露内部 read model。
+  return {
+    ...record,
+    tags: [...record.tags],
+    connections: { ...record.connections },
+    connection_types: { ...record.connection_types },
+    metadata: { ...record.metadata },
   }
 }
 

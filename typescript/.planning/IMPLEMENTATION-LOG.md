@@ -106,3 +106,15 @@
   - `bun run test packages/core/src/Aura.test.ts packages/core/src/MaintenanceService.test.ts packages/core/src/RecallReranker.test.ts packages/indexing/src/NGramIndex.test.ts packages/recall/src/Pipeline.test.ts packages/storage/src/RecallView.test.ts` 通过，6 files / 73 tests。
   - `bun run test packages/indexing/src/InvertedIndex.searchScored.test.ts` 通过，1 file / 7 tests。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 536 tests。
+
+## 2026-06-01 - Embedding signal RRF 过滤位置对齐
+
+- 范围：`packages/recall/src/Signals.ts`、`packages/recall/src/Pipeline.ts`、`packages/recall/src/Trace.ts`、对应 recall 测试。
+- 实现：`collectEmbedding` 不再预过滤 record/namespace、不再重排或二次截断，改为直接透传 EmbeddingStore 的 ranked list；record existence、strength、namespace 过滤统一交给 `rrfFuse`，保留 embedding 原始 rank 位置参与 RRF。
+- 实现：修正 trace signal rank 为 Rust `enumerate()` 语义（0-based），并在记录 signal evidence 时同步累加 `rrfScore`，使被 RRF 过滤掉的 embedding 候选也保留 Rust trace 中的 pre-filter RRF evidence。
+- Rust reference：`EmbeddingStore::query`（`../src/embedding.rs`），`Aura::collect_embedding_signal` / `Aura::recall_with_embedding`（`../src/aura.rs`），`recall_pipeline`、`recall_pipeline_with_trace`、`rrf_fuse`（`../src/recall.rs`）。
+- 验证：
+  - `bun run test packages/recall/src/Signals.test.ts packages/recall/src/Pipeline.test.ts` 通过，2 files / 13 tests。
+  - `bun run typecheck` 通过。
+  - `git diff --check` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 539 tests。

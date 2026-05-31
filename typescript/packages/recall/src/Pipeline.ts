@@ -137,7 +137,7 @@ export function recallPipeline(
 
     const embeddingOpt = yield* serviceOption(EmbeddingStore)
     const embeddingRanked = Option.isSome(embeddingOpt)
-      ? yield* collectEmbedding(view, embeddingOpt.value, query, opts.topK, opts.namespaces)
+      ? yield* collectEmbedding(embeddingOpt.value, query, opts.topK)
       : ([] as RankedList)
 
     // 2. RRF Fuse

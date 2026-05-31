@@ -1,7 +1,8 @@
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
+import { Effect } from "effect"
 import type { RecallView } from "@aura/contract"
-import { collectSdr, collectTags } from "./Signals"
+import { collectEmbedding, collectSdr, collectTags } from "./Signals"
 import { SDRInterpreter } from "./SDRInterpreter"
 
 it("collectSdr matches Rust: overlap selects candidates but final ranking uses Tanimoto", async () => {
@@ -67,4 +68,30 @@ it("collectTags matches Rust Jaccard scoring and empty namespace semantics", () 
   const ranked = collectTags(view, "alpha beta", 10, ["default"])
   assert.deepStrictEqual(ranked, [["r1", 2 / 3]])
   assert.deepStrictEqual(collectTags(view, "alpha beta", 10, []), [])
+})
+
+it("collectEmbedding matches Rust by preserving the provided ranked list for RRF filtering", async () => {
+  const ranked = await Effect.runPromise(
+    collectEmbedding(
+      {
+        query: (text, topK) => {
+          assert.strictEqual(text, "alpha")
+          assert.strictEqual(topK, 2)
+          return Effect.succeed([
+            ["other-namespace", 0.99],
+            ["missing-record", 0.95],
+            ["default-record", 0.80],
+          ])
+        },
+      },
+      "alpha",
+      2
+    )
+  )
+
+  assert.deepStrictEqual(ranked, [
+    ["other-namespace", 0.99],
+    ["missing-record", 0.95],
+    ["default-record", 0.80],
+  ])
 })

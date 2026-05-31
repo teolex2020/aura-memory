@@ -138,6 +138,105 @@ it("embedding is skipped when missing, used when present", async () => {
   assert.deepStrictEqual(withEmb.map(([, id]) => id), ["r1", "r3"])
 })
 
+it("embedding rank positions are preserved until RRF namespace filtering like Rust", async () => {
+  const query = "alpha"
+  const { clock } = fixedClock(1_700_000_000)
+  const records = new Map<string, unknown>([
+    ["other", {
+      id: "other",
+      content: "other namespace",
+      tags: [],
+      strength: 1,
+      namespace: "other",
+      source_type: "recorded",
+      metadata: { trust_score: "1", source: "user-confirmed" },
+      connections: {}
+    }],
+    ["default", {
+      id: "default",
+      content: "default namespace",
+      tags: [],
+      strength: 1,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { trust_score: "1", source: "user-confirmed" },
+      connections: {}
+    }]
+  ])
+  const view: RecallView = {
+    records,
+    auraIndex: new Map(),
+    auraHeaders: new Map(),
+    invertedIndex: { search: () => [] },
+    ngramIndex: { query: () => [] },
+    tagIndex: new Map(),
+  }
+
+  const scored = await Effect.runPromise(
+    recallPipeline(query, { topK: 10, expandConnections: false, namespaces: ["default"] }).pipe(
+      Effect.provideService(RecallViewTag, view),
+      Effect.provideService(Clock, clock),
+      Effect.provideService(EmbeddingStore, {
+        query: () => Effect.succeed([["other", 0.99], ["default", 0.80]])
+      })
+    )
+  )
+
+  assert.deepStrictEqual(scored.map(([, id]) => id), ["default"])
+  assert.isTrue(Math.abs(scored[0]![0] - 61 / 62) < 1e-12)
+})
+
+it("trace records embedding ranks before RRF filters records like Rust", async () => {
+  const query = "alpha"
+  const { clock } = fixedClock(1_700_000_000)
+  const records = new Map<string, unknown>([
+    ["other", {
+      id: "other",
+      content: "other namespace",
+      tags: [],
+      strength: 1,
+      namespace: "other",
+      source_type: "recorded",
+      metadata: { trust_score: "1", source: "user-confirmed" },
+      connections: {}
+    }],
+    ["default", {
+      id: "default",
+      content: "default namespace",
+      tags: [],
+      strength: 1,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { trust_score: "1", source: "user-confirmed" },
+      connections: {}
+    }]
+  ])
+  const view: RecallView = {
+    records,
+    auraIndex: new Map(),
+    auraHeaders: new Map(),
+    invertedIndex: { search: () => [] },
+    ngramIndex: { query: () => [] },
+    tagIndex: new Map(),
+  }
+
+  const traced = await Effect.runPromise(
+    recallPipelineWithTrace(query, { topK: 10, expandConnections: false, namespaces: ["default"] }).pipe(
+      Effect.provideService(RecallViewTag, view),
+      Effect.provideService(Clock, clock),
+      Effect.provideService(EmbeddingStore, {
+        query: () => Effect.succeed([["other", 0.99], ["default", 0.80]])
+      })
+    )
+  )
+
+  assert.deepStrictEqual(traced.scored.map(([, id]) => id), ["default"])
+  assert.strictEqual(traced.evidence.get("other")?.signals.embedding?.rank, 0)
+  assert.strictEqual(traced.evidence.get("default")?.signals.embedding?.rank, 1)
+  assert.strictEqual(traced.evidence.get("other")?.rrfScore, 1)
+  assert.isTrue(Math.abs((traced.evidence.get("default")?.rrfScore ?? 0) - 61 / 62) < 1e-12)
+})
+
 it("truncates RRF topK before graph expansion like Rust", async () => {
   const records = new Map<string, unknown>([
     ["r1", {

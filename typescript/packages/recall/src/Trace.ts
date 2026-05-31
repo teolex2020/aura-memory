@@ -137,11 +137,13 @@ function addSignalEvidence(
     const [recordId, rawScore] = list[index]!
     const rawShare = 1 / (RRF_K + index + 1)
     const rrfShare = maxPossible > 0 ? rawShare / maxPossible : rawShare
+    const currentRrfScore = evidence.get(recordId)?.rrfScore ?? 0
     patchEvidence(evidence, recordId, {
+      rrfScore: currentRrfScore + rrfShare,
       signals: {
         [signal]: {
           rawScore,
-          rank: index + 1,
+          rank: index,
           rrfShare,
         },
       },
@@ -223,7 +225,7 @@ export function recallPipelineWithTrace(
     const tagsRanked = collectTags(view, query, opts.topK, opts.namespaces)
     const embeddingOpt = yield* serviceOption(EmbeddingStore)
     const embeddingRanked = Option.isSome(embeddingOpt)
-      ? yield* collectEmbedding(view, embeddingOpt.value, query, opts.topK, opts.namespaces)
+      ? yield* collectEmbedding(embeddingOpt.value, query, opts.topK)
       : ([] as RankedList)
 
     const rankedLists: RankedList[] = []

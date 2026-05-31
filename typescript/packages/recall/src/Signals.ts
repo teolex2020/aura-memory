@@ -148,31 +148,18 @@ export function collectTags(
 }
 
 /**
- * SIMPLE IMPLEMENTATION: 直接透传可选 embedding 服务的 ranked list，并做 namespace filter。
- * FULL IMPLEMENTATION: 对齐 Rust 侧 embedding 信号的归一化、阈值过滤、以及与 SDR/NGram/Tags 的融合权重策略。
+ * Pass the optional embedding ranked list into RRF without pre-filtering.
+ * 不在 embedding signal 阶段预过滤 record/namespace，保留 rank 位置交给 RRF 统一过滤。
+ *
+ * Rust reference: `recall_pipeline` consumes `embedding_ranked` directly, then
+ * `rrf_fuse` applies `records.get`, strength, namespace filtering (`../src/recall.rs`).
  */
 export function collectEmbedding(
-  view: RecallView,
   embedding: {
     query: (text: string, topK: number) => Effect.Effect<Array<[string, number]>, EmbeddingQueryError>
   },
   query: string,
-  topK: number,
-  namespaces: ReadonlyArray<string>
+  topK: number
 ): Effect.Effect<RankedList, EmbeddingQueryError> {
-  return embedding.query(query, topK).pipe(
-    Effect.map((pairs) => {
-      const out: RankedList = []
-      for (const [rid, score] of pairs) {
-        const raw = view.records.get(rid)
-        const rec = asRecord(raw)
-        if (!rec) continue
-        if (!inNamespaces(rec, namespaces)) continue
-        out.push([rid, score])
-      }
-      out.sort((a, b) => b[1] - a[1])
-      if (topK > 0 && out.length > topK) out.length = topK
-      return out
-    })
-  )
+  return embedding.query(query, topK)
 }

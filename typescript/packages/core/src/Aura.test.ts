@@ -950,6 +950,29 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.ok(Math.abs(summary.avg_salience - 0.54) < 0.000001)
     assert.strictEqual(summary.max_salience, 0.85)
     assert.deepStrictEqual(summary.bands, { low: 1, medium: 2, high: 2 })
+
+    const marked = await Effect.runPromise(provideNode(
+      aura.mark_record_salience("medium", 1.4, " user_priority ")
+    ))
+    assert.strictEqual(marked?.salience, 1)
+    assert.strictEqual(marked?.metadata.salience_reason, "user_priority")
+    assert.match(marked?.metadata.salience_marked_at ?? "", /^\d+\.\d{3}$/)
+    assert.deepStrictEqual(
+      aura.get_high_salience_records(0.90, 10).map((record) => record.id),
+      ["medium"],
+    )
+
+    const cleared = await Effect.runPromise(provideNode(
+      aura.mark_record_salience("medium", 0.2, "   ")
+    ))
+    assert.strictEqual(cleared?.salience, 0.2)
+    assert.strictEqual(cleared?.metadata.salience_reason, undefined)
+    assert.match(cleared?.metadata.salience_marked_at ?? "", /^\d+\.\d{3}$/)
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.mark_record_salience("missing", 0.9))), null)
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get("medium")?.salience, 0.2)
+    assert.strictEqual(persisted.get("medium")?.metadata.salience_reason, undefined)
   })
 
   it("correction writers populate logs, review queues, and 07-04 governance backfills", async () => {

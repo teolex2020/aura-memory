@@ -728,6 +728,9 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir)
       yield* store.appendUpdate(updated)
       yield* store.flush()
+      // NON-PARITY IMPLEMENTATION: Rust calls `runtime.clear_recall_caches()` after append_update.
+      // 非对齐点：TS core 暂无 recall cache surface；当前仅替换 in-memory read model。
+      // Rust reference: `Aura::mark_record_salience` (`../src/aura.rs`).
       self.replaceSearchRecord(updated)
       return cloneAuraRecord(updated)
     })

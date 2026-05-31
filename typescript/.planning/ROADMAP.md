@@ -222,42 +222,41 @@ Plans:
 - MCP transport stays thin: business composition lands in `@aura/core` / `Aura`, not in `@aura/mcp` handlers.
 - Phase 7 verification rejects vacuous success: maintenance/governance outputs must show real non-zero evidence where required, and MCP parity is checked at the black-box server boundary.
 
+## Phase 8: NON-PARITY Elimination + Rust Semantic Alignment
+
+**Goal:** 分波次消除 TS 代码中的 NON-PARITY IMPLEMENTATION 和 SIMPLE IMPLEMENTATION（真正实现对齐，而非删除注释），规范注释与命名，实现 Rust 语义完全对齐
+
+**Requirements:** REQ-001, REQ-012
+**Depends on:** Phase 7
+**Source:** Backlog 999.3, 999.4, 999.5; 41 NON-PARITY/SIMPLE-IMPLEMENTATION markers across 17 files
+
+**Success Criteria:**
+
+- All 41 NON-PARITY/SIMPLE IMPLEMENTATION markers resolved via actual implementation
+- TS type/interface field names audited and aligned with Rust `snake_case` where types 1:1 correspond
+- Duplicate utility patterns (UnionFind, polarity counting, xxhash init) extracted to `@aura/utils`
+- SDRInterpreter initialization standardized via Context/Layer injection pattern
+- Full Rust semantic parity for recall pipeline, maintenance, signals, and core facade
+
+**Plans:** 7 plans, 0/7 complete
+
+**Wave 1** *(Foundation + Recall Pipeline)*
+
+- [ ] 08-01-PLAN.md — Rust type field name alignment audit (from 999.5)
+- [ ] 08-02-PLAN.md — Recall pipeline NON-PARITY elimination (Recall.ts, Pipeline.ts, RRF.ts, BoundedReranker.ts, RecallFinalizer.ts, GraphWalk.ts, CausalWalk.ts, Trace.ts)
+
+**Wave 2** *(Supporting cleanup + Maintenance)*
+
+- [ ] 08-03-PLAN.md — Engine utils dedup: extract duplicate helpers to `@aura/utils` (from 999.3)
+- [ ] 08-04-PLAN.md — MaintenanceService NON-PARITY elimination (MaintenanceService.ts)
+
+**Wave 3** *(Supporting cleanup + Recall Signals)*
+
+- [ ] 08-05-PLAN.md — SDRInterpreter Promise→Effect unified wrapper (from 999.4)
+- [ ] 08-06-PLAN.md — Recall signals NON-PARITY elimination (Signals.ts, SDRInterpreter.ts)
+
+**Wave 4** *(Core Facade)*
+
+- [ ] 08-07-PLAN.md — Core facade NON-PARITY elimination (Aura.ts: write/delete/recall/search/encryption + RecallView.ts + engine hash alignment)
+
 ## Backlog
-
-### Phase 999.3: 引擎工具函数去重 — Effect 包装提取到 utils 包 (BACKLOG)
-
-**Goal:** 提取 BeliefEngine/ConceptEngine 中重复的 UnionFind、CausalEngine/PolicyEngine 中重复的 polarity signal counting、以及 xxhash 初始化模式到 `@aura/utils`
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Source: `06.3-REVIEW.md § IN-07, IN-08` + `/gsd:capture` todo `2026-05-29-extract-duplicate-effect-wrappers-to-utils`
-
-Plans:
-
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 999.4: SDRInterpreter Promise→Effect 统一包装 (BACKLOG)
-
-**Goal:** 项目中多次 `SDRInterpreter.default()` 返回 Promise 再手动 `Effect.promise`/`Effect.tryPromise` 包装，应提取为统一 Effect/缓存函数，或通过 Context 注入 + `Layer.effect` 包装消除重复模式。
-
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Source: `/gsd:capture --backlog` 2026-05-31
-
-Plans:
-
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 999.5: Rust 同名类型字段命名对齐审计 (BACKLOG)
-
-**Goal:** 审计所有与 Rust 原版同名（struct/type 名称一一对应）的 TS 类型/接口，找出字段命名与 Rust 原始 `snake_case` 不一致的项。对不一致字段：保留现有注释，添加注释说明 Rust 原始字段名称，便于后续对齐。
-
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Source: `/gsd:capture --backlog` 2026-05-31
-
-Plans:
-
-- [ ] TBD (promote with /gsd-review-backlog when ready)

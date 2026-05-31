@@ -118,3 +118,16 @@
   - `bun run typecheck` 通过。
   - `git diff --check` 通过。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 539 tests。
+
+## 2026-06-01 - RecallFinalizer 迁移后遗留入口清理
+
+- 范围：`packages/recall/src/RecallFinalizer.ts`、`packages/recall/src/RecallFinalizer.test.ts`、`packages/recall/src/index.ts`、`packages/core/src/RecallFinalizer.test.ts`。
+- 实现：删除 `@aura/recall` 里的旧 in-memory/no-op `RecallFinalizerImpl` 与导出，保留 contract `RecallFinalizer` tag 和 `@aura/core` 文件持久化 `RecallFinalizerFileLive` 作为唯一真实实现。
+- 实现：将原 recall 包 finalizer 测试迁移为 core 包测试，改为验证空 scored list、文件持久化 activation/co-recall strengthening、Aura-owned session tracker 记录，而不是继续断言旧实现的私有 in-memory map。
+- 教训：迁移实现到正确包边界后，必须同步清理原包遗留代码和测试入口，否则会把已废弃实现继续暴露为可用 surface。
+- Rust reference：`activate_and_strengthen`（`../src/recall.rs`），`SessionTracker::track_activation`（`../src/graph.rs`），`Aura::recall_core` / `Aura::recall_finalize`（`../src/aura.rs`）。
+- 验证：
+  - `bun run test packages/core/src/RecallFinalizer.test.ts packages/core/src/Recall.test.ts packages/recall/src/Pipeline.test.ts` 通过，3 files / 16 tests。
+  - `bun run typecheck` 通过。
+  - `git diff --check` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 538 tests。

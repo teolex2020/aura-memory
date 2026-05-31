@@ -799,6 +799,27 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.ok(fs.existsSync(path.join(brainPath, "brain.cog")))
   })
 
+  it("export_json and import_json roundtrip cognitive records", async () => {
+    const source = await openWritableAura()
+    const record = await Effect.runPromise(provideNode(source.store("Alpha JSON export record", {
+      namespace: "alpha",
+      tags: ["json", "export"],
+      semantic_type: "fact",
+    })))
+
+    const exported = source.export_json()
+    const parsed = JSON.parse(exported) as ReadonlyArray<{ readonly id?: string }>
+    assert.deepStrictEqual(parsed.map((item) => item.id), [record.id])
+
+    const targetPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-import-json-"))
+    const target = await openWritableAuraIn(targetPath)
+    assert.strictEqual(await Effect.runPromise(provideNode(target.import_json(exported))), 1)
+    assert.ok(target.search({ namespace: "alpha" }).some((item) => item.id === record.id))
+
+    const reopened = await Effect.runPromise(provideNode(Aura.open(targetPath)))
+    assert.ok(reopened.search({ namespace: "alpha" }).some((item) => item.id === record.id))
+  })
+
   it("cross_namespace_digest is deterministic and non-vacuous for a seeded multi-namespace fixture", async () => {
     const aura = await openWritableAura()
     const alpha = await Effect.runPromise(provideNode(aura.store("Alpha deploy recovery", {

@@ -41,6 +41,7 @@ import {
   loadCognitiveRecords,
   loadPersistenceManifestWithStartupValidation,
   MaintenanceTrendsFile,
+  normalizeCognitiveRecord,
   ReflectionSummariesFile,
   readBrainAuraFile,
   type BrainAuraRecord,
@@ -1830,6 +1831,70 @@ export class Aura {
     // TS open_with_password 目前会对 password 返回 UnsupportedSurfaceError，因此已支持打开的实例均未启用加密。
     // Rust reference: Aura::is_encrypted (aura.rs)
     return false
+  }
+
+  export_json(): string {
+    // Export all records as JSON.
+    // 将全部 records 导出为 JSON。
+    // Rust reference: Aura::export_json (aura.rs)
+    return JSON.stringify(Array.from(this.searchRecords.values()), null, 2)
+  }
+
+  import_json(
+    jsonStr: string,
+  ): Effect.Effect<number, JsonParseError | FileWriteError | FileReadError | RecordValidationError, FileRead | FileWrite> {
+    // Import records from JSON.
+    // 从 JSON 导入 records。
+    // Rust reference: Aura::import_json (aura.rs)
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const parsed = yield* Effect.try({
+        try: () => JSON.parse(jsonStr) as unknown,
+        catch: (cause) => new JsonParseError({ path: "Aura.import_json", cause }),
+      })
+      if (!Array.isArray(parsed)) {
+        return yield* Effect.fail(new JsonParseError({
+          path: "Aura.import_json",
+          cause: "expected JSON array of records",
+        }))
+      }
+
+      const imported: AuraRecord[] = []
+      for (const raw of parsed) {
+        const record = normalizeCognitiveRecord(raw)
+        if (record === undefined) {
+          return yield* Effect.fail(new JsonParseError({
+            path: "Aura.import_json",
+            cause: "record is missing a valid id",
+          }))
+        }
+        const validationError = validateRecordStoreInput({
+          content: record.content,
+          tags: record.tags,
+          source_type: record.source_type,
+          semantic_type: record.semantic_type,
+          namespace: record.namespace,
+        })
+        if (validationError !== undefined) {
+          return yield* Effect.fail(validationError)
+        }
+        imported.push(record)
+      }
+
+      const store = yield* CognitiveStoreFile.open(dir)
+      for (const record of imported) {
+        yield* store.appendStore(record)
+      }
+      yield* store.flush()
+
+      const nextRecords = new Map(self.searchRecords)
+      for (const record of imported) {
+        nextRecords.set(record.id, record)
+      }
+      self.searchRecords = nextRecords
+      return imported.length
+    })
   }
 
   get_belief_instability_summary(): Effect.Effect<McpBeliefInstabilitySummary, never, EpistemicRuntime | BeliefEngine> {

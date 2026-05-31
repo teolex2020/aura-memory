@@ -234,18 +234,18 @@ EpistemicTraceLive           -- 通过 Effect.log 进行 trace/日志
       - 按 Jaccard（标签交集 / 标签并集）评分记录
    d. （可选）collectEmbedding(view, EmbeddingStore, query, topK, namespaces):
       - 委托给外部嵌入服务
-   e. rrfFuse([sdrRanked, ngramRanked, tagRanked, embeddingRanked?]):
+   e. rrfFuse(view.records, [sdrRanked, ngramRanked, tagRanked, embeddingRanked?], minStrength, topK, namespaces):
       - 倒数排序融合：score = sum(1 / (K + rank_i)) 每个结果列表
       - 对理论最大值进行归一化
-4. filterByStrengthAndNamespace(view, fused, minStrength, namespaces)
-5. graphWalk(view, matched, minStrength, namespaces):
+      - 在 RRF 内按 Rust `rrf_fuse` 签名执行 strength / namespace 过滤并截断 topK
+4. graphWalk(view, matched, minStrength, namespaces):
    - 从匹配记录连接进行 2 跳扩展
    - 每跳阻尼因子 0.6，最低分数阈值 0.05
    - 最多 30 条扩展记录
-6. causalWalk(view, matched, minStrength, namespaces):
+5. causalWalk(view, matched, minStrength, namespaces):
    - 沿 caused_by_id 链表追踪，最大深度 3
    - 衰减公式：score * 0.8 * 0.9^depth
-7. applyRecencyScoring(view, scored, topK, nowSec, trustConfig):
+6. applyRecencyScoring(view, scored, topK, nowSec, trustConfig):
    - 每个分数乘以 record.strength * computeEffectiveTrust()
    - 按最终分数排序，截断到 topK
 8. （可选）BoundedReranker.rerank(scored, query)

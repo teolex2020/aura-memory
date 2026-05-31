@@ -20,8 +20,10 @@ import {
   BoundedRerankerImpl,
   OFF_RERANK_MODES,
   RUST_RUNTIME_RERANK_MODES,
+  computeShadowBeliefScores,
   rerankWithSnapshots
 } from "./BoundedReranker"
+import type { ShadowRecallReport } from "./BoundedReranker"
 
 describe("BoundedReranker", () => {
   it("returns same list for single element", async () => {
@@ -57,6 +59,58 @@ describe("BoundedReranker", () => {
     const result = await Effect.runPromise(reranker.rerank(scored, "test"))
     const resultIds = result.map(r => r[1]).sort()
     assert.deepStrictEqual(resultIds, [...ids].sort())
+  })
+
+  it("computes Rust shadow belief scores without mutating baseline order", () => {
+    const scored: Array<readonly [number, string]> = [
+      [0.800, "r0"],
+      [0.799, "r1"],
+      [0.798, "r2"],
+      [0.797, "r3"]
+    ]
+    const report = computeShadowBeliefScores(
+      scored,
+      beliefState({ r1: BeliefState.Unresolved, r3: BeliefState.Resolved }),
+      2
+    )
+
+    assert.deepStrictEqual(scored.map(([, id]) => id), ["r0", "r1", "r2", "r3"])
+    assert.strictEqual(report.top_k_overlap, 0.5)
+    assert.strictEqual(report.promoted_count, 1)
+    assert.strictEqual(report.demoted_count, 2)
+    assert.strictEqual(report.unchanged_count, 1)
+    assert.strictEqual(report.belief_coverage, 0.5)
+    assert.ok(Math.abs(report.avg_belief_multiplier - 1.0125) < 0.000001)
+    const resolved = report.scores.find((score) => score.record_id === "r3")!
+    assert.strictEqual(resolved.belief_state, "resolved")
+    assert.strictEqual(resolved.belief_multiplier, 1.10)
+    assert.strictEqual(resolved.shadow_rank, 0)
+    assert.strictEqual(resolved.rank_delta, 3)
+  })
+
+  it("runs Shadow mode as observe-only through BoundedRerankerImpl", async () => {
+    const scored: Array<readonly [number, string]> = [
+      [0.800, "r0"],
+      [0.799, "r1"],
+      [0.798, "r2"],
+      [0.797, "r3"]
+    ]
+    let shadowReport: ShadowRecallReport | undefined
+    const reranker = new BoundedRerankerImpl(() =>
+      Effect.succeed({
+        beliefState: beliefState({ r3: BeliefState.Resolved }),
+        modes: { ...OFF_RERANK_MODES, beliefMode: BeliefRerankMode.Shadow },
+        shadowReportSink: (report) => {
+          shadowReport = report
+        }
+      })
+    )
+
+    const result = await Effect.runPromise(reranker.rerank(scored, "test", { topK: 2 }))
+
+    assert.strictEqual(result, scored)
+    assert.strictEqual(shadowReport?.scores.length, 4)
+    assert.strictEqual(shadowReport?.promoted_count, 1)
   })
 
   it("applies Rust belief Limited multipliers with positional shift cap", () => {
@@ -137,6 +191,7 @@ describe("BoundedReranker", () => {
     assert.deepStrictEqual(causalResult.map(([, id]) => id), ["r0", "r3", "r1", "r2"])
     assert.deepStrictEqual(policyResult.map(([, id]) => id), ["r0", "r3", "r1", "r2"])
   })
+
 })
 
 function beliefState(recordStates: Record<string, BeliefState>): BeliefEngineState {

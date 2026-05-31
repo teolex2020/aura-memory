@@ -198,12 +198,13 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
     - 按 Rust `AuraRuntimeState::new()` 默认执行 belief=Limited、concept=Inspect、causal=Limited、policy=Limited；
     - 复用 `packages/recall/src/BoundedReranker.ts` 中的 Rust guardrails：min results=4、top_k≤20、score cap（belief 5% / concept 4% / causal 3% / policy 2%）、position shift≤2。
   - `packages/recall/src/BoundedReranker.ts` 同时暴露纯算法与 engine-backed `BoundedRerankerLive`，通过 Belief/Concept/Causal/Policy engine stats 运行同一套 Rust guardrails。
+    - `computeShadowBeliefScores` 已对齐 Rust `compute_shadow_belief_scores`，支持 Shadow observe-only report（不改变输入排序）。
 - 影响
   - finalize 的 records 落盘副作用已对齐；但 SessionTracker / AuditLog 仍未接入。
-  - 默认 bounded rerank 已从旧的非对齐位置 boost 改为 Rust runtime 默认的 file-backed Limited/Inspect 组合；但 Shadow 模式、运行期开关 API、report metrics 尚未暴露。
+  - 默认 bounded rerank 已从旧的非对齐位置 boost 改为 Rust runtime 默认的 file-backed Limited/Inspect 组合；Shadow report 计算已具备，但运行期开关 API 与 trace/report 对外表面尚未补齐。
 - 后续对齐建议
   - 补齐 file-backed SessionTracker 与 AuditLog。
-  - 补齐 bounded rerank 的 Shadow 模式、运行期开关 API 与 report/trace 指标。
+  - 补齐 bounded rerank 的运行期开关 API 与 report/trace 对外表面。
 
 ### 5.6 Record 模型与默认字段不一致（中影响）—— ✅ 已完成
 
@@ -296,7 +297,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ### 8.2 当前差异与风险（下一步优先级）
 
-- 高优先级对齐项：bounded rerank Shadow/开关/report 指标与 recall finalize 的 SessionTracker/AuditLog。
+- 高优先级对齐项：bounded rerank 开关/report/trace 对外表面与 recall finalize 的 SessionTracker/AuditLog。
 - 中优先级对齐项：graph/causal 扩展所需字段的写入侧闭环、NGramIndex 的 SynonymRing 可选扩展。
 - 低-中优先级对齐项：召回缓存与 trace/可观测性。
 - 编排缺口：`@aura/core` 中尚未实现 MaintenanceService（写入后自动触发四层维护的编排服务），各引擎已独立可用但缺少统一入口。
@@ -342,7 +343,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ### 8.3 下一步建议（推进顺序）
 
-1) 补齐 bounded rerank Shadow 模式、运行期开关 API 与 report/trace 指标，并扩展 verifier/trace 断言。
+1) 补齐 bounded rerank 运行期开关 API 与 report/trace 对外表面，并扩展 verifier/trace 断言。
 2) 补齐 recall finalize 的 SessionTracker/AuditLog 持久化语义。
 3) 审计 graph/causal 扩展所需字段的写入侧闭环（connections / caused_by_id / finalize-strengthen）。
 4) 对照 Rust store_with_channel 继续收敛 dedup / guard / provenance / surprise promotion 等剩余写入语义。
@@ -406,5 +407,5 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
   - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
   - `packages/epistemic-runtime/src/EpistemicTrace.ts`（`EpistemicTraceImpl` + `EpistemicTraceLive`）
 - MaintenanceService：尚未在 `@aura/core` 中实现”写入后自动维护 + 四层落盘”的编排服务（各引擎已独立可用，缺少统一入口串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine）。
-- BoundedReranker：`@aura/recall` 暴露 Rust guardrail 纯算法与 engine-backed `BoundedRerankerLive`；`@aura/core` 的 `BoundedRerankerFileLive` 已默认接入 Rust runtime Limited/Inspect guardrails，但还缺少 Shadow 模式、运行期开关 API 与 report/trace 指标。
+- BoundedReranker：`@aura/recall` 暴露 Rust guardrail 纯算法、Shadow observe-only report 与 engine-backed `BoundedRerankerLive`；`@aura/core` 的 `BoundedRerankerFileLive` 已默认接入 Rust runtime Limited/Inspect guardrails；仍缺少运行期开关 API 与 report/trace 对外表面。
 - Aura 写入触发：`Aura.store/update/delete/connect` 目前只负责写入 `brain.cog`（以及 snapshot），尚未触发维护服务（Phase 5 完成后应默认开启，可配置关闭）。

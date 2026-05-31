@@ -61,6 +61,24 @@ const BELIEF_RERANK_RESOLVED = 1.05
 const BELIEF_RERANK_SINGLETON = 1.02
 const BELIEF_RERANK_UNRESOLVED = 0.97
 
+/**
+ * Belief state -> score multiplier.
+ *
+ * Resolved beliefs boost: the system is confident about the claim.
+ * Singleton beliefs get a smaller boost: unchallenged but unverified.
+ * Unresolved beliefs are penalized: competing hypotheses, uncertain.
+ * No belief membership: neutral (1.0).
+ *
+ * Belief 状态到 shadow score multiplier 的映射；Resolved boost，
+ * Singleton 小幅 boost，Unresolved 降权，无 belief membership 时保持中性。
+ *
+ * Rust reference: shadow multiplier constants in `../src/recall.rs:1209`.
+ */
+const SHADOW_RESOLVED_MULTIPLIER = 1.10
+const SHADOW_SINGLETON_MULTIPLIER = 1.05
+const SHADOW_UNRESOLVED_MULTIPLIER = 0.95
+const SHADOW_NO_BELIEF_MULTIPLIER = 1.00
+
 /** Maximum concept rerank score effect: +/-4% of original score. */
 const CONCEPT_RERANK_CAP = 0.04
 /** Maximum positional shift allowed: +/-2 positions in the ranking. */
@@ -140,12 +158,67 @@ export type LimitedRerankReport = {
   readonly rerank_latency_us: number
 }
 
+/**
+ * Shadow belief score for a single recalled record.
+ *
+ * 单条召回记录的 shadow belief score。
+ *
+ * Rust reference: `ShadowBeliefScore` in `../src/recall.rs:1165`.
+ */
+export type ShadowBeliefScore = {
+  /** Record ID. */
+  readonly record_id: string
+  /** Original recall score (from trust-aware pipeline). */
+  readonly baseline_score: number
+  /** Belief-adjusted shadow score (baseline x belief_multiplier). */
+  readonly shadow_score: number
+  /** Belief multiplier applied (1.0 if no belief membership). */
+  readonly belief_multiplier: number
+  /** Belief state of the record's belief (None if no belief membership). */
+  readonly belief_state: string | null
+  /** Belief confidence (0.0 if no belief membership). */
+  readonly belief_confidence: number
+  /** Position in baseline ranking (0-based). */
+  readonly baseline_rank: number
+  /** Position in shadow ranking (0-based). */
+  readonly shadow_rank: number
+  /** Rank change: positive = promoted, negative = demoted. */
+  readonly rank_delta: number
+}
+
+/**
+ * Comparison report: baseline vs shadow ranking.
+ *
+ * baseline 与 shadow ranking 的对比报告。
+ *
+ * Rust reference: `ShadowRecallReport` in `../src/recall.rs:1188`.
+ */
+export type ShadowRecallReport = {
+  /** Per-record shadow scores. */
+  readonly scores: ReadonlyArray<ShadowBeliefScore>
+  /** Top-k overlap: fraction of top-k records shared between baseline and shadow. */
+  readonly top_k_overlap: number
+  /** Number of records promoted (moved up in shadow ranking). */
+  readonly promoted_count: number
+  /** Number of records demoted (moved down in shadow ranking). */
+  readonly demoted_count: number
+  /** Number of records with no rank change. */
+  readonly unchanged_count: number
+  /** Fraction of recalled records that have belief membership. */
+  readonly belief_coverage: number
+  /** Average belief multiplier across all records. */
+  readonly avg_belief_multiplier: number
+  /** Latency of shadow scoring in microseconds. */
+  readonly shadow_latency_us: number
+}
+
 export type BoundedRerankSnapshot = {
   readonly beliefState?: BeliefEngineState
   readonly conceptState?: ConceptEngineState
   readonly causalState?: CausalEngineState
   readonly policyState?: PolicyEngineState
   readonly modes?: Partial<BoundedRerankModes>
+  readonly shadowReportSink?: (report: ShadowRecallReport) => void
 }
 
 export type BoundedRerankerSnapshots = {
@@ -297,6 +370,133 @@ function buildBeliefMembershipIndex(beliefState: BeliefEngineState): Map<string,
   }
 
   return index
+}
+
+function beliefForRecord(
+  beliefState: BeliefEngineState,
+  recordId: string
+): BeliefEngineState["beliefs"][string] | undefined {
+  const beliefId = beliefState.record_index[recordId] ?? beliefState.record_to_belief[recordId]
+  return beliefId === undefined ? undefined : beliefState.beliefs[beliefId]
+}
+
+function shadowMultiplier(state: BeliefState): number {
+  switch (state) {
+    case BeliefState.Resolved:
+      return SHADOW_RESOLVED_MULTIPLIER
+    case BeliefState.Singleton:
+      return SHADOW_SINGLETON_MULTIPLIER
+    case BeliefState.Unresolved:
+      return SHADOW_UNRESOLVED_MULTIPLIER
+    case BeliefState.Empty:
+      return SHADOW_NO_BELIEF_MULTIPLIER
+  }
+}
+
+function shadowStateLabel(state: BeliefState): string {
+  switch (state) {
+    case BeliefState.Resolved:
+      return "resolved"
+    case BeliefState.Singleton:
+      return "singleton"
+    case BeliefState.Unresolved:
+      return "unresolved"
+    case BeliefState.Empty:
+      return "empty"
+  }
+}
+
+/**
+ * Compute shadow belief scores for a set of recall results.
+ *
+ * 计算一组召回结果的 shadow belief scores。
+ *
+ * `requestedTopK` is the caller's top-k so the overlap metric aligns
+ * with the actual recall surface (capped to result count).
+ *
+ * `requestedTopK` 是调用方 top-k，用于让 overlap 指标对齐实际召回表面
+ *（同时按结果数量截断）。
+ *
+ * Returns the shadow report with per-record scores and aggregate metrics.
+ * 返回包含逐 record score 与聚合指标的 shadow report。
+ *
+ * Does NOT modify the input — purely observational.
+ * 不修改输入，仅用于观察对比。
+ *
+ * Rust reference: `compute_shadow_belief_scores` in `../src/recall.rs:1227`.
+ */
+export function computeShadowBeliefScores(
+  baseline: RecallScored,
+  beliefState: BeliefEngineState,
+  requestedTopK: number
+): ShadowRecallReport {
+  const start = performance.now()
+  let beliefMemberCount = 0
+  let multiplierSum = 0
+
+  // Phase 1: compute shadow scores
+  const scores: ShadowBeliefScore[] = baseline.map(([baselineScore, recordId], baselineRank) => {
+    const belief = beliefForRecord(beliefState, recordId)
+    const multiplier = belief ? shadowMultiplier(belief.state) : SHADOW_NO_BELIEF_MULTIPLIER
+    const beliefStateLabel = belief ? shadowStateLabel(belief.state) : null
+    const beliefConfidence = belief?.confidence ?? 0
+    if (belief) beliefMemberCount += 1
+    multiplierSum += multiplier
+
+    return {
+      record_id: recordId,
+      baseline_score: baselineScore,
+      shadow_score: baselineScore * multiplier,
+      belief_multiplier: multiplier,
+      belief_state: beliefStateLabel,
+      belief_confidence: beliefConfidence,
+      baseline_rank: baselineRank,
+      shadow_rank: 0,
+      rank_delta: 0,
+    }
+  })
+
+  // Phase 2: compute shadow ranking (sort by shadow_score descending, stable)
+  const shadowOrder = scores.map((_, index) => index)
+  shadowOrder.sort((a, b) => {
+    const diff = scores[b]!.shadow_score - scores[a]!.shadow_score
+    return Number.isNaN(diff) ? 0 : diff
+  })
+
+  // Assign shadow ranks
+  for (let shadowRank = 0; shadowRank < shadowOrder.length; shadowRank++) {
+    const originalIndex = shadowOrder[shadowRank]!
+    const score = scores[originalIndex]!
+    scores[originalIndex] = {
+      ...score,
+      shadow_rank: shadowRank,
+      rank_delta: score.baseline_rank - shadowRank,
+    }
+  }
+
+  // Phase 3: compute aggregate metrics
+  const n = scores.length
+  const topK = Math.min(n, requestedTopK)
+  const baselineTop = new Set(
+    scores.filter((score) => score.baseline_rank < topK).map((score) => score.record_id)
+  )
+  const shadowTop = scores
+    .filter((score) => score.shadow_rank < topK)
+    .map((score) => score.record_id)
+  const overlap = topK > 0
+    ? shadowTop.filter((recordId) => baselineTop.has(recordId)).length / topK
+    : 1.0
+
+  return {
+    scores,
+    top_k_overlap: overlap,
+    promoted_count: scores.filter((score) => score.rank_delta > 0).length,
+    demoted_count: scores.filter((score) => score.rank_delta < 0).length,
+    unchanged_count: scores.filter((score) => score.rank_delta === 0).length,
+    belief_coverage: n > 0 ? beliefMemberCount / n : 0.0,
+    avg_belief_multiplier: n > 0 ? multiplierSum / n : 1.0,
+    shadow_latency_us: Math.round((performance.now() - start) * 1000),
+  }
 }
 
 /**
@@ -546,6 +746,13 @@ export class BoundedRerankerImpl implements BoundedReranker.Interface {
       const snapshot = yield* self.loadSnapshot()
       const modes = mergeModes(snapshot.modes)
       const topK = context?.topK ?? scored.length
+      if (
+        modes.beliefMode === BeliefRerankMode.Shadow &&
+        snapshot.beliefState &&
+        snapshot.shadowReportSink
+      ) {
+        snapshot.shadowReportSink(computeShadowBeliefScores(scored, snapshot.beliefState, topK))
+      }
       return rerankWithSnapshots(
         scored,
         topK,

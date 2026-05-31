@@ -362,7 +362,7 @@ import {
   createCognitiveStoreAdapter,
   createDefaultTagTaxonomy,
   createNGramIndex,
-  DisabledBackgroundBrain,
+  DefaultBackgroundBrain,
   makeMaintenanceSdrInterpreter,
 } from "./MaintenanceService"
 
@@ -3779,7 +3779,7 @@ export class Aura {
         new Map(), // tagIndex
         new Map(), // auraIndex
         cognitiveStoreAdapter,
-        DisabledBackgroundBrain,
+        DefaultBackgroundBrain,
         cfg,
         taxonomy,
         timings, hotspots

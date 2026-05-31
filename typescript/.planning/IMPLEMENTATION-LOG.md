@@ -131,3 +131,16 @@
   - `bun run typecheck` 通过。
   - `git diff --check` 通过。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 538 tests。
+
+## 2026-06-01 - Maintenance BackgroundBrain cross/task 对齐
+
+- 范围：`packages/core/src/MaintenanceService.ts`、`packages/core/src/Aura.ts`、`packages/core/src/MaintenanceService.test.ts`。
+- 实现：将 Phase 07 的 `DisabledBackgroundBrain` 空 shim 替换为 `DefaultBackgroundBrain`，实现 Rust-shaped `discover_cross_connections` 2-hop graph walk、namespace guard、UTF-8 boundary truncation 和 `max_discoveries` 限制。
+- 实现：将 scheduled task reminder 从 TS fallback 的 active task id 列表改为 Rust `check_scheduled_tasks` 语义：按 `config.taskTag` 精确匹配、要求 `metadata.status === "active"`、解析 RFC3339 或 `YYYY-MM-DD` due date、输出 Due today / Due tomorrow / Overdue 文本并按 urgency + salience 排序。
+- 实现：`runPostDiscoveryPhases` 对齐 Rust `run_post_discovery_phases`：`synthesisEnabled` 时固定执行 cross-connection discovery（limit 3），task reminders 始终来自 BackgroundBrain scheduled task check。
+- Rust reference：`discover_cross_connections` / `truncate_utf8` / `check_scheduled_tasks`（`../src/background_brain.rs`），`run_post_discovery_phases`（`../src/maintenance_service.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/MaintenanceService.test.ts packages/core/src/Aura.test.ts` 通过，2 files / 59 tests。
+  - `git diff --check` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 539 tests。

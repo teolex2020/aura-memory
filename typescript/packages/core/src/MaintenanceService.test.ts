@@ -21,7 +21,7 @@ import {
   buildReflectionSummary,
   createDefaultTagTaxonomy,
   createNGramIndex,
-  DisabledBackgroundBrain,
+  DefaultBackgroundBrain,
 } from "./MaintenanceService"
 import type {
   EpistemicPhaseReport,
@@ -584,10 +584,77 @@ describe("Phase 07 placeholder replacements", () => {
     expect(hits[0]?.[0]).toBeGreaterThan(0)
   })
 
-  it("DisabledBackgroundBrain returns explicit empty outputs for background-only paths", () => {
-    const records = new Map([["r1", makeRecord()]])
-    expect(DisabledBackgroundBrain.discover_cross_connections(records, 10)).toEqual([])
-    expect(DisabledBackgroundBrain.scheduled_tasks(records)).toEqual([])
+  it("DefaultBackgroundBrain discovers Rust-shaped 2-hop cross connections", () => {
+    const records = new Map([
+      ["r1", makeRecord({
+        id: "r1",
+        content: "Deploy staging checklist",
+        connections: { r2: 1 },
+      })],
+      ["r2", makeRecord({
+        id: "r2",
+        content: "Shared deploy bridge",
+        connections: { r1: 1, r3: 1, other_namespace: 1 },
+      })],
+      ["r3", makeRecord({
+        id: "r3",
+        content: "Rollback playbook",
+        connections: { r2: 1 },
+      })],
+      ["other_namespace", makeRecord({
+        id: "other_namespace",
+        content: "External namespace should be ignored",
+        namespace: "other",
+        connections: { r2: 1 },
+      })],
+    ])
+
+    expect(DefaultBackgroundBrain.discover_cross_connections(records, 1)).toEqual([
+      "Deploy staging checklist ← Shared deploy bridge → Rollback playbook (indirect connection)",
+    ])
+  })
+
+  it("DefaultBackgroundBrain returns Rust-shaped scheduled task reminders", () => {
+    const today = new Date()
+    const tomorrow = new Date(today.getTime() + 86_400_000)
+    const todayDate = today.toISOString().slice(0, 10)
+    const tomorrowDate = tomorrow.toISOString().slice(0, 10)
+    const records = new Map([
+      ["low", makeRecord({
+        id: "low",
+        content: "low salience task",
+        tags: ["scheduled-task"],
+        salience: 0.1,
+        metadata: { status: "active", due_date: todayDate, description: "Low" },
+      })],
+      ["high", makeRecord({
+        id: "high",
+        content: "high salience task",
+        tags: ["scheduled-task"],
+        salience: 0.9,
+        metadata: { status: "active", due_date: todayDate, description: "High" },
+      })],
+      ["tomorrow", makeRecord({
+        id: "tomorrow",
+        content: "tomorrow task",
+        tags: ["scheduled-task"],
+        salience: 1,
+        metadata: { status: "active", due_date: tomorrowDate, description: "Tomorrow" },
+      })],
+      ["future", makeRecord({
+        id: "future",
+        content: "future task",
+        tags: ["scheduled-task"],
+        salience: 1,
+        metadata: { status: "active", due_date: "2999-01-01", description: "Future" },
+      })],
+    ])
+
+    expect(DefaultBackgroundBrain.scheduled_tasks(records, "scheduled-task")).toEqual([
+      "Due today: High",
+      "Due today: Low",
+      "Due tomorrow: Tomorrow",
+    ])
   })
 
   it("buildSdrLookup computes non-empty SDR vectors for non-empty content", async () => {
@@ -697,6 +764,7 @@ describe("Phase 07 placeholder replacements", () => {
     expect(first.insightsFound).toBeGreaterThan(0)
     expect(first.reflection.findings.length).toBeGreaterThan(0)
     expect(first.trendSummary.snapshotCount).toBe(1)
+    expect(first.taskReminders).toContain("Overdue: Resolve deploy rollback blocker (was due 2020-01-01)")
 
     const persistedTrends = await Effect.runPromise(
       MaintenanceTrendsFile.new(dir).load().pipe(Effect.provide(NodeFileReadLive))

@@ -4,7 +4,7 @@
 // Rust → TS semantic projection: maps `maintenance_service.rs` (978 lines).
 // Placed in @aura/core per D-05.  Effect functions per D-06 (NOT Context.Tag).
 //
-// Stub algorithm phases are deferred per D-07.
+// Remaining heavy algorithm phases are tracked by Phase 8 parity markers.
 // Concept/causal parallel discovery via Effect.all concurrency: 2 (D-13).
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -77,7 +77,7 @@ export type BackgroundBrain = {
     records: ReadonlyMap<string, AuraRecord>,
     maxDiscoveries: number
   ) => ReadonlyArray<string>
-  scheduled_tasks: (records: ReadonlyMap<string, AuraRecord>) => ReadonlyArray<string>
+  scheduled_tasks: (records: ReadonlyMap<string, AuraRecord>, taskTag: string) => ReadonlyArray<string>
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -104,6 +104,7 @@ const DEFAULT_NON_IDENTITY_TAGS = new Set([
 ])
 const DEFAULT_TASK_TAGS = new Set(["scheduled-task", "todo-item", "task", "action-plan"])
 const DEFAULT_CONTRADICTION_TAGS = new Set(["contradiction", "conflict", "rejected", "correction"])
+const UTF8_ENCODER = new TextEncoder()
 
 // ═══════════════════════════════════════════════════════════════════════
 // Internal mutable type aliases
@@ -208,21 +209,124 @@ export function createCognitiveStoreAdapter(store: CognitiveStoreFile): Cognitiv
   }
 }
 
-export const DisabledBackgroundBrain: BackgroundBrain = {
-  /**
-   * NON-PARITY IMPLEMENTATION: BackgroundBrain autonomous discovery is disabled in TS Phase 07.
-   * Rust reference: `background_brain::discover_cross_connections`.
-   */
-  discover_cross_connections: () => {
-    return []
-  },
-  /**
-   * NON-PARITY IMPLEMENTATION: scheduled task/reminder production is disabled in TS Phase 07.
-   * Rust reference: BackgroundBrain scheduled-task paths.
-   */
-  scheduled_tasks: () => {
-    return []
-  },
+/**
+ * Truncate text to at most `maxBytes` on a UTF-8 scalar boundary.
+ * 按 UTF-8 字节边界截断，避免在多字节字符中间截断。
+ * Rust reference: `truncate_utf8` (`../src/background_brain.rs`).
+ */
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (UTF8_ENCODER.encode(value).byteLength <= maxBytes) return value
+  let used = 0
+  let out = ""
+  for (const char of value) {
+    const size = UTF8_ENCODER.encode(char).byteLength
+    if (used + size > maxBytes) break
+    used += size
+    out += char
+  }
+  return out
+}
+
+/**
+ * Phase 5 knowledge synthesis: 2-hop graph walk for cross-connections.
+ * 第五阶段知识综合：通过 2-hop graph walk 发现间接连接。
+ * Rust reference: `discover_cross_connections` (`../src/background_brain.rs`).
+ */
+export function discoverCrossConnections(
+  records: ReadonlyMap<string, AuraRecord>,
+  maxDiscoveries: number
+): ReadonlyArray<string> {
+  const discoveries: string[] = []
+  const sample = Array.from(records.values())
+    .filter((record) => Object.keys(record.connections).length > 0 && isAlive(record))
+    .slice(0, 10)
+
+  for (const record of sample) {
+    for (const neighborId of Object.keys(record.connections)) {
+      const neighbor = records.get(neighborId)
+      if (neighbor === undefined || neighbor.namespace !== record.namespace) continue
+
+      for (const hop2Id of Object.keys(neighbor.connections)) {
+        if (hop2Id === record.id || record.connections[hop2Id] !== undefined || discoveries.length >= maxDiscoveries) {
+          continue
+        }
+        const hop2 = records.get(hop2Id)
+        if (hop2 === undefined || hop2.namespace !== record.namespace) continue
+        discoveries.push(
+          `${truncateUtf8(record.content, 50)} ← ${truncateUtf8(neighbor.content, 30)} → ${truncateUtf8(hop2.content, 50)} (indirect connection)`
+        )
+      }
+    }
+
+    if (discoveries.length >= maxDiscoveries) break
+  }
+
+  return discoveries
+}
+
+function utcDayNumber(date: Date): number {
+  return Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 86_400_000)
+}
+
+function parseDueDateDay(value: string): { readonly day: number; readonly label: string } | undefined {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  const rfc3339 = /^(\d{4})-(\d{2})-(\d{2})T/.exec(value)
+  const match = dateOnly ?? rfc3339
+  if (match === null) return undefined
+  if (rfc3339 !== null && Number.isNaN(Date.parse(value))) return undefined
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return undefined
+  }
+
+  const label = `${match[1]}-${match[2]}-${match[3]}`
+  return { day: utcDayNumber(date), label }
+}
+
+/**
+ * Phase 6 scheduled task check: find active tasks due today, tomorrow, or overdue.
+ * 第六阶段计划任务检查：找出今天、明天到期或已过期的 active task。
+ * Rust reference: `check_scheduled_tasks` (`../src/background_brain.rs`).
+ */
+export function checkScheduledTasks(
+  records: ReadonlyMap<string, AuraRecord>,
+  taskTag: string
+): ReadonlyArray<string> {
+  const nowDay = utcDayNumber(new Date())
+  const tomorrowDay = nowDay + 1
+  const reminders: Array<readonly [urgency: number, salience: number, text: string]> = []
+
+  for (const record of records.values()) {
+    if (!record.tags.includes(taskTag)) continue
+    if (record.metadata.status !== "active") continue
+    const due = record.metadata.due_date === undefined ? undefined : parseDueDateDay(record.metadata.due_date)
+    if (due === undefined || due.day > tomorrowDay) continue
+
+    const description = record.metadata.description ?? record.content
+    if (due.day === nowDay) {
+      reminders.push([0, record.salience, `Due today: ${description}`])
+    } else if (due.day === tomorrowDay) {
+      reminders.push([1, record.salience, `Due tomorrow: ${description}`])
+    } else {
+      reminders.push([0, record.salience + 0.25, `Overdue: ${description} (was due ${due.label})`])
+    }
+  }
+
+  reminders.sort((a, b) => a[0] - b[0] || b[1] - a[1])
+  return reminders.map(([, , text]) => text)
+}
+
+export const DefaultBackgroundBrain: BackgroundBrain = {
+  discover_cross_connections: discoverCrossConnections,
+  scheduled_tasks: checkScheduledTasks,
 }
 
 export function makeMaintenanceSdrInterpreter(): Effect.Effect<SDRInterpreter> {
@@ -988,7 +1092,7 @@ export function buildSdrLookup(
     const cache = yield* Ref.get(sdrLookupCache)
 
     const sdrSourceBytes = Array.from(beliefSnapshot.values())
-      .reduce((sum, record) => sum + new TextEncoder().encode(record.content).byteLength, 0)
+      .reduce((sum, record) => sum + UTF8_ENCODER.encode(record.content).byteLength, 0)
     let built = 0
     let computed = 0
     let reused = 0
@@ -1191,7 +1295,8 @@ export function runDiscoveryPhases(
  * Run the post-discovery phases:
  *   consolidation → cross_connections → task_reminders → archival
  *
- * All sub-phases are stubbed per D-07.
+ * Consolidation remains approximate; cross-connections and task reminders
+ * are direct TS projections of `background_brain.rs`.
  */
 export function runPostDiscoveryPhases(
   records: Map<string, AuraRecord>,
@@ -1201,7 +1306,7 @@ export function runPostDiscoveryPhases(
   _cognitiveStore: CognitiveStore,
   background: BackgroundBrain | undefined,
   config: MaintenanceConfig,
-  taxonomy: TagTaxonomy,
+  _taxonomy: TagTaxonomy,
   timings: PhaseTimings,
   hotspots: MaintenanceHotspots
 ): Effect.Effect<PostDiscoveryPhaseResult> {
@@ -1235,19 +1340,16 @@ export function runPostDiscoveryPhases(
 
     // Cross connections
     t = Date.now()
-    const crossConnections = background?.discover_cross_connections(records, 10).length ?? 0
+    const backgroundBrain = background ?? DefaultBackgroundBrain
+    const crossConnections = config.synthesisEnabled
+      ? backgroundBrain.discover_cross_connections(records, 3).length
+      : 0
     mh.crossConnectionsFound = crossConnections
     mt.crossConnectionsMs = Date.now() - t
 
     // Task reminders
     t = Date.now()
-    const backgroundTasks = background?.scheduled_tasks(records) ?? []
-    const taskReminders = backgroundTasks.length > 0
-      ? backgroundTasks
-      : Array.from(records.values())
-        .filter((record) => taxonomy.classify(record).taskCue && record.metadata.status === "active")
-        .map((record) => record.id)
-        .slice(0, 8)
+    const taskReminders = backgroundBrain.scheduled_tasks(records, config.taskTag)
     mh.taskRemindersFound = taskReminders.length
 
     // Archival

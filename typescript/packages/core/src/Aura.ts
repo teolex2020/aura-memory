@@ -1850,6 +1850,112 @@ export class Aura {
     return this.stats()
   }
 
+  decay(): Effect.Effect<readonly [number, number], FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+    // Apply decay to all records.
+    // 对所有 records 应用衰减。
+    // Rust reference: `Aura::decay` and `py_decay` (`../src/aura.rs`).
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const records = yield* loadCognitiveRecords(dir)
+      const store = yield* CognitiveStoreFile.open(dir)
+      let decayed = 0
+      const toArchive: string[] = []
+
+      for (const [id, record] of records) {
+        const decayedRecord = decayRecordConnections(applyRecordDecay(record))
+        decayed += 1
+        if (isRecordAlive(decayedRecord)) {
+          records.set(id, decayedRecord)
+          yield* store.appendUpdate(decayedRecord)
+        } else {
+          toArchive.push(id)
+        }
+      }
+
+      for (const id of toArchive) {
+        records.delete(id)
+        yield* store.appendDelete(id)
+      }
+
+      if (toArchive.length > 100) {
+        yield* store.writeSnapshot(Array.from(records.values()))
+      }
+      yield* store.flush()
+      self.searchRecords = records
+      return [decayed, toArchive.length] as const
+    })
+  }
+
+  reflect(): Effect.Effect<Record<string, number>, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+    // Reflect — promote, archive, detect conflicts.
+    // 反思维护：提升符合条件的 records，并归档死亡 records。
+    // Rust reference: `Aura::reflect` and `py_reflect` (`../src/aura.rs`).
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const records = yield* loadCognitiveRecords(dir)
+      const store = yield* CognitiveStoreFile.open(dir)
+      let promoted = 0
+
+      for (const [id, record] of records) {
+        if (!canPromoteRecord(record)) continue
+        const nextLevel = promoteLevel(record.level)
+        if (nextLevel === null) continue
+        const promotedRecord: AuraRecord = { ...record, level: nextLevel }
+        records.set(id, promotedRecord)
+        promoted += 1
+        yield* store.appendUpdate(promotedRecord)
+      }
+
+      // Semantic-aware promotion removed: Level decay rates already encode importance.
+      // 语义感知提升已移除：Level 衰减率已经编码重要性。
+      // Rust reference: `Aura::reflect` (`../src/aura.rs`).
+      const semanticPromotable: string[] = []
+
+      for (const id of semanticPromotable) {
+        const record = records.get(id)
+        if (record === undefined) continue
+        const nextLevel = promoteLevel(record.level)
+        if (nextLevel === null) continue
+        const promotedRecord: AuraRecord = { ...record, level: nextLevel }
+        records.set(id, promotedRecord)
+        promoted += 1
+        yield* store.appendUpdate(promotedRecord)
+      }
+
+      const hubPromotable: string[] = []
+      for (const [id, record] of records) {
+        if (canPromoteContextualHub(record)) hubPromotable.push(id)
+      }
+
+      for (const id of hubPromotable) {
+        const record = records.get(id)
+        if (record === undefined) continue
+        const nextLevel = promoteLevel(record.level)
+        if (nextLevel === null) continue
+        const promotedRecord: AuraRecord = { ...record, level: nextLevel }
+        records.set(id, promotedRecord)
+        promoted += 1
+        yield* store.appendUpdate(promotedRecord)
+      }
+
+      const dead: string[] = []
+      for (const [id, record] of records) {
+        if (!isRecordAlive(record)) dead.push(id)
+      }
+
+      for (const id of dead) {
+        records.delete(id)
+        yield* store.appendDelete(id)
+      }
+
+      yield* store.flush()
+      self.searchRecords = records
+      return { promoted, archived: dead.length }
+    })
+  }
+
   maintain(config?: MaintenanceConfig) {
     // Public MCP-facing facade over the maintenance orchestration.
     // 面向 MCP 的公开维护入口，委托到 runMaintenance。
@@ -4247,6 +4353,82 @@ function promoteLevel(level: Level): Level | null {
     case Level.Identity:
       return null
   }
+}
+
+function levelDecayRate(level: Level): number {
+  // Daily decay rate for this level.
+  // 当前 level 的每日衰减率。
+  // Rust reference: `Level::decay_rate` (`../src/levels.rs`).
+  switch (level) {
+    case Level.Working:
+      return 0.80
+    case Level.Decisions:
+      return 0.90
+    case Level.Domain:
+      return 0.95
+    case Level.Identity:
+      return 0.99
+  }
+}
+
+function isRecordAlive(record: AuraRecord): boolean {
+  // Whether this record is still alive (not archived).
+  // 判断 record 是否仍存活（未归档）。
+  // Rust reference: `Record::is_alive` (`../src/record.rs`).
+  return record.strength >= 0.05
+}
+
+function canPromoteRecord(record: AuraRecord): boolean {
+  // Whether this record is eligible for promotion.
+  // 判断 record 是否符合晋升条件。
+  // Rust reference: `Record::can_promote` (`../src/record.rs`).
+  return record.activation_count >= 5 && record.strength >= 0.7 && record.level !== Level.Identity
+}
+
+function canPromoteContextualHub(record: AuraRecord): boolean {
+  // Contextual hub promotion (10+ connections, avg weight >= 0.4).
+  // 上下文 hub 提升：至少 10 条连接，平均权重不低于 0.4。
+  // Rust reference: `Aura::reflect` (`../src/aura.rs`).
+  const weights = Object.values(record.connections)
+  if (weights.length < 10) return false
+  if (record.strength < 0.5) return false
+  if (record.level === Level.Identity) return false
+  const averageWeight = weights.reduce((sum, weight) => sum + weight, 0) / weights.length
+  return averageWeight + Number.EPSILON >= 0.4
+}
+
+function applyRecordDecay(record: AuraRecord): AuraRecord {
+  // Apply daily decay based on level and semantic type.
+  //
+  // Uses adaptive decay: rate interpolates from base toward 0.999
+  // as activation_count grows (ceiling effect for frequently used records).
+  // Retention is driven by Level (Identity=0.99 .. Working=0.80) and activation frequency.
+  // semantic_type does not influence decay — Level already encodes information importance.
+  // Salience adds only a bounded retention bias.
+  //
+  // 基于 level 与 activation frequency 应用自适应衰减；semantic_type 不参与衰减。
+  // Rust reference: `Record::apply_decay` (`../src/record.rs`).
+  const baseRate = levelDecayRate(record.level)
+  const ceilingFactor = Math.min(record.activation_count / 10, 1)
+  const activationRate = Math.min(baseRate + (0.999 - baseRate) * ceilingFactor, 0.999)
+  const salienceBias = 0.03 * clamp01(record.salience ?? 0)
+  const effectiveRate = Math.min(activationRate + salienceBias, 0.999)
+  return { ...record, strength: record.strength * effectiveRate }
+}
+
+function decayRecordConnections(record: AuraRecord): AuraRecord {
+  const connections: { [k: string]: number } = {}
+  const connectionTypes: { [k: string]: string } = { ...record.connection_types }
+
+  for (const [id, weight] of Object.entries(record.connections)) {
+    if (weight < 0.05) {
+      delete connectionTypes[id]
+      continue
+    }
+    connections[id] = weight * 0.99
+  }
+
+  return { ...record, connections, connection_types: connectionTypes }
 }
 
 function cloneAuraRecord(record: AuraRecord): AuraRecord {

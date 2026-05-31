@@ -223,6 +223,60 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(persisted.get(futureRecord.id)?.activation_count, 1)
   })
 
+  it("decay and reflect persist Rust-aligned maintenance mutations", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-decay-reflect-"))
+    const aura = await openWritableAuraIn(brainPath)
+    const live = await Effect.runPromise(provideNode(aura.store("decay live memory", {
+      namespace: "default",
+      tags: ["decay"],
+    })))
+    const weak = await Effect.runPromise(provideNode(aura.store("decay weak memory", {
+      namespace: "default",
+      tags: ["decay"],
+    })))
+    await Effect.runPromise(provideNode(aura.update(weak.id, { strength: 0.04 })))
+
+    const [decayed, archived] = await Effect.runPromise(provideNode(aura.decay()))
+    assert.strictEqual(decayed, 2)
+    assert.strictEqual(archived, 1)
+    const afterDecay = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.ok(Math.abs((afterDecay.get(live.id)?.strength ?? 0) - 0.8) < 0.0001)
+    assert.strictEqual(afterDecay.has(weak.id), false)
+    assert.strictEqual(aura.get(weak.id), null)
+
+    const promotable = await Effect.runPromise(provideNode(aura.store("reflect promotable memory", {
+      namespace: "default",
+      tags: ["reflect"],
+    })))
+    const dead = await Effect.runPromise(provideNode(aura.store("reflect dead memory", {
+      namespace: "default",
+      tags: ["reflect"],
+    })))
+    const hub = await Effect.runPromise(provideNode(aura.store("reflect hub memory", {
+      namespace: "default",
+      tags: ["reflect"],
+    })))
+    const hubConnections = Object.fromEntries(
+      Array.from({ length: 10 }, (_, index) => [`hub-peer-${index}`, 0.4])
+    )
+    await Effect.runPromise(provideNode(Effect.gen(function* () {
+      const store = yield* CognitiveStoreFile.open(brainPath)
+      yield* store.appendUpdate({ ...promotable, activation_count: 5, strength: 0.8 })
+      yield* store.appendUpdate({ ...hub, strength: 0.6, connections: hubConnections })
+      yield* store.appendUpdate({ ...dead, strength: 0.04 })
+      yield* store.flush()
+    })))
+
+    const reflect = await Effect.runPromise(provideNode(aura.reflect()))
+    assert.deepStrictEqual(reflect, { promoted: 2, archived: 1 })
+    const afterReflect = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(afterReflect.get(promotable.id)?.level, Level.Decisions)
+    assert.strictEqual(afterReflect.get(hub.id)?.level, Level.Decisions)
+    assert.strictEqual(afterReflect.has(dead.id), false)
+    assert.strictEqual(aura.get(promotable.id)?.level, Level.Decisions)
+    assert.strictEqual(aura.get(hub.id)?.level, Level.Decisions)
+  })
+
   it("reports Rust-shaped startup validation fallbacks on open", async () => {
     const aura = await openWritableAura()
     const report = aura.get_startup_validation_report()

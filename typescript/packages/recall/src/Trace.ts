@@ -203,9 +203,9 @@ export function recallPipelineWithTrace(
   SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
   RecallViewTag
 > {
-  // SIMPLE IMPLEMENTATION: Trace helper reruns the same collector/walk order as recallPipeline and records per-record buckets.
-  // 差异说明：先提供 MCP explainability 需要的 provenance bridge；后续可把 trace 合并进主 pipeline 以避免重复维护。
-  // Rust reference: RecallTraceScore / Aura::explain_recall (aura.rs)
+  // Trace-capable recall pipeline.
+  // 支持 trace 的召回管线；与 Rust `recall_pipeline_with_trace` 一样独立记录每条 record 的中间分数。
+  // Rust reference: `recall_pipeline_with_trace` (`../src/recall.rs`) and `Aura::explain_recall` (`../src/aura.rs`).
   const opts = normalizeOptions(options)
 
   return Effect.gen(function* () {

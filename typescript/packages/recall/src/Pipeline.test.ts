@@ -318,6 +318,54 @@ it("trust config is skipped when missing, used when present", async () => {
   assert.isTrue(withConfig[0]![0] < noConfig[0]![0])
 })
 
+it("applies Rust recency scoring multiplier after RRF fusion", async () => {
+  const query = "alpha"
+  const { clock, iso } = fixedClock(1_700_000_000)
+  const records = new Map<string, unknown>([
+    ["low-strength", {
+      id: "low-strength",
+      content: "low strength",
+      tags: [],
+      strength: 0.05,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { timestamp: iso, trust_score: "1", source: "user-confirmed" },
+      connections: {}
+    }],
+    ["high-strength", {
+      id: "high-strength",
+      content: "high strength",
+      tags: [],
+      strength: 1,
+      namespace: "default",
+      source_type: "recorded",
+      metadata: { timestamp: iso, trust_score: "1", source: "user-confirmed" },
+      connections: {}
+    }]
+  ])
+  const view: RecallView = {
+    records,
+    auraIndex: new Map(),
+    auraHeaders: new Map(),
+    invertedIndex: { search: () => [] },
+    ngramIndex: { query: () => [] },
+    tagIndex: new Map(),
+  }
+
+  const scored = await Effect.runPromise(
+    recallPipeline(query, { topK: 2, expandConnections: false }).pipe(
+      Effect.provideService(RecallViewTag, view),
+      Effect.provideService(Clock, clock),
+      Effect.provideService(EmbeddingStore, {
+        query: () => Effect.succeed([["low-strength", 1], ["high-strength", 0.9]])
+      })
+    )
+  )
+
+  assert.deepStrictEqual(scored.map(([, id]) => id), ["high-strength", "low-strength"])
+  assert.isTrue(scored[0]![0] > scored[1]![0])
+})
+
 function beliefState(recordStates: Record<string, BeliefState>): BeliefEngineState {
   const beliefs: Record<string, BeliefEngineState["beliefs"][string]> = {}
   const record_to_belief: Record<string, string> = {}

@@ -66,6 +66,20 @@ function normalizeOptions(options?: Partial<RecallPipelineOptions>): RecallPipel
   }
 }
 
+/**
+ * Apply trust-aware recency weighting and sort.
+ *
+ * 应用 trust-aware recency 权重并排序。
+ *
+ * Uses `compute_effective_trust()` which factors in:
+ * - Source authority (user > agent > autonomous)
+ * - Recency boost (fresh records get +boost, decays over half_life)
+ * - Base trust score from provenance
+ * - Source type factor (recorded > retrieved > inferred > generated)
+ *
+ * Final score = rrf_score × strength × effective_trust
+ * Rust reference: `apply_recency_scoring` (`../src/recall.rs`).
+ */
 function applyRecencyScoring(
   view: RecallView,
   scored: Scored,
@@ -73,8 +87,6 @@ function applyRecencyScoring(
   nowUnixSec: number,
   config: import("@aura/contract").TrustConfig
 ): Scored {
-  // SIMPLE IMPLEMENTATION: 只在最终排序前乘以 strength 与 computeEffectiveTrust，之后按分数降序截断。
-  // FULL IMPLEMENTATION: 对齐 Rust [apply_recency_scoring](file:///workspace/src/recall.rs#L514-L535) 的数值稳定性、以及 trace 模式中的中间量记录。
   for (let i = 0; i < scored.length; i++) {
     const [baseScore, rid] = scored[i]!
     const raw = view.records.get(rid)
@@ -97,8 +109,15 @@ export function recallPipeline(
   SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
   RecallViewTag
 > {
-  // SIMPLE IMPLEMENTATION: Signals(SDR/NGram/Tags + optional Embedding) → RRF → GraphWalk/CausalWalk → trust scoring → optional rerank/finalize。
-  // FULL IMPLEMENTATION: 对齐 Rust [recall_pipeline](file:///workspace/src/recall.rs#L725-L792) 的 trace、性能与更多信号/策略（belief/concept/causal/policy）。
+  // Full recall pipeline.
+  // 完整召回管线。
+  //
+  // `embeddingRanked` is an optional 4th signal from pluggable embeddings.
+  // 可选 embedding 作为第四路信号参与 RRF。
+  //
+  // `trustConfig` is used for recency boost + source authority scoring.
+  // trustConfig 用于 recency boost 与 source authority 评分。
+  // Rust reference: `recall_pipeline` (`../src/recall.rs`).
   const opts = normalizeOptions(options)
 
   return Effect.gen(function* () {
@@ -108,6 +127,8 @@ export function recallPipeline(
 
     const sdr = yield* getDefaultSdr()
 
+    // 1. Collect signals
+    // 1. 收集信号
     const sdrRanked = collectSdr(view, sdr, query, opts.topK, opts.namespaces)
     const ngramRanked = collectNgram(view, query, opts.topK, opts.namespaces)
     const tagRanked = collectTags(view, query, opts.topK, opts.namespaces)
@@ -117,6 +138,8 @@ export function recallPipeline(
       ? yield* collectEmbedding(view, embeddingOpt.value, query, opts.topK, opts.namespaces)
       : ([] as RankedList)
 
+    // 2. RRF Fuse
+    // 2. RRF 融合
     const rankedLists: RankedList[] = []
     if (sdrRanked.length > 0) rankedLists.push(sdrRanked)
     if (ngramRanked.length > 0) rankedLists.push(ngramRanked)
@@ -127,6 +150,8 @@ export function recallPipeline(
 
     let matched: Scored = rrfFuse(view.records, rankedLists, opts.minStrength, opts.topK, opts.namespaces)
 
+    // 3. Graph expansion
+    // 3. 图扩展
     if (opts.expandConnections) {
       matched = graphWalk(view, matched, opts.minStrength, opts.namespaces)
       matched = causalWalk(view, matched, opts.minStrength, opts.namespaces)
@@ -135,6 +160,8 @@ export function recallPipeline(
     const trustOpt = yield* serviceOption(TrustConfigTag)
     const trustConfig = Option.isSome(trustOpt) ? trustOpt.value : defaultTrustConfig()
 
+    // 4. Trust-aware recency-weighted scoring
+    // 4. trust-aware recency 加权评分
     matched = applyRecencyScoring(view, matched, opts.topK, nowUnixSec, trustConfig)
 
     const rerankerOpt = yield* serviceOption(BoundedReranker)

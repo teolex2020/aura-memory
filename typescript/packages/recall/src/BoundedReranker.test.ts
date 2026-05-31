@@ -12,7 +12,7 @@ describe("BoundedReranker", () => {
     assert.strictEqual(result[0]![1], "r1")
   })
 
-  it("re-ranks with inverse-position boost", async () => {
+  it("does not apply the old non-parity position boost", async () => {
     const reranker = new BoundedRerankerImpl()
     const scored: Array<readonly [number, string]> = [
       [0.5, "r1"],
@@ -20,9 +20,7 @@ describe("BoundedReranker", () => {
       [0.9, "r3"]
     ]
     const result = await Effect.runPromise(reranker.rerank(scored, "test"))
-    // r3 had highest score (0.9), should still be top after boost
-    assert.strictEqual(result[0]![1], "r3")
-    assert.strictEqual(result.length, 3)
+    assert.deepStrictEqual(result, scored)
   })
 
   it("empty input returns empty", async () => {

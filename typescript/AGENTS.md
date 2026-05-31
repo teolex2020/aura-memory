@@ -194,10 +194,12 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
     - co-recall strengthening：对齐 Rust `activate_and_strengthen` 的双向连接增强 `current + 0.05 * (1 - current)`；
     - Aura 实例级 `recall*` 会在 recall 后重载 `searchRecords`，避免打开中的 TS Aura 视图滞后。
 - 影响
-  - finalize 的 records 落盘副作用已对齐；但 SessionTracker / AuditLog 仍未接入，bounded reranking 仍未完整对齐 Rust 四阶段 belief/concept/causal/policy guardrails。
+  - finalize 的 records 落盘副作用已对齐；但 SessionTracker / AuditLog 仍未接入。
+  - 已移除旧的非对齐位置 boost；`BoundedRerankerLive` 暂时保持 disabled/no-op 适配器。
+  - Rust `AuraRuntimeState::new()` 当前默认启用 belief/causal/policy `Limited` rerank；TS `DefaultLayer` 暂不注入 reranker，因此默认 recall rerank 仍是显式差异，等待完整四阶段 guardrails。
 - 后续对齐建议
   - 补齐 file-backed SessionTracker 与 AuditLog。
-  - 将 `BoundedRerankerLive` 从位置 boost 替换为 Rust 等价的四阶段 bounded rerank（或明确 expose recall_raw/recall_core 双路径）。
+  - 实现 Rust 等价的 Limited/Shadow bounded rerank（belief/concept/causal/policy guardrails）及开关 API。
 
 ### 5.6 Record 模型与默认字段不一致（中影响）—— ✅ 已完成
 
@@ -286,12 +288,13 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - 已完成 EpistemicRuntime 完整实现（694 行，18+ inspection 方法覆盖 Belief/Concept/Causal/Policy 四层），含 telemetry 计数与 EpistemicRuntimeLive Layer。
 - 已补齐 Record schema 默认字段、source/semantic/namespace 校验、store/update/delete/connect 写入边界语义，并接入 salience 到重要性与 memory_health 表面。
 - 已补齐 recall finalize 的 records 落盘副作用：`RecallFinalizerFileLive` 默认装配，top-10 activate 与 co-recall strengthening 按 Rust `activate_and_strengthen` 更新 `brain.cog`。
+- 已移除旧的非对齐 recall 位置 boost：`BoundedRerankerLive` no-op，`DefaultLayer` 暂不注入 reranker；注意 Rust runtime 当前默认是 `Limited`，这仍是待对齐差异。
 
 ### 8.2 当前差异与风险（下一步优先级）
 
-- 高优先级对齐项：Rust 等价 bounded rerank（belief/concept/causal/policy guardrails）与 recall finalize 的 SessionTracker/AuditLog。
+- 高优先级对齐项：Rust 等价 Limited/Shadow bounded rerank（belief/concept/causal/policy guardrails）与 recall finalize 的 SessionTracker/AuditLog。
 - 中优先级对齐项：graph/causal 扩展所需字段的写入侧闭环、NGramIndex 的 SynonymRing 可选扩展。
-- 低-中优先级对齐项：召回缓存与 trace/可观测性、BoundedRerankerLive（四阶段 belief/concept/causal/policy bounded rerank + guardrails）。
+- 低-中优先级对齐项：召回缓存与 trace/可观测性。
 - 编排缺口：`@aura/core` 中尚未实现 MaintenanceService（写入后自动触发四层维护的编排服务），各引擎已独立可用但缺少统一入口。
 
 ## 9. Phase Learnings（跨 phase 经验沉淀）
@@ -335,7 +338,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ### 8.3 下一步建议（推进顺序）
 
-1) 将 `BoundedRerankerLive` 替换为 Rust 等价 belief/concept/causal/policy bounded rerank，并补 verifier/trace 断言。
+1) 实现 Rust 等价 Limited/Shadow bounded rerank（belief/concept/causal/policy guardrails）与开关 API，并补 verifier/trace 断言。
 2) 补齐 recall finalize 的 SessionTracker/AuditLog 持久化语义。
 3) 审计 graph/causal 扩展所需字段的写入侧闭环（connections / caused_by_id / finalize-strengthen）。
 4) 对照 Rust store_with_channel 继续收敛 dedup / guard / provenance / surprise promotion 等剩余写入语义。
@@ -399,5 +402,5 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
   - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
   - `packages/epistemic-runtime/src/EpistemicTrace.ts`（`EpistemicTraceImpl` + `EpistemicTraceLive`）
 - MaintenanceService：尚未在 `@aura/core` 中实现”写入后自动维护 + 四层落盘”的编排服务（各引擎已独立可用，缺少统一入口串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine）。
-- BoundedRerankerLive：`recallPipeline` 已支持可选注入 `BoundedReranker`，但目前缺少与 Rust 对齐的 live 实现（四阶段 belief/concept/causal/policy bounded rerank + guardrails）。
+- BoundedRerankerLive：当前仅提供 disabled/no-op 适配器；`recallPipeline` 已支持可选注入 `BoundedReranker`，但还缺少 Rust 默认 `Limited` 以及 Shadow 四阶段 belief/concept/causal/policy bounded rerank + guardrails。
 - Aura 写入触发：`Aura.store/update/delete/connect` 目前只负责写入 `brain.cog`（以及 snapshot），尚未触发维护服务（Phase 5 完成后应默认开启，可配置关闭）。

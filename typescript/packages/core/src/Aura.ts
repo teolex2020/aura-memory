@@ -36,6 +36,7 @@ import {
 } from "@aura/contract";
 import {
   BeliefStoreFile,
+  BrainAuraFile,
   CognitiveStoreFile,
   loadCognitiveRecords,
   loadPersistenceManifestWithStartupValidation,
@@ -1801,6 +1802,34 @@ export class Aura {
         "coherent ngram/tag/aura index mutation during merges",
       ],
     }))
+  }
+
+  close(): Effect.Effect<void, FileReadError | FileWriteError, FileRead | FileWrite> {
+    // Close and flush everything.
+    // 关闭并 flush 所有持久化 surface。
+    // Rust reference: Aura::close (aura.rs)
+    return this.flush()
+  }
+
+  flush(): Effect.Effect<void, FileReadError | FileWriteError, FileRead | FileWrite> {
+    // Flush pending writes.
+    // flush 待写入数据。
+    // Rust reference: Aura::flush (aura.rs)
+    const dir = this.brainDir
+    return Effect.gen(function* () {
+      const brain = yield* BrainAuraFile.open(dir)
+      yield* brain.flush()
+      const cognitive = yield* CognitiveStoreFile.open(dir)
+      yield* cognitive.flush()
+    })
+  }
+
+  is_encrypted(): boolean {
+    // Check if encryption is enabled.
+    // 检查当前 Aura 实例是否启用加密。
+    // TS open_with_password 目前会对 password 返回 UnsupportedSurfaceError，因此已支持打开的实例均未启用加密。
+    // Rust reference: Aura::is_encrypted (aura.rs)
+    return false
   }
 
   get_belief_instability_summary(): Effect.Effect<McpBeliefInstabilitySummary, never, EpistemicRuntime | BeliefEngine> {

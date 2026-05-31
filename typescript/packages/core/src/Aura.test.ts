@@ -787,6 +787,18 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(consolidate.surface, "Aura.consolidate")
   })
 
+  it("lifecycle facades flush close and expose encryption state", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-lifecycle-"))
+    const aura = await openWritableAuraIn(brainPath)
+
+    assert.strictEqual(aura.is_encrypted(), false)
+    await Effect.runPromise(provideNode(aura.flush()))
+    await Effect.runPromise(provideNode(aura.close()))
+
+    assert.ok(fs.existsSync(path.join(brainPath, "brain.aura")))
+    assert.ok(fs.existsSync(path.join(brainPath, "brain.cog")))
+  })
+
   it("cross_namespace_digest is deterministic and non-vacuous for a seeded multi-namespace fixture", async () => {
     const aura = await openWritableAura()
     const alpha = await Effect.runPromise(provideNode(aura.store("Alpha deploy recovery", {

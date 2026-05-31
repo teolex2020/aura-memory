@@ -136,4 +136,36 @@ describe("Aura MCP invocation coverage", () => {
       },
     ])
   })
+
+  it("formats recall through the Rust-shaped token-budgeted text path", async () => {
+    const seenOptions: Array<Readonly<Record<string, unknown>>> = []
+    const localAura = Object.assign(Object.create(Aura.prototype), aura, {
+      recall_structured: (_query: string, options: Readonly<Record<string, unknown>>) => {
+        seenOptions.push(options)
+        return Effect.succeed([
+          [0.9, {
+            ...record,
+            id: "rec-long",
+            content: "one two three four five six seven eight nine ten eleven twelve thirteen",
+            level: Level.Working,
+          }],
+        ] as const)
+      },
+    }) as Aura
+    const tools = createAuraTools({ ...runtime, aura: localAura })
+
+    const output = String(await executable(tools.recall).execute({
+      context: { query: "memory", token_budget: 5 },
+    }))
+
+    expect(seenOptions[0]).toMatchObject({
+      topK: 20,
+      minStrength: 0.1,
+      expandConnections: true,
+    })
+    expect(output).toContain("=== COGNITIVE CONTEXT ===")
+    expect(output).toContain("[WORKING]")
+    expect(output).not.toContain("one two three")
+    expect(output).toContain("=== END CONTEXT ===")
+  })
 })

@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 07
 current_phase_name: mcp-polish
-status: verifying
-last_updated: "2026-05-31T08:05:16.656Z"
+status: ready_to_plan
+last_updated: 2026-05-31T08:24:24.718Z
 last_activity: 2026-05-31
 progress:
   total_phases: 13
@@ -13,6 +13,7 @@ progress:
   total_plans: 33
   completed_plans: 33
   percent: 38
+stopped_at: Phase 07 complete (8/8) — ready to discuss Phase 999.3
 ---
 
 # Project State
@@ -22,16 +23,16 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** AuraSDK TypeScript — Rust engine algorithm parity for Belief/Concept/Causal/Policy engines
-**Current focus:** Phase 07 — mcp-polish
+**Current focus:** Phase 999.3 — 引擎工具函数去重 — effect 包装提取到 utils 包 (backlog)
 
 ## Current Position
 
 Phase: 07 (mcp-polish) — EXECUTING
-Plan: 8 of 8
-Current Phase: 07
+Plan: Not started
+Current Phase: 999.3
 Current Phase Name: mcp-polish
 Total Phases: 10
-Status: Phase complete — ready for verification
+Status: Ready to plan
 Last activity: 2026-05-31
 
 Progress: [██████████] 100%
@@ -40,7 +41,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 25
+- Total plans completed: 33
 - Average duration: ~45 min
 - Total execution time: ~18.8 hours
 
@@ -53,6 +54,7 @@ Progress: [██████████] 100%
 | 06.1 | 1 | ~0.5h | ~30min |
 | 6 | 5 | ~4h | ~48min |
 | 1-5 | - | ~0.3h | - |
+| 07 | 8 | - | - |
 
 **Recent Trend:**
 

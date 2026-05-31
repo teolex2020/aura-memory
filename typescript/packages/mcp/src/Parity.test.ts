@@ -95,10 +95,12 @@ const families: ReadonlyArray<Family> = [
 ]
 
 function envWithBrain(brainPath: string): Record<string, string> {
-  const env: Record<string, string> = { AURA_BRAIN_PATH: brainPath }
+  const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value
   }
+  env.AURA_BRAIN_PATH = brainPath
+  delete env.AURA_PASSWORD
   return env
 }
 
@@ -158,7 +160,7 @@ function rustPreflight(): Preflight {
       status: "unavailable",
       expectedWindowsPath,
       command,
-      reason: `insufficient free disk for safe cargo build preflight (${freeBytes} bytes available)`,
+      reason: "insufficient free disk for safe cargo build preflight (requires at least 8000000000 bytes available)",
       stdout: cargoVersion.stdout ?? "",
       stderr: "",
     }
@@ -238,18 +240,51 @@ function normalizeText(value: string): JsonValue {
   }
 }
 
-function normalizeJson(value: unknown): JsonValue {
+function normalizeJson(value: unknown, key?: string): JsonValue {
   if (value === null) return null
-  if (typeof value === "boolean" || typeof value === "string") return value
+  if (typeof value === "boolean") return value
+  if (typeof value === "string") return normalizeStringField(key, value)
   if (typeof value === "number") {
+    if (isDynamicNumberKey(key)) return 0
     return Number.isInteger(value) ? value : Number(value.toFixed(6))
   }
-  if (Array.isArray(value)) return value.map(normalizeJson)
+  if (Array.isArray(value)) return value.map((item) => normalizeJson(item, key))
   if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, normalizeJson(item)] as const)
+    const entries = Object.entries(value as Record<string, unknown>).map(([entryKey, item]) => [entryKey, normalizeJson(item, entryKey)] as const)
     return sortKeys(Object.fromEntries(entries) as Record<string, JsonValue>)
   }
   return String(value)
+}
+
+function normalizeStringField(key: string | undefined, value: string): string {
+  if (isDynamicIdKey(key) && isGeneratedRecordId(value)) return "<record-id>"
+  if (isTimestampKey(key) && isIsoTimestamp(value)) return "<timestamp>"
+  return value
+}
+
+function isDynamicIdKey(key: string | undefined): boolean {
+  return key === "id" || key === "record_id" || key === "target_id" || key === "caused_by_id" || key === "related_ids"
+}
+
+function isGeneratedRecordId(value: string): boolean {
+  return /^[a-z0-9]{12}$/.test(value)
+}
+
+function isTimestampKey(key: string | undefined): boolean {
+  return key === "timestamp" || key === "latest_timestamp" || key === "created_at" || key === "last_activated"
+}
+
+function isIsoTimestamp(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)
+}
+
+function isDynamicNumberKey(key: string | undefined): boolean {
+  if (key === undefined) return false
+  return isTimestampKey(key)
+    || key === "latency_ms"
+    || key === "cycleTimeMs"
+    || key === "dominantPhaseShare"
+    || key.endsWith("Ms")
 }
 
 function sortKeys(value: JsonValue): JsonValue {
@@ -309,7 +344,7 @@ function writeArtifacts(report: JsonValue): void {
       "- TS-only note: maintain is validated locally and excluded from Rust comparison because it is not in Rust MCP inventory.",
       "- Unsupported note: consolidate is validated locally as an explicit unsupported TS surface and excluded from Rust comparison.",
       "- Fixture strategy: this harness uses fresh MCP-focused temp brain directories initialized with brain.aura, then runs identical family call sequences over TS and Rust. recall_parity assets are not required for this MCP-level fixture.",
-      "- Normalization: recursive JSON key sorting, safe float rounding to 6 decimals, CRLF/trailing-whitespace normalization for non-JSON text only. Media type changes and missing/extra fields are not ignored.",
+      "- Normalization: recursive JSON key sorting, generated record-id placeholders, timestamp/timing normalization, safe float rounding to 6 decimals, CRLF/trailing-whitespace normalization for non-JSON text only. Media type changes and missing/extra fields are not ignored.",
       "",
     ].join("\n"),
   )

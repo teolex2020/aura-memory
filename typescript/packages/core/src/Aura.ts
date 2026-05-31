@@ -193,10 +193,10 @@ export class Aura {
 
   static open_with_password(
     brainPath: string,
-    _password?: string,
+    password?: string,
   ): Effect.Effect<
     Aura,
-    FileReadError | FileWriteError | FileFormatError,
+    FileReadError | FileWriteError | FileFormatError | UnsupportedSurfaceError,
     FileRead | FileWrite
   > {
     // Create a new Aura instance with optional encryption.
@@ -204,6 +204,14 @@ export class Aura {
     // NON-PARITY IMPLEMENTATION: password/encryption is not wired yet.
     // 差异说明：TS core 目前只使用 FileRead/FileWrite 抽象，尚未接入 Rust AuraStorage 的加密管线。
     // Rust reference: Aura::open_with_password (aura.rs)
+    if (password !== undefined) {
+      return Effect.fail(new UnsupportedSurfaceError({
+        surface: "Aura.open_with_password",
+        reason: "TS core has no Rust-parity encrypted AuraStorage path yet; silently ignoring passwords is forbidden.",
+        rustReference: "Aura::open_with_password (aura.rs)",
+        missingPrerequisites: ["Rust-compatible encrypted AuraStorage read/write path"],
+      }))
+    }
     return Aura.open(brainPath);
   }
 

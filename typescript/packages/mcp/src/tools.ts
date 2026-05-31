@@ -43,6 +43,16 @@ function levelFromInput(level: "working" | "decisions" | "domain" | "identity" |
   }
 }
 
+type RecallContextRecord = {
+  readonly content: string
+  readonly level?: Level | string
+  readonly tags?: ReadonlyArray<string>
+  readonly content_type?: string
+  readonly source_type?: string
+  readonly semantic_type?: string
+  readonly metadata?: Readonly<Record<string, string>>
+}
+
 async function runText<A, E, R>(runtime: AuraMcpRuntime, effect: import("effect").Effect.Effect<A, E, R>) {
   try {
     return toText(await runtime.runEffect(effect))
@@ -64,9 +74,118 @@ async function runMappedText<A, B, E, R>(
 }
 
 function formatRecallContext(
-  results: ReadonlyArray<readonly [score: number, record: { readonly content: string }]>,
+  results: ReadonlyArray<readonly [score: number, record: RecallContextRecord]>,
+  tokenBudget: number,
 ): string {
-  return results.map(([, record]) => record.content).join("\n\n")
+  if (results.length === 0) return ""
+
+  const byLevel = new Map<Level, Array<RecallContextRecord>>()
+  for (const [, record] of results) {
+    const level = normalizeLevel(record.level)
+    const records = byLevel.get(level) ?? []
+    records.push(record)
+    byLevel.set(level, records)
+  }
+
+  let output = "=== COGNITIVE CONTEXT ===\n"
+  const identityBudget = Math.max(128, Math.trunc(tokenBudget * 0.25))
+  const remainingBudget = Math.max(0, tokenBudget - identityBudget)
+  const levelOrder = [Level.Identity, Level.Domain, Level.Decisions, Level.Working]
+
+  for (const level of levelOrder) {
+    const records = byLevel.get(level)
+    if (records === undefined) continue
+
+    output += `[${levelName(level)}]\n`
+    const budget = level === Level.Identity ? identityBudget : Math.trunc(remainingBudget / 3)
+    let levelTokens = 0
+
+    for (const record of records) {
+      const formatted = formatRecallRecord(record)
+      const tokens = estimateTokens(formatted)
+      if (levelTokens + tokens > budget) break
+      output += formatted + "\n"
+      levelTokens += tokens
+    }
+    output += "\n"
+  }
+
+  output += "=== END CONTEXT ==="
+  return output
+}
+
+function normalizeLevel(level: Level | string | undefined): Level {
+  switch (String(level ?? Level.Working).toLowerCase()) {
+    case "identity":
+      return Level.Identity
+    case "domain":
+      return Level.Domain
+    case "decisions":
+      return Level.Decisions
+    default:
+      return Level.Working
+  }
+}
+
+function levelName(level: Level): string {
+  switch (level) {
+    case Level.Identity:
+      return "IDENTITY"
+    case Level.Domain:
+      return "DOMAIN"
+    case Level.Decisions:
+      return "DECISIONS"
+    case Level.Working:
+      return "WORKING"
+  }
+}
+
+function formatRecallRecord(record: RecallContextRecord): string {
+  const tags = record.tags !== undefined && record.tags.length > 0 ? ` [${record.tags.join(", ")}]` : ""
+  const source = sourceLabel(record.source_type)
+  const semantic = semanticLabel(record.semantic_type)
+  if (record.content_type === "code") {
+    const language = record.metadata?.language ?? ""
+    return `  - [CODE]${source}${semantic}${tags}\n\`\`\`${language}\n${record.content}\n\`\`\``
+  }
+  if (record.content_type === "json") {
+    return `  - [JSON]${source}${semantic}${tags}\n\`\`\`json\n${record.content}\n\`\`\``
+  }
+  return `  - ${record.content}${source}${semantic}${tags}`
+}
+
+function sourceLabel(sourceType: string | undefined): string {
+  switch (sourceType) {
+    case "retrieved":
+      return " [retrieved]"
+    case "inferred":
+      return " [inferred]"
+    case "generated":
+      return " [generated]"
+    default:
+      return ""
+  }
+}
+
+function semanticLabel(semanticType: string | undefined): string {
+  switch (semanticType) {
+    case "decision":
+      return " {decision}"
+    case "preference":
+      return " {preference}"
+    case "trend":
+      return " {trend}"
+    case "serendipity":
+      return " {serendipity}"
+    case "contradiction":
+      return " {contradiction}"
+    default:
+      return ""
+  }
+}
+
+function estimateTokens(text: string): number {
+  return Math.trunc(text.split(/\s+/).filter((word) => word.length > 0).length * 1.3)
 }
 
 export function createAuraTools(runtime: AuraMcpRuntime) {
@@ -78,8 +197,13 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
       execute: async ({ context }) =>
         runMappedText(
           runtime,
-          runtime.aura.recall_structured(context.query, { namespaces: namespaces(context.namespace) }),
-          formatRecallContext,
+          runtime.aura.recall_structured(context.query, {
+            topK: 20,
+            minStrength: 0.1,
+            expandConnections: true,
+            namespaces: namespaces(context.namespace),
+          }),
+          (results) => formatRecallContext(results, context.token_budget ?? 2048),
         ),
     }),
 

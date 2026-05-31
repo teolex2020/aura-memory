@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { fileURLToPath } from "node:url"
 import { BrainAuraFile } from "@aura/storage"
 import {
   NodeClockLive,
@@ -13,13 +14,16 @@ import {
 } from "@aura/platform-node"
 import { TOOL_NAMES } from "./inventory"
 
+const here = path.dirname(fileURLToPath(import.meta.url))
+const workspaceRoot = path.resolve(here, "../../..")
+
 function envWithBrain(brainPath: string): Record<string, string> {
-  const env: Record<string, string> = {
-    AURA_BRAIN_PATH: brainPath,
-  }
+  const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value
   }
+  env.AURA_BRAIN_PATH = brainPath
+  delete env.AURA_PASSWORD
   return env
 }
 
@@ -40,7 +44,6 @@ async function createEmptyBrain(): Promise<string> {
 describe("Aura MCP stdio smoke", () => {
   it("starts the explicit bin entry point and reports tool capabilities over stdio", async () => {
     const brainPath = await createEmptyBrain()
-    const workspaceRoot = path.resolve(process.cwd(), "../..")
     const client = new MCPClient({
       id: `aura-mcp-smoke-${Date.now()}`,
       servers: {

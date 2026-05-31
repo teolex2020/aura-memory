@@ -73,6 +73,17 @@ describe("Aura MCP-facing operational surfaces", () => {
     return Effect.runPromise(provideNode(Aura.open(brainPath)))
   }
 
+  it("fails explicitly when passworded open is requested before encrypted storage parity exists", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-password-unsupported-"))
+
+    await expect(
+      Effect.runPromise(provideNode(Aura.open_with_password(brainPath, "secret"))),
+    ).rejects.toMatchObject({
+      _tag: "UnsupportedSurfaceError",
+      surface: "Aura.open_with_password",
+    })
+  })
+
   it("store_code and store_decision are thin store wrappers with Rust-aligned defaults", async () => {
     const aura = await openWritableAura()
 

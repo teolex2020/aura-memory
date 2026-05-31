@@ -32,7 +32,7 @@
   "rustPreflight": {
     "command": "cargo build --bin aura-mcp --features mcp",
     "expectedWindowsPath": "D:\\workspace\\@yuyi919\\external\\AuraSDK\\target\\debug\\aura-mcp.exe",
-    "reason": "insufficient free disk for safe cargo build preflight (2596929536 bytes available)",
+    "reason": "insufficient free disk for safe cargo build preflight (requires at least 8000000000 bytes available)",
     "status": "unavailable",
     "stderr": "",
     "stdout": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n"
@@ -166,8 +166,8 @@
               "conceptPartitionsWithMultipleSeeds": 0,
               "crossConnectionsFound": 0,
               "dominantPhase": "concept",
-              "dominantPhaseMs": 40,
-              "dominantPhaseShare": 0.283688,
+              "dominantPhaseMs": 0,
+              "dominantPhaseShare": 0,
               "policySeedsFound": 0,
               "recordsAfterCycle": 3,
               "recordsBeforeCycle": 3,
@@ -203,7 +203,7 @@
                 "totalFindings": 0,
                 "trendFindings": 0
               },
-              "timestamp": "2026-05-31T08:01:16.354Z"
+              "timestamp": "<timestamp>"
             },
             "stability": {
               "belief": {
@@ -232,22 +232,22 @@
               }
             },
             "taskReminders": [],
-            "timestamp": "2026-05-31T08:01:16.354Z",
+            "timestamp": "<timestamp>",
             "timings": {
-              "beliefMs": 28,
-              "causalMs": 40,
-              "conceptMs": 40,
-              "consolidationMs": 1,
+              "beliefMs": 0,
+              "causalMs": 0,
+              "conceptMs": 0,
+              "consolidationMs": 0,
               "crossConnectionsMs": 0,
-              "decayMs": 1,
-              "epistemicMs": 1,
+              "decayMs": 0,
+              "epistemicMs": 0,
               "insightsMs": 0,
               "levelFixMs": 0,
-              "policyMs": 25,
+              "policyMs": 0,
               "reflectMs": 0,
-              "sdrBuildMs": 5,
+              "sdrBuildMs": 0,
               "tasksArchivalMs": 0,
-              "totalMs": 147
+              "totalMs": 0
             },
             "totalRecords": 3,
             "trendSummary": {
@@ -271,7 +271,7 @@
                   "insightsFound": 2,
                   "policySuppressionRate": 0,
                   "recordsArchived": 0,
-                  "timestamp": "2026-05-31T08:01:16.354Z",
+                  "timestamp": "<timestamp>",
                   "totalRecords": 3,
                   "volatileRecords": 0
                 }
@@ -329,7 +329,7 @@
                   "structural",
                   "corrections"
                 ],
-                "latency_ms": 6,
+                "latency_ms": 0,
                 "namespace_count": 1,
                 "namespaces": [
                   {
@@ -467,7 +467,7 @@
         "recall": {
           "content": [
             {
-              "text": "Phase 7 MCP parity memory\n\nDECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+              "text": "=== COGNITIVE CONTEXT ===\n[DECISIONS]\n  - DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity {decision} [phase07, decision]\n\n[WORKING]\n  - Phase 7 MCP parity memory [phase07, parity]\n\n=== END CONTEXT ===",
               "type": "text"
             }
           ],
@@ -479,7 +479,7 @@
               "text": [
                 {
                   "content": "Phase 7 MCP parity memory",
-                  "id": "thqgyd7z07ap",
+                  "id": "<record-id>",
                   "level": "Working",
                   "score": 0.6545,
                   "semantic_type": "fact",
@@ -492,7 +492,7 @@
                 },
                 {
                   "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
-                  "id": "thqh0k8yvpo5",
+                  "id": "<record-id>",
                   "level": "Decisions",
                   "score": 0.307337,
                   "semantic_type": "decision",
@@ -515,7 +515,7 @@
               "text": [
                 {
                   "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
-                  "id": "thqh0k8yvpo5",
+                  "id": "<record-id>",
                   "level": "Decisions",
                   "semantic_type": "decision",
                   "tags": [
@@ -525,7 +525,7 @@
                 },
                 {
                   "content": "Phase 7 MCP parity memory",
-                  "id": "thqgyd7z07ap",
+                  "id": "<record-id>",
                   "level": "Working",
                   "semantic_type": "fact",
                   "tags": [
@@ -547,7 +547,7 @@
               "text": [
                 {
                   "content": "Phase 7 MCP parity memory",
-                  "id": "thqgyd7z07ap",
+                  "id": "<record-id>",
                   "level": "Working",
                   "score": 0.6545,
                   "semantic_type": "fact",
@@ -560,7 +560,7 @@
                 },
                 {
                   "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
-                  "id": "thqh0k8yvpo5",
+                  "id": "<record-id>",
                   "level": "Decisions",
                   "score": 0.307337,
                   "semantic_type": "decision",
@@ -585,7 +585,7 @@
           "content": [
             {
               "text": {
-                "id": "thqgyd7z07ap",
+                "id": "<record-id>",
                 "level": "Working"
               },
               "type": "text"
@@ -597,7 +597,7 @@
           "content": [
             {
               "text": {
-                "id": "thqgzonfzaux",
+                "id": "<record-id>",
                 "level": "DOMAIN"
               },
               "type": "text"
@@ -609,7 +609,7 @@
           "content": [
             {
               "text": {
-                "id": "thqh0k8yvpo5",
+                "id": "<record-id>",
                 "level": "DECISIONS"
               },
               "type": "text"
@@ -642,7 +642,7 @@
               "text": [
                 {
                   "content": "```typescript\nexport const phase = 7\n```",
-                  "id": "thqgzonfzaux",
+                  "id": "<record-id>",
                   "level": "Domain",
                   "semantic_type": "memory",
                   "tags": [
@@ -654,7 +654,7 @@
                 },
                 {
                   "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
-                  "id": "thqh0k8yvpo5",
+                  "id": "<record-id>",
                   "level": "Decisions",
                   "semantic_type": "decision",
                   "tags": [
@@ -664,7 +664,7 @@
                 },
                 {
                   "content": "Phase 7 MCP parity memory",
-                  "id": "thqgyd7z07ap",
+                  "id": "<record-id>",
                   "level": "Working",
                   "semantic_type": "fact",
                   "tags": [

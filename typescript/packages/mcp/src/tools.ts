@@ -2,7 +2,7 @@ import { createTool } from "@mastra/core/tools"
 import { Level } from "@aura/contract"
 import type { AuraSearchOptions } from "@aura/core"
 import type { AuraMcpRuntime } from "./runtime"
-import { toText } from "./runtime"
+import { toMcpErrorText, toText } from "./runtime"
 import {
   beliefInstabilitySchema,
   correctionLogSchema,
@@ -44,7 +44,29 @@ function levelFromInput(level: "working" | "decisions" | "domain" | "identity" |
 }
 
 async function runText<A, E, R>(runtime: AuraMcpRuntime, effect: import("effect").Effect.Effect<A, E, R>) {
-  return toText(await runtime.runEffect(effect))
+  try {
+    return toText(await runtime.runEffect(effect))
+  } catch (error) {
+    return toMcpErrorText(error)
+  }
+}
+
+async function runMappedText<A, B, E, R>(
+  runtime: AuraMcpRuntime,
+  effect: import("effect").Effect.Effect<A, E, R>,
+  map: (value: A) => B,
+) {
+  try {
+    return toText(map(await runtime.runEffect(effect)))
+  } catch (error) {
+    return toMcpErrorText(error)
+  }
+}
+
+function formatRecallContext(
+  results: ReadonlyArray<readonly [score: number, record: { readonly content: string }]>,
+): string {
+  return results.map(([, record]) => record.content).join("\n\n")
 }
 
 export function createAuraTools(runtime: AuraMcpRuntime) {
@@ -54,7 +76,11 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
       description: "Retrieve relevant memories as context for a query. Use before answering when existing Aura memory may affect the response.",
       inputSchema: recallSchema,
       execute: async ({ context }) =>
-        runText(runtime, runtime.aura.recall(context.query, { namespaces: namespaces(context.namespace) })),
+        runMappedText(
+          runtime,
+          runtime.aura.recall_structured(context.query, { namespaces: namespaces(context.namespace) }),
+          formatRecallContext,
+        ),
     }),
 
     recall_structured: createTool({
@@ -62,10 +88,23 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
       description: "Retrieve memories as structured scored records. Use when individual record IDs, scores, levels, or metadata are needed.",
       inputSchema: recallStructuredSchema,
       execute: async ({ context }) =>
-        runText(runtime, runtime.aura.recall_structured(context.query, {
-          topK: context.top_k,
-          namespaces: namespaces(context.namespace),
-        })),
+        runMappedText(
+          runtime,
+          runtime.aura.recall_structured(context.query, {
+            topK: context.top_k,
+            namespaces: namespaces(context.namespace),
+          }),
+          (results) => results.map(([score, record]) => ({
+            id: record.id,
+            content: record.content,
+            score,
+            level: record.level,
+            tags: record.tags,
+            strength: record.strength,
+            source_type: record.source_type,
+            semantic_type: record.semantic_type,
+          })),
+        ),
     }),
 
     store: createTool({
@@ -73,29 +112,43 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
       description: "Store a new memory in Aura. Use for durable facts, decisions, observations, or generated information that should be remembered.",
       inputSchema: storeSchema,
       execute: async ({ context }) =>
-        runText(runtime, runtime.aura.store(context.content, {
-          level: levelFromInput(context.level),
-          tags: context.tags,
-          content_type: context.content_type,
-          source_type: context.source_type,
-          caused_by_id: context.caused_by_id,
-          namespace: context.namespace,
-          semantic_type: context.semantic_type,
-        })),
+        runMappedText(
+          runtime,
+          runtime.aura.store(context.content, {
+            level: levelFromInput(context.level),
+            tags: context.tags,
+            content_type: context.content_type,
+            source_type: context.source_type,
+            caused_by_id: context.caused_by_id,
+            namespace: context.namespace,
+            semantic_type: context.semantic_type,
+          }),
+          (record) => ({ id: record.id, level: record.level }),
+        ),
     }),
 
     store_code: createTool({
       id: "store_code",
       description: "Store a code snippet at domain level with language and optional filename metadata.",
       inputSchema: storeCodeSchema,
-      execute: async ({ context }) => runText(runtime, runtime.aura.store_code(context)),
+      execute: async ({ context }) =>
+        runMappedText(
+          runtime,
+          runtime.aura.store_code(context),
+          (record) => ({ id: record.id, level: "DOMAIN" }),
+        ),
     }),
 
     store_decision: createTool({
       id: "store_decision",
       description: "Store a decision with reasoning and alternatives at decisions level.",
       inputSchema: storeDecisionSchema,
-      execute: async ({ context }) => runText(runtime, runtime.aura.store_decision(context)),
+      execute: async ({ context }) =>
+        runMappedText(
+          runtime,
+          runtime.aura.store_decision(context),
+          (record) => ({ id: record.id, level: "DECISIONS" }),
+        ),
     }),
 
     search: createTool({
@@ -113,7 +166,13 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
           namespace: context.namespace,
           semantic_type: context.semantic_type,
         }
-        return toText(runtime.aura.search(options))
+        return toText(runtime.aura.search(options).map((record) => ({
+          id: record.id,
+          content: record.content,
+          level: record.level,
+          tags: record.tags,
+          semantic_type: record.semantic_type,
+        })))
       },
     }),
 
@@ -181,7 +240,10 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
         const entries = context.target_kind !== undefined && context.target_id !== undefined
           ? runtime.aura.get_correction_log_for_target(context.target_kind, context.target_id)
           : runtime.aura.get_correction_log()
-        return toText(entries.slice(0, context.limit ?? 50))
+        return toText(entries
+          .slice()
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .slice(0, context.limit ?? 50))
       },
     }),
 
@@ -220,7 +282,9 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
       description: "Return bounded policy lifecycle summaries and advisory-pressure areas for operator inspection.",
       inputSchema: policyLifecycleSchema,
       execute: async ({ context }) =>
-        runText(runtime, runtime.aura.policy_lifecycle(
+        runText(runtime, runtime.aura.policy_lifecycle_report(
+          context.namespace,
+          context.limit,
           context.action_limit,
           context.domain_limit,
         )),
@@ -230,7 +294,12 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
       id: "belief_instability",
       description: "Return bounded belief-instability inspection output.",
       inputSchema: beliefInstabilitySchema,
-      execute: async () => runText(runtime, runtime.aura.belief_instability()),
+      execute: async ({ context }) =>
+        runText(runtime, runtime.aura.belief_instability_report(
+          context.min_volatility,
+          context.max_stability,
+          context.limit,
+        )),
     }),
 
     memory_health: createTool({

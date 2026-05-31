@@ -547,7 +547,7 @@ export class Aura {
     const results = [...this.searchRecords.values()].filter((record) => {
       if (!nsList.includes(record.namespace)) return false
       if (options.level !== undefined && record.level !== options.level) return false
-      if (options.tags !== undefined && !options.tags.some((tag) => record.tags.includes(tag))) return false
+      if (options.tags !== undefined && !options.tags.every((tag) => record.tags.includes(tag))) return false
       if (options.content_type !== undefined && record.content_type !== options.content_type) return false
       if (options.source_type !== undefined && record.source_type !== options.source_type) return false
       if (options.semantic_type !== undefined && record.semantic_type !== options.semantic_type) return false
@@ -653,6 +653,31 @@ export class Aura {
     return this.get_policy_lifecycle_summary(actionLimit, domainLimit)
   }
 
+  policy_lifecycle_report(
+    namespace?: string,
+    limit?: number,
+    actionLimit?: number,
+    domainLimit?: number,
+  ): Effect.Effect<{
+    readonly summary: McpPolicyLifecycleSummary
+    readonly pressure: ReadonlyArray<McpPolicyPressureArea>
+    readonly suppressed: ReadonlyArray<PolicyHint>
+    readonly rejected: ReadonlyArray<PolicyHint>
+  }, never, EpistemicRuntime | PolicyEngine> {
+    // Assemble the Rust MCP policy_lifecycle payload from core/runtime read models.
+    // 从 core/runtime 读模型组装 Rust MCP policy_lifecycle payload，避免 MCP 层承载业务逻辑。
+    // Rust reference: AuraMcpServer::policy_lifecycle (mcp.rs)
+    const self = this
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const summary = yield* self.get_policy_lifecycle_summary(actionLimit, domainLimit)
+      const pressure = yield* self.get_policy_pressure_report(namespace, limit)
+      const suppressed = yield* runtime.getSuppressedPolicyHints(namespace, limit)
+      const rejected = yield* runtime.getRejectedPolicyHints(namespace, limit)
+      return { summary, pressure, suppressed, rejected }
+    })
+  }
+
   get_policy_pressure_report(
     namespace?: string,
     limit?: number,
@@ -661,6 +686,49 @@ export class Aura {
       const runtime = yield* Effect.service(EpistemicRuntime)
       const pressure = yield* runtime.getPolicyPressureReport(namespace, limit)
       return pressure.map(toMcpPolicyPressureArea)
+    })
+  }
+
+  belief_instability_report(
+    minVolatility?: number,
+    maxStability?: number,
+    limit?: number,
+  ): Effect.Effect<{
+    readonly summary: McpBeliefInstabilitySummary
+    readonly high_volatility: ReadonlyArray<Belief>
+    readonly low_stability: ReadonlyArray<Belief>
+    readonly recently_corrected: ReadonlyArray<Belief>
+  }, never, EpistemicRuntime | BeliefEngine> {
+    // Assemble the Rust MCP belief_instability payload from core/runtime read models.
+    // 从 core/runtime 读模型组装 Rust MCP belief_instability payload。
+    // Rust reference: AuraMcpServer::belief_instability (mcp.rs)
+    const max = clampInt(limit ?? 20, 1, 100)
+    const corrections = this.correctionLog
+      .filter((entry) => entry.target_kind === "belief")
+      .sort((a, b) => b.timestamp - a.timestamp)
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const summary = yield* runtime.getBeliefInstabilitySummary()
+      const highVolatility = yield* runtime.getHighVolatilityBeliefs(minVolatility, max)
+      const lowStability = yield* runtime.getLowStabilityBeliefs(maxStability, max)
+      const beliefs = yield* runtime.getBeliefs()
+      const byId = new Map(beliefs.map((belief) => [belief.id, belief]))
+      const recentlyCorrected: Belief[] = []
+      const seen = new Set<string>()
+      for (const entry of corrections) {
+        if (seen.has(entry.target_id)) continue
+        const belief = byId.get(entry.target_id)
+        if (belief === undefined) continue
+        seen.add(entry.target_id)
+        recentlyCorrected.push(belief)
+        if (recentlyCorrected.length >= max) break
+      }
+      return {
+        summary: toMcpBeliefInstabilitySummary(summary),
+        high_volatility: highVolatility,
+        low_stability: lowStability,
+        recently_corrected: recentlyCorrected,
+      }
     })
   }
 

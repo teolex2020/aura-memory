@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { Aura } from "@aura/core"
 import { createAuraMcpServer } from "./server"
-import { TOOL_NAMES } from "./inventory"
+import { TOOL_INVENTORY, TOOL_NAMES } from "./inventory"
 
 const runtime = {
   brainPath: "memory://inventory",
@@ -16,5 +16,16 @@ describe("Aura MCP inventory", () => {
     const server = createAuraMcpServer(runtime)
     const registered = server.getToolListInfo().tools.map((tool) => tool.name).sort()
     expect(registered).toEqual([...TOOL_NAMES].sort())
+  })
+
+  it("keeps the canonical ledger unique and marks unsupported tools explicitly", () => {
+    expect(new Set(TOOL_NAMES).size).toBe(TOOL_NAMES.length)
+    expect(TOOL_INVENTORY.filter((entry) => entry.status === "unsupported").map((entry) => entry.name)).toEqual([
+      "consolidate",
+    ])
+    for (const entry of TOOL_INVENTORY) {
+      expect(entry.rustReference.length).toBeGreaterThan(0)
+      expect(entry.coreSurface.length).toBeGreaterThan(0)
+    }
   })
 })

@@ -62,6 +62,7 @@ import {
   recallRawScored as recallRawScoredEffect,
   recallRecords as recallRecordsEffect,
   recallScored as recallScoredEffect,
+  recallTemporalRecords as recallTemporalRecordsEffect,
   recallWithTrace as recallWithTraceEffect,
 } from "./Recall";
 import { id12, nowSecs } from "@aura/utils";
@@ -1470,6 +1471,40 @@ export class Aura {
     // Reason: TS does not yet model the full explainability DTO surface from Rust.
     // Rust reference: Aura::recall_full (aura.rs)
     return this.recall_structured(query, options);
+  }
+
+  recall_at(
+    query: string,
+    timestamp: number,
+    topK?: number,
+    minStrength?: number,
+    expandConnections?: boolean,
+    sessionId?: string,
+    namespaces?: ReadonlyArray<string>,
+  ) {
+    // Temporal recall: recall only from records created at or before a given timestamp.
+    // 时间召回：仅考虑创建时间不晚于指定 timestamp 的 records。
+    //
+    // Answers the question: "What did the agent know at time X?"
+    // 回答“agent 在 X 时刻知道什么？”。
+    //
+    // The pipeline is identical to `recall_structured`, but the record set is
+    // pre-filtered by `created_at <= timestamp` before scoring.
+    // 管线与 `recall_structured` 相同，但 scoring 前先用 `created_at <= timestamp` 过滤 record set。
+    // Rust reference: `Aura::recall_at` and `py_recall_at` (`../src/aura.rs`).
+    const self = this
+    const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
+    return Effect.gen(function* () {
+      const records = yield* recallTemporalRecordsEffect<AuraRecord>(
+        self.brainDir,
+        query,
+        timestamp,
+        options,
+        self.currentTrustConfig(),
+      )
+      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      return records
+    })
   }
 
   recall_structured_with_shadow(

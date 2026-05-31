@@ -23,6 +23,7 @@ import {
   CausalDiscoveryMode, CausalState, TemporalBudgetMode, EvidenceMode,
   BeliefRerankMode, ConceptSurfaceMode, CausalRerankMode, PolicyRerankMode,
   BeliefState, ConceptState, PolicyActionKind, PolicyState, Polarity,
+  Clock,
   Level,
   RecordValidationError,
   UnsupportedSurfaceError,
@@ -73,6 +74,15 @@ describe("Aura MCP-facing operational surfaces", () => {
       Effect.provide(NodeFileReadLive),
       Effect.provide(NodeFileWriteLive),
       Effect.provide(NodeClockLive),
+      Effect.provide(NodeCryptoLive)
+    )
+  }
+
+  function provideNodeAt<A, E, R>(effect: Effect.Effect<A, E, R>, nowUnixSec: number) {
+    return effect.pipe(
+      Effect.provide(NodeFileReadLive),
+      Effect.provide(NodeFileWriteLive),
+      Effect.provideService(Clock, Clock.fixed(nowUnixSec)),
       Effect.provide(NodeCryptoLive)
     )
   }
@@ -182,6 +192,35 @@ describe("Aura MCP-facing operational surfaces", () => {
     const item = explanation.items.find((candidate) => candidate.record_id === record.id)
     if (item === undefined) throw new Error("trust-config recall item missing")
     assert.ok(Math.abs(item.trace.trust_multiplier - 0.1) < 0.0001)
+  })
+
+  it("recall_at runs temporal recall over records created at or before the timestamp", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-recall-at-"))
+    const aura = await openWritableAuraIn(brainPath)
+    const oldRecord = await Effect.runPromise(provideNodeAt(aura.store("temporal alpha old knowledge", {
+      namespace: "default",
+      tags: ["temporal", "alpha"],
+    }), 1_000))
+    const futureRecord = await Effect.runPromise(provideNodeAt(aura.store("temporal alpha future knowledge", {
+      namespace: "default",
+      tags: ["temporal", "alpha"],
+    }), 2_000))
+
+    const beforeFuture = await Effect.runPromise(provideNodeAt(
+      aura.recall_at("temporal alpha knowledge", 1_500, 10, 0, false, "temporal-session", ["default"]),
+      3_000,
+    ))
+    assert.deepStrictEqual(beforeFuture.map(([, record]) => record.id), [oldRecord.id])
+
+    const afterFuture = await Effect.runPromise(provideNodeAt(
+      aura.recall_at("temporal alpha knowledge", 2_500, 10, 0, false, undefined, ["default"]),
+      3_000,
+    ))
+    assert.deepStrictEqual(afterFuture.map(([, record]) => record.id).sort(), [oldRecord.id, futureRecord.id].sort())
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get(oldRecord.id)?.activation_count, 2)
+    assert.strictEqual(persisted.get(futureRecord.id)?.activation_count, 1)
   })
 
   it("reports Rust-shaped startup validation fallbacks on open", async () => {

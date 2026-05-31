@@ -11,6 +11,7 @@ import {
   RecallFinalizer,
   RecallViewTag,
   type RecallScored,
+  type RecallView,
   RerankError,
   TrustConfigTag,
   type TrustConfig,
@@ -38,6 +39,24 @@ function withTrustConfig<A, E, R>(
   return trustConfig === undefined
     ? effect
     : effect.pipe(Effect.provideService(TrustConfigTag, trustConfig))
+}
+
+function createdAtOf(raw: unknown): number | undefined {
+  if (!raw || typeof raw !== "object") return undefined
+  const value = (raw as { readonly created_at?: unknown }).created_at
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function temporalRecallView(view: RecallView, timestamp: number): RecallView {
+  const records = new Map<string, unknown>()
+  for (const [id, record] of view.records) {
+    const createdAt = createdAtOf(record)
+    if (createdAt !== undefined && createdAt <= timestamp) {
+      records.set(id, record)
+    }
+  }
+
+  return { ...view, records }
 }
 
 export function recallScored(
@@ -126,6 +145,54 @@ export function recallRecords<TRecord = unknown>(
   return program.pipe(Effect.provide(recallCoreLayer(dir)))
 }
 
+export function recallTemporalRecords<TRecord = unknown>(
+  dir: string,
+  query: string,
+  timestamp: number,
+  options?: Partial<RecallPipelineOptions>,
+  trustConfig?: TrustConfig
+): Effect.Effect<
+  ReadonlyArray<RecallHit<TRecord>>,
+  | FileReadError
+  | JsonParseError
+  | FileFormatError
+  | IndexFormatError
+  | SdrInterpreterError
+  | EmbeddingQueryError
+  | RerankError
+  | FinalizeError,
+  FileRead | FileWrite
+> {
+  // Temporal recall: recall only from records created at or before a given timestamp.
+  // 时间召回：仅从创建时间不晚于指定 timestamp 的记录中召回。
+  //
+  // Answers the question: "What did the agent know at time X?"
+  // 回答“agent 在 X 时刻知道什么？”。
+  //
+  // The pipeline is identical to `recall_structured`, but the record set is
+  // pre-filtered by `created_at <= timestamp` before scoring.
+  // 管线与 `recall_structured` 相同，但 scoring 前先用 `created_at <= timestamp` 过滤 record set。
+  // Rust reference: `Aura::recall_at` / `RecallService::recall_temporal` (`../src/aura.rs`).
+  const program = Effect.gen(function* () {
+    const view = yield* Effect.service(RecallViewTag)
+    const temporalView = temporalRecallView(view, timestamp)
+    const scored = yield* withTrustConfig(
+      recallPipeline(query, options).pipe(Effect.provideService(RecallViewTag, temporalView)),
+      trustConfig
+    )
+
+    const out: Array<RecallHit<TRecord>> = []
+    for (const [score, id] of scored) {
+      const rec = temporalView.records.get(id)
+      if (rec === undefined) continue
+      out.push([score, rec as TRecord])
+    }
+    return out
+  })
+
+  return program.pipe(Effect.provide(recallTemporalLayer(dir)))
+}
+
 export function finalizeRecallScored(
   dir: string,
   scored: RecallScored,
@@ -167,6 +234,10 @@ export function recallWithTrace(
 
 function recallCoreLayer(dir: string) {
   return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir), RecallFinalizerFileLive(dir))
+}
+
+function recallTemporalLayer(dir: string) {
+  return Layer.mergeAll(RecallViewLive(dir), RecallFinalizerFileLive(dir))
 }
 
 function recallTraceLayer(dir: string) {

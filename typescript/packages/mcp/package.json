@@ -1,0 +1,22 @@
+{
+  "name": "@aura/mcp",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bin": "./src/bin.ts"
+  },
+  "bin": {
+    "aura-mcp": "./src/bin.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ../../tsconfig.json --noEmit",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@aura/core": "workspace:*",
+    "@mastra/core": "^0.21.0",
+    "@mastra/mcp": "^0.13.3",
+    "zod": "^3.25.76"
+  }
+}

@@ -34,7 +34,9 @@
       "@aura/policy": ["packages/policy/src/index.ts"],
       "@aura/policy/*": ["packages/policy/src/*"],
       "@aura/epistemic-runtime": ["packages/epistemic-runtime/src/index.ts"],
-      "@aura/epistemic-runtime/*": ["packages/epistemic-runtime/src/*"]
+      "@aura/epistemic-runtime/*": ["packages/epistemic-runtime/src/*"],
+      "@aura/mcp": ["packages/mcp/src/index.ts"],
+      "@aura/mcp/*": ["packages/mcp/src/*"]
     }
   },
   "include": [

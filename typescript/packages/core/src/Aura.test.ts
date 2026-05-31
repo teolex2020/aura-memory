@@ -26,6 +26,7 @@ import {
   Level,
   RecordValidationError,
   UnsupportedSurfaceError,
+  defaultMaintenanceConfig,
 } from "@aura/contract"
 
 it("Aura.open loads minimal fixture", async () => {
@@ -1827,11 +1828,20 @@ describe("Aura.runMaintenance", () => {
 
     aura.set_causal_temporal_budget_mode("exhaustive_capped")
     aura.set_causal_evidence_mode("explicit_trusted")
+    aura.configure_maintenance({
+      ...defaultMaintenanceConfig,
+      decayEnabled: false,
+      reflectEnabled: false,
+      insightsEnabled: false,
+      levelFixInterval: 0,
+    })
     const result = await Effect.runPromise(
-      Effect.provide(aura.runMaintenance(), testLayer)
+      Effect.provide(aura.run_maintenance(), testLayer)
     )
     expect(result).toBeDefined()
     expect(result.totalRecords).toBe(1)
+    expect(result.decay.decayed).toBe(0)
+    expect(result.insightsFound).toBe(0)
     expect(syncedTemporalBudgetMode).toBe(TemporalBudgetMode.ExhaustiveCapped)
     expect(syncedEvidenceMode).toBe(EvidenceMode.ExplicitTrusted)
   })

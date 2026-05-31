@@ -461,6 +461,7 @@ export class Aura {
     private boundedRerankModes: BoundedRerankModes = defaultBoundedRerankModes(),
     private causalTemporalBudgetMode: TemporalBudgetMode = TemporalBudgetMode.NearbySuccessors,
     private causalEvidenceMode: EvidenceMode = EvidenceMode.StrictRepeatedWindows,
+    private maintenanceConfig: MaintenanceConfig = defaultMaintenanceConfig,
   ) {}
 
   static open(
@@ -1771,6 +1772,20 @@ export class Aura {
     // 面向 MCP 的公开维护入口，委托到 runMaintenance。
     // Rust reference: Aura::run_maintenance / AuraMcpServer maintain path.
     return this.runMaintenance(config)
+  }
+
+  configure_maintenance(config: MaintenanceConfig): void {
+    // Configure the maintenance pipeline.
+    // 配置 maintenance pipeline。
+    // Rust reference: Aura::configure_maintenance (aura.rs)
+    this.maintenanceConfig = config
+  }
+
+  run_maintenance() {
+    // Run the full maintenance pipeline using the configured maintenance settings.
+    // 使用已配置的 maintenance settings 运行完整 maintenance pipeline。
+    // Rust reference: Aura::run_maintenance (aura.rs)
+    return this.runMaintenance()
   }
 
   consolidate(): Effect.Effect<never, UnsupportedSurfaceError> {
@@ -3210,7 +3225,7 @@ export class Aura {
   runMaintenance(
     config?: MaintenanceConfig
   ) {
-    const cfg = config ?? defaultMaintenanceConfig
+    const cfg = config ?? this.maintenanceConfig
     const dir = this.brainDir
 
     const self = this

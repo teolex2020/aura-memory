@@ -1432,10 +1432,12 @@ export class Aura {
     })
   }
 
+  /**
+   * NON-PARITY IMPLEMENTATION: returns RecallScored rather than Rust's richer RecallItem.
+   * 差异说明：TS recall pipeline 目前返回 scored IDs；structured/explainability 尚未实现。
+   * Rust reference: `Aura::recall` (`../src/aura.rs`).
+   */
   recall(query: string, options?: Partial<RecallPipelineOptions>) {
-    // NON-PARITY IMPLEMENTATION: returns RecallScored rather than Rust's richer RecallItem.
-    // 差异说明：TS recall pipeline 目前返回 scored IDs；structured/explainability 尚未实现。
-    // Rust reference: Aura::recall (aura.rs)
     const self = this
     return Effect.gen(function* () {
       const scored = yield* recallScoredEffect(
@@ -1451,10 +1453,12 @@ export class Aura {
     })
   }
 
+  /**
+   * NON-PARITY IMPLEMENTATION: approximates structured recall via recallRecords.
+   * Reason: TS does not yet model RecallExplanation/trace bundle.
+   * Rust reference: `Aura::recall_structured` (`../src/aura.rs`).
+   */
   recall_structured(query: string, options?: Partial<RecallPipelineOptions>) {
-    // NON-PARITY IMPLEMENTATION: approximates structured recall via recallRecords.
-    // Reason: TS does not yet model RecallExplanation/trace bundle.
-    // Rust reference: Aura::recall_structured (aura.rs)
     const self = this
     return Effect.gen(function* () {
       const records = yield* recallRecordsEffect<AuraRecord>(
@@ -1470,13 +1474,27 @@ export class Aura {
     })
   }
 
+  /**
+   * NON-PARITY IMPLEMENTATION: same as recall_structured for now.
+   * Reason: TS does not yet model the full explainability DTO surface from Rust.
+   * Rust reference: `Aura::recall_full` (`../src/aura.rs`).
+   */
   recall_full(query: string, options?: Partial<RecallPipelineOptions>) {
-    // NON-PARITY IMPLEMENTATION: same as recall_structured for now.
-    // Reason: TS does not yet model the full explainability DTO surface from Rust.
-    // Rust reference: Aura::recall_full (aura.rs)
     return this.recall_structured(query, options);
   }
 
+  /**
+   * Temporal recall: recall only from records created at or before a given timestamp.
+   * 时间召回：仅考虑创建时间不晚于指定 timestamp 的 records。
+   *
+   * Answers the question: "What did the agent know at time X?"
+   * 回答“agent 在 X 时刻知道什么？”。
+   *
+   * The pipeline is identical to `recall_structured`, but the record set is
+   * pre-filtered by `created_at <= timestamp` before scoring.
+   * 管线与 `recall_structured` 相同，但 scoring 前先用 `created_at <= timestamp` 过滤 record set。
+   * Rust reference: `Aura::recall_at` and `py_recall_at` (`../src/aura.rs`).
+   */
   recall_at(
     query: string,
     timestamp: number,
@@ -1486,16 +1504,6 @@ export class Aura {
     sessionId?: string,
     namespaces?: ReadonlyArray<string>,
   ) {
-    // Temporal recall: recall only from records created at or before a given timestamp.
-    // 时间召回：仅考虑创建时间不晚于指定 timestamp 的 records。
-    //
-    // Answers the question: "What did the agent know at time X?"
-    // 回答“agent 在 X 时刻知道什么？”。
-    //
-    // The pipeline is identical to `recall_structured`, but the record set is
-    // pre-filtered by `created_at <= timestamp` before scoring.
-    // 管线与 `recall_structured` 相同，但 scoring 前先用 `created_at <= timestamp` 过滤 record set。
-    // Rust reference: `Aura::recall_at` and `py_recall_at` (`../src/aura.rs`).
     const self = this
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     return Effect.gen(function* () {
@@ -1512,6 +1520,14 @@ export class Aura {
     })
   }
 
+  /**
+   * Recall with parallel shadow belief scoring.
+   * 使用并行 shadow belief scoring 的 structured recall。
+   *
+   * Returns baseline raw results plus a shadow report; shadow scoring is observational.
+   * 返回 raw baseline 结果和 shadow report；shadow scoring 不改变排序。
+   * Rust reference: `Aura::recall_structured_with_shadow` (`../src/aura.rs`).
+   */
   recall_structured_with_shadow(
     query: string,
     topK?: number,
@@ -1520,11 +1536,6 @@ export class Aura {
     sessionId?: string,
     namespaces?: ReadonlyArray<string>,
   ) {
-    // Recall with parallel shadow belief scoring.
-    // 使用并行 shadow belief scoring 的 structured recall。
-    // Returns baseline raw results plus a shadow report; shadow scoring is observational.
-    // 返回 raw baseline 结果和 shadow report；shadow scoring 不改变排序。
-    // Rust reference: `Aura::recall_structured_with_shadow` (aura.rs).
     const self = this
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     const top = options.topK ?? 20
@@ -1540,6 +1551,14 @@ export class Aura {
     })
   }
 
+  /**
+   * Recall with limited reranking and a diagnostic report.
+   * 使用 limited reranking 并返回诊断报告。
+   *
+   * Applies a single belief rerank pass on the raw baseline, regardless of runtime mode.
+   * 无论 runtime mode 如何，都只在 raw baseline 上执行一次 belief rerank，避免 double-rerank。
+   * Rust reference: `Aura::recall_structured_with_rerank_report` (`../src/aura.rs`).
+   */
   recall_structured_with_rerank_report(
     query: string,
     topK?: number,
@@ -1548,11 +1567,6 @@ export class Aura {
     sessionId?: string,
     namespaces?: ReadonlyArray<string>,
   ) {
-    // Recall with limited reranking and a diagnostic report.
-    // 使用 limited reranking 并返回诊断报告。
-    // Applies a single belief rerank pass on the raw baseline, regardless of runtime mode.
-    // 无论 runtime mode 如何，都只在 raw baseline 上执行一次 belief rerank，避免 double-rerank。
-    // Rust reference: `Aura::recall_structured_with_rerank_report` (aura.rs).
     const self = this
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     const top = options.topK ?? 20

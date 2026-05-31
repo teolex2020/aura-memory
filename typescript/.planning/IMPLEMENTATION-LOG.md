@@ -19,7 +19,7 @@
   - `bun run test packages/core/src/Aura.test.ts` 通过，31 tests。
   - `bun run typecheck` 通过。
   - `bun run test` 通过，54 files / 530 tests。
-  - PyO3 surface regex check：`rust_py_total 158`，`missing 70`；首批缺口为 `add_research_finding`、`clear_embedding_fn`、`complete_research`、`diff`、`end_session` 等。
+  - PyO3 surface regex check：`rust_py_total 158`，`missing 70`；首批缺口为 `end_session`、`set_taxonomy`、`get_taxonomy`、`get_structural_relations`、`get_relations` 等。
 
 ## 2026-06-01 - Aura end_session / SessionTracker 对齐
 
@@ -33,7 +33,7 @@
   - `bun run test packages/core/src/Recall.test.ts packages/recall/src/Pipeline.test.ts packages/core/src/DefaultLayer.test.ts` 通过，12 tests。
   - `bun run typecheck` 通过。
   - `bun run test` 通过，54 files / 535 tests。
-  - PyO3 surface regex check：`rust_py_total 158`，`missing 69`；首批缺口为 `add_research_finding`、`clear_embedding_fn`、`complete_research`、`diff`、`export_context` 等。
+  - PyO3 surface regex check：`rust_py_total 158`，`missing 69`；首批缺口为 `set_taxonomy`、`get_taxonomy`、`get_structural_relations`、`get_relations`、`get_structural_relations_for_record` 等。
 
 ## 2026-06-01 - Recall namespace filter Rust semantics
 
@@ -66,6 +66,6 @@
 ## 2026-06-01 - Core recall/session/finalizer 注释块规范化
 
 - 范围：`packages/core/src/Aura.ts`、`packages/core/src/Recall.ts`、`packages/core/src/RecallFinalizer.ts`。
-- 实现：将 `Aura.decay`、`Aura.reflect`、`Aura.end_session`、`recallScored`、`recallRawScored`、`recallRecords`、session tracker helpers、activation/finalize helpers 的 Rust reference / 中文逻辑说明提升为块级 JSDoc，保留 Rust 原始方法/函数位置引用。
+- 实现：将 `Aura.decay`、`Aura.reflect`、`Aura.end_session`、`recallScored`、`recallRawScored`、`recallRecords`、`recallWithTrace`、session tracker helpers、activation/finalize helpers 的 Rust reference / 中文逻辑说明提升为块级 JSDoc，保留 Rust 原始方法/函数位置引用。
 - Rust reference：`Aura::decay`、`Aura::reflect`、`Aura::end_session`（`../src/aura.rs`），`SessionTracker`（`../src/graph.rs`），`Record::activate` / `activate_and_strengthen`（`../src/record.rs`、`../src/recall.rs`）。
 - 验证：仅注释形态调整；复用本轮已通过的 `bun run typecheck` 与 `bun run test`。

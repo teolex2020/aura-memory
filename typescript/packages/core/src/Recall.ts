@@ -227,6 +227,11 @@ export function finalizeRecallScored(
   }).pipe(Effect.provide(RecallFinalizerFileLive(dir, sessionTracker)))
 }
 
+/**
+ * Trace/explain uses persisted bounded rerank snapshots but intentionally omits RecallFinalizer.
+ * trace/explain 使用持久化 bounded rerank 快照，但不装配 RecallFinalizer，保持 inspection-only。
+ * Rust reference: `Aura::explain_recall` / `RecallTraceScore` (`../src/aura.rs`).
+ */
 export function recallWithTrace(
   dir: string,
   query: string,
@@ -245,9 +250,6 @@ export function recallWithTrace(
   | FinalizeError,
   FileRead
 > {
-  // Trace/explain uses persisted bounded rerank snapshots but intentionally omits RecallFinalizer.
-  // trace/explain 使用持久化 bounded rerank 快照，但不装配 RecallFinalizer，保持 inspection-only。
-  // Rust reference: Aura::explain_recall / RecallTraceScore (aura.rs)
   const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
   return withTrustConfig(recallPipelineWithTrace(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallTraceLayer(dir)))
 }

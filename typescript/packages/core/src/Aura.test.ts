@@ -880,6 +880,26 @@ describe("Aura MCP-facing operational surfaces", () => {
         "belief-alpha": makeBelief("belief-alpha", "alpha:policy:fact", BeliefState.Unresolved, 0.36, 0.5),
         "belief-beta": makeBelief("belief-beta", "beta:baseline:fact", BeliefState.Resolved, 0.08, 1.2),
       },
+      concepts: {
+        "concept-alpha": {
+          id: "concept-alpha",
+          key: "alpha:policy",
+          namespace: "alpha",
+          semantic_type: "fact",
+          belief_ids: ["belief-alpha"],
+          record_ids: ["record-alpha"],
+          core_terms: ["policy"],
+          shell_terms: ["pressure"],
+          tags: ["policy"],
+          support_mass: 1,
+          confidence: 0.91,
+          stability: 1,
+          cohesion: 1,
+          abstraction_score: 0.82,
+          state: ConceptState.Stable,
+          last_updated: 1,
+        },
+      },
       policies: {
         "policy-alpha": {
           id: "policy-alpha",
@@ -901,6 +921,48 @@ describe("Aura MCP-facing operational surfaces", () => {
           cause_key: "alpha:policy:fact",
           effect_keys: [],
           cause_record_ids: [],
+        },
+        "policy-beta": {
+          id: "policy-beta",
+          pattern_id: null,
+          condition: "beta baseline is stale",
+          action: "refresh beta",
+          priority: 1,
+          confidence: 0.6,
+          state: PolicyState.Rejected,
+          last_updated: 3,
+          actionKind: PolicyActionKind.Warn,
+          policyStrength: 0.55,
+          riskScore: 0.44,
+          namespace: "beta",
+          domain: "baseline",
+          polarity: Polarity.Neutral,
+          recommendation: "Refresh beta baseline",
+          utilityScore: 0.1,
+          cause_key: "beta:baseline:fact",
+          effect_keys: [],
+          cause_record_ids: [],
+        },
+        "policy-stable": {
+          id: "policy-stable",
+          pattern_id: null,
+          condition: "alpha policy is stable",
+          action: "prefer alpha",
+          priority: 1,
+          confidence: 0.9,
+          state: PolicyState.Stable,
+          last_updated: 4,
+          actionKind: PolicyActionKind.Prefer,
+          policyStrength: 0.88,
+          riskScore: 0.1,
+          namespace: "alpha",
+          domain: "deploy",
+          polarity: Polarity.Positive,
+          recommendation: "Prefer alpha policy",
+          utilityScore: 0.9,
+          cause_key: "alpha:policy:fact",
+          effect_keys: ["alpha:policy:result"],
+          cause_record_ids: ["record-alpha"],
         },
       },
     })
@@ -925,6 +987,22 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(alpha.suggested_correction_count, 1)
     assert.ok(alpha.instability_score > 0)
     assert.deepStrictEqual(governance.map((status) => status.namespace).sort(), ["alpha", "beta"])
+
+    const highVolatility = await Effect.runPromise(Effect.provide(aura.get_high_volatility_beliefs(0.2, 5), layer))
+    assert.deepStrictEqual(highVolatility.map((belief) => belief.id), ["belief-alpha"])
+    const lowStability = await Effect.runPromise(Effect.provide(aura.get_low_stability_beliefs(1, 5), layer))
+    assert.deepStrictEqual(lowStability.map((belief) => belief.id), ["belief-alpha"])
+    const clusters = await Effect.runPromise(Effect.provide(aura.get_contradiction_clusters(undefined, 5), layer))
+    assert.ok(clusters.some((cluster) => cluster.beliefIds.includes("belief-alpha")))
+
+    const surfacedConcepts = await Effect.runPromise(Effect.provide(aura.get_surfaced_concepts_for_namespace("alpha", 5), layer))
+    assert.deepStrictEqual(surfacedConcepts.map((concept) => concept.id), ["concept-alpha"])
+    const suppressedHints = await Effect.runPromise(Effect.provide(aura.get_suppressed_policy_hints("alpha", 5), layer))
+    assert.deepStrictEqual(suppressedHints.map((hint) => hint.id), ["policy-alpha"])
+    const rejectedHints = await Effect.runPromise(Effect.provide(aura.get_rejected_policy_hints(undefined, 5), layer))
+    assert.deepStrictEqual(rejectedHints.map((hint) => hint.id), ["policy-beta"])
+    const surfacedPolicyHints = await Effect.runPromise(Effect.provide(aura.get_surfaced_policy_hints_for_namespace("alpha", 5), layer))
+    assert.ok(surfacedPolicyHints.some((hint) => hint.id === "policy-stable"))
   })
 
   it("memory_health projects high-salience records into summary and review issues", async () => {
@@ -1246,6 +1324,8 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(await run(aura.retract_policy_hint_with_reason("policy-alpha", "superseded_runbook")), true)
 
     assert.strictEqual(aura.get_correction_log().length, 3)
+    const recentlyCorrected = await run(aura.get_recently_corrected_beliefs(5))
+    assert.deepStrictEqual(recentlyCorrected.map((belief) => belief.id), ["belief-alpha"])
 
     const queue = await run(aura.correction_review_queue(10))
     assert.strictEqual(queue.length, 3)

@@ -408,6 +408,8 @@ import {
   type RecallTraceScore,
   type ShadowRecallReport,
   type SuggestedCorrection,
+  type SurfacedConcept,
+  type SurfacedPolicyHint,
 } from "@aura/contract"
 
 export type StoreCodeOptions = {
@@ -1857,6 +1859,73 @@ export class Aura {
     })
   }
 
+  /**
+   * Return suppressed policy hints, strongest first.
+   * 返回 suppressed policy hints，最强的在前。
+   *
+   * Rust reference: `Aura::get_suppressed_policy_hints` and
+   * `py_get_suppressed_policy_hints` (`../src/aura.rs`).
+   */
+  get_suppressed_policy_hints(
+    namespace?: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<PolicyHint>, never, EpistemicRuntime | PolicyEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getSuppressedPolicyHints(namespace, limit)
+    })
+  }
+
+  /**
+   * Return rejected policy hints, strongest first.
+   * 返回 rejected policy hints，最强的在前。
+   *
+   * Rust reference: `Aura::get_rejected_policy_hints` and
+   * `py_get_rejected_policy_hints` (`../src/aura.rs`).
+   */
+  get_rejected_policy_hints(
+    namespace?: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<PolicyHint>, never, EpistemicRuntime | PolicyEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getRejectedPolicyHints(namespace, limit)
+    })
+  }
+
+  /**
+   * Return surfaced policy hints for external consumption.
+   * 返回用于外部消费的 surfaced policy hints。
+   *
+   * Rust reference: `Aura::get_surfaced_policy_hints` and
+   * `py_get_surfaced_policy_hints` (`../src/aura.rs`).
+   */
+  get_surfaced_policy_hints(
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<SurfacedPolicyHint>, never, EpistemicRuntime | PolicyEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getSurfacedPolicyHints(limit)
+    })
+  }
+
+  /**
+   * Return surfaced policy hints filtered by namespace.
+   * 返回按 namespace 过滤的 surfaced policy hints。
+   *
+   * Rust reference: `Aura::get_surfaced_policy_hints_for_namespace` and
+   * `py_get_surfaced_policy_hints_for_namespace` (`../src/aura.rs`).
+   */
+  get_surfaced_policy_hints_for_namespace(
+    namespace: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<SurfacedPolicyHint>, never, EpistemicRuntime | PolicyEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getSurfacedPolicyHintsForNamespace(namespace, limit)
+    })
+  }
+
   belief_instability_report(
     minVolatility?: number,
     maxStability?: number,
@@ -1897,6 +1966,126 @@ export class Aura {
         low_stability: lowStability,
         recently_corrected: recentlyCorrected,
       }
+    })
+  }
+
+  /**
+   * Return beliefs with elevated volatility, highest volatility first.
+   * 返回 volatility 较高的 beliefs，按 volatility 降序排列。
+   *
+   * Rust reference: `Aura::get_high_volatility_beliefs` and
+   * `py_get_high_volatility_beliefs` (`../src/aura.rs`).
+   */
+  get_high_volatility_beliefs(
+    minVolatility?: number,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<Belief>, never, EpistemicRuntime | BeliefEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getHighVolatilityBeliefs(minVolatility, limit)
+    })
+  }
+
+  /**
+   * Return beliefs with low stability, lowest stability first.
+   * 返回 stability 较低的 beliefs，按 stability 升序排列。
+   *
+   * Rust reference: `Aura::get_low_stability_beliefs` and
+   * `py_get_low_stability_beliefs` (`../src/aura.rs`).
+   */
+  get_low_stability_beliefs(
+    maxStability?: number,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<Belief>, never, EpistemicRuntime | BeliefEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getLowStabilityBeliefs(maxStability, limit)
+    })
+  }
+
+  /**
+   * Return deterministic contradiction clusters derived from unstable belief groups.
+   * 返回由不稳定 belief groups 派生的确定性 contradiction clusters。
+   *
+   * Rust reference: `Aura::get_contradiction_clusters` and
+   * `py_get_contradiction_clusters` (`../src/aura.rs`).
+   */
+  get_contradiction_clusters(
+    namespace?: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<ContradictionCluster>, never, EpistemicRuntime | BeliefEngine> {
+    const records = this.searchRecords
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getContradictionClusters(records, namespace, limit)
+    })
+  }
+
+  /**
+   * Return beliefs that were explicitly corrected most recently.
+   * 返回最近被显式 corrected 的 beliefs。
+   *
+   * Rust reference: `Aura::get_recently_corrected_beliefs` and
+   * `py_get_recently_corrected_beliefs` (`../src/aura.rs`).
+   */
+  get_recently_corrected_beliefs(
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<Belief>, never, EpistemicRuntime | BeliefEngine> {
+    const max = clampInt(limit ?? 20, 1, 100)
+    const corrections = this.correctionLog
+      .filter((entry) => entry.target_kind === "belief")
+      .sort((a, b) => b.timestamp - a.timestamp)
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      const beliefs = yield* runtime.getBeliefs()
+      const byId = new Map(beliefs.map((belief) => [belief.id, belief]))
+      const out: Belief[] = []
+      const seen = new Set<string>()
+      for (const entry of corrections) {
+        if (seen.has(entry.target_id)) continue
+        const belief = byId.get(entry.target_id)
+        if (belief === undefined) continue
+        seen.add(entry.target_id)
+        out.push(belief)
+        if (out.length >= max) break
+      }
+      return out
+    })
+  }
+
+  /**
+   * Return surfaced concepts for external inspection.
+   *
+   * Returns bounded, sorted, provenance-checked concepts suitable for public consumption.
+   * This is inspection-only -- surfaced concepts do not affect recall, compression, or behavior.
+   * 返回用于外部 inspection 的 surfaced concepts；该读模型不影响 recall、compression 或行为。
+   *
+   * Rust reference: `Aura::get_surfaced_concepts` and
+   * `py_get_surfaced_concepts` (`../src/aura.rs`).
+   */
+  get_surfaced_concepts(
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<SurfacedConcept>, never, EpistemicRuntime | ConceptEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getSurfacedConcepts(limit)
+    })
+  }
+
+  /**
+   * Return surfaced concepts for a namespace.
+   * 返回指定 namespace 的 surfaced concepts。
+   *
+   * Rust reference: `Aura::get_surfaced_concepts_for_namespace` and
+   * `py_get_surfaced_concepts_for_namespace` (`../src/aura.rs`).
+   */
+  get_surfaced_concepts_for_namespace(
+    namespace: string,
+    limit?: number,
+  ): Effect.Effect<ReadonlyArray<SurfacedConcept>, never, EpistemicRuntime | ConceptEngine> {
+    return Effect.gen(function* () {
+      const runtime = yield* Effect.service(EpistemicRuntime)
+      return yield* runtime.getSurfacedConceptsForNamespace(namespace, limit)
     })
   }
 

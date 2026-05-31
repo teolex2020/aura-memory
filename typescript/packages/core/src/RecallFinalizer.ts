@@ -16,6 +16,8 @@ import { CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
 const MAX_FINALIZED_RECORDS = 10
 const ACTIVATION_VELOCITY_ALPHA = 0.3
 
+export type RecallSessionTracker = Map<string, Set<string>>
+
 // ── Activation & Co-recall strengthening ──
 
 function activateRecord(record: AuraRecord, nowSeconds: number): AuraRecord {
@@ -45,19 +47,111 @@ function strengthenPair(record: AuraRecord, otherId: string): AuraRecord {
   }
 }
 
+function strengthenSessionPair(record: AuraRecord, otherId: string, boosted: number): AuraRecord {
+  return {
+    ...record,
+    connections: {
+      ...record.connections,
+      [otherId]: boosted,
+    },
+    connection_types: {
+      ...record.connection_types,
+      ...(record.connection_types[otherId] === undefined ? { [otherId]: "coactivation" } : {}),
+    },
+  }
+}
+
 function topRecordIds(scored: RecallScored): ReadonlyArray<string> {
   return scored.slice(0, MAX_FINALIZED_RECORDS).map(([, recordId]) => recordId)
 }
 
+export function createRecallSessionTracker(): RecallSessionTracker {
+  // Manages session-scoped co-activation tracking.
+  // 管理 session 范围的共同激活追踪。
+  // Rust reference: `SessionTracker::new` (`../src/graph.rs`).
+  return new Map<string, Set<string>>()
+}
+
+export function trackRecallSession(
+  sessionTracker: RecallSessionTracker | undefined,
+  sessionId: string | undefined,
+  recordIds: ReadonlyArray<string>
+): void {
+  // Track that these record IDs were activated in a session.
+  // 记录这些 record IDs 在同一个 session 中被激活。
+  // Rust reference: `SessionTracker::track_activation` (`../src/graph.rs`).
+  if (sessionTracker === undefined || sessionId === undefined) return
+  let ids = sessionTracker.get(sessionId)
+  if (ids === undefined) {
+    ids = new Set<string>()
+    sessionTracker.set(sessionId, ids)
+  }
+  for (const id of recordIds) ids.add(id)
+}
+
+export function endRecallSession(
+  brainDir: string,
+  sessionTracker: RecallSessionTracker,
+  sessionId: string
+): Effect.Effect<Record<string, number>, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+  // End a session and return co-activation strengthening stats.
+  // 结束 session 并返回共同激活增强统计。
+  // Rust reference: `Aura::end_session` and `SessionTracker::end_session` (`../src/aura.rs`, `../src/graph.rs`).
+  const ids = sessionTracker.get(sessionId)
+  if (ids === undefined) return Effect.succeed({})
+  sessionTracker.delete(sessionId)
+  const recordIds = Array.from(ids)
+
+  return Effect.gen(function* () {
+    const records = yield* loadCognitiveRecords(brainDir)
+    const updates = new Map<string, AuraRecord>()
+    let pairsStrengthened = 0
+
+    for (let i = 0; i < recordIds.length; i++) {
+      const idA = recordIds[i]!
+      for (let j = i + 1; j < recordIds.length; j++) {
+        const idB = recordIds[j]!
+        const recA = updates.get(idA) ?? records.get(idA)
+        const recB = updates.get(idB) ?? records.get(idB)
+        if (recA === undefined || recB === undefined) continue
+        if (recA.namespace !== recB.namespace) continue
+
+        const current = recA.connections[idB] ?? 0
+        const delta = 0.05 * (1 - current)
+        const boosted = Math.min(current + delta, 1)
+        updates.set(idA, strengthenSessionPair(recA, idB, boosted))
+        updates.set(idB, strengthenSessionPair(recB, idA, boosted))
+        pairsStrengthened += 1
+      }
+    }
+
+    if (updates.size > 0) {
+      const store = yield* CognitiveStoreFile.open(brainDir)
+      for (const record of updates.values()) {
+        yield* store.appendUpdate(record)
+      }
+      yield* store.flush()
+    }
+
+    return {
+      pairs_strengthened: pairsStrengthened,
+      session_records: recordIds.length,
+    }
+  })
+}
+
 export function finalizeRecallRecords(
   brainDir: string,
-  scored: RecallScored
+  scored: RecallScored,
+  sessionId?: string,
+  sessionTracker?: RecallSessionTracker
 ): Effect.Effect<void, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
   // Activate top records and strengthen co-recalled connections.
   // 激活 top records，并增强共同召回记录之间的连接。
   // Rust reference: `activate_and_strengthen` (recall.rs).
   // 中文说明：默认 recall_core 副作用必须落盘，否则后续 graph/causal 扩展缺少长期 co-recall 状态。
   const topIds = topRecordIds(scored)
+  trackRecallSession(sessionTracker, sessionId, topIds)
   if (topIds.length === 0) return Effect.void
 
   return Effect.gen(function* () {
@@ -94,7 +188,7 @@ export function finalizeRecallRecords(
   })
 }
 
-export function RecallFinalizerFileLive(brainDir: string) {
+export function RecallFinalizerFileLive(brainDir: string, sessionTracker?: RecallSessionTracker) {
   return Layer.effect(
     RecallFinalizer,
     Effect.gen(function* () {
@@ -103,10 +197,8 @@ export function RecallFinalizerFileLive(brainDir: string) {
       const clock = yield* Clock
 
       return {
-        finalize: (scored: RecallScored, _sessionId?: string) =>
-          // NON-PARITY IMPLEMENTATION: TS 目前没有 file-backed SessionTracker/AuditLog；
-          // Rust reference: activate_and_strengthen(..., session_tracker, session_id) / RecallService::finalize。
-          finalizeRecallRecords(brainDir, scored).pipe(
+        finalize: (scored: RecallScored, sessionId?: string) =>
+          finalizeRecallRecords(brainDir, scored, sessionId, sessionTracker).pipe(
             Effect.provideService(FileRead, fileRead),
             Effect.provideService(FileWrite, fileWrite),
             Effect.provideService(Clock, clock),

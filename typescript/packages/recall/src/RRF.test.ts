@@ -47,3 +47,11 @@ it("rrfFuse treats topK zero like Rust truncate(0)", () => {
 
   assert.deepStrictEqual(rrfFuse(records, [[["r1", 1]]], 0, 0, ["default"]), [])
 })
+
+it("rrfFuse treats an empty namespace list like Rust contains on an empty slice", () => {
+  const records: RecallView["records"] = new Map<string, unknown>([
+    ["r1", { id: "r1", strength: 1, namespace: "default" }],
+  ])
+
+  assert.deepStrictEqual(rrfFuse(records, [[["r1", 1]]], 0, 10, []), [])
+})

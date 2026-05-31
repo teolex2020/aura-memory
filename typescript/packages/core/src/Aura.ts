@@ -65,6 +65,7 @@ import {
   recallTemporalRecords as recallTemporalRecordsEffect,
   recallWithTrace as recallWithTraceEffect,
 } from "./Recall";
+import { createRecallSessionTracker, endRecallSession, type RecallSessionTracker } from "./RecallFinalizer"
 import { id12, nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
@@ -477,6 +478,7 @@ export class Aura {
     private causalEvidenceMode: EvidenceMode = EvidenceMode.StrictRepeatedWindows,
     private maintenanceConfig: MaintenanceConfig = defaultMaintenanceConfig,
     private trustConfig: TrustConfig = defaultTrustConfig(),
+    private readonly sessionTracker: RecallSessionTracker = createRecallSessionTracker(),
   ) {}
 
   static open(
@@ -1442,6 +1444,7 @@ export class Aura {
         self.recallOptionsWithRuntimeModes(options),
         undefined,
         self.currentTrustConfig(),
+        self.sessionTracker,
       )
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return scored
@@ -1460,6 +1463,7 @@ export class Aura {
         self.recallOptionsWithRuntimeModes(options),
         undefined,
         self.currentTrustConfig(),
+        self.sessionTracker,
       )
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return records
@@ -1501,6 +1505,7 @@ export class Aura {
         timestamp,
         options,
         self.currentTrustConfig(),
+        self.sessionTracker,
       )
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return records
@@ -1529,7 +1534,7 @@ export class Aura {
       const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
       const shadowReport = computeShadowBeliefScores(scored, beliefState, top)
       const hits = recallHitsFromScored(scored, records)
-      yield* finalizeRecallScoredEffect(self.brainDir, scored, sessionId)
+      yield* finalizeRecallScoredEffect(self.brainDir, scored, sessionId, self.sessionTracker)
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return [hits, shadowReport] as readonly [ReadonlyArray<AuraRecallHit>, ShadowRecallReport]
     })
@@ -1558,7 +1563,7 @@ export class Aura {
       const report = applyBeliefRerank(matched, beliefState, top)
       const records = yield* loadCognitiveRecords(self.brainDir)
       const hits = recallHitsFromScored(matched, records)
-      yield* finalizeRecallScoredEffect(self.brainDir, matched, sessionId)
+      yield* finalizeRecallScoredEffect(self.brainDir, matched, sessionId, self.sessionTracker)
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return [hits, report] as readonly [ReadonlyArray<AuraRecallHit>, LimitedRerankReport]
     })
@@ -1953,6 +1958,19 @@ export class Aura {
       yield* store.flush()
       self.searchRecords = records
       return { promoted, archived: dead.length }
+    })
+  }
+
+  end_session(session_id: string): Effect.Effect<Record<string, number>, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
+    // End a session (co-activation strengthening).
+    // 结束 session（共同激活增强）。
+    // Rust reference: `Aura::end_session` and `py_end_session` (`../src/aura.rs`).
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const stats = yield* endRecallSession(dir, self.sessionTracker, session_id)
+      self.searchRecords = yield* loadCognitiveRecords(dir)
+      return stats
     })
   }
 

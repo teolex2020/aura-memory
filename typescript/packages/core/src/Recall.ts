@@ -26,9 +26,12 @@ import {
   type RecallTraceResult,
 } from "@aura/recall"
 import { RecallFinalizerFileLive } from "./RecallFinalizer"
+import type { RecallSessionTracker } from "./RecallFinalizer"
 import { BoundedRerankerFileLive } from "./RecallReranker"
 
 export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRecord]
+export { createRecallSessionTracker, endRecallSession } from "./RecallFinalizer"
+export type { RecallSessionTracker } from "./RecallFinalizer"
 
 function withTrustConfig<A, E, R>(
   effect: Effect.Effect<A, E, R>,
@@ -64,7 +67,8 @@ export function recallScored(
   query: string,
   options?: Partial<RecallPipelineOptions>,
   modes?: Partial<BoundedRerankModes>,
-  trustConfig?: TrustConfig
+  trustConfig?: TrustConfig,
+  sessionTracker?: RecallSessionTracker
 ): Effect.Effect<
   RecallScored,
   | FileReadError
@@ -80,7 +84,7 @@ export function recallScored(
   // 使用 storage/RecallViewLive + 文件持久化 RecallFinalizer 运行 recallPipeline。
   // Rust reference: Aura::recall_core / Aura::recall_finalize (aura.rs)
   const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
-  return withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallCoreLayer(dir)))
+  return withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
 }
 
 export function recallRawScored(
@@ -112,7 +116,8 @@ export function recallRecords<TRecord = unknown>(
   query: string,
   options?: Partial<RecallPipelineOptions>,
   modes?: Partial<BoundedRerankModes>,
-  trustConfig?: TrustConfig
+  trustConfig?: TrustConfig,
+  sessionTracker?: RecallSessionTracker
 ): Effect.Effect<
   ReadonlyArray<RecallHit<TRecord>>,
   | FileReadError
@@ -142,7 +147,7 @@ export function recallRecords<TRecord = unknown>(
     return out
   })
 
-  return program.pipe(Effect.provide(recallCoreLayer(dir)))
+  return program.pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
 }
 
 export function recallTemporalRecords<TRecord = unknown>(
@@ -150,7 +155,8 @@ export function recallTemporalRecords<TRecord = unknown>(
   query: string,
   timestamp: number,
   options?: Partial<RecallPipelineOptions>,
-  trustConfig?: TrustConfig
+  trustConfig?: TrustConfig,
+  sessionTracker?: RecallSessionTracker
 ): Effect.Effect<
   ReadonlyArray<RecallHit<TRecord>>,
   | FileReadError
@@ -190,13 +196,14 @@ export function recallTemporalRecords<TRecord = unknown>(
     return out
   })
 
-  return program.pipe(Effect.provide(recallTemporalLayer(dir)))
+  return program.pipe(Effect.provide(recallTemporalLayer(dir, sessionTracker)))
 }
 
 export function finalizeRecallScored(
   dir: string,
   scored: RecallScored,
-  sessionId?: string
+  sessionId?: string,
+  sessionTracker?: RecallSessionTracker
 ): Effect.Effect<void, FinalizeError, FileRead | FileWrite> {
   // Apply file-backed recall finalization after report-specific raw/reranked recall.
   // 在 report 专用 raw/reranked recall 后执行文件持久化 finalize。
@@ -204,7 +211,7 @@ export function finalizeRecallScored(
   return Effect.gen(function* () {
     const finalizer = yield* Effect.service(RecallFinalizer)
     yield* finalizer.finalize(scored, sessionId)
-  }).pipe(Effect.provide(RecallFinalizerFileLive(dir)))
+  }).pipe(Effect.provide(RecallFinalizerFileLive(dir, sessionTracker)))
 }
 
 export function recallWithTrace(
@@ -232,12 +239,12 @@ export function recallWithTrace(
   return withTrustConfig(recallPipelineWithTrace(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallTraceLayer(dir)))
 }
 
-function recallCoreLayer(dir: string) {
-  return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir), RecallFinalizerFileLive(dir))
+function recallCoreLayer(dir: string, sessionTracker?: RecallSessionTracker) {
+  return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir), RecallFinalizerFileLive(dir, sessionTracker))
 }
 
-function recallTemporalLayer(dir: string) {
-  return Layer.mergeAll(RecallViewLive(dir), RecallFinalizerFileLive(dir))
+function recallTemporalLayer(dir: string, sessionTracker?: RecallSessionTracker) {
+  return Layer.mergeAll(RecallViewLive(dir), RecallFinalizerFileLive(dir, sessionTracker))
 }
 
 function recallTraceLayer(dir: string) {

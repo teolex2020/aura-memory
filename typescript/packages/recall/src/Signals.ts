@@ -17,7 +17,8 @@ function getNamespace(rec: RecallRecord): string {
 }
 
 function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boolean {
-  if (namespaces.length === 0) return true
+  // Rust reference: `in_namespace` uses `namespaces.contains(...)`; an empty slice matches nothing.
+  // 中文说明：空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
   return namespaces.includes(getNamespace(rec))
 }
 
@@ -93,8 +94,9 @@ export function collectTags(
   topK: number,
   namespaces: ReadonlyArray<string>
 ): RankedList {
-  // SIMPLE IMPLEMENTATION: query 分词作为 tag 候选，使用 Jaccard（matched / union）进行打分。
-  // FULL IMPLEMENTATION: 对齐 Rust [collect_tags](file:///workspace/src/recall.rs#L162-L212) 的候选聚合、union 构造与性能特征。
+  // Collect Tag Jaccard similarity results.
+  // 收集 tag Jaccard 相似度结果。
+  // Rust reference: `collect_tags` (`../src/recall.rs`).
   const queryTags = uniqueLowerWords(query)
   if (queryTags.length === 0) return []
 

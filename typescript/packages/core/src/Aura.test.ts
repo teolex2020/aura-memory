@@ -223,6 +223,43 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(persisted.get(futureRecord.id)?.activation_count, 1)
   })
 
+  it("end_session applies Rust SessionTracker coactivation consolidation", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-end-session-"))
+    const aura = await openWritableAuraIn(brainPath)
+    const first = await Effect.runPromise(provideNode(aura.store("session coactivation alpha first", {
+      namespace: "default",
+    })))
+    const second = await Effect.runPromise(provideNode(aura.store("session coactivation alpha second", {
+      namespace: "default",
+    })))
+
+    const scored = await Effect.runPromise(provideNodeAt(aura.recall("session coactivation alpha", {
+      topK: 2,
+      minStrength: 0,
+      expandConnections: false,
+      sessionId: "session-1",
+      namespaces: ["default"],
+    }), 4_000))
+    const recalledIds = scored.map(([, id]) => id)
+    assert.ok(recalledIds.includes(first.id))
+    assert.ok(recalledIds.includes(second.id))
+
+    const beforeEnd = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(beforeEnd.get(first.id)?.connection_types[second.id], undefined)
+
+    const stats = await Effect.runPromise(provideNode(aura.end_session("session-1")))
+    assert.deepStrictEqual(stats, { pairs_strengthened: 1, session_records: 2 })
+
+    const afterEnd = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(afterEnd.get(first.id)?.connection_types[second.id], "coactivation")
+    assert.strictEqual(afterEnd.get(second.id)?.connection_types[first.id], "coactivation")
+    assert.ok((afterEnd.get(first.id)?.connections[second.id] ?? 0) > 0.05)
+    assert.ok((afterEnd.get(second.id)?.connections[first.id] ?? 0) > 0.05)
+
+    const repeated = await Effect.runPromise(provideNode(aura.end_session("session-1")))
+    assert.deepStrictEqual(repeated, {})
+  })
+
   it("decay and reflect persist Rust-aligned maintenance mutations", async () => {
     const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-decay-reflect-"))
     const aura = await openWritableAuraIn(brainPath)

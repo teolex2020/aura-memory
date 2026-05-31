@@ -80,6 +80,16 @@ describe("graphWalk Rust parity", () => {
     assert.strictEqual(capped.length, 1 + GRAPH_WALK_MAX_EXPANDED)
     assert.isFalse(capped.some(([, id]) => id === "cap-30"))
   })
+
+  it("does not expand through an empty namespace slice, matching Rust contains semantics", () => {
+    const view = recallView([
+      record("seed", { connections: { target: 1 } }),
+      record("target"),
+    ])
+
+    const scored = graphWalk(view, [[1, "seed"]], 0, [])
+    assert.deepStrictEqual(scored.map(([, id]) => id), ["seed"])
+  })
 })
 
 describe("causalWalk Rust parity", () => {
@@ -123,5 +133,15 @@ describe("causalWalk Rust parity", () => {
 
     const weak = causalWalk(view, [[1, "weakChild"]], 0.5, ["alpha"])
     assert.deepStrictEqual(weak.map(([, id]) => id), ["weakChild"])
+  })
+
+  it("does not follow parents through an empty namespace slice, matching Rust contains semantics", () => {
+    const view = recallView([
+      record("child", { caused_by_id: "parent" }),
+      record("parent"),
+    ])
+
+    const scored = causalWalk(view, [[1, "child"]], 0, [])
+    assert.deepStrictEqual(scored.map(([, id]) => id), ["child"])
   })
 })

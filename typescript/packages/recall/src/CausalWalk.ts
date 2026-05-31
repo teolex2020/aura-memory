@@ -27,7 +27,8 @@ function namespaceOf(rec: RecallRecord): string {
 }
 
 function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boolean {
-  if (namespaces.length === 0) return true
+  // Rust reference: `in_namespace` uses `namespaces.contains(...)`; an empty slice matches nothing.
+  // 中文说明：空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
   return namespaces.includes(namespaceOf(rec))
 }
 

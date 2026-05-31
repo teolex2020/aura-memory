@@ -975,6 +975,90 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(persisted.get("medium")?.metadata.salience_reason, undefined)
   })
 
+  it("two-tier stats and promotion facades mirror Rust PyO3 semantics", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-two-tier-facades-"))
+    const aura = await Effect.runPromise(provideNode(Effect.gen(function* () {
+      const brain = yield* BrainAuraFile.open(brainPath)
+      yield* brain.flush()
+      const store = yield* CognitiveStoreFile.open(brainPath)
+      const makeRecord = (
+        id: string,
+        level: Level,
+        activationCount: number,
+        strength: number,
+      ) => ({
+        id,
+        content: `${id} content`,
+        level,
+        strength,
+        activation_count: activationCount,
+        created_at: 1,
+        last_activated: 1,
+        tags: [],
+        connections: {},
+        connection_types: {},
+        content_type: "text",
+        source_type: "recorded",
+        namespace: "default",
+        semantic_type: "fact",
+        activation_velocity: 0,
+        salience: 0,
+        metadata: {},
+        aura_id: null,
+        caused_by_id: null,
+        confidence: 0.9,
+        support_mass: 0,
+        conflict_mass: 0,
+        volatility: 0,
+      })
+
+      yield* store.appendStore(makeRecord("working-candidate", Level.Working, 6, 0.8))
+      yield* store.appendStore(makeRecord("decisions-candidate", Level.Decisions, 8, 0.75))
+      yield* store.appendStore(makeRecord("working-weak", Level.Working, 9, 0.2))
+      yield* store.appendStore(makeRecord("domain-core", Level.Domain, 2, 0.95))
+      yield* store.appendStore(makeRecord("identity-core", Level.Identity, 3, 0.95))
+      yield* store.flush()
+      return yield* Aura.open(brainPath)
+    })))
+
+    assert.deepStrictEqual(aura.tier_stats(), {
+      cognitive_total: 3,
+      cognitive_working: 2,
+      cognitive_decisions: 1,
+      core_total: 2,
+      core_domain: 1,
+      core_identity: 1,
+      total: 5,
+    })
+
+    const candidates = aura.promotion_candidates()
+    assert.deepStrictEqual(candidates.map((record) => record.id), ["decisions-candidate", "working-candidate"])
+    candidates[0]!.content = "mutated outside Aura"
+    assert.strictEqual(aura.get("decisions-candidate")?.content, "decisions-candidate content")
+    assert.deepStrictEqual(aura.promotion_candidates(7).map((record) => record.id), ["decisions-candidate"])
+    assert.deepStrictEqual(aura.promotion_candidates(undefined, 0.9).map((record) => record.id), [])
+
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.promote_record("working-candidate"))), Level.Decisions)
+    assert.strictEqual(aura.get("working-candidate")?.level, Level.Decisions)
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.promote_record("working-candidate"))), Level.Domain)
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.promote_record("working-candidate"))), Level.Identity)
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.promote_record("working-candidate"))), null)
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.promote_record("missing"))), null)
+
+    assert.deepStrictEqual(aura.tier_stats(), {
+      cognitive_total: 2,
+      cognitive_working: 1,
+      cognitive_decisions: 1,
+      core_total: 3,
+      core_domain: 1,
+      core_identity: 2,
+      total: 5,
+    })
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get("working-candidate")?.level, Level.Identity)
+  })
+
   it("correction writers populate logs, review queues, and 07-04 governance backfills", async () => {
     const aura = await openWritableAura()
     const record = await Effect.runPromise(provideNode(aura.store("Alpha deploy correction evidence", {

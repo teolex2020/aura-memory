@@ -751,6 +751,99 @@ export class Aura {
     return total
   }
 
+  // -- Two-Tier API (Cognitive / Core) --
+
+  /**
+   * Get memory statistics broken down by tier.
+   * 按 cognitive/core tier 返回 memory 统计。
+   *
+   * Rust reference: `Aura::tier_stats` and `py_tier_stats` (`../src/aura.rs`).
+   */
+  tier_stats(): Readonly<Record<string, number>> {
+    let working = 0
+    let decisions = 0
+    let domain = 0
+    let identity = 0
+    for (const record of this.searchRecords.values()) {
+      if (record.level === Level.Working) working++
+      if (record.level === Level.Decisions) decisions++
+      if (record.level === Level.Domain) domain++
+      if (record.level === Level.Identity) identity++
+    }
+    return {
+      cognitive_total: working + decisions,
+      cognitive_working: working,
+      cognitive_decisions: decisions,
+      core_total: domain + identity,
+      core_domain: domain,
+      core_identity: identity,
+      total: working + decisions + domain + identity,
+    }
+  }
+
+  /**
+   * Find cognitive records that are candidates for promotion to core.
+   * 查找可从 cognitive tier 晋升到 core 的 records。
+   *
+   * Rust reference: `Aura::promotion_candidates` and `py_promotion_candidates` (`../src/aura.rs`).
+   */
+  promotion_candidates(min_activations?: number, min_strength?: number): ReadonlyArray<AuraRecord> {
+    const minAct = min_activations ?? 5
+    const minStr = min_strength ?? 0.7
+    return [...this.searchRecords.values()]
+      .filter((record) =>
+        isCognitiveLevel(record.level) &&
+        record.activation_count >= minAct &&
+        record.strength >= minStr
+      )
+      .sort((a, b) => {
+        const activationDelta = b.activation_count - a.activation_count
+        if (activationDelta !== 0) return activationDelta
+        return b.strength - a.strength
+      })
+      .map(cloneAuraRecord)
+  }
+
+  /**
+   * Promote a record to the next cognitive level.
+   * 将 record 晋升到下一个 memory level。
+   *
+   * WORKING -> DECISIONS -> DOMAIN -> IDENTITY.
+   * Returns the new level, or null if already IDENTITY or record not found.
+   * 返回新 level；如果已是 IDENTITY 或 record 不存在则返回 null。
+   *
+   * Rust reference: `Aura::promote_record` and `py_promote_record` (`../src/aura.rs`).
+   */
+  promote_record(record_id: string): Effect.Effect<
+    Level | null,
+    FileReadError | FileWriteError | FileFormatError,
+    FileRead | FileWrite
+  > {
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const records = yield* loadCognitiveRecords(dir)
+      const existing = records.get(record_id)
+      if (existing === undefined) return null
+
+      const nextLevel = promoteLevel(existing.level)
+      if (nextLevel === null) return null
+
+      const updated: AuraRecord = {
+        ...existing,
+        level: nextLevel,
+      }
+      const store = yield* CognitiveStoreFile.open(dir)
+      yield* store.appendUpdate(updated)
+      yield* store.flush()
+      // NON-PARITY IMPLEMENTATION: Rust clears recall caches after promotion.
+      // 非对齐点：TS core 暂无 recall cache surface；当前仅替换 in-memory read model。
+      // Rust reference: `Aura::promote_record` (`../src/aura.rs`).
+      self.replaceSearchRecord(updated)
+      return nextLevel
+    })
+  }
+
   /**
    * List all distinct namespaces present in the brain.
    * 列出当前 brain 中出现过的 namespace；始终包含 Rust 默认 namespace。
@@ -3482,6 +3575,29 @@ function levelDisplayName(level: Level): string {
       return "DOMAIN"
     case Level.Identity:
       return "IDENTITY"
+  }
+}
+
+function isCognitiveLevel(level: Level): boolean {
+  // Check if this level belongs to the cognitive tier (Working + Decisions).
+  // 检查 level 是否属于 cognitive tier（Working + Decisions）。
+  // Rust reference: `Level::is_cognitive` (`../src/levels.rs`).
+  return level === Level.Working || level === Level.Decisions
+}
+
+function promoteLevel(level: Level): Level | null {
+  // Promote to the next level.
+  // 晋升到下一个 level。
+  // Rust reference: `Record::promote` (`../src/record.rs`).
+  switch (level) {
+    case Level.Working:
+      return Level.Decisions
+    case Level.Decisions:
+      return Level.Domain
+    case Level.Domain:
+      return Level.Identity
+    case Level.Identity:
+      return null
   }
 }
 

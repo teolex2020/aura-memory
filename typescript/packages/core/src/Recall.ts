@@ -5,8 +5,10 @@ import {
   FileReadError,
   FinalizeError,
   JsonParseError,
+  type BoundedRerankModes,
   type FileRead,
   type FileWrite,
+  RecallFinalizer,
   RecallViewTag,
   type RecallScored,
   RerankError
@@ -28,7 +30,8 @@ export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRec
 export function recallScored(
   dir: string,
   query: string,
-  options?: Partial<RecallPipelineOptions>
+  options?: Partial<RecallPipelineOptions>,
+  modes?: Partial<BoundedRerankModes>
 ): Effect.Effect<
   RecallScored,
   | FileReadError
@@ -43,13 +46,38 @@ export function recallScored(
 > {
   // 使用 storage/RecallViewLive + 文件持久化 RecallFinalizer 运行 recallPipeline。
   // Rust reference: Aura::recall_core / Aura::recall_finalize (aura.rs)
-  return recallPipeline(query, options).pipe(Effect.provide(recallCoreLayer(dir)))
+  const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
+  return recallPipeline(query, pipelineOptions).pipe(Effect.provide(recallCoreLayer(dir)))
+}
+
+export function recallRawScored(
+  dir: string,
+  query: string,
+  options?: Partial<RecallPipelineOptions>
+): Effect.Effect<
+  RecallScored,
+  | FileReadError
+  | JsonParseError
+  | FileFormatError
+  | IndexFormatError
+  | SdrInterpreterError
+  | EmbeddingQueryError
+  | RerankError
+  | FinalizeError,
+  FileRead
+> {
+  // Run raw recall without bounded rerank/finalize services.
+  // 运行 raw recall，不装配 bounded rerank/finalize 服务。
+  // Rust reference: `Aura::recall_raw` used by
+  // `recall_structured_with_shadow` / `recall_structured_with_rerank_report` (aura.rs).
+  return recallPipeline(query, options).pipe(Effect.provide(RecallViewLive(dir)))
 }
 
 export function recallRecords<TRecord = unknown>(
   dir: string,
   query: string,
-  options?: Partial<RecallPipelineOptions>
+  options?: Partial<RecallPipelineOptions>,
+  modes?: Partial<BoundedRerankModes>
 ): Effect.Effect<
   ReadonlyArray<RecallHit<TRecord>>,
   | FileReadError
@@ -67,7 +95,8 @@ export function recallRecords<TRecord = unknown>(
   // FULL IMPLEMENTATION: 支持返回结构化 DTO（包含命中信号/解释）、并对齐 Rust recall 输出的字段与排序稳定性。
   const program = Effect.gen(function* () {
     const view = yield* Effect.service(RecallViewTag)
-    const scored = yield* recallPipeline(query, options)
+    const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
+    const scored = yield* recallPipeline(query, pipelineOptions)
 
     const out: Array<RecallHit<TRecord>> = []
     for (const [score, id] of scored) {
@@ -81,10 +110,25 @@ export function recallRecords<TRecord = unknown>(
   return program.pipe(Effect.provide(recallCoreLayer(dir)))
 }
 
+export function finalizeRecallScored(
+  dir: string,
+  scored: RecallScored,
+  sessionId?: string
+): Effect.Effect<void, FinalizeError, FileRead | FileWrite> {
+  // Apply file-backed recall finalization after report-specific raw/reranked recall.
+  // 在 report 专用 raw/reranked recall 后执行文件持久化 finalize。
+  // Rust reference: `Aura::recall_finalize` after shadow/rerank-report recall (aura.rs).
+  return Effect.gen(function* () {
+    const finalizer = yield* Effect.service(RecallFinalizer)
+    yield* finalizer.finalize(scored, sessionId)
+  }).pipe(Effect.provide(RecallFinalizerFileLive(dir)))
+}
+
 export function recallWithTrace(
   dir: string,
   query: string,
-  options?: Partial<RecallPipelineOptions>
+  options?: Partial<RecallPipelineOptions>,
+  modes?: Partial<BoundedRerankModes>
 ): Effect.Effect<
   RecallTraceResult,
   | FileReadError
@@ -97,11 +141,17 @@ export function recallWithTrace(
   | FinalizeError,
   FileRead
 > {
-  // SIMPLE IMPLEMENTATION: expose @aura/recall trace helper with the same RecallViewLive provider as recallScored.
+  // Trace/explain uses persisted bounded rerank snapshots but intentionally omits RecallFinalizer.
+  // trace/explain 使用持久化 bounded rerank 快照，但不装配 RecallFinalizer，保持 inspection-only。
   // Rust reference: Aura::explain_recall / RecallTraceScore (aura.rs)
-  return recallPipelineWithTrace(query, options).pipe(Effect.provide(RecallViewLive(dir)))
+  const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
+  return recallPipelineWithTrace(query, pipelineOptions).pipe(Effect.provide(recallTraceLayer(dir)))
 }
 
 function recallCoreLayer(dir: string) {
   return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir), RecallFinalizerFileLive(dir))
+}
+
+function recallTraceLayer(dir: string) {
+  return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir))
 }

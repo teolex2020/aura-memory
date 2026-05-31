@@ -12,6 +12,8 @@ export enum CausalDiscoveryMode {
  * Controls temporal edge budgeting during edge extraction.
  *
  * 控制时序边提取时的预算策略。
+ *
+ * Rust original name: `TemporalEdgeBudgetMode`.
  */
 export enum TemporalBudgetMode {
   ExhaustiveCapped = "ExhaustiveCapped",

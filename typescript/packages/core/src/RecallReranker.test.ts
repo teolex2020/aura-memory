@@ -4,7 +4,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
-import { BeliefState, type BeliefEngineState } from "@aura/contract"
+import { BeliefState, type BeliefEngineState, type BoundedRerankReport } from "@aura/contract"
 import { NodeFileReadLive } from "@aura/platform-node"
 import { rerankRecallRecords } from "./RecallReranker"
 
@@ -22,11 +22,20 @@ it("file-backed reranker loads persisted belief state and applies Rust Limited g
     [0.797, "r3"]
   ]
 
+  let report: BoundedRerankReport | undefined
   const result = await Effect.runPromise(
-    rerankRecallRecords(dir, scored, { topK: 10 }).pipe(Effect.provide(NodeFileReadLive))
+    rerankRecallRecords(dir, scored, {
+      topK: 10,
+      reportSink: (next) => {
+        report = next
+      }
+    }).pipe(Effect.provide(NodeFileReadLive))
   )
 
   assert.deepStrictEqual(result.map(([, id]) => id), ["r0", "r3", "r1", "r2"])
+  assert.strictEqual(report?.belief?.was_applied, true)
+  assert.strictEqual(report?.belief?.belief_coverage, 0.25)
+  assert.ok((report?.belief?.avg_belief_multiplier ?? 0) > 1)
 })
 
 function beliefState(records: Record<string, BeliefState>): BeliefEngineState {

@@ -6,7 +6,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import { Aura } from "./index"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
-import { BrainAuraFile, CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
+import { BeliefStoreFile, BrainAuraFile, CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
 import { EpistemicRuntimeLive } from "@aura/epistemic-runtime"
 import {
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
@@ -14,6 +14,7 @@ import {
   EpistemicTrace,
   ConceptSeedMode, ConceptSimilarityMode, ConceptPartitionMode, ConceptUnionMode,
   CausalDiscoveryMode, CausalState, TemporalBudgetMode, EvidenceMode,
+  BeliefRerankMode, ConceptSurfaceMode, CausalRerankMode, PolicyRerankMode,
   BeliefState, ConceptState, PolicyActionKind, PolicyState, Polarity,
   Level,
   RecordValidationError,
@@ -68,10 +69,14 @@ describe("Aura MCP-facing operational surfaces", () => {
     )
   }
 
-  async function openWritableAura(): Promise<Aura> {
-    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-mcp-core-"))
+  async function openWritableAuraIn(brainPath: string): Promise<Aura> {
     await Effect.runPromise(provideNode(BrainAuraFile.open(brainPath).pipe(Effect.flatMap((file) => file.flush()))))
     return Effect.runPromise(provideNode(Aura.open(brainPath)))
+  }
+
+  async function openWritableAura(): Promise<Aura> {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-mcp-core-"))
+    return openWritableAuraIn(brainPath)
   }
 
   it("fails explicitly when passworded open is requested before encrypted storage parity exists", async () => {
@@ -83,6 +88,96 @@ describe("Aura MCP-facing operational surfaces", () => {
       _tag: "UnsupportedSurfaceError",
       surface: "Aura.open_with_password",
     })
+  })
+
+  it("rerank mode runtime setters mirror Rust and Python binding string semantics", async () => {
+    const aura = await openWritableAura()
+
+    assert.strictEqual(aura.get_belief_rerank_mode(), BeliefRerankMode.Limited)
+    assert.strictEqual(aura.get_concept_surface_mode(), ConceptSurfaceMode.Inspect)
+    assert.strictEqual(aura.get_causal_rerank_mode(), CausalRerankMode.Limited)
+    assert.strictEqual(aura.get_policy_rerank_mode(), PolicyRerankMode.Limited)
+    assert.strictEqual(aura.get_causal_temporal_budget_mode(), TemporalBudgetMode.NearbySuccessors)
+    assert.strictEqual(aura.get_causal_evidence_mode(), EvidenceMode.StrictRepeatedWindows)
+
+    aura.disable_full_cognitive_stack()
+    assert.strictEqual(aura.get_belief_rerank_mode(), BeliefRerankMode.Off)
+    assert.strictEqual(aura.get_concept_surface_mode(), ConceptSurfaceMode.Off)
+    assert.strictEqual(aura.get_causal_rerank_mode(), CausalRerankMode.Off)
+    assert.strictEqual(aura.get_policy_rerank_mode(), PolicyRerankMode.Off)
+    assert.strictEqual(aura.is_belief_rerank_enabled(), false)
+
+    aura.set_belief_rerank_mode("shadow")
+    aura.set_concept_surface_mode("inspect")
+    aura.set_causal_rerank_mode("limited")
+    aura.set_policy_rerank_mode("limited")
+    aura.set_causal_temporal_budget_mode("exhaustive_capped")
+    aura.set_causal_evidence_mode("temporal_cluster_recovery")
+    assert.strictEqual(aura.get_belief_rerank_mode(), BeliefRerankMode.Shadow)
+    assert.strictEqual(aura.get_concept_surface_mode(), ConceptSurfaceMode.Inspect)
+    assert.strictEqual(aura.get_causal_rerank_mode(), CausalRerankMode.Limited)
+    assert.strictEqual(aura.get_policy_rerank_mode(), PolicyRerankMode.Limited)
+    assert.strictEqual(aura.get_causal_temporal_budget_mode(), TemporalBudgetMode.ExhaustiveCapped)
+    assert.strictEqual(aura.get_causal_evidence_mode(), EvidenceMode.TemporalClusterRecovery)
+
+    aura.set_belief_rerank_mode("unknown")
+    aura.set_concept_surface_mode("unknown")
+    aura.set_causal_rerank_mode("unknown")
+    aura.set_policy_rerank_mode("unknown")
+    aura.set_causal_temporal_budget_mode("unknown")
+    aura.set_causal_evidence_mode("unknown")
+    assert.strictEqual(aura.get_belief_rerank_mode(), BeliefRerankMode.Off)
+    assert.strictEqual(aura.get_concept_surface_mode(), ConceptSurfaceMode.Off)
+    assert.strictEqual(aura.get_causal_rerank_mode(), CausalRerankMode.Off)
+    assert.strictEqual(aura.get_policy_rerank_mode(), PolicyRerankMode.Off)
+    assert.strictEqual(aura.get_causal_temporal_budget_mode(), TemporalBudgetMode.NearbySuccessors)
+    assert.strictEqual(aura.get_causal_evidence_mode(), EvidenceMode.StrictRepeatedWindows)
+
+    aura.enable_full_cognitive_stack()
+    assert.strictEqual(aura.get_belief_rerank_mode(), BeliefRerankMode.Limited)
+    assert.strictEqual(aura.get_concept_surface_mode(), ConceptSurfaceMode.Limited)
+    assert.strictEqual(aura.get_causal_rerank_mode(), CausalRerankMode.Limited)
+    assert.strictEqual(aura.get_policy_rerank_mode(), PolicyRerankMode.Limited)
+    assert.strictEqual(aura.get_causal_evidence_mode(), EvidenceMode.ExplicitTrusted)
+    assert.strictEqual(aura.is_belief_rerank_enabled(), true)
+  })
+
+  it("recall shadow and rerank report methods use raw baseline then finalize", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-rerank-report-"))
+    const aura = await openWritableAuraIn(brainPath)
+    const stored = []
+    for (let i = 0; i < 4; i++) {
+      stored.push(await Effect.runPromise(provideNode(aura.store(`alpha report shared evidence ${i}`, {
+        namespace: "default",
+        tags: ["alpha", "report"],
+        semantic_type: "fact",
+      }))))
+    }
+    const target = stored[3]!
+    await Effect.runPromise(provideNode(BeliefStoreFile.new(brainPath).save({
+      version: 1,
+      beliefs: {
+        "belief-target": makeBelief("belief-target", "default:alpha:report", BeliefState.Resolved, 0.05, 1),
+      },
+      hypotheses: {},
+      record_to_belief: { [target.id]: "belief-target" },
+      key_index: { "default:alpha:report": "belief-target" },
+      record_index: { [target.id]: "belief-target" },
+    })))
+
+    const [shadowHits, shadowReport] = await Effect.runPromise(provideNode(
+      aura.recall_structured_with_shadow("alpha report", 10, 0, false, "shadow-session", ["default"])
+    ))
+    assert.ok(shadowHits.some(([, record]) => record.id === target.id))
+    assert.strictEqual(shadowReport.scores.length, shadowHits.length)
+    assert.ok(shadowReport.belief_coverage > 0)
+
+    const [rerankedHits, rerankReport] = await Effect.runPromise(provideNode(
+      aura.recall_structured_with_rerank_report("alpha report", 10, 0, false, "rerank-session", ["default"])
+    ))
+    assert.ok(rerankedHits.some(([, record]) => record.id === target.id))
+    assert.strictEqual(rerankReport.was_applied, true)
+    assert.ok(rerankReport.belief_coverage > 0)
   })
 
   it("store_code and store_decision are thin store wrappers with Rust-aligned defaults", async () => {
@@ -583,7 +678,18 @@ describe("Aura MCP-facing operational surfaces", () => {
 
     const recall = await run(aura.explain_recall("deploy policy", 5, 0, true, ["alpha"]))
     assert.ok(recall.items.length > 0)
+    assert.strictEqual(recall.belief_rerank_mode, "limited")
+    assert.strictEqual(recall.concept_surface_mode, "inspect")
+    assert.strictEqual(recall.causal_rerank_mode, "limited")
+    assert.strictEqual(recall.policy_rerank_mode, "limited")
     assert.ok(recall.items.some((item) => item.trace.tags !== null || item.trace.ngram !== null || item.trace.sdr !== null))
+
+    aura.disable_full_cognitive_stack()
+    const offRecall = await run(aura.explain_recall("deploy policy", 5, 0, true, ["alpha"]))
+    assert.strictEqual(offRecall.belief_rerank_mode, "off")
+    assert.strictEqual(offRecall.concept_surface_mode, "off")
+    assert.strictEqual(offRecall.causal_rerank_mode, "off")
+    assert.strictEqual(offRecall.policy_rerank_mode, "off")
 
     const bundle = await run(aura.explainability_bundle(record.id))
     if (bundle === null) throw new Error("bundle missing")
@@ -891,11 +997,27 @@ describe("Aura.runMaintenance", () => {
       with_seed_mode: () => Effect.succeed(undefined),
     }
 
+    let syncedTemporalBudgetMode: TemporalBudgetMode | undefined
+    let syncedEvidenceMode: EvidenceMode | undefined
     const mockCausalEngine = {
-      stats: () => Effect.succeed({ version: 1, patterns: {}, discovery_mode: CausalDiscoveryMode.Standard }),
+      stats: () => Effect.succeed({
+        version: 1,
+        patterns: {},
+        discovery_mode: CausalDiscoveryMode.Standard,
+        temporal_budget_mode: syncedTemporalBudgetMode ?? TemporalBudgetMode.NearbySuccessors,
+        evidence_mode: syncedEvidenceMode ?? EvidenceMode.StrictRepeatedWindows,
+        edges_found_total: 0,
+        last_corpus_fingerprint: "",
+      }),
       discover: () => Effect.succeed({ patterns_found: 0, patterns_active: 0, patterns_invalidated: 0, avg_confidence: 0, avg_lift: 0 }),
       invalidate_pattern: () => Effect.succeed(undefined),
       retract_pattern: () => Effect.succeed(undefined),
+      set_temporal_budget_mode: (mode: TemporalBudgetMode) => Effect.sync(() => {
+        syncedTemporalBudgetMode = mode
+      }),
+      set_evidence_mode: (mode: EvidenceMode) => Effect.sync(() => {
+        syncedEvidenceMode = mode
+      }),
     }
 
     const mockPolicyEngine = {
@@ -973,10 +1095,14 @@ describe("Aura.runMaintenance", () => {
       )
     )
 
+    aura.set_causal_temporal_budget_mode("exhaustive_capped")
+    aura.set_causal_evidence_mode("explicit_trusted")
     const result = await Effect.runPromise(
       Effect.provide(aura.runMaintenance(), testLayer)
     )
     expect(result).toBeDefined()
     expect(result.totalRecords).toBe(1)
+    expect(syncedTemporalBudgetMode).toBe(TemporalBudgetMode.ExhaustiveCapped)
+    expect(syncedEvidenceMode).toBe(EvidenceMode.ExplicitTrusted)
   })
 })

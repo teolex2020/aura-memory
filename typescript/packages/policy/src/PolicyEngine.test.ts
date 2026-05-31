@@ -63,6 +63,8 @@ function mockCausalEngine(patterns: CausalPattern[] = [], evidenceMode: Evidence
     discover: (_be: BeliefEngine.Interface, _records: ReadonlyMap<string, any>, _sdr: SdrLookup) => Effect.succeed({} as any),
     invalidate_pattern: (_id: string) => Effect.void,
     retract_pattern: (_id: string) => Effect.void,
+    set_temporal_budget_mode: () => Effect.void,
+    set_evidence_mode: () => Effect.void,
     stats: () => Effect.succeed({
       version: 1 as const,
       patterns: patternMap,

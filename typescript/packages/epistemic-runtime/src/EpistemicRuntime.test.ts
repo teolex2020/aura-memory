@@ -356,6 +356,8 @@ function mockCausalEngine(
     stats: () => Effect.succeed(state),
     invalidate_pattern: () => Effect.void,
     retract_pattern: () => Effect.void,
+    set_temporal_budget_mode: () => Effect.void,
+    set_evidence_mode: () => Effect.void,
   }
 }
 

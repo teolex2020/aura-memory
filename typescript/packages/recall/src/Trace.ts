@@ -10,6 +10,7 @@ import {
   RerankError,
   TrustConfigTag,
   serviceOption,
+  type BoundedRerankReport,
   type RecallScored,
   type RecallView,
   type TrustConfig,
@@ -49,6 +50,7 @@ export type RecallTraceResult = {
   readonly query: string
   readonly scored: RecallScored
   readonly evidence: ReadonlyMap<string, RecallRecordEvidence>
+  readonly boundedRerankReport: BoundedRerankReport | null
 }
 
 let defaultSdrPromise: Promise<SDRInterpreter> | undefined
@@ -88,6 +90,7 @@ function normalizeOptions(options?: Partial<RecallPipelineOptions>): RecallPipel
     expandConnections: options?.expandConnections ?? true,
     namespaces: options?.namespaces ?? [DEFAULT_NAMESPACE],
     sessionId: options?.sessionId,
+    boundedRerankModes: options?.boundedRerankModes,
   }
 }
 
@@ -240,7 +243,7 @@ export function recallPipelineWithTrace(
     }
 
     if (rankedLists.length === 0) {
-      return { query, scored: [] as RecallScored, evidence }
+      return { query, scored: [] as RecallScored, evidence, boundedRerankReport: null }
     }
 
     for (const [signal, list] of namedLists) {
@@ -265,9 +268,16 @@ export function recallPipelineWithTrace(
     matched = applyTraceRecencyScoring(view, matched, opts.topK, nowUnixSec, trustConfig, evidence)
 
     const beforeRerank = scoreMap(matched)
+    let boundedRerankReport: BoundedRerankReport | null = null
     const rerankerOpt = yield* serviceOption(BoundedReranker)
     if (Option.isSome(rerankerOpt)) {
-      const reranked = yield* rerankerOpt.value.rerank(matched, query, { topK: opts.topK })
+      const reranked = yield* rerankerOpt.value.rerank(matched, query, {
+        topK: opts.topK,
+        ...(opts.boundedRerankModes === undefined ? {} : { modes: opts.boundedRerankModes }),
+        reportSink: (report) => {
+          boundedRerankReport = report
+        },
+      })
       matched = Array.from(reranked)
     }
 
@@ -285,6 +295,6 @@ export function recallPipelineWithTrace(
       yield* finalizerOpt.value.finalize(matched, opts.sessionId)
     }
 
-    return { query, scored: matched, evidence }
+    return { query, scored: matched, evidence, boundedRerankReport }
   })
 }

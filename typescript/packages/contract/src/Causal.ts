@@ -2,7 +2,7 @@ import { Tag } from "./Context"
 import { FileReadError, FileWriteError, JsonParseError } from "./Errors"
 
 import type { BeliefEngine } from "./Belief"
-import type { CausalEngineState, CausalReport } from "./causal/CausalTypes"
+import type { CausalEngineState, CausalReport, EvidenceMode, TemporalBudgetMode } from "./causal/CausalTypes"
 import type { EpistemicTrace } from "./EpistemicTrace"
 import type { SdrLookup } from "./sdr/Sdr"
 import type { Record as AuraRecord } from "./record/Record"
@@ -20,6 +20,23 @@ export namespace CausalEngine {
     ) => Effect.Effect<CausalReport, never, EpistemicTrace>
     invalidate_pattern: (id: string) => Effect.Effect<void>
     retract_pattern: (id: string) => Effect.Effect<void>
+    /**
+     * Set the temporal causal edge budgeting mode.
+     *
+     * 设置 temporal causal edge budgeting mode。
+     *
+     * Rust reference: `Aura::set_causal_temporal_budget_mode` in
+     * `../src/aura.rs`. Rust original enum name: `TemporalEdgeBudgetMode`.
+     */
+    set_temporal_budget_mode: (mode: TemporalBudgetMode) => Effect.Effect<void>
+    /**
+     * Set the causal evidence gating mode.
+     *
+     * 设置 causal evidence gating mode。
+     *
+     * Rust reference: `Aura::set_causal_evidence_mode` in `../src/aura.rs`.
+     */
+    set_evidence_mode: (mode: EvidenceMode) => Effect.Effect<void>
     stats: () => Effect.Effect<CausalEngineState>
   }
 }

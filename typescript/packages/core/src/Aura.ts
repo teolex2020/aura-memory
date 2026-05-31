@@ -11,6 +11,7 @@ import {
   Level,
   RecordValidationError,
   RerankError,
+  type RecallScored,
   type Record as AuraRecord,
   type StoreOptions,
   type UpdateOptions,
@@ -27,6 +28,7 @@ import {
   validateRecordStoreInput,
 } from "@aura/contract";
 import {
+  BeliefStoreFile,
   CognitiveStoreFile,
   loadCognitiveRecords,
   loadPersistenceManifestWithValidation,
@@ -36,8 +38,16 @@ import {
   type BrainAuraRecord,
 } from "@aura/storage";
 import type { IndexFormatError } from "@aura/indexing";
-import type { RecallPipelineOptions, RecallRecordEvidence, SdrInterpreterError } from "@aura/recall";
 import {
+  applyBeliefRerank,
+  computeShadowBeliefScores,
+  type RecallPipelineOptions,
+  type RecallRecordEvidence,
+  type SdrInterpreterError,
+} from "@aura/recall";
+import {
+  finalizeRecallScored as finalizeRecallScoredEffect,
+  recallRawScored as recallRawScoredEffect,
   recallRecords as recallRecordsEffect,
   recallScored as recallScoredEffect,
   recallWithTrace as recallWithTraceEffect,
@@ -54,6 +64,111 @@ function numberOr(raw: unknown, fallback: number): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
+}
+
+function rustModeLabel(mode: string | undefined, fallback: string): string {
+  return (mode ?? fallback).toLowerCase()
+}
+
+function defaultBoundedRerankModes(): BoundedRerankModes {
+  return {
+    beliefMode: BeliefRerankMode.Limited,
+    conceptMode: Csm.Inspect,
+    causalMode: CausalRerankMode.Limited,
+    policyMode: PolicyRerankMode.Limited,
+  }
+}
+
+function parseBeliefRerankMode(mode: BeliefRerankMode | string): BeliefRerankMode {
+  switch (String(mode).toLowerCase()) {
+    case "limited":
+      return BeliefRerankMode.Limited
+    case "shadow":
+      return BeliefRerankMode.Shadow
+    default:
+      return BeliefRerankMode.Off
+  }
+}
+
+function parseConceptSurfaceMode(mode: ConceptSurfaceMode | string): ConceptSurfaceMode {
+  switch (String(mode).toLowerCase()) {
+    case "limited":
+      return Csm.Limited
+    case "inspect":
+      return Csm.Inspect
+    default:
+      return Csm.Off
+  }
+}
+
+function parseCausalRerankMode(mode: CausalRerankMode | string): CausalRerankMode {
+  return String(mode).toLowerCase() === "limited" ? CausalRerankMode.Limited : CausalRerankMode.Off
+}
+
+function parsePolicyRerankMode(mode: PolicyRerankMode | string): PolicyRerankMode {
+  return String(mode).toLowerCase() === "limited" ? PolicyRerankMode.Limited : PolicyRerankMode.Off
+}
+
+function parseTemporalBudgetMode(mode: TemporalBudgetMode | string): TemporalBudgetMode {
+  switch (String(mode).toLowerCase()) {
+    case "exhaustive_capped":
+    case "exhaustivecapped":
+      return TemporalBudgetMode.ExhaustiveCapped
+    default:
+      return TemporalBudgetMode.NearbySuccessors
+  }
+}
+
+function parseEvidenceMode(mode: EvidenceMode | string): EvidenceMode {
+  switch (String(mode).toLowerCase()) {
+    case "explicit_trusted":
+    case "explicittrusted":
+      return EvidenceMode.ExplicitTrusted
+    case "temporal_cluster_recovery":
+    case "temporalclusterrecovery":
+      return EvidenceMode.TemporalClusterRecovery
+    default:
+      return EvidenceMode.StrictRepeatedWindows
+  }
+}
+
+function rustOptionalTopK(value: number | undefined): number {
+  if (value === undefined) return 20
+  return Math.max(0, Math.trunc(Number.isFinite(value) ? value : 20))
+}
+
+function rustOptionalMinStrength(value: number | undefined): number {
+  return Number.isFinite(value) ? value! : 0.1
+}
+
+function recallReportOptions(
+  topK?: number,
+  minStrength?: number,
+  expandConnections?: boolean,
+  sessionId?: string,
+  namespaces?: ReadonlyArray<string>
+): Partial<RecallPipelineOptions> {
+  return {
+    topK: rustOptionalTopK(topK),
+    minStrength: rustOptionalMinStrength(minStrength),
+    expandConnections: expandConnections ?? true,
+    namespaces: namespaces ?? [DEFAULT_NAMESPACE],
+    ...(sessionId === undefined ? {} : { sessionId }),
+  }
+}
+
+type AuraRecallHit = readonly [score: number, record: AuraRecord]
+
+function recallHitsFromScored(
+  scored: RecallScored,
+  records: ReadonlyMap<string, AuraRecord>
+): AuraRecallHit[] {
+  const out: AuraRecallHit[] = []
+  for (const [score, recordId] of scored) {
+    const record = records.get(recordId)
+    if (record !== undefined) out.push([score, record])
+  }
+  return out
 }
 
 function migrateLegacyConfidence(record: AuraRecord): AuraRecord | undefined {
@@ -87,9 +202,16 @@ import {
 
 // ── Contract types for MaintenanceService ──
 import {
+  BeliefRerankMode,
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
   BeliefStore, ConceptStore, CausalStore, PolicyStore,
+  CausalRerankMode,
   EpistemicTrace,
+  EvidenceMode,
+  PolicyRerankMode,
+  TemporalBudgetMode,
+  type BoundedRerankModes,
+  type LimitedRerankReport,
   type MaintenanceReport, type MaintenanceConfig,
   defaultMaintenanceConfig,
   type PhaseTimings, type MaintenanceHotspots,
@@ -133,6 +255,7 @@ import {
   type RecallPolicyExplanation,
   type RecallSignalScore,
   type RecallTraceScore,
+  type ShadowRecallReport,
   type SuggestedCorrection,
 } from "@aura/contract"
 
@@ -179,6 +302,9 @@ export class Aura {
     private readonly maintenanceTrendHistory: MaintenanceTrendSnapshot[] = [],
     private readonly reflectionSummaries: ReflectionSummary[] = [],
     private readonly correctionLog: CorrectionLogEntry[] = [],
+    private boundedRerankModes: BoundedRerankModes = defaultBoundedRerankModes(),
+    private causalTemporalBudgetMode: TemporalBudgetMode = TemporalBudgetMode.NearbySuccessors,
+    private causalEvidenceMode: EvidenceMode = EvidenceMode.StrictRepeatedWindows,
   ) {}
 
   static open(
@@ -575,13 +701,24 @@ export class Aura {
     });
   }
 
+  private currentBoundedRerankModes(): BoundedRerankModes {
+    return { ...this.boundedRerankModes }
+  }
+
+  private recallOptionsWithRuntimeModes(options?: Partial<RecallPipelineOptions>): Partial<RecallPipelineOptions> {
+    return {
+      ...(options ?? {}),
+      boundedRerankModes: this.currentBoundedRerankModes(),
+    }
+  }
+
   recall(query: string, options?: Partial<RecallPipelineOptions>) {
     // NON-PARITY IMPLEMENTATION: returns RecallScored rather than Rust's richer RecallItem.
     // 差异说明：TS recall pipeline 目前返回 scored IDs；structured/explainability 尚未实现。
     // Rust reference: Aura::recall (aura.rs)
     const self = this
     return Effect.gen(function* () {
-      const scored = yield* recallScoredEffect(self.brainDir, query, options)
+      const scored = yield* recallScoredEffect(self.brainDir, query, self.recallOptionsWithRuntimeModes(options))
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return scored
     })
@@ -593,7 +730,11 @@ export class Aura {
     // Rust reference: Aura::recall_structured (aura.rs)
     const self = this
     return Effect.gen(function* () {
-      const records = yield* recallRecordsEffect<AuraRecord>(self.brainDir, query, options)
+      const records = yield* recallRecordsEffect<AuraRecord>(
+        self.brainDir,
+        query,
+        self.recallOptionsWithRuntimeModes(options)
+      )
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return records
     })
@@ -604,6 +745,236 @@ export class Aura {
     // Reason: TS does not yet model the full explainability DTO surface from Rust.
     // Rust reference: Aura::recall_full (aura.rs)
     return this.recall_structured(query, options);
+  }
+
+  recall_structured_with_shadow(
+    query: string,
+    topK?: number,
+    minStrength?: number,
+    expandConnections?: boolean,
+    sessionId?: string,
+    namespaces?: ReadonlyArray<string>,
+  ) {
+    // Recall with parallel shadow belief scoring.
+    // 使用并行 shadow belief scoring 的 structured recall。
+    // Returns baseline raw results plus a shadow report; shadow scoring is observational.
+    // 返回 raw baseline 结果和 shadow report；shadow scoring 不改变排序。
+    // Rust reference: `Aura::recall_structured_with_shadow` (aura.rs).
+    const self = this
+    const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
+    const top = options.topK ?? 20
+    return Effect.gen(function* () {
+      const scored = yield* recallRawScoredEffect(self.brainDir, query, options)
+      const records = yield* loadCognitiveRecords(self.brainDir)
+      const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
+      const shadowReport = computeShadowBeliefScores(scored, beliefState, top)
+      const hits = recallHitsFromScored(scored, records)
+      yield* finalizeRecallScoredEffect(self.brainDir, scored, sessionId)
+      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      return [hits, shadowReport] as readonly [ReadonlyArray<AuraRecallHit>, ShadowRecallReport]
+    })
+  }
+
+  recall_structured_with_rerank_report(
+    query: string,
+    topK?: number,
+    minStrength?: number,
+    expandConnections?: boolean,
+    sessionId?: string,
+    namespaces?: ReadonlyArray<string>,
+  ) {
+    // Recall with limited reranking and a diagnostic report.
+    // 使用 limited reranking 并返回诊断报告。
+    // Applies a single belief rerank pass on the raw baseline, regardless of runtime mode.
+    // 无论 runtime mode 如何，都只在 raw baseline 上执行一次 belief rerank，避免 double-rerank。
+    // Rust reference: `Aura::recall_structured_with_rerank_report` (aura.rs).
+    const self = this
+    const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
+    const top = options.topK ?? 20
+    return Effect.gen(function* () {
+      const scored = yield* recallRawScoredEffect(self.brainDir, query, options)
+      const matched = Array.from(scored)
+      const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
+      const report = applyBeliefRerank(matched, beliefState, top)
+      const records = yield* loadCognitiveRecords(self.brainDir)
+      const hits = recallHitsFromScored(matched, records)
+      yield* finalizeRecallScoredEffect(self.brainDir, matched, sessionId)
+      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      return [hits, report] as readonly [ReadonlyArray<AuraRecallHit>, LimitedRerankReport]
+    })
+  }
+
+  /**
+   * Set belief-aware recall reranking mode.
+   *
+   * 设置 belief-aware recall reranking mode。字符串入参与 Rust Python binding 保持一致：
+   * `"limited"` / `"shadow"` / 其它值回落 `"off"`。
+   *
+   * Rust reference: `Aura::set_belief_rerank_mode` and
+   * `py_set_belief_rerank_mode` in `../src/aura.rs`.
+   */
+  set_belief_rerank_mode(mode: BeliefRerankMode | string): void {
+    this.boundedRerankModes = {
+      ...this.boundedRerankModes,
+      beliefMode: parseBeliefRerankMode(mode),
+    }
+  }
+
+  /** Get current belief-aware recall reranking mode. */
+  get_belief_rerank_mode(): BeliefRerankMode {
+    // Rust reference: `Aura::get_belief_rerank_mode` in `../src/aura.rs`.
+    return this.boundedRerankModes.beliefMode
+  }
+
+  /** Convenience: enable limited belief reranking. */
+  set_belief_rerank_enabled(enabled: boolean): void {
+    // Rust reference: `Aura::set_belief_rerank_enabled` in `../src/aura.rs`.
+    this.set_belief_rerank_mode(enabled ? BeliefRerankMode.Limited : BeliefRerankMode.Off)
+  }
+
+  /** Convenience: check if belief reranking is actively influencing ranking. */
+  is_belief_rerank_enabled(): boolean {
+    // Rust reference: `Aura::is_belief_rerank_enabled` in `../src/aura.rs`.
+    return this.get_belief_rerank_mode() === BeliefRerankMode.Limited
+  }
+
+  /**
+   * Set concept surface mode.
+   *
+   * 设置 concept surface mode。字符串入参与 Rust Python binding 保持一致：
+   * `"limited"` / `"inspect"` / 其它值回落 `"off"`。
+   *
+   * Rust reference: `Aura::set_concept_surface_mode` and
+   * `py_set_concept_surface_mode` in `../src/aura.rs`.
+   */
+  set_concept_surface_mode(mode: ConceptSurfaceMode | string): void {
+    this.boundedRerankModes = {
+      ...this.boundedRerankModes,
+      conceptMode: parseConceptSurfaceMode(mode),
+    }
+  }
+
+  /** Get current concept surface mode. */
+  get_concept_surface_mode(): ConceptSurfaceMode {
+    // Rust reference: `Aura::get_concept_surface_mode` in `../src/aura.rs`.
+    return this.boundedRerankModes.conceptMode
+  }
+
+  /**
+   * Set causal-pattern recall reranking mode.
+   *
+   * 设置 causal-pattern recall reranking mode。字符串入参与 Rust Python binding 保持一致：
+   * `"limited"` / 其它值回落 `"off"`。
+   *
+   * Rust reference: `Aura::set_causal_rerank_mode` and
+   * `py_set_causal_rerank_mode` in `../src/aura.rs`.
+   */
+  set_causal_rerank_mode(mode: CausalRerankMode | string): void {
+    this.boundedRerankModes = {
+      ...this.boundedRerankModes,
+      causalMode: parseCausalRerankMode(mode),
+    }
+  }
+
+  /** Get current causal-pattern recall reranking mode. */
+  get_causal_rerank_mode(): CausalRerankMode {
+    // Rust reference: `Aura::get_causal_rerank_mode` in `../src/aura.rs`.
+    return this.boundedRerankModes.causalMode
+  }
+
+  /**
+   * Set the temporal causal edge budgeting mode.
+   *
+   * 设置 temporal causal edge budgeting mode。字符串入参支持 Rust enum 名
+   * `ExhaustiveCapped` / `NearbySuccessors` 和 snake_case 形式。
+   *
+   * Rust reference: `Aura::set_causal_temporal_budget_mode` in `../src/aura.rs`.
+   * Rust original enum name: `TemporalEdgeBudgetMode`.
+   */
+  set_causal_temporal_budget_mode(mode: TemporalBudgetMode | string): void {
+    this.causalTemporalBudgetMode = parseTemporalBudgetMode(mode)
+  }
+
+  /** Get current temporal causal edge budgeting mode. */
+  get_causal_temporal_budget_mode(): TemporalBudgetMode {
+    // Rust reference: `Aura::get_causal_temporal_budget_mode` in `../src/aura.rs`.
+    return this.causalTemporalBudgetMode
+  }
+
+  /**
+   * Set causal evidence gating mode.
+   *
+   * 设置 causal evidence gating mode。字符串入参与 Rust Python binding 保持一致：
+   * `"strict"` / `"temporal_cluster_recovery"` / `"explicit_trusted"`。
+   *
+   * Rust reference: `Aura::set_causal_evidence_mode` and
+   * `py_set_causal_evidence_mode` in `../src/aura.rs`.
+   */
+  set_causal_evidence_mode(mode: EvidenceMode | string): void {
+    this.causalEvidenceMode = parseEvidenceMode(mode)
+  }
+
+  /** Get current causal evidence gating mode. */
+  get_causal_evidence_mode(): EvidenceMode {
+    // Rust reference: `Aura::get_causal_evidence_mode` in `../src/aura.rs`.
+    return this.causalEvidenceMode
+  }
+
+  /**
+   * Set policy-hint recall reranking mode.
+   *
+   * 设置 policy-hint recall reranking mode。字符串入参与 Rust Python binding 保持一致：
+   * `"limited"` / 其它值回落 `"off"`。
+   *
+   * Rust reference: `Aura::set_policy_rerank_mode` and
+   * `py_set_policy_rerank_mode` in `../src/aura.rs`.
+   */
+  set_policy_rerank_mode(mode: PolicyRerankMode | string): void {
+    this.boundedRerankModes = {
+      ...this.boundedRerankModes,
+      policyMode: parsePolicyRerankMode(mode),
+    }
+  }
+
+  /** Get current policy-hint recall reranking mode. */
+  get_policy_rerank_mode(): PolicyRerankMode {
+    // Rust reference: `Aura::get_policy_rerank_mode` in `../src/aura.rs`.
+    return this.boundedRerankModes.policyMode
+  }
+
+  /**
+   * Enable all four cognitive recall reranking signals.
+   *
+   * 开启四个 cognitive recall reranking signal。
+   *
+   * Rust reference: `Aura::enable_full_cognitive_stack` and
+   * `py_enable_full_cognitive_stack` in `../src/aura.rs`.
+   */
+  enable_full_cognitive_stack(): void {
+    this.boundedRerankModes = {
+      beliefMode: BeliefRerankMode.Limited,
+      conceptMode: Csm.Limited,
+      causalMode: CausalRerankMode.Limited,
+      policyMode: PolicyRerankMode.Limited,
+    }
+    this.set_causal_evidence_mode(EvidenceMode.ExplicitTrusted)
+  }
+
+  /**
+   * Disable all four cognitive recall reranking signals.
+   *
+   * 关闭四个 cognitive recall reranking signal。
+   *
+   * Rust reference: `Aura::disable_full_cognitive_stack` and
+   * `py_disable_full_cognitive_stack` in `../src/aura.rs`.
+   */
+  disable_full_cognitive_stack(): void {
+    this.boundedRerankModes = {
+      beliefMode: BeliefRerankMode.Off,
+      conceptMode: Csm.Off,
+      causalMode: CausalRerankMode.Off,
+      policyMode: PolicyRerankMode.Off,
+    }
   }
 
   search(
@@ -1206,13 +1577,14 @@ export class Aura {
     // Rust reference: Aura::explain_recall (aura.rs)
     const started = Date.now()
     const top = clampInt(topK ?? 20, 1, 100)
+    const self = this
     const options: Partial<RecallPipelineOptions> = {
       topK: top,
       minStrength: minStrength ?? 0.1,
       expandConnections: expandConnections ?? true,
       namespaces: namespaces ?? ["default"],
+      boundedRerankModes: self.currentBoundedRerankModes(),
     }
-    const self = this
     return Effect.gen(function* () {
       const traced = yield* recallWithTraceEffect(self.brainDir, query, options)
       const items: RecallExplanationItem[] = []
@@ -1231,10 +1603,10 @@ export class Aura {
         top_k: top,
         result_count: items.length,
         latency_ms: Date.now() - started,
-        belief_rerank_mode: "default",
-        concept_surface_mode: "inspect",
-        causal_rerank_mode: "default",
-        policy_rerank_mode: "default",
+        belief_rerank_mode: rustModeLabel(traced.boundedRerankReport?.modes.beliefMode, "Limited"),
+        concept_surface_mode: rustModeLabel(traced.boundedRerankReport?.modes.conceptMode, "Inspect"),
+        causal_rerank_mode: rustModeLabel(traced.boundedRerankReport?.modes.causalMode, "Limited"),
+        policy_rerank_mode: rustModeLabel(traced.boundedRerankReport?.modes.policyMode, "Limited"),
         items,
       }
     })
@@ -1831,6 +2203,8 @@ export class Aura {
       const conceptEng = yield* Effect.service(ConceptEngine)
       const causalEng = yield* Effect.service(CausalEngine)
       const policyEng = yield* Effect.service(PolicyEngine)
+      yield* causalEng.set_temporal_budget_mode(self.causalTemporalBudgetMode)
+      yield* causalEng.set_evidence_mode(self.causalEvidenceMode)
 
       const beliefStore = yield* Effect.service(BeliefStore)
       const conceptStore = yield* Effect.service(ConceptStore)

@@ -61,7 +61,8 @@ function normalizeOptions(options?: Partial<RecallPipelineOptions>): RecallPipel
     minStrength: options?.minStrength ?? 0,
     expandConnections: options?.expandConnections ?? true,
     namespaces: options?.namespaces ?? [DEFAULT_NAMESPACE],
-    sessionId: options?.sessionId
+    sessionId: options?.sessionId,
+    boundedRerankModes: options?.boundedRerankModes
   }
 }
 
@@ -138,7 +139,10 @@ export function recallPipeline(
 
     const rerankerOpt = yield* serviceOption(BoundedReranker)
     if (Option.isSome(rerankerOpt)) {
-      const reranked = yield* rerankerOpt.value.rerank(matched, query, { topK: opts.topK })
+      const rerankContext = opts.boundedRerankModes === undefined
+        ? { topK: opts.topK }
+        : { topK: opts.topK, modes: opts.boundedRerankModes }
+      const reranked = yield* rerankerOpt.value.rerank(matched, query, rerankContext)
       matched = Array.from(reranked)
     }
 

@@ -1,3 +1,5 @@
+import type { BoundedRerankModes } from "@aura/contract"
+
 export type RankedList = Array<readonly [recordId: string, rawScore: number]>
 
 export type Scored = Array<readonly [score: number, recordId: string]>
@@ -8,6 +10,7 @@ export type RecallPipelineOptions = {
   expandConnections: boolean
   namespaces: ReadonlyArray<string>
   sessionId: string | undefined
+  boundedRerankModes: Partial<BoundedRerankModes> | undefined
 }
 
 export type RecallRecord = {

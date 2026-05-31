@@ -1167,6 +1167,20 @@ export class CausalEngineImpl implements CausalEngine.Interface {
     })
   }
 
+  set_temporal_budget_mode(mode: TemporalBudgetMode): Effect.Effect<void> {
+    const self = this
+    return Effect.sync(() => {
+      self.state = { ...self.state, temporal_budget_mode: mode }
+    })
+  }
+
+  set_evidence_mode(mode: EvidenceMode): Effect.Effect<void> {
+    const self = this
+    return Effect.sync(() => {
+      self.state = { ...self.state, evidence_mode: mode }
+    })
+  }
+
   stats(): Effect.Effect<CausalEngineState> {
     return Effect.succeed(this.state)
   }

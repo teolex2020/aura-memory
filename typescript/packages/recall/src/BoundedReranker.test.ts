@@ -12,6 +12,7 @@ import {
   PolicyRerankMode,
   PolicyState,
   type BeliefEngineState,
+  type BoundedRerankReport,
   type CausalEngineState,
   type ConceptEngineState,
   type PolicyEngineState
@@ -111,6 +112,36 @@ describe("BoundedReranker", () => {
     assert.strictEqual(result, scored)
     assert.strictEqual(shadowReport?.scores.length, 4)
     assert.strictEqual(shadowReport?.promoted_count, 1)
+  })
+
+  it("lets call context override persisted bounded rerank modes", async () => {
+    const scored: Array<readonly [number, string]> = [
+      [0.800, "r0"],
+      [0.799, "r1"],
+      [0.798, "r2"],
+      [0.797, "r3"]
+    ]
+    let report: BoundedRerankReport | undefined
+    const reranker = new BoundedRerankerImpl(() =>
+      Effect.succeed({
+        beliefState: beliefState({ r3: BeliefState.Resolved }),
+        modes: { ...OFF_RERANK_MODES, beliefMode: BeliefRerankMode.Limited },
+      })
+    )
+
+    const result = await Effect.runPromise(
+      reranker.rerank(scored, "test", {
+        topK: 10,
+        modes: OFF_RERANK_MODES,
+        reportSink: (next) => {
+          report = next
+        },
+      })
+    )
+
+    assert.strictEqual(result, scored)
+    assert.strictEqual(report?.modes.beliefMode, BeliefRerankMode.Off)
+    assert.strictEqual(report?.belief, undefined)
   })
 
   it("applies Rust belief Limited multipliers with positional shift cap", () => {

@@ -7,7 +7,7 @@ import {
   type RecallScored
 } from "@aura/contract"
 import { BeliefStoreFile, CausalStoreFile, ConceptStoreFile, PolicyStoreFile } from "@aura/storage"
-import { RUST_RUNTIME_RERANK_MODES, rerankWithSnapshots } from "@aura/recall"
+import { mergeBoundedRerankModes, rerankWithSnapshots } from "@aura/recall"
 
 export function rerankRecallRecords(
   brainDir: string,
@@ -34,7 +34,8 @@ export function rerankRecallRecords(
       scored,
       context?.topK ?? scored.length,
       snapshots,
-      RUST_RUNTIME_RERANK_MODES
+      mergeBoundedRerankModes(context?.modes),
+      context?.reportSink
     )
   }).pipe(Effect.mapError((cause) => new RerankError({ cause })))
 }

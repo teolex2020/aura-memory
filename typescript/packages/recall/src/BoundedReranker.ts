@@ -16,14 +16,31 @@ import {
   PolicyState,
   RerankError,
   type BeliefEngineState,
+  type BoundedRerankReport,
   type BoundedRerankContext,
   type BoundedRerankModes,
   type CausalEngineState,
   type ConceptEngineState,
+  type LimitedCausalRerankReport,
+  type LimitedConceptRerankReport,
+  type LimitedPolicyRerankReport,
+  type LimitedRerankReport,
   type PolicyEngineState,
   type RecallScored,
+  type ShadowBeliefScore,
+  type ShadowRecallReport,
 } from "@aura/contract"
 import type { Scored } from "./Types"
+
+export type {
+  BoundedRerankReport,
+  LimitedCausalRerankReport,
+  LimitedConceptRerankReport,
+  LimitedPolicyRerankReport,
+  LimitedRerankReport,
+  ShadowBeliefScore,
+  ShadowRecallReport,
+} from "@aura/contract"
 
 // ── Belief Reranking (Phase 4 — Limited Influence Activation) ──
 //
@@ -129,87 +146,16 @@ type LimitedRerankConstants = {
   readonly maxTopK: number
 }
 
-/**
- * Report from limited reranking, capturing what changed.
- *
- * 有界重排序报告，记录实际变化。
- *
- * Rust reference: `LimitedRerankReport` plus concept/causal/policy variants
- * in `../src/recall.rs`.
- */
-export type LimitedRerankReport = {
-  /** Whether limited reranking was actually applied (false if scope guards blocked). */
+type InternalLimitedRerankReport = {
   readonly was_applied: boolean
-  /** Reason reranking was skipped (empty if applied). */
   readonly skip_reason: string
-  /** Number of records whose position changed. */
   readonly records_moved: number
-  /** Maximum upward positional shift observed. */
   readonly max_up_shift: number
-  /** Maximum downward positional shift observed. */
   readonly max_down_shift: number
-  /** Average multiplier across all records for this rerank stage. */
   readonly avg_multiplier: number
-  /** Fraction of records covered by this rerank stage. */
   readonly coverage: number
-  /** Top-k overlap: fraction of top-k records shared between baseline and reranked. */
   readonly top_k_overlap: number
-  /** Latency of reranking in microseconds. */
   readonly rerank_latency_us: number
-}
-
-/**
- * Shadow belief score for a single recalled record.
- *
- * 单条召回记录的 shadow belief score。
- *
- * Rust reference: `ShadowBeliefScore` in `../src/recall.rs:1165`.
- */
-export type ShadowBeliefScore = {
-  /** Record ID. */
-  readonly record_id: string
-  /** Original recall score (from trust-aware pipeline). */
-  readonly baseline_score: number
-  /** Belief-adjusted shadow score (baseline x belief_multiplier). */
-  readonly shadow_score: number
-  /** Belief multiplier applied (1.0 if no belief membership). */
-  readonly belief_multiplier: number
-  /** Belief state of the record's belief (None if no belief membership). */
-  readonly belief_state: string | null
-  /** Belief confidence (0.0 if no belief membership). */
-  readonly belief_confidence: number
-  /** Position in baseline ranking (0-based). */
-  readonly baseline_rank: number
-  /** Position in shadow ranking (0-based). */
-  readonly shadow_rank: number
-  /** Rank change: positive = promoted, negative = demoted. */
-  readonly rank_delta: number
-}
-
-/**
- * Comparison report: baseline vs shadow ranking.
- *
- * baseline 与 shadow ranking 的对比报告。
- *
- * Rust reference: `ShadowRecallReport` in `../src/recall.rs:1188`.
- */
-export type ShadowRecallReport = {
-  /** Per-record shadow scores. */
-  readonly scores: ReadonlyArray<ShadowBeliefScore>
-  /** Top-k overlap: fraction of top-k records shared between baseline and shadow. */
-  readonly top_k_overlap: number
-  /** Number of records promoted (moved up in shadow ranking). */
-  readonly promoted_count: number
-  /** Number of records demoted (moved down in shadow ranking). */
-  readonly demoted_count: number
-  /** Number of records with no rank change. */
-  readonly unchanged_count: number
-  /** Fraction of recalled records that have belief membership. */
-  readonly belief_coverage: number
-  /** Average belief multiplier across all records. */
-  readonly avg_belief_multiplier: number
-  /** Latency of shadow scoring in microseconds. */
-  readonly shadow_latency_us: number
 }
 
 export type BoundedRerankSnapshot = {
@@ -232,7 +178,7 @@ export const RUST_RUNTIME_RERANK_MODES = RUST_DEFAULT_BOUNDED_RERANK_MODES
 
 type BoundedRerankSnapshotLoader = () => Effect.Effect<BoundedRerankSnapshot, RerankError>
 
-function skipped(reason: string): LimitedRerankReport {
+function skipped(reason: string): InternalLimitedRerankReport {
   return {
     was_applied: false,
     skip_reason: reason,
@@ -246,7 +192,70 @@ function skipped(reason: string): LimitedRerankReport {
   }
 }
 
-function mergeModes(modes?: Partial<BoundedRerankModes>): BoundedRerankModes {
+function asBeliefReport(report: InternalLimitedRerankReport): LimitedRerankReport {
+  return {
+    was_applied: report.was_applied,
+    skip_reason: report.skip_reason,
+    records_moved: report.records_moved,
+    max_up_shift: report.max_up_shift,
+    max_down_shift: report.max_down_shift,
+    avg_belief_multiplier: report.avg_multiplier,
+    belief_coverage: report.coverage,
+    top_k_overlap: report.top_k_overlap,
+    rerank_latency_us: report.rerank_latency_us,
+  }
+}
+
+function asConceptReport(report: InternalLimitedRerankReport): LimitedConceptRerankReport {
+  return {
+    was_applied: report.was_applied,
+    skip_reason: report.skip_reason,
+    records_moved: report.records_moved,
+    max_up_shift: report.max_up_shift,
+    max_down_shift: report.max_down_shift,
+    avg_concept_multiplier: report.avg_multiplier,
+    concept_coverage: report.coverage,
+    top_k_overlap: report.top_k_overlap,
+    rerank_latency_us: report.rerank_latency_us,
+  }
+}
+
+function asCausalReport(report: InternalLimitedRerankReport): LimitedCausalRerankReport {
+  return {
+    was_applied: report.was_applied,
+    skip_reason: report.skip_reason,
+    records_moved: report.records_moved,
+    max_up_shift: report.max_up_shift,
+    max_down_shift: report.max_down_shift,
+    avg_causal_multiplier: report.avg_multiplier,
+    causal_coverage: report.coverage,
+    top_k_overlap: report.top_k_overlap,
+    rerank_latency_us: report.rerank_latency_us,
+  }
+}
+
+function asPolicyReport(report: InternalLimitedRerankReport): LimitedPolicyRerankReport {
+  return {
+    was_applied: report.was_applied,
+    skip_reason: report.skip_reason,
+    records_moved: report.records_moved,
+    max_up_shift: report.max_up_shift,
+    max_down_shift: report.max_down_shift,
+    avg_policy_multiplier: report.avg_multiplier,
+    policy_coverage: report.coverage,
+    top_k_overlap: report.top_k_overlap,
+    rerank_latency_us: report.rerank_latency_us,
+  }
+}
+
+function emitReport(
+  sink: ((report: BoundedRerankReport) => void) | undefined,
+  report: BoundedRerankReport
+): void {
+  if (sink !== undefined) sink(report)
+}
+
+export function mergeBoundedRerankModes(modes?: Partial<BoundedRerankModes>): BoundedRerankModes {
   return {
     beliefMode: modes?.beliefMode ?? RUST_DEFAULT_BOUNDED_RERANK_MODES.beliefMode,
     conceptMode: modes?.conceptMode ?? RUST_DEFAULT_BOUNDED_RERANK_MODES.conceptMode,
@@ -259,8 +268,9 @@ function applyLimitedRerank(
   matched: Scored,
   topK: number,
   constants: LimitedRerankConstants,
-  membership: ReadonlyMap<string, number>
-): LimitedRerankReport {
+  membership: ReadonlyMap<string, number>,
+  noCoverageReason: string
+): InternalLimitedRerankReport {
   const start = performance.now()
   const n = matched.length
 
@@ -269,7 +279,7 @@ function applyLimitedRerank(
   if (topK > constants.maxTopK) return skipped("top_k exceeds limit")
 
   const covered = matched.filter(([, recordId]) => membership.has(recordId)).length
-  if (covered === 0) return skipped("no coverage")
+  if (covered === 0) return skipped(noCoverageReason)
   const coverage = covered / n
 
   // ── Phase 1: Score adjustment (capped) ──
@@ -511,16 +521,19 @@ export function applyBeliefRerank(
   beliefState: BeliefEngineState,
   topK: number
 ): LimitedRerankReport {
-  return applyLimitedRerank(
-    matched,
-    topK,
-    {
-      cap: BELIEF_RERANK_CAP,
-      maxPosShift: BELIEF_RERANK_MAX_POS_SHIFT,
-      minResults: BELIEF_RERANK_MIN_RESULTS,
-      maxTopK: BELIEF_RERANK_MAX_TOP_K,
-    },
-    buildBeliefMembershipIndex(beliefState)
+  return asBeliefReport(
+    applyLimitedRerank(
+      matched,
+      topK,
+      {
+        cap: BELIEF_RERANK_CAP,
+        maxPosShift: BELIEF_RERANK_MAX_POS_SHIFT,
+        minResults: BELIEF_RERANK_MIN_RESULTS,
+        maxTopK: BELIEF_RERANK_MAX_TOP_K,
+      },
+      buildBeliefMembershipIndex(beliefState),
+      "no belief coverage"
+    )
   )
 }
 
@@ -560,17 +573,20 @@ export function applyConceptRerank(
   matched: Scored,
   conceptState: ConceptEngineState,
   topK: number
-): LimitedRerankReport {
-  return applyLimitedRerank(
-    matched,
-    topK,
-    {
-      cap: CONCEPT_RERANK_CAP,
-      maxPosShift: CONCEPT_RERANK_MAX_POS_SHIFT,
-      minResults: CONCEPT_RERANK_MIN_RESULTS,
-      maxTopK: CONCEPT_RERANK_MAX_TOP_K,
-    },
-    buildConceptMembershipIndex(conceptState)
+): LimitedConceptRerankReport {
+  return asConceptReport(
+    applyLimitedRerank(
+      matched,
+      topK,
+      {
+        cap: CONCEPT_RERANK_CAP,
+        maxPosShift: CONCEPT_RERANK_MAX_POS_SHIFT,
+        minResults: CONCEPT_RERANK_MIN_RESULTS,
+        maxTopK: CONCEPT_RERANK_MAX_TOP_K,
+      },
+      buildConceptMembershipIndex(conceptState),
+      "no concept coverage"
+    )
   )
 }
 
@@ -622,17 +638,20 @@ export function applyCausalRerank(
   matched: Scored,
   causalState: CausalEngineState,
   topK: number
-): LimitedRerankReport {
-  return applyLimitedRerank(
-    matched,
-    topK,
-    {
-      cap: CAUSAL_RERANK_CAP,
-      maxPosShift: CAUSAL_RERANK_MAX_POS_SHIFT,
-      minResults: CAUSAL_RERANK_MIN_RESULTS,
-      maxTopK: CAUSAL_RERANK_MAX_TOP_K,
-    },
-    buildCausalMembershipIndex(causalState)
+): LimitedCausalRerankReport {
+  return asCausalReport(
+    applyLimitedRerank(
+      matched,
+      topK,
+      {
+        cap: CAUSAL_RERANK_CAP,
+        maxPosShift: CAUSAL_RERANK_MAX_POS_SHIFT,
+        minResults: CAUSAL_RERANK_MIN_RESULTS,
+        maxTopK: CAUSAL_RERANK_MAX_TOP_K,
+      },
+      buildCausalMembershipIndex(causalState),
+      "no causal coverage"
+    )
   )
 }
 
@@ -685,17 +704,20 @@ export function applyPolicyRerank(
   matched: Scored,
   policyState: PolicyEngineState,
   topK: number
-): LimitedRerankReport {
-  return applyLimitedRerank(
-    matched,
-    topK,
-    {
-      cap: POLICY_RERANK_CAP,
-      maxPosShift: POLICY_RERANK_MAX_POS_SHIFT,
-      minResults: POLICY_RERANK_MIN_RESULTS,
-      maxTopK: POLICY_RERANK_MAX_TOP_K,
-    },
-    buildPolicyMembershipIndex(policyState)
+): LimitedPolicyRerankReport {
+  return asPolicyReport(
+    applyLimitedRerank(
+      matched,
+      topK,
+      {
+        cap: POLICY_RERANK_CAP,
+        maxPosShift: POLICY_RERANK_MAX_POS_SHIFT,
+        minResults: POLICY_RERANK_MIN_RESULTS,
+        maxTopK: POLICY_RERANK_MAX_TOP_K,
+      },
+      buildPolicyMembershipIndex(policyState),
+      "no policy coverage"
+    )
   )
 }
 
@@ -703,29 +725,53 @@ export function rerankWithSnapshots(
   scored: RecallScored,
   topK: number,
   snapshots: BoundedRerankerSnapshots,
-  modes: BoundedRerankModes
+  modes: BoundedRerankModes,
+  reportSink?: (report: BoundedRerankReport) => void,
+  shadow?: ShadowRecallReport
 ): RecallScored {
   let matched: Scored | undefined
   let wasApplied = false
+  let beliefReport: LimitedRerankReport | undefined
+  let conceptReport: LimitedConceptRerankReport | undefined
+  let causalReport: LimitedCausalRerankReport | undefined
+  let policyReport: LimitedPolicyRerankReport | undefined
   const ensureMatched = (): Scored => {
     matched ??= Array.from(scored)
     return matched
   }
 
   if (modes.beliefMode === BeliefRerankMode.Limited && snapshots.belief) {
-    wasApplied = applyBeliefRerank(ensureMatched(), snapshots.belief, topK).was_applied || wasApplied
+    beliefReport = applyBeliefRerank(ensureMatched(), snapshots.belief, topK)
+    wasApplied = beliefReport.was_applied || wasApplied
   }
 
   if (modes.conceptMode === ConceptSurfaceMode.Limited && snapshots.concept) {
-    wasApplied = applyConceptRerank(ensureMatched(), snapshots.concept, topK).was_applied || wasApplied
+    conceptReport = applyConceptRerank(ensureMatched(), snapshots.concept, topK)
+    wasApplied = conceptReport.was_applied || wasApplied
   }
 
   if (modes.causalMode === CausalRerankMode.Limited && snapshots.causal) {
-    wasApplied = applyCausalRerank(ensureMatched(), snapshots.causal, topK).was_applied || wasApplied
+    causalReport = applyCausalRerank(ensureMatched(), snapshots.causal, topK)
+    wasApplied = causalReport.was_applied || wasApplied
   }
 
   if (modes.policyMode === PolicyRerankMode.Limited && snapshots.policy) {
-    wasApplied = applyPolicyRerank(ensureMatched(), snapshots.policy, topK).was_applied || wasApplied
+    policyReport = applyPolicyRerank(ensureMatched(), snapshots.policy, topK)
+    wasApplied = policyReport.was_applied || wasApplied
+  }
+
+  if (reportSink !== undefined) {
+    emitReport(
+      reportSink,
+      {
+        modes,
+        ...(beliefReport !== undefined ? { belief: beliefReport } : {}),
+        ...(conceptReport !== undefined ? { concept: conceptReport } : {}),
+        ...(causalReport !== undefined ? { causal: causalReport } : {}),
+        ...(policyReport !== undefined ? { policy: policyReport } : {}),
+        ...(shadow !== undefined ? { shadow } : {}),
+      } as BoundedRerankReport
+    )
   }
 
   return wasApplied ? matched! : scored
@@ -744,14 +790,18 @@ export class BoundedRerankerImpl implements BoundedReranker.Interface {
     const self = this
     return Effect.gen(function* () {
       const snapshot = yield* self.loadSnapshot()
-      const modes = mergeModes(snapshot.modes)
+      const modes = mergeBoundedRerankModes({
+        ...(snapshot.modes ?? {}),
+        ...(context?.modes ?? {}),
+      })
       const topK = context?.topK ?? scored.length
+      let shadowReport: ShadowRecallReport | undefined
       if (
         modes.beliefMode === BeliefRerankMode.Shadow &&
-        snapshot.beliefState &&
-        snapshot.shadowReportSink
+        snapshot.beliefState
       ) {
-        snapshot.shadowReportSink(computeShadowBeliefScores(scored, snapshot.beliefState, topK))
+        shadowReport = computeShadowBeliefScores(scored, snapshot.beliefState, topK)
+        snapshot.shadowReportSink?.(shadowReport)
       }
       return rerankWithSnapshots(
         scored,
@@ -762,7 +812,9 @@ export class BoundedRerankerImpl implements BoundedReranker.Interface {
           causal: snapshot.causalState,
           policy: snapshot.policyState,
         },
-        modes
+        modes,
+        context?.reportSink,
+        shadowReport
       )
     })
   }

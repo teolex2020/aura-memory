@@ -50,6 +50,23 @@ export enum PolicyRerankMode {
 export type BoundedRerankContext = {
   /** Requested top_k from the recall call. Rust skips Limited rerank when top_k > 20. */
   readonly topK: number
+  /**
+   * Runtime bounded rerank modes for this recall call.
+   *
+   * 本次召回调用使用的 bounded rerank 运行模式。
+   *
+   * Rust reference: `RecallRerankView` in `../src/recall_service.rs`.
+   */
+  readonly modes?: Partial<BoundedRerankModes>
+  /**
+   * Optional diagnostic sink for bounded rerank reports.
+   *
+   * 可选诊断报告 sink，用于 trace/explainability surface 收集 bounded rerank 信息。
+   *
+   * Rust reference: `RecallService::shadow_report` and
+   * `RecallService::rerank_report` in `../src/recall_service.rs`.
+   */
+  readonly reportSink?: (report: BoundedRerankReport) => void
 }
 
 export type BoundedRerankModes = {
@@ -57,6 +74,146 @@ export type BoundedRerankModes = {
   readonly conceptMode: import("./Maintenance").ConceptSurfaceMode
   readonly causalMode: CausalRerankMode
   readonly policyMode: PolicyRerankMode
+}
+
+/** Fields shared by Rust limited rerank report variants. */
+export type LimitedRerankReportBase = {
+  /** Whether limited reranking was actually applied (false if scope guards blocked). */
+  readonly was_applied: boolean
+  /** Reason reranking was skipped (empty if applied). */
+  readonly skip_reason: string
+  /** Number of records whose position changed. */
+  readonly records_moved: number
+  /** Maximum upward positional shift observed. */
+  readonly max_up_shift: number
+  /** Maximum downward positional shift observed. */
+  readonly max_down_shift: number
+  /** Top-k overlap: fraction of top-k records shared between baseline and reranked. */
+  readonly top_k_overlap: number
+  /** Latency of reranking in microseconds. */
+  readonly rerank_latency_us: number
+}
+
+/**
+ * Report from limited belief reranking, capturing what changed.
+ *
+ * belief limited rerank 报告，字段名保持 Rust 原始命名。
+ *
+ * Rust reference: `LimitedRerankReport` in `../src/recall.rs`.
+ */
+export type LimitedRerankReport = LimitedRerankReportBase & {
+  /** Average belief multiplier across all records. */
+  readonly avg_belief_multiplier: number
+  /** Fraction of records that have belief membership. */
+  readonly belief_coverage: number
+}
+
+/**
+ * Report from limited concept reranking.
+ *
+ * concept limited rerank 报告，字段名保持 Rust 原始命名。
+ *
+ * Rust reference: `LimitedConceptRerankReport` in `../src/recall.rs`.
+ */
+export type LimitedConceptRerankReport = LimitedRerankReportBase & {
+  readonly avg_concept_multiplier: number
+  readonly concept_coverage: number
+}
+
+/**
+ * Report from limited causal reranking.
+ *
+ * causal limited rerank 报告，字段名保持 Rust 原始命名。
+ *
+ * Rust reference: `LimitedCausalRerankReport` in `../src/recall.rs`.
+ */
+export type LimitedCausalRerankReport = LimitedRerankReportBase & {
+  readonly avg_causal_multiplier: number
+  readonly causal_coverage: number
+}
+
+/**
+ * Report from limited policy reranking.
+ *
+ * policy limited rerank 报告，字段名保持 Rust 原始命名。
+ *
+ * Rust reference: `LimitedPolicyRerankReport` in `../src/recall.rs`.
+ */
+export type LimitedPolicyRerankReport = LimitedRerankReportBase & {
+  readonly avg_policy_multiplier: number
+  readonly policy_coverage: number
+}
+
+/**
+ * Shadow belief score for a single recalled record.
+ *
+ * 单条召回记录的 shadow belief score。
+ *
+ * Rust reference: `ShadowBeliefScore` in `../src/recall.rs`.
+ */
+export type ShadowBeliefScore = {
+  /** Record ID. */
+  readonly record_id: string
+  /** Original recall score (from trust-aware pipeline). */
+  readonly baseline_score: number
+  /** Belief-adjusted shadow score (baseline x belief_multiplier). */
+  readonly shadow_score: number
+  /** Belief multiplier applied (1.0 if no belief membership). */
+  readonly belief_multiplier: number
+  /** Belief state of the record's belief (None if no belief membership). */
+  readonly belief_state: string | null
+  /** Belief confidence (0.0 if no belief membership). */
+  readonly belief_confidence: number
+  /** Position in baseline ranking (0-based). */
+  readonly baseline_rank: number
+  /** Position in shadow ranking (0-based). */
+  readonly shadow_rank: number
+  /** Rank change: positive = promoted, negative = demoted. */
+  readonly rank_delta: number
+}
+
+/**
+ * Comparison report: baseline vs shadow ranking.
+ *
+ * baseline 与 shadow ranking 的对比报告。
+ *
+ * Rust reference: `ShadowRecallReport` in `../src/recall.rs`.
+ */
+export type ShadowRecallReport = {
+  /** Per-record shadow scores. */
+  readonly scores: ReadonlyArray<ShadowBeliefScore>
+  /** Top-k overlap: fraction of top-k records shared between baseline and shadow. */
+  readonly top_k_overlap: number
+  /** Number of records promoted (moved up in shadow ranking). */
+  readonly promoted_count: number
+  /** Number of records demoted (moved down in shadow ranking). */
+  readonly demoted_count: number
+  /** Number of records with no rank change. */
+  readonly unchanged_count: number
+  /** Fraction of recalled records that have belief membership. */
+  readonly belief_coverage: number
+  /** Average belief multiplier across all records. */
+  readonly avg_belief_multiplier: number
+  /** Latency of shadow scoring in microseconds. */
+  readonly shadow_latency_us: number
+}
+
+/**
+ * Diagnostic report for one bounded rerank pass.
+ *
+ * 单次 bounded rerank pass 的诊断报告；TS 侧合并四个 Rust stage report，
+ * 但每个 stage 内部字段保持 Rust 原始命名。
+ *
+ * Rust reference: `RecallRerankView` plus bounded report helpers in
+ * `../src/recall_service.rs`.
+ */
+export type BoundedRerankReport = {
+  readonly modes: BoundedRerankModes
+  readonly belief?: LimitedRerankReport
+  readonly concept?: LimitedConceptRerankReport
+  readonly causal?: LimitedCausalRerankReport
+  readonly policy?: LimitedPolicyRerankReport
+  readonly shadow?: ShadowRecallReport
 }
 
 export type RecallView = {

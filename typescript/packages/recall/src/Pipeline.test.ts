@@ -2,15 +2,21 @@ import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import {
+  BeliefRerankMode,
+  BeliefState,
   BoundedReranker,
+  CausalRerankMode,
   Clock,
+  ConceptSurfaceMode,
   EmbeddingStore,
+  PolicyRerankMode,
   RecallFinalizer,
   RecallViewTag,
   TrustConfigTag,
+  type BeliefEngineState,
   type RecallView
 } from "@aura/contract"
-import { SDRInterpreter, recallPipeline } from "@aura/recall"
+import { BoundedRerankerImpl, SDRInterpreter, recallPipeline, recallPipelineWithTrace } from "@aura/recall"
 
 async function makeView(query: string): Promise<RecallView> {
   const sdr = await SDRInterpreter.default()
@@ -220,6 +226,43 @@ it("reranker is skipped when missing, used when present", async () => {
   assert.deepStrictEqual(scored.map(([, id]) => id), ["r3", "r1"])
 })
 
+it("trace captures Shadow bounded rerank report without changing ranking", async () => {
+  const query = "alpha"
+  const view = await makeView(query)
+  const { clock, iso } = fixedClock(1_700_000_000)
+  setTimestamp(view, "r1", iso)
+  setTimestamp(view, "r2", iso)
+  setTimestamp(view, "r3", iso)
+
+  const reranker = new BoundedRerankerImpl(() =>
+    Effect.succeed({
+      beliefState: beliefState({ r3: BeliefState.Resolved }),
+      modes: {
+        beliefMode: BeliefRerankMode.Shadow,
+        conceptMode: ConceptSurfaceMode.Off,
+        causalMode: CausalRerankMode.Off,
+        policyMode: PolicyRerankMode.Off,
+      },
+    })
+  )
+
+  const traced = await Effect.runPromise(
+    recallPipelineWithTrace(query, { topK: 10, expandConnections: true }).pipe(
+      Effect.provideService(RecallViewTag, view),
+      Effect.provideService(Clock, clock),
+      Effect.provideService(BoundedReranker, reranker)
+    )
+  )
+
+  assert.strictEqual(traced.boundedRerankReport?.modes.beliefMode, BeliefRerankMode.Shadow)
+  const shadow = traced.boundedRerankReport?.shadow
+  if (shadow === undefined) throw new Error("missing shadow report")
+  assert.strictEqual(shadow.scores.length, traced.scored.length)
+  assert.isTrue(shadow.belief_coverage > 0)
+  assert.strictEqual(shadow.scores.find((score) => score.record_id === "r3")?.belief_multiplier, 1.10)
+  assert.deepStrictEqual(traced.scored.map(([, id]) => id), ["r1", "r2", "r3"])
+})
+
 it("finalizer is skipped when missing, called when present", async () => {
   const query = "alpha"
   const view = await makeView(query)
@@ -274,3 +317,27 @@ it("trust config is skipped when missing, used when present", async () => {
   assert.strictEqual(withConfig[0]![1], "r1")
   assert.isTrue(withConfig[0]![0] < noConfig[0]![0])
 })
+
+function beliefState(recordStates: Record<string, BeliefState>): BeliefEngineState {
+  const beliefs: Record<string, BeliefEngineState["beliefs"][string]> = {}
+  const record_to_belief: Record<string, string> = {}
+  for (const [recordId, state] of Object.entries(recordStates)) {
+    const beliefId = `b-${recordId}`
+    beliefs[beliefId] = {
+      id: beliefId,
+      key: beliefId,
+      hypothesis_ids: [],
+      winner_id: null,
+      state,
+      score: 1,
+      confidence: 1,
+      support_mass: 1,
+      conflict_mass: 0,
+      stability: 1,
+      volatility: 0,
+      last_updated: 0
+    }
+    record_to_belief[recordId] = beliefId
+  }
+  return { version: 1, beliefs, hypotheses: {}, record_to_belief, key_index: {}, record_index: record_to_belief }
+}

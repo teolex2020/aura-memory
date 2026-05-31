@@ -6,7 +6,14 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import { Aura } from "./index"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
-import { BeliefStoreFile, BrainAuraFile, CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
+import {
+  BeliefStoreFile,
+  BrainAuraFile,
+  CognitiveStoreFile,
+  loadCognitiveRecords,
+  MaintenanceTrendsFile,
+  ReflectionSummariesFile,
+} from "@aura/storage"
 import { EpistemicRuntimeLive } from "@aura/epistemic-runtime"
 import {
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
@@ -140,6 +147,160 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.get_policy_rerank_mode(), PolicyRerankMode.Limited)
     assert.strictEqual(aura.get_causal_evidence_mode(), EvidenceMode.ExplicitTrusted)
     assert.strictEqual(aura.is_belief_rerank_enabled(), true)
+  })
+
+  it("exposes Rust-shaped maintenance trend and reflection history", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-maintenance-history-"))
+    await Effect.runPromise(provideNode(BrainAuraFile.open(brainPath).pipe(Effect.flatMap((file) => file.flush()))))
+
+    await Effect.runPromise(provideNode(MaintenanceTrendsFile.new(brainPath).save([
+      {
+        timestamp: "2026-05-30T00:00:00.000Z",
+        total_records: 2,
+        records_archived: 0,
+        insights_found: 1,
+        volatile_records: 1,
+        belief_churn: 0.25,
+        causal_rejection_rate: 0.1,
+        policy_suppression_rate: 0.2,
+        feedback_beliefs_touched: 1,
+        feedback_net_confidence_delta: 0.05,
+        feedback_net_volatility_delta: -0.02,
+        correction_events: 1,
+        cumulative_corrections: 3,
+        cycle_time_ms: 12,
+        dominant_phase: "belief",
+      },
+      {
+        timestamp: "2026-05-31T00:00:00.000Z",
+        total_records: 3,
+        records_archived: 1,
+        insights_found: 2,
+        volatile_records: 0,
+        belief_churn: 0.1,
+        causal_rejection_rate: 0,
+        policy_suppression_rate: 0,
+        feedback_beliefs_touched: 0,
+        feedback_net_confidence_delta: 0,
+        feedback_net_volatility_delta: 0,
+        correction_events: 0,
+        cumulative_corrections: 3,
+        cycle_time_ms: 8,
+        dominant_phase: "policy",
+      },
+    ])))
+
+    await Effect.runPromise(provideNode(ReflectionSummariesFile.new(brainPath).save([
+      {
+        timestamp: "2026-05-29T00:00:00.000Z",
+        digest: "old",
+        dominant_phase: "old-phase",
+        report: {
+          jobs_run: 3,
+          blocker_findings: 0,
+          contradiction_findings: 0,
+          trend_findings: 1,
+          total_findings: 99,
+          capped: false,
+        },
+        findings: [
+          {
+            kind: "trend",
+            namespace: "old-ns",
+            title: "old finding",
+            detail: "old",
+            related_ids: ["old"],
+            score: 0.1,
+            severity: "low",
+          },
+        ],
+      },
+      {
+        timestamp: "2026-05-30T00:00:00.000Z",
+        digest: "mid",
+        dominant_phase: "mid-phase",
+        report: {
+          jobs_run: 3,
+          blocker_findings: 1,
+          contradiction_findings: 0,
+          trend_findings: 0,
+          total_findings: 99,
+          capped: false,
+        },
+        findings: [
+          {
+            kind: "blocker",
+            namespace: "alpha",
+            title: "mid blocker",
+            detail: "mid",
+            related_ids: ["mid"],
+            score: 0.4,
+            severity: "low",
+          },
+        ],
+      },
+      {
+        timestamp: "2026-05-31T00:00:00.000Z",
+        digest: "latest",
+        dominant_phase: "latest-phase",
+        report: {
+          jobs_run: 3,
+          blocker_findings: 1,
+          contradiction_findings: 0,
+          trend_findings: 1,
+          total_findings: 99,
+          capped: false,
+        },
+        findings: [
+          {
+            kind: "blocker",
+            namespace: "beta",
+            title: "B blocker",
+            detail: "new blocker",
+            related_ids: ["new-b"],
+            score: 0.9,
+            severity: "high",
+          },
+          {
+            kind: "trend",
+            namespace: "alpha",
+            title: "A trend",
+            detail: "new trend",
+            related_ids: ["new-a"],
+            score: 0.9,
+            severity: "medium",
+          },
+        ],
+      },
+    ])))
+
+    const aura = await Effect.runPromise(provideNode(Aura.open(brainPath)))
+
+    const manifest = aura.get_persistence_manifest()
+    assert.strictEqual(manifest.schema_version, 1)
+    assert.strictEqual(manifest.surfaces.maintenance_trends, 1)
+    assert.strictEqual(manifest.surfaces.reflection_summaries, 1)
+
+    const trends = aura.get_maintenance_trend_history()
+    assert.strictEqual(trends.length, 2)
+    assert.strictEqual(trends[0]?.total_records, 2)
+    assert.strictEqual(trends[1]?.dominant_phase, "policy")
+
+    const latestFirst = aura.get_reflection_summaries(2)
+    assert.deepStrictEqual(latestFirst.map((summary) => summary.digest), ["latest", "mid"])
+    assert.strictEqual(aura.get_latest_reflection_digest()?.digest, "latest")
+
+    const digest = aura.get_reflection_digest(2)
+    assert.strictEqual(digest.summary_count, 2)
+    assert.strictEqual(digest.total_findings, 3)
+    assert.strictEqual(digest.high_severity_findings, 1)
+    assert.strictEqual(digest.latest_dominant_phase, "latest-phase")
+    assert.deepStrictEqual(digest.namespaces, ["alpha", "beta"])
+    assert.deepStrictEqual(digest.top_findings.map((finding) => finding.title), [
+      "A trend",
+      "B blocker",
+      "mid blocker",
+    ])
   })
 
   it("recall shadow and rerank report methods use raw baseline then finalize", async () => {

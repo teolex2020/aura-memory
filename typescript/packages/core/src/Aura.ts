@@ -36,6 +36,7 @@ import {
   ReflectionSummariesFile,
   readBrainAuraFile,
   type BrainAuraRecord,
+  type PersistenceManifest,
 } from "@aura/storage";
 import type { IndexFormatError } from "@aura/indexing";
 import {
@@ -299,6 +300,7 @@ export class Aura {
     private readonly brainDir: string,
     private readonly records: BrainAuraRecord[],
     private searchRecords: Map<string, AuraRecord> = new Map(),
+    private readonly persistenceManifest: PersistenceManifest,
     private readonly maintenanceTrendHistory: MaintenanceTrendSnapshot[] = [],
     private readonly reflectionSummaries: ReflectionSummary[] = [],
     private readonly correctionLog: CorrectionLogEntry[] = [],
@@ -319,7 +321,7 @@ export class Aura {
     const brainAuraPath = `${brainPath}/brain.aura`;
     return Effect.gen(function* () {
       const fs = yield* Effect.service(FileRead);
-      yield* loadPersistenceManifestWithValidation(brainPath);
+      const persistenceManifest = yield* loadPersistenceManifestWithValidation(brainPath);
       const buf = yield* fs.readFile(brainAuraPath);
       const parsed = yield* Effect.try({
         try: () => readBrainAuraFile(buf),
@@ -355,7 +357,7 @@ export class Aura {
         }
         yield* store.flush()
       }
-      return new Aura(brainPath, parsed.records, cognitiveRecords, trends, reflections);
+      return new Aura(brainPath, parsed.records, cognitiveRecords, persistenceManifest, trends, reflections);
     });
   }
 
@@ -1988,9 +1990,50 @@ export class Aura {
     return toMcpMaintenanceTrendSummary(summarizeTrends(this.maintenanceTrendHistory))
   }
 
+  /**
+   * Return the bounded persisted maintenance trend history.
+   * 返回有界持久化 maintenance trend history。
+   *
+   * Rust reference: `Aura::get_maintenance_trend_history` (`../src/aura.rs`).
+   */
+  get_maintenance_trend_history(): ReadonlyArray<McpMaintenanceTrendSnapshot> {
+    return this.maintenanceTrendHistory.map(toMcpMaintenanceTrendSnapshot)
+  }
+
+  /**
+   * Return the bounded persisted reflection history.
+   * 返回有界持久化 reflection history，最新项在前。
+   *
+   * Rust reference: `Aura::get_reflection_summaries` (`../src/aura.rs`).
+   */
+  get_reflection_summaries(limit?: number): ReadonlyArray<McpReflectionSummary> {
+    const max = clampInt(limit ?? 8, 1, 32)
+    return this.reflectionSummaries
+      .slice(-max)
+      .reverse()
+      .map(toMcpReflectionSummary)
+  }
+
+  /**
+   * Return the latest persisted reflection digest, if any.
+   * 返回最近一次持久化 reflection digest；不存在则返回 null。
+   *
+   * Rust reference: `Aura::get_latest_reflection_digest` (`../src/aura.rs`).
+   */
+  get_latest_reflection_digest(): McpReflectionSummary | null {
+    const latest = this.reflectionSummaries[this.reflectionSummaries.length - 1]
+    return latest === undefined ? null : toMcpReflectionSummary(latest)
+  }
+
+  /**
+   * Return a bounded aggregated digest across recent reflection summaries.
+   * 返回最近 reflection summaries 的有界聚合 digest。
+   *
+   * Rust reference: `Aura::get_reflection_digest` (`../src/aura.rs`).
+   */
   get_reflection_digest(limit?: number): McpReflectionDigest {
-    const max = clampInt(limit ?? 8, 1, 50)
-    const digest = summarizeReflections(this.reflectionSummaries)
+    const max = clampInt(limit ?? 8, 1, 32)
+    const digest = summarizeReflections(this.reflectionSummaries.slice(-max))
     return {
       summary_count: digest.summaryCount,
       total_findings: digest.totalFindings,
@@ -2004,7 +2047,20 @@ export class Aura {
         avg_score: kind.avgScore,
       })),
       namespaces: digest.namespaces,
-      top_findings: digest.topFindings.slice(0, max).map(toMcpReflectionFinding),
+      top_findings: digest.topFindings.map(toMcpReflectionFinding),
+    }
+  }
+
+  /**
+   * Return the current persistence manifest describing versioned persisted surfaces.
+   * 返回当前持久化 manifest，描述各持久化 surface 的版本。
+   *
+   * Rust reference: `Aura::get_persistence_manifest` (`../src/aura.rs`).
+   */
+  get_persistence_manifest(): PersistenceManifest {
+    return {
+      schema_version: this.persistenceManifest.schema_version,
+      surfaces: { ...this.persistenceManifest.surfaces },
     }
   }
 

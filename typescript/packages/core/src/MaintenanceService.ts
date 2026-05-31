@@ -766,9 +766,14 @@ export function pushReflectionSummary(
 
 /**
  * Aggregate the full reflection history into a digest.
+ * 聚合 reflection history，生成最近窗口的 digest。
  *
- * Pure function (no Effect).  Groups findings by kind and namespace, isolates
+ * Pure function (no Effect). Groups findings by kind and namespace, isolates
  * the top {@link REFLECTION_FINDING_LIMIT} highest-scoring findings.
+ * 纯函数（无 Effect）。按 kind / namespace 聚合 findings，并保留分数最高的
+ * {@link REFLECTION_FINDING_LIMIT} 条 finding。
+ *
+ * Rust reference: `MaintenanceService::summarize_reflections` (`../src/maintenance_service.rs`).
  */
 export function summarizeReflections(
   history: ReadonlyArray<ReflectionSummary>
@@ -778,12 +783,11 @@ export function summarizeReflections(
   let totalFindings = 0
   let highSeverityFindings = 0
   const kindMap = new Map<string, { count: number; highSeverityCount: number; totalScore: number }>()
-  const namespaceSet = new Set<string>()
+  const namespaceCounts = new Map<string, number>()
 
   for (const summary of history) {
-    totalFindings += summary.report.totalFindings
-    namespaceSet.add(summary.dominantPhase)
     for (const f of summary.findings) {
+      totalFindings++
       if (f.severity === "high") highSeverityFindings++
       const entry = kindMap.get(f.kind)
       if (entry) {
@@ -793,6 +797,7 @@ export function summarizeReflections(
       } else {
         kindMap.set(f.kind, { count: 1, highSeverityCount: f.severity === "high" ? 1 : 0, totalScore: f.score })
       }
+      namespaceCounts.set(f.namespace, (namespaceCounts.get(f.namespace) ?? 0) + 1)
     }
   }
 
@@ -803,7 +808,7 @@ export function summarizeReflections(
       allFindings.push(f)
     }
   }
-  allFindings.sort((a, b) => b.score - a.score)
+  allFindings.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
   const topFindings = allFindings.slice(0, REFLECTION_FINDING_LIMIT)
 
   // Build kind summaries
@@ -816,10 +821,17 @@ export function summarizeReflections(
       avgScore: entry.count > 0 ? entry.totalScore / entry.count : 0,
     })
   }
-  kinds.sort((a, b) => b.count - a.count)
+  kinds.sort((a, b) =>
+    b.highSeverityCount - a.highSeverityCount ||
+    b.count - a.count ||
+    b.avgScore - a.avgScore
+  )
 
   // Limit namespaces
-  const namespaces = Array.from(namespaceSet).slice(0, REFLECTION_NAMESPACE_LIMIT)
+  const namespaces = Array.from(namespaceCounts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, REFLECTION_NAMESPACE_LIMIT)
+    .map(([namespace]) => namespace)
 
   return {
     summaryCount,

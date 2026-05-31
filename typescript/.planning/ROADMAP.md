@@ -193,7 +193,7 @@ Plans:
 - Former backlog `999.2` (cross-engine NON-PARITY tracking + Policy surface cleanup + `runMaintenance` record-path fix)
 - Remaining D-07 maintenance-service algorithm debt required to make `maintain` / `insights` / `memory_health` / explainability-governance tools parity-grade
 
-**Plans:** 6/8 plans executed
+**Plans:** 7/8 plans executed
 
 **Wave 1** *(foundation — blocked only by plan ordering inside the wave)*
 
@@ -209,7 +209,7 @@ Plans:
 **Wave 3** *(blocked on Waves 1-2 completion)*
 
 - [x] 07-06-PLAN.md — `@aura/mcp` package scaffold with Mastra stdio server, env binding, schemas, and inventory smoke test
-- [ ] 07-07-PLAN.md — Full MCP handler wiring, Rust-shaped text payloads, invocation tests, and explicit unsupported mapping
+- [x] 07-07-PLAN.md — Full MCP handler wiring, Rust-shaped text payloads, invocation tests, and explicit unsupported mapping
 
 **Wave 4** *(blocked on Waves 1-3 completion)*
 

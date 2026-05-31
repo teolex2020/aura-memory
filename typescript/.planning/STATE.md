@@ -5,13 +5,13 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: mcp-polish
 status: executing
-last_updated: "2026-05-31T05:50:01.402Z"
+last_updated: "2026-05-31T07:28:20.486Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 13
   completed_phases: 4
   total_plans: 33
-  completed_plans: 31
+  completed_plans: 32
   percent: 31
 ---
 
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 07 (mcp-polish) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Current Phase: 07
 Current Phase Name: mcp-polish
 Total Phases: 10
 Status: Ready to execute
 Last activity: 2026-05-31
 
-Progress: [█████████░] 94%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [█████████░] 94%
 | Phase 07-mcp-polish P04 | 14min | 1 tasks | 4 files |
 | Phase 07 P05 | 19min | 1 tasks | 6 files |
 | Phase 07 P06 | 62min | 1 tasks | 12 files |
+| Phase 07 P07 | 16min | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,8 @@ See PROJECT.md Key Decisions for full log. Recent decisions:
 - [Phase 07]: Pass 07-05 evidence bridge uses a trace-capable @aura/recall helper that reruns collectors/walks and accumulates per-record signal buckets.
 - [Phase 07]: Mastra retained for @aura/mcp stdio because installed docs/types verified MCPServer.startStdio() and stdio smoke passed. — Direct @modelcontextprotocol/sdk fallback was unnecessary for 07-06.
 - [Phase 07]: MCP tool schemas use per-field Zod factories to avoid ref-backed JSON Schema that Mastra MCP client cannot convert during stdio inventory discovery. — This keeps all locked Phase 7 tools visible in tools/list.
+- [Phase 07]: Unsupported core typed failures are returned as deterministic JSON text payloads for MCP. — Makes unsupported behavior explicit and test-covered while preserving text-content transport.
+- [Phase 07]: The canonical MCP inventory is TOOL_INVENTORY; TOOL_NAMES is derived from it so registration/tests cannot drift. — Keeps registration, invocation tests, and final parity harness on one ledger.
 
 ### Pending Todos
 
@@ -110,8 +113,8 @@ Items carried forward:
 
 ## Session Continuity
 
-Last session: 2026-05-31T05:49:59.207Z
-Stopped at: Completed 07-06-PLAN.md
+Last session: 2026-05-31T07:28:18.351Z
+Stopped at: Completed 07-07-PLAN.md
 Resume file: None
 �� @aura/utils | backlog 999.3 | 2026-05-29 |
 

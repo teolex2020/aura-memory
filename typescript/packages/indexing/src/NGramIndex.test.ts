@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process"
 import * as path from "node:path"
 import { describe, expect, it } from "vitest"
 import { NGramIndex, tokenizeNGram, xxh3NGramHash } from "./NGramIndex"
+import { SynonymRing } from "./SynonymRing"
 
 type RustNGramVerifier = {
   readonly hashes: ReadonlyArray<readonly [string, number]>
@@ -72,5 +73,23 @@ describe("NGramIndex Rust parity", () => {
     idx.remove("a")
     expect(idx.contains("a")).toBe(false)
     expect(idx.len()).toBe(2)
+  })
+
+  it("expands add/query text through SynonymRing like Rust", () => {
+    const ring = new SynonymRing()
+    ring.addPair("fast", "quick")
+    ring.addGroup(["big", "large", "huge"])
+
+    expect(ring.contains("FAST")).toBe(true)
+    expect(ring.get("big")).toEqual(new Set(["large", "huge"]))
+    expect(ring.len()).toBe(5)
+    expect(ring.isEmpty()).toBe(false)
+    expect(ring.expand("fast car")).toBe("fast car quick")
+
+    const idx = NGramIndex.withSeed0(ring)
+    idx.add("r1", "quick sprint")
+    idx.add("r2", "slow turtle")
+
+    expect(idx.query("fast sprint", 10).map(([, id]) => id)).toContain("r1")
   })
 })

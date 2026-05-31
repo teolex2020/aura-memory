@@ -1,5 +1,17 @@
 # Implementation Log
 
+## 2026-06-01 - NGramIndex SynonymRing expansion parity
+
+- 范围：`packages/indexing/src/SynonymRing.ts`、`packages/indexing/src/NGramIndex.ts`、`packages/indexing/src/NGramIndex.test.ts`、`packages/indexing/src/index.ts`。
+- 实现：新增纯逻辑 `SynonymRing`，对齐 Rust `SynonymRing::add_pair`、`add_group`、`get`、`expand`、`len`、`is_empty`、`contains` 的双向同义词环语义；不在 `@aura/indexing` 引入 `node:*` 或文件 IO。
+- 实现：`NGramIndex.random()` / `NGramIndex.withSeed0()` 接受可选 `SynonymRing`，并在 `add()` / `query()` 前按 Rust `NGramIndex::expand` 执行同义词扩展；移除缺少 SynonymRing 的 NON-PARITY 标记。
+- Rust reference：`SynonymRing`（`../src/synonym.rs`），`NGramIndex::expand` / `NGramIndex::add` / `NGramIndex::query`（`../src/ngram.rs`）。
+- 验证：
+  - `bun run test packages/indexing/src/NGramIndex.test.ts` 通过，1 file / 5 tests。
+  - `bun run typecheck` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 536 tests。
+  - 备注：默认并发 `bun run test` 两次在测试执行末尾触发 Vitest/tinypool worker teardown 的 `RangeError: Maximum call stack size exceeded`，单线程池全量通过。
+
 ## 2026-06-01 - Core/RRF 签名 JSDoc 注释规范补齐
 
 - 范围：`packages/core/src/Aura.ts`、`packages/core/src/Recall.ts`、`packages/recall/src/RRF.ts`。

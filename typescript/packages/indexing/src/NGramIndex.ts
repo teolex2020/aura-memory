@@ -1,3 +1,5 @@
+import { SynonymRing } from "./SynonymRing"
+
 const PRIME = 2_147_483_647
 const PRIME_BIGINT = 2_147_483_647n
 const DEFAULT_NUM_HASHES = 128
@@ -135,8 +137,6 @@ function randomCoefficientB(): number {
  * 基于 MinHash 的 n-gram 索引，用于近似 Jaccard 相似度。
  *
  * Rust reference: `NGramIndex` in `../src/ngram.rs`.
- * NON-PARITY IMPLEMENTATION: Rust can expand query/index text with `SynonymRing`.
- * 中文说明：TS 目前没有 synonym ring 服务，索引与查询均使用原始文本；后续接入同义词环时应放到这里。
  */
 export class NGramIndex {
   private readonly aBig: ReadonlyArray<bigint>
@@ -146,7 +146,8 @@ export class NGramIndex {
 
   private constructor(
     private readonly a: ReadonlyArray<number>,
-    private readonly b: ReadonlyArray<number>
+    private readonly b: ReadonlyArray<number>,
+    private readonly synonymRing?: SynonymRing
   ) {
     if (a.length !== b.length || a.length === 0) {
       throw new RangeError("NGramIndex requires non-empty equal coefficient arrays")
@@ -156,18 +157,31 @@ export class NGramIndex {
     this.buckets = Array.from({ length: a.length }, () => new Map<number, string[]>())
   }
 
-  /** Create a new n-gram index. 创建新的 n-gram 索引。 */
-  static random(numHashes = DEFAULT_NUM_HASHES): NGramIndex {
-    // NON-PARITY IMPLEMENTATION: this mirrors Rust's non-deterministic constructor shape,
-    // but JS Math.random is not Rust thread_rng. Use `withSeed0` for verifier parity.
+  /**
+   * Create a new n-gram index.
+   * 创建新的 n-gram 索引。
+   *
+   * NON-PARITY IMPLEMENTATION: this mirrors Rust's non-deterministic constructor shape,
+   * but JS Math.random is not Rust thread_rng. Use `withSeed0` for verifier parity.
+   */
+  static random(numHashes = DEFAULT_NUM_HASHES, synonymRing?: SynonymRing): NGramIndex {
     const a = Array.from({ length: numHashes }, randomCoefficientA)
     const b = Array.from({ length: numHashes }, randomCoefficientB)
-    return new NGramIndex(a, b)
+    return new NGramIndex(a, b, synonymRing)
   }
 
   /** Create the deterministic verifier index equivalent to Rust `with_seed(None, None, 0)`. 创建与 Rust verifier 等价的确定性索引。 */
-  static withSeed0(): NGramIndex {
-    return new NGramIndex(RUST_SEED_0_A, RUST_SEED_0_B)
+  static withSeed0(synonymRing?: SynonymRing): NGramIndex {
+    return new NGramIndex(RUST_SEED_0_A, RUST_SEED_0_B, synonymRing)
+  }
+
+  /**
+   * Expand text using synonym ring.
+   * 使用 synonym ring 扩展文本。
+   * Rust reference: `NGramIndex::expand` (`../src/ngram.rs`).
+   */
+  private expand(text: string): string {
+    return this.synonymRing?.expand(text) ?? text
   }
 
   /** Compute MinHash signature for a set of shingles. 为 shingle 集合计算 MinHash 签名。 */
@@ -185,7 +199,7 @@ export class NGramIndex {
 
   /** Index a record. 为记录建立索引。 */
   add(recordId: string, text: string): void {
-    const shingles = tokenizeNGram(text)
+    const shingles = tokenizeNGram(this.expand(text))
     if (shingles.length === 0) return
 
     const sig = this.minhash(shingles)
@@ -227,7 +241,7 @@ export class NGramIndex {
    */
   query(text: string, topK: number): Array<[number, string]> {
     if (topK <= 0) return []
-    const shingles = tokenizeNGram(text)
+    const shingles = tokenizeNGram(this.expand(text))
     if (shingles.length === 0) return []
 
     const querySig = this.minhash(shingles)

@@ -16,6 +16,7 @@ import {
   type Record as AuraRecord,
   type SalienceSummary,
   type StoreOptions,
+  type TrustConfig,
   type UpdateOptions,
   Clock,
   EpistemicRuntime,
@@ -51,6 +52,7 @@ import type { IndexFormatError } from "@aura/indexing";
 import {
   applyBeliefRerank,
   computeShadowBeliefScores,
+  defaultTrustConfig,
   type RecallPipelineOptions,
   type RecallRecordEvidence,
   type SdrInterpreterError,
@@ -88,6 +90,15 @@ function defaultBoundedRerankModes(): BoundedRerankModes {
     conceptMode: Csm.Inspect,
     causalMode: CausalRerankMode.Limited,
     policyMode: PolicyRerankMode.Limited,
+  }
+}
+
+function cloneTrustConfig(config: TrustConfig): TrustConfig {
+  return {
+    source_trust: { ...config.source_trust },
+    source_authority: { ...config.source_authority },
+    recency_boost_max: config.recency_boost_max,
+    recency_half_life_days: config.recency_half_life_days,
   }
 }
 
@@ -464,6 +475,7 @@ export class Aura {
     private causalTemporalBudgetMode: TemporalBudgetMode = TemporalBudgetMode.NearbySuccessors,
     private causalEvidenceMode: EvidenceMode = EvidenceMode.StrictRepeatedWindows,
     private maintenanceConfig: MaintenanceConfig = defaultMaintenanceConfig,
+    private trustConfig: TrustConfig = defaultTrustConfig(),
   ) {}
 
   static open(
@@ -1354,6 +1366,10 @@ export class Aura {
     return { ...this.boundedRerankModes }
   }
 
+  private currentTrustConfig(): TrustConfig {
+    return cloneTrustConfig(this.trustConfig)
+  }
+
   private recallOptionsWithRuntimeModes(options?: Partial<RecallPipelineOptions>): Partial<RecallPipelineOptions> {
     return {
       ...(options ?? {}),
@@ -1388,6 +1404,8 @@ export class Aura {
               expandConnections: true,
               namespaces: nsList,
             }),
+            undefined,
+            self.currentTrustConfig(),
           )
           self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
           return hits as ReadonlyArray<readonly [number, AuraRecord]>
@@ -1417,7 +1435,13 @@ export class Aura {
     // Rust reference: Aura::recall (aura.rs)
     const self = this
     return Effect.gen(function* () {
-      const scored = yield* recallScoredEffect(self.brainDir, query, self.recallOptionsWithRuntimeModes(options))
+      const scored = yield* recallScoredEffect(
+        self.brainDir,
+        query,
+        self.recallOptionsWithRuntimeModes(options),
+        undefined,
+        self.currentTrustConfig(),
+      )
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return scored
     })
@@ -1432,7 +1456,9 @@ export class Aura {
       const records = yield* recallRecordsEffect<AuraRecord>(
         self.brainDir,
         query,
-        self.recallOptionsWithRuntimeModes(options)
+        self.recallOptionsWithRuntimeModes(options),
+        undefined,
+        self.currentTrustConfig(),
       )
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return records
@@ -1463,7 +1489,7 @@ export class Aura {
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     const top = options.topK ?? 20
     return Effect.gen(function* () {
-      const scored = yield* recallRawScoredEffect(self.brainDir, query, options)
+      const scored = yield* recallRawScoredEffect(self.brainDir, query, options, self.currentTrustConfig())
       const records = yield* loadCognitiveRecords(self.brainDir)
       const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
       const shadowReport = computeShadowBeliefScores(scored, beliefState, top)
@@ -1491,7 +1517,7 @@ export class Aura {
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     const top = options.topK ?? 20
     return Effect.gen(function* () {
-      const scored = yield* recallRawScoredEffect(self.brainDir, query, options)
+      const scored = yield* recallRawScoredEffect(self.brainDir, query, options, self.currentTrustConfig())
       const matched = Array.from(scored)
       const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
       const report = applyBeliefRerank(matched, beliefState, top)
@@ -1639,6 +1665,26 @@ export class Aura {
   get_policy_rerank_mode(): PolicyRerankMode {
     // Rust reference: `Aura::get_policy_rerank_mode` in `../src/aura.rs`.
     return this.boundedRerankModes.policyMode
+  }
+
+  /**
+   * Set trust configuration.
+   * 设置信任评分配置。
+   *
+   * Rust reference: `Aura::set_trust_config` and `py_set_trust_config` in `../src/aura.rs`.
+   */
+  set_trust_config(config: TrustConfig): void {
+    this.trustConfig = cloneTrustConfig(config)
+  }
+
+  /**
+   * Get current trust configuration.
+   * 获取当前信任评分配置。
+   *
+   * Rust reference: `Aura::get_trust_config` in `../src/aura.rs`.
+   */
+  get_trust_config(): TrustConfig {
+    return this.currentTrustConfig()
   }
 
   /**
@@ -2579,7 +2625,13 @@ export class Aura {
       boundedRerankModes: self.currentBoundedRerankModes(),
     }
     return Effect.gen(function* () {
-      const traced = yield* recallWithTraceEffect(self.brainDir, query, options)
+      const traced = yield* recallWithTraceEffect(
+        self.brainDir,
+        query,
+        options,
+        undefined,
+        self.currentTrustConfig(),
+      )
       const items: RecallExplanationItem[] = []
       for (let index = 0; index < traced.scored.length; index++) {
         const [score, recordId] = traced.scored[index]!

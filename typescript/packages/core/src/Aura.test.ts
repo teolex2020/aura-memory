@@ -150,6 +150,40 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.is_belief_rerank_enabled(), true)
   })
 
+  it("set_trust_config mirrors Rust config state and feeds recall trace scoring", async () => {
+    const aura = await openWritableAura()
+    aura.disable_full_cognitive_stack()
+    const record = await Effect.runPromise(provideNode(aura.store("trust config alpha recall", {
+      namespace: "default",
+      tags: ["trust", "alpha"],
+      metadata: {
+        source: "user-confirmed",
+        trust_score: "1",
+      },
+    })))
+
+    const config = {
+      source_trust: { "user-confirmed": 1 },
+      source_authority: { "user-confirmed": 0.1 },
+      recency_boost_max: 0,
+      recency_half_life_days: 7,
+    }
+    aura.set_trust_config(config)
+    config.source_authority["user-confirmed"] = 1.2
+    assert.strictEqual(aura.get_trust_config().source_authority["user-confirmed"], 0.1)
+
+    const returned = aura.get_trust_config()
+    returned.source_authority["user-confirmed"] = 1.2
+    assert.strictEqual(aura.get_trust_config().source_authority["user-confirmed"], 0.1)
+
+    const explanation = await Effect.runPromise(provideNode(
+      Effect.provide(aura.explain_recall("trust config alpha", 5, 0, false, ["default"]), governanceLayer({}))
+    ))
+    const item = explanation.items.find((candidate) => candidate.record_id === record.id)
+    if (item === undefined) throw new Error("trust-config recall item missing")
+    assert.ok(Math.abs(item.trace.trust_multiplier - 0.1) < 0.0001)
+  })
+
   it("reports Rust-shaped startup validation fallbacks on open", async () => {
     const aura = await openWritableAura()
     const report = aura.get_startup_validation_report()

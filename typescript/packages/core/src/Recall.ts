@@ -11,7 +11,9 @@ import {
   RecallFinalizer,
   RecallViewTag,
   type RecallScored,
-  RerankError
+  RerankError,
+  TrustConfigTag,
+  type TrustConfig,
 } from "@aura/contract"
 import { type IndexFormatError } from "@aura/indexing"
 import { RecallViewLive } from "@aura/storage"
@@ -27,11 +29,23 @@ import { BoundedRerankerFileLive } from "./RecallReranker"
 
 export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRecord]
 
+function withTrustConfig<A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  trustConfig: TrustConfig | undefined
+): Effect.Effect<A, E, R> {
+  // Rust passes `Some(&trust_config)` through `RecallPipelineView` for Aura-owned recall paths.
+  // Rust reference: `Aura::recall_raw` / `Aura::explain_recall` (`../src/aura.rs`).
+  return trustConfig === undefined
+    ? effect
+    : effect.pipe(Effect.provideService(TrustConfigTag, trustConfig))
+}
+
 export function recallScored(
   dir: string,
   query: string,
   options?: Partial<RecallPipelineOptions>,
-  modes?: Partial<BoundedRerankModes>
+  modes?: Partial<BoundedRerankModes>,
+  trustConfig?: TrustConfig
 ): Effect.Effect<
   RecallScored,
   | FileReadError
@@ -47,13 +61,14 @@ export function recallScored(
   // 使用 storage/RecallViewLive + 文件持久化 RecallFinalizer 运行 recallPipeline。
   // Rust reference: Aura::recall_core / Aura::recall_finalize (aura.rs)
   const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
-  return recallPipeline(query, pipelineOptions).pipe(Effect.provide(recallCoreLayer(dir)))
+  return withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallCoreLayer(dir)))
 }
 
 export function recallRawScored(
   dir: string,
   query: string,
-  options?: Partial<RecallPipelineOptions>
+  options?: Partial<RecallPipelineOptions>,
+  trustConfig?: TrustConfig
 ): Effect.Effect<
   RecallScored,
   | FileReadError
@@ -70,14 +85,15 @@ export function recallRawScored(
   // 运行 raw recall，不装配 bounded rerank/finalize 服务。
   // Rust reference: `Aura::recall_raw` used by
   // `recall_structured_with_shadow` / `recall_structured_with_rerank_report` (aura.rs).
-  return recallPipeline(query, options).pipe(Effect.provide(RecallViewLive(dir)))
+  return withTrustConfig(recallPipeline(query, options), trustConfig).pipe(Effect.provide(RecallViewLive(dir)))
 }
 
 export function recallRecords<TRecord = unknown>(
   dir: string,
   query: string,
   options?: Partial<RecallPipelineOptions>,
-  modes?: Partial<BoundedRerankModes>
+  modes?: Partial<BoundedRerankModes>,
+  trustConfig?: TrustConfig
 ): Effect.Effect<
   ReadonlyArray<RecallHit<TRecord>>,
   | FileReadError
@@ -96,7 +112,7 @@ export function recallRecords<TRecord = unknown>(
   const program = Effect.gen(function* () {
     const view = yield* Effect.service(RecallViewTag)
     const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
-    const scored = yield* recallPipeline(query, pipelineOptions)
+    const scored = yield* withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig)
 
     const out: Array<RecallHit<TRecord>> = []
     for (const [score, id] of scored) {
@@ -128,7 +144,8 @@ export function recallWithTrace(
   dir: string,
   query: string,
   options?: Partial<RecallPipelineOptions>,
-  modes?: Partial<BoundedRerankModes>
+  modes?: Partial<BoundedRerankModes>,
+  trustConfig?: TrustConfig
 ): Effect.Effect<
   RecallTraceResult,
   | FileReadError
@@ -145,7 +162,7 @@ export function recallWithTrace(
   // trace/explain 使用持久化 bounded rerank 快照，但不装配 RecallFinalizer，保持 inspection-only。
   // Rust reference: Aura::explain_recall / RecallTraceScore (aura.rs)
   const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
-  return recallPipelineWithTrace(query, pipelineOptions).pipe(Effect.provide(recallTraceLayer(dir)))
+  return withTrustConfig(recallPipelineWithTrace(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallTraceLayer(dir)))
 }
 
 function recallCoreLayer(dir: string) {

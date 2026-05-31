@@ -6,6 +6,7 @@ import { CausalEngineLive, CausalStoreLive } from "@aura/causal"
 import { PolicyEngineLive, PolicyStoreLive } from "@aura/policy"
 import { EpistemicRuntimeLive, EpistemicTraceLive } from "@aura/epistemic-runtime"
 import { RecallFinalizerFileLive } from "./RecallFinalizer"
+import { BoundedRerankerFileLive } from "./RecallReranker"
 
 export function DefaultLayer(brainDir: string) {
   return Layer.mergeAll(
@@ -20,11 +21,7 @@ export function DefaultLayer(brainDir: string) {
     PolicyEngineLive,
     EpistemicRuntimeLive,
     EpistemicTraceLive,
-    // NON-PARITY IMPLEMENTATION: Rust AuraRuntimeState defaults bounded reranking to Limited.
-    // TS does not inject BoundedRerankerLive here until it can implement the full Rust
-    // belief/concept/causal/policy bounded guardrails instead of a misleading score boost.
-    // Rust reference: AuraRuntimeState::new / RecallService::apply_bounded_reranking
-    // (`../src/aura_state.rs`, `../src/recall_service.rs`).
+    BoundedRerankerFileLive(brainDir),
     RecallFinalizerFileLive(brainDir)
   )
 }

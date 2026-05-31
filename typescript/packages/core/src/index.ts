@@ -1,5 +1,6 @@
 export * from "./Aura"
 export * from "./Recall"
 export * from "./RecallFinalizer"
+export * from "./RecallReranker"
 export * from "./DefaultLayer"
 export * from "./MaintenanceService"

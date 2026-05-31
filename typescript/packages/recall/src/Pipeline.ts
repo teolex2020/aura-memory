@@ -138,7 +138,7 @@ export function recallPipeline(
 
     const rerankerOpt = yield* serviceOption(BoundedReranker)
     if (Option.isSome(rerankerOpt)) {
-      const reranked = yield* rerankerOpt.value.rerank(matched, query)
+      const reranked = yield* rerankerOpt.value.rerank(matched, query, { topK: opts.topK })
       matched = Array.from(reranked)
     }
 

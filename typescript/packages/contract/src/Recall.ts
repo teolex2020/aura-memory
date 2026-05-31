@@ -10,6 +10,55 @@ export class RecallViewTag extends Tag("aura.contract.RecallView")<
 
 export type RecallScored = ReadonlyArray<readonly [score: number, recordId: string]>
 
+/**
+ * Belief rerank operating mode.
+ *
+ * Belief 重排序运行模式。
+ *
+ * Rust reference: `BeliefRerankMode` in `../src/recall.rs`.
+ */
+export enum BeliefRerankMode {
+  Off = "Off",
+  Shadow = "Shadow",
+  Limited = "Limited"
+}
+
+/**
+ * Recall reranking mode for causal-pattern-weighted influence.
+ *
+ * 因果模式影响的召回重排序模式。
+ *
+ * Rust reference: `CausalRerankMode` in `../src/causal.rs`.
+ */
+export enum CausalRerankMode {
+  Off = "Off",
+  Limited = "Limited"
+}
+
+/**
+ * Recall reranking mode for policy-hint-weighted influence.
+ *
+ * 策略提示影响的召回重排序模式。
+ *
+ * Rust reference: `PolicyRerankMode` in `../src/policy.rs`.
+ */
+export enum PolicyRerankMode {
+  Off = "Off",
+  Limited = "Limited"
+}
+
+export type BoundedRerankContext = {
+  /** Requested top_k from the recall call. Rust skips Limited rerank when top_k > 20. */
+  readonly topK: number
+}
+
+export type BoundedRerankModes = {
+  readonly beliefMode: BeliefRerankMode
+  readonly conceptMode: import("./Maintenance").ConceptSurfaceMode
+  readonly causalMode: CausalRerankMode
+  readonly policyMode: PolicyRerankMode
+}
+
 export type RecallView = {
   records: ReadonlyMap<string, unknown>
   auraIndex: ReadonlyMap<string, string>
@@ -30,11 +79,27 @@ export class EmbeddingStore extends Tag("aura.contract.EmbeddingStore")<
   }
 >() {}
 
+export namespace BoundedReranker {
+  export interface Interface {
+    /**
+     * Apply bounded recall reranking after trust-aware recency scoring.
+     *
+     * 在 trust-aware recency scoring 之后执行有界召回重排序。
+     *
+     * Rust reference: `RecallService::apply_bounded_reranking`
+     * in `../src/recall_service.rs`.
+     */
+    readonly rerank: (
+      scored: RecallScored,
+      query: string,
+      context?: BoundedRerankContext
+    ) => Effect.Effect<RecallScored, RerankError>
+  }
+}
+
 export class BoundedReranker extends Tag("aura.contract.BoundedReranker")<
   BoundedReranker,
-  {
-    rerank: (scored: RecallScored, query: string) => Effect.Effect<RecallScored, RerankError>
-  }
+  BoundedReranker.Interface
 >() {}
 
 export class RecallFinalizer extends Tag("aura.contract.RecallFinalizer")<

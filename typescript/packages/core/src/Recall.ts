@@ -21,6 +21,7 @@ import {
   type RecallTraceResult,
 } from "@aura/recall"
 import { RecallFinalizerFileLive } from "./RecallFinalizer"
+import { BoundedRerankerFileLive } from "./RecallReranker"
 
 export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRecord]
 
@@ -102,5 +103,5 @@ export function recallWithTrace(
 }
 
 function recallCoreLayer(dir: string) {
-  return Layer.mergeAll(RecallViewLive(dir), RecallFinalizerFileLive(dir))
+  return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir), RecallFinalizerFileLive(dir))
 }

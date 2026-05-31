@@ -39,7 +39,7 @@ it("DefaultLayer provides epistemic services", async () => {
     yield* Effect.service(EpistemicTrace)
     yield* Effect.service(RecallFinalizer)
     const rerankerOpt = yield* serviceOption(BoundedReranker)
-    assert.strictEqual(Option.isNone(rerankerOpt), true)
+    assert.strictEqual(Option.isSome(rerankerOpt), true)
     return true as const
   }).pipe(Effect.provide(layer))
 

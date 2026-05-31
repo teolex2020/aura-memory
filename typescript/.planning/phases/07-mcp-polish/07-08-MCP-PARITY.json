@@ -1,0 +1,684 @@
+{
+  "inventory": {
+    "implementedRustComparable": [
+      "recall",
+      "recall_structured",
+      "store",
+      "store_code",
+      "store_decision",
+      "search",
+      "insights",
+      "cross_namespace_digest",
+      "explain_record",
+      "explain_recall",
+      "explainability_bundle",
+      "correction_log",
+      "correction_review_queue",
+      "contradiction_review_queue",
+      "suggested_corrections",
+      "namespace_governance_status",
+      "policy_lifecycle",
+      "belief_instability",
+      "memory_health"
+    ],
+    "tsOnlyValidated": [
+      "maintain"
+    ],
+    "unsupportedValidated": [
+      "consolidate"
+    ]
+  },
+  "rustPayload": null,
+  "rustPreflight": {
+    "command": "cargo build --bin aura-mcp --features mcp",
+    "expectedWindowsPath": "D:\\workspace\\@yuyi919\\external\\AuraSDK\\target\\debug\\aura-mcp.exe",
+    "reason": "insufficient free disk for safe cargo build preflight (2596929536 bytes available)",
+    "status": "unavailable",
+    "stderr": "",
+    "stdout": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n"
+  },
+  "status": "skipped_no_rust_or_golden",
+  "tsOnly": {
+    "consolidate": {
+      "content": [
+        {
+          "text": {
+            "error": {
+              "code": "unsupported_surface",
+              "message": "TS core has no Rust-parity consolidation merge/update path yet; dummy success counts are forbidden.",
+              "missing_prerequisites": [
+                "Rust-parity consolidation algorithm",
+                "coherent ngram/tag/aura index mutation during merges"
+              ],
+              "rust_reference": "Aura::consolidate (aura.rs)",
+              "surface": "Aura.consolidate",
+              "tag": "UnsupportedSurfaceError"
+            },
+            "ok": false
+          },
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "maintain": {
+      "content": [
+        {
+          "text": {
+            "belief": {
+              "beliefsCreated": 0,
+              "beliefsPruned": 0,
+              "churnRate": 0,
+              "resolved": 0,
+              "revisions": 0,
+              "totalBeliefs": 0,
+              "totalHypotheses": 0,
+              "unresolved": 0
+            },
+            "causal": {
+              "avgCausalStrength": 0.18,
+              "candidatesFound": 0,
+              "edgesFound": 3,
+              "explicitEdgesFound": 0,
+              "patternsBlockedByCounterfactualGate": 0,
+              "patternsBlockedByEvidenceGates": 3,
+              "patternsMeetingCounterfactualGate": 3,
+              "patternsMeetingRepeatedWindowGate": 0,
+              "patternsMeetingSupportGate": 0,
+              "rejectedCount": 3,
+              "skipped": false,
+              "stableCount": 0,
+              "temporalEdgesCapped": 0,
+              "temporalEdgesFound": 3,
+              "temporalNamespacesHitCap": 0,
+              "temporalNamespacesScanned": 1,
+              "temporalPairsConsidered": 3,
+              "temporalPairsSkippedByBudget": 0
+            },
+            "concept": {
+              "avgAbstractionScore": 0,
+              "avgCentroidSize": 0,
+              "candidatesFound": 0,
+              "centroidsBuilt": 0,
+              "clusterSizes": [],
+              "clustersWithMultipleBeliefs": 0,
+              "largestClusterSize": 0,
+              "multiSeedPartitionSizes": [],
+              "pairwiseAboveThreshold": 0,
+              "pairwiseComparisons": 0,
+              "partitionsWithMultipleSeeds": 0,
+              "rejectedCount": 0,
+              "seedsCapped": 0,
+              "seedsFound": 0,
+              "stableCount": 0,
+              "tanimotoAvg": 0,
+              "tanimotoMax": 0,
+              "tanimotoMin": 0
+            },
+            "conceptSurface": {
+              "conceptsReturnedSinceLastCycle": 0,
+              "globalCallsSinceLastCycle": 0,
+              "mode": "Inspect",
+              "namespaceCallsSinceLastCycle": 0,
+              "recordAnnotationsReturnedSinceLastCycle": 0,
+              "recordCallsSinceLastCycle": 0,
+              "surfacedConceptsAvailable": 0,
+              "surfacedNamespaces": 0
+            },
+            "consolidation": {
+              "clustersFound": 0,
+              "metaCreated": 0,
+              "nativeMerged": 0
+            },
+            "crossConnections": 0,
+            "decay": {
+              "archived": 0,
+              "decayed": 3
+            },
+            "epistemic": {
+              "totalConflictLinks": 0,
+              "totalSupportLinks": 0,
+              "updatedRecords": 0,
+              "volatileRecords": 0
+            },
+            "experienceInjected": 0,
+            "feedback": {
+              "beliefsBoosted": 0,
+              "beliefsDampened": 0,
+              "beliefsTouched": 0,
+              "entries": [],
+              "netConfidenceDelta": 0,
+              "netVolatilityDelta": 0
+            },
+            "hotspots": {
+              "beliefSnapshotRecords": 3,
+              "beliefTotalBeliefs": 0,
+              "beliefTotalHypotheses": 0,
+              "causalEdgesFound": 3,
+              "causalExplicitEdgesFound": 0,
+              "causalTemporalEdgesCapped": 0,
+              "causalTemporalEdgesFound": 3,
+              "causalTemporalNamespacesHitCap": 0,
+              "causalTemporalNamespacesScanned": 1,
+              "causalTemporalPairsConsidered": 3,
+              "causalTemporalPairsSkippedByBudget": 0,
+              "conceptPairwiseComparisons": 0,
+              "conceptPartitionsWithMultipleSeeds": 0,
+              "crossConnectionsFound": 0,
+              "dominantPhase": "concept",
+              "dominantPhaseMs": 40,
+              "dominantPhaseShare": 0.283688,
+              "policySeedsFound": 0,
+              "recordsAfterCycle": 3,
+              "recordsBeforeCycle": 3,
+              "sdrSourceBytes": 173,
+              "sdrVectorsBuilt": 3,
+              "sdrVectorsComputed": 3,
+              "sdrVectorsReused": 0,
+              "taskRemindersFound": 0
+            },
+            "insightsFound": 2,
+            "policy": {
+              "avgPolicyStrength": 0,
+              "hintsFound": 0,
+              "rejectedHints": 0,
+              "seedsFound": 0,
+              "stableHints": 0,
+              "suppressedHints": 0
+            },
+            "recordsArchived": 0,
+            "reflect": {
+              "archived": 0,
+              "promoted": 0
+            },
+            "reflection": {
+              "digest": "No significant reflection findings this cycle.",
+              "dominantPhase": "concept",
+              "findings": [],
+              "report": {
+                "blockerFindings": 0,
+                "capped": false,
+                "contradictionFindings": 0,
+                "jobsRun": 3,
+                "totalFindings": 0,
+                "trendFindings": 0
+              },
+              "timestamp": "2026-05-31T08:01:16.354Z"
+            },
+            "stability": {
+              "belief": {
+                "churn": 0,
+                "dropped": 0,
+                "newCount": 0,
+                "retained": 0
+              },
+              "causal": {
+                "churn": 0,
+                "dropped": 0,
+                "newCount": 0,
+                "retained": 0
+              },
+              "concept": {
+                "churn": 0,
+                "dropped": 0,
+                "newCount": 0,
+                "retained": 0
+              },
+              "policy": {
+                "churn": 0,
+                "dropped": 0,
+                "newCount": 0,
+                "retained": 0
+              }
+            },
+            "taskReminders": [],
+            "timestamp": "2026-05-31T08:01:16.354Z",
+            "timings": {
+              "beliefMs": 28,
+              "causalMs": 40,
+              "conceptMs": 40,
+              "consolidationMs": 1,
+              "crossConnectionsMs": 0,
+              "decayMs": 1,
+              "epistemicMs": 1,
+              "insightsMs": 0,
+              "levelFixMs": 0,
+              "policyMs": 25,
+              "reflectMs": 0,
+              "sdrBuildMs": 5,
+              "tasksArchivalMs": 0,
+              "totalMs": 147
+            },
+            "totalRecords": 3,
+            "trendSummary": {
+              "avgBeliefChurn": 0,
+              "avgCausalRejectionRate": 1,
+              "avgCorrectionEvents": 0,
+              "avgCycleTimeMs": 0,
+              "avgPolicySuppressionRate": 0,
+              "latestDominantPhase": "concept",
+              "recent": [
+                {
+                  "beliefChurn": 0,
+                  "causalRejectionRate": 1,
+                  "correctionEvents": 0,
+                  "cumulativeCorrections": 0,
+                  "cycleTimeMs": 0,
+                  "dominantPhase": "concept",
+                  "feedbackBeliefsTouched": 0,
+                  "feedbackNetConfidenceDelta": 0,
+                  "feedbackNetVolatilityDelta": 0,
+                  "insightsFound": 2,
+                  "policySuppressionRate": 0,
+                  "recordsArchived": 0,
+                  "timestamp": "2026-05-31T08:01:16.354Z",
+                  "totalRecords": 3,
+                  "volatileRecords": 0
+                }
+              ],
+              "snapshotCount": 1,
+              "totalCorrectionsInWindow": 0
+            }
+          },
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "tsPayload": {
+    "governance": {
+      "calls": {
+        "belief_instability": {
+          "content": [
+            {
+              "text": {
+                "high_volatility": [],
+                "low_stability": [],
+                "recently_corrected": [],
+                "summary": {
+                  "avg_stability": 0,
+                  "avg_volatility": 0,
+                  "contradiction_cluster_count": 0,
+                  "empty": 0,
+                  "high_volatility_count": 0,
+                  "low_stability_count": 0,
+                  "resolved": 0,
+                  "singleton": 0,
+                  "total_beliefs": 0,
+                  "unresolved": 0,
+                  "volatility_bands": {
+                    "high": 0,
+                    "low": 0,
+                    "medium": 0
+                  }
+                }
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "cross_namespace_digest": {
+          "content": [
+            {
+              "text": {
+                "compact_summary": true,
+                "included_dimensions": [
+                  "tags",
+                  "structural",
+                  "corrections"
+                ],
+                "latency_ms": 6,
+                "namespace_count": 1,
+                "namespaces": [
+                  {
+                    "belief_state_summary": null,
+                    "causal_signatures": [],
+                    "concept_count": 0,
+                    "concept_signatures": [],
+                    "correction_count": 0,
+                    "correction_density": 0,
+                    "namespace": "alpha",
+                    "record_count": 3,
+                    "stable_concept_count": 0,
+                    "structural_relation_types": [],
+                    "tags": [],
+                    "top_concepts": []
+                  }
+                ],
+                "pairs": []
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "memory_health": {
+          "content": [
+            {
+              "text": {
+                "avg_salience": 0,
+                "contradiction_cluster_count": 0,
+                "high_salience_record_count": 0,
+                "high_volatility_belief_count": 0,
+                "latest_dominant_phase": "",
+                "low_stability_belief_count": 0,
+                "maintenance_trend_direction": "insufficient_data",
+                "max_salience": 0,
+                "policy_pressure_area_count": 0,
+                "recent_correction_count": 0,
+                "reflection_high_severity_findings": 0,
+                "reflection_summary_count": 0,
+                "rejected_policy_hint_count": 0,
+                "startup_has_recovery_warnings": false,
+                "suppressed_policy_hint_count": 0,
+                "top_issues": [],
+                "total_records": 3
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "namespace_governance_status": {
+          "content": [
+            {
+              "text": [
+                {
+                  "belief_count": 0,
+                  "correction_count": 0,
+                  "correction_density": 0,
+                  "high_volatility_belief_count": 0,
+                  "instability_level": "low",
+                  "instability_score": 0,
+                  "last_maintenance_cycle": null,
+                  "latest_dominant_phase": "none",
+                  "low_stability_belief_count": 0,
+                  "namespace": "alpha",
+                  "policy_pressure_area_count": 0,
+                  "record_count": 3,
+                  "suggested_correction_count": 0
+                }
+              ],
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "policy_lifecycle": {
+          "content": [
+            {
+              "text": {
+                "pressure": [],
+                "rejected": [],
+                "summary": {
+                  "action_summaries": [],
+                  "active_hints": 0,
+                  "avg_policy_strength": 0,
+                  "avg_risk_score": 0,
+                  "candidate_hints": 0,
+                  "domain_summaries": [],
+                  "rejected_hints": 0,
+                  "stable_hints": 0,
+                  "suppressed_hints": 0,
+                  "total_hints": 0
+                },
+                "suppressed": []
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      },
+      "endState": {
+        "memory_health": {
+          "content": [
+            {
+              "text": {
+                "avg_salience": 0,
+                "contradiction_cluster_count": 0,
+                "high_salience_record_count": 0,
+                "high_volatility_belief_count": 0,
+                "latest_dominant_phase": "",
+                "low_stability_belief_count": 0,
+                "maintenance_trend_direction": "insufficient_data",
+                "max_salience": 0,
+                "policy_pressure_area_count": 0,
+                "recent_correction_count": 0,
+                "reflection_high_severity_findings": 0,
+                "reflection_summary_count": 0,
+                "rejected_policy_hint_count": 0,
+                "startup_has_recovery_warnings": false,
+                "suppressed_policy_hint_count": 0,
+                "top_issues": [],
+                "total_records": 3
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    "retrieval": {
+      "calls": {
+        "recall": {
+          "content": [
+            {
+              "text": "Phase 7 MCP parity memory\n\nDECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "recall_structured": {
+          "content": [
+            {
+              "text": [
+                {
+                  "content": "Phase 7 MCP parity memory",
+                  "id": "thqgyd7z07ap",
+                  "level": "Working",
+                  "score": 0.6545,
+                  "semantic_type": "fact",
+                  "source_type": "recorded",
+                  "strength": 1,
+                  "tags": [
+                    "phase07",
+                    "parity"
+                  ]
+                },
+                {
+                  "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                  "id": "thqh0k8yvpo5",
+                  "level": "Decisions",
+                  "score": 0.307337,
+                  "semantic_type": "decision",
+                  "source_type": "recorded",
+                  "strength": 1,
+                  "tags": [
+                    "phase07",
+                    "decision"
+                  ]
+                }
+              ],
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "search": {
+          "content": [
+            {
+              "text": [
+                {
+                  "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                  "id": "thqh0k8yvpo5",
+                  "level": "Decisions",
+                  "semantic_type": "decision",
+                  "tags": [
+                    "phase07",
+                    "decision"
+                  ]
+                },
+                {
+                  "content": "Phase 7 MCP parity memory",
+                  "id": "thqgyd7z07ap",
+                  "level": "Working",
+                  "semantic_type": "fact",
+                  "tags": [
+                    "phase07",
+                    "parity"
+                  ]
+                }
+              ],
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      },
+      "endState": {
+        "recall_structured": {
+          "content": [
+            {
+              "text": [
+                {
+                  "content": "Phase 7 MCP parity memory",
+                  "id": "thqgyd7z07ap",
+                  "level": "Working",
+                  "score": 0.6545,
+                  "semantic_type": "fact",
+                  "source_type": "recorded",
+                  "strength": 1,
+                  "tags": [
+                    "phase07",
+                    "parity"
+                  ]
+                },
+                {
+                  "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                  "id": "thqh0k8yvpo5",
+                  "level": "Decisions",
+                  "score": 0.307337,
+                  "semantic_type": "decision",
+                  "source_type": "recorded",
+                  "strength": 1,
+                  "tags": [
+                    "phase07",
+                    "decision"
+                  ]
+                }
+              ],
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    "write": {
+      "calls": {
+        "store": {
+          "content": [
+            {
+              "text": {
+                "id": "thqgyd7z07ap",
+                "level": "Working"
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "store_code": {
+          "content": [
+            {
+              "text": {
+                "id": "thqgzonfzaux",
+                "level": "DOMAIN"
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "store_decision": {
+          "content": [
+            {
+              "text": {
+                "id": "thqh0k8yvpo5",
+                "level": "DECISIONS"
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      },
+      "endState": {
+        "insights": {
+          "content": [
+            {
+              "text": {
+                "decisions": 1,
+                "domain": 1,
+                "identity": 0,
+                "total_connections": 0,
+                "total_records": 3,
+                "total_tags": 6,
+                "working": 1
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
+        "search": {
+          "content": [
+            {
+              "text": [
+                {
+                  "content": "```typescript\nexport const phase = 7\n```",
+                  "id": "thqgzonfzaux",
+                  "level": "Domain",
+                  "semantic_type": "memory",
+                  "tags": [
+                    "phase07",
+                    "code",
+                    "typescript",
+                    "file:phase.ts"
+                  ]
+                },
+                {
+                  "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                  "id": "thqh0k8yvpo5",
+                  "level": "Decisions",
+                  "semantic_type": "decision",
+                  "tags": [
+                    "phase07",
+                    "decision"
+                  ]
+                },
+                {
+                  "content": "Phase 7 MCP parity memory",
+                  "id": "thqgyd7z07ap",
+                  "level": "Working",
+                  "semantic_type": "fact",
+                  "tags": [
+                    "phase07",
+                    "parity"
+                  ]
+                }
+              ],
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    }
+  }
+}

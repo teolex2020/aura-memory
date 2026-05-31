@@ -408,6 +408,7 @@ import {
   type RecallTraceScore,
   type ShadowRecallReport,
   type SuggestedCorrection,
+  type SuggestedCorrectionsReport,
   type SurfacedConcept,
   type SurfacedPolicyHint,
 } from "@aura/contract"
@@ -2561,6 +2562,15 @@ export class Aura {
     })
   }
 
+  deprecate_belief(
+    beliefId: string,
+  ): Effect.Effect<boolean, FileWriteError, BeliefEngine | BeliefStore | FileWrite> {
+    // Soft-deprecate a belief so it no longer acts as a confident winner.
+    // 软废弃 belief，使其不再作为 confident winner。
+    // Rust reference: Aura::deprecate_belief (aura.rs)
+    return this.deprecate_belief_with_reason(beliefId, "manual_deprecation")
+  }
+
   deprecate_belief_with_reason(
     beliefId: string,
     reason: string,
@@ -2583,6 +2593,15 @@ export class Aura {
     })
   }
 
+  invalidate_causal_pattern(
+    patternId: string,
+  ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
+    // Invalidate a single causal pattern while preserving its tombstone.
+    // 使单个 causal pattern 失效，同时保留 tombstone。
+    // Rust reference: Aura::invalidate_causal_pattern (aura.rs)
+    return this.invalidate_causal_pattern_with_reason(patternId, "manual_invalidation")
+  }
+
   invalidate_causal_pattern_with_reason(
     patternId: string,
     reason: string,
@@ -2603,6 +2622,34 @@ export class Aura {
       self.appendCorrectionLogEntry(clock.nowSeconds(), "causal_pattern", patternId, "invalidate", reason)
       return true
     })
+  }
+
+  retract_causal_pattern(
+    patternId: string,
+  ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
+    // Legacy compatibility alias: causal retraction now preserves an invalidated tombstone.
+    // 旧兼容别名：causal retraction 现在保留 invalidated tombstone。
+    // Rust reference: Aura::retract_causal_pattern (aura.rs)
+    return this.invalidate_causal_pattern_with_reason(patternId, "manual_retraction")
+  }
+
+  retract_causal_pattern_with_reason(
+    patternId: string,
+    reason: string,
+  ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
+    // Legacy compatibility alias: causal retraction now preserves an invalidated tombstone.
+    // 旧兼容别名：causal retraction 现在保留 invalidated tombstone。
+    // Rust reference: Aura::retract_causal_pattern_with_reason (aura.rs)
+    return this.invalidate_causal_pattern_with_reason(patternId, reason)
+  }
+
+  retract_policy_hint(
+    hintId: string,
+  ): Effect.Effect<boolean, FileWriteError, PolicyEngine | PolicyStore | FileWrite> {
+    // Retract a single policy hint from persisted runtime state.
+    // 从持久化 runtime state 中撤回单个 policy hint。
+    // Rust reference: Aura::retract_policy_hint (aura.rs)
+    return this.retract_policy_hint_with_reason(hintId, "manual_retraction")
   }
 
   retract_policy_hint_with_reason(
@@ -2787,12 +2834,27 @@ export class Aura {
   get_suggested_corrections(
     limit?: number,
   ): Effect.Effect<ReadonlyArray<SuggestedCorrection>, never, EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine> {
-    // Return bounded advisory corrections without auto-applying them.
+    // Return bounded suggested corrections without auto-applying them.
     // 返回有界建议修正，不自动执行。
     // Rust reference: Aura::get_suggested_corrections (aura.rs)
+    const self = this
+    return Effect.gen(function* () {
+      const report = yield* self.get_suggested_corrections_report(limit)
+      return report.entries
+    })
+  }
+
+  get_suggested_corrections_report(
+    limit?: number,
+  ): Effect.Effect<SuggestedCorrectionsReport, never, EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine> {
+    // Return bounded advisory corrections without auto-applying them.
+    // This advisory surface combines instability, lifecycle state, and review pressure.
+    // 返回带 scan latency 的有界建议修正；该 advisory surface 组合 instability、lifecycle state 与 review pressure。
+    // Rust reference: Aura::get_suggested_corrections_report (aura.rs)
     const max = clampInt(limit ?? 10, 1, 50)
     const self = this
     return Effect.gen(function* () {
+      const started = Date.now()
       const runtime = yield* Effect.service(EpistemicRuntime)
       const highVolatility = yield* runtime.getHighVolatilityBeliefs(0.2, max * 2)
       const lowStability = yield* runtime.getLowStabilityBeliefs(1.0, max * 2)
@@ -2861,9 +2923,12 @@ export class Aura {
         })
       }
 
-      return [...suggestions.values()]
-        .sort((a, b) => b.priority_score - a.priority_score || a.target_kind.localeCompare(b.target_kind) || a.target_id.localeCompare(b.target_id))
-        .slice(0, max)
+      return {
+        scan_latency_ms: Date.now() - started,
+        entries: [...suggestions.values()]
+          .sort((a, b) => b.priority_score - a.priority_score || a.target_kind.localeCompare(b.target_kind) || a.target_id.localeCompare(b.target_id))
+          .slice(0, max),
+      }
     })
   }
 

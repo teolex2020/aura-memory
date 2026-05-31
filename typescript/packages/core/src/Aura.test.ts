@@ -1342,6 +1342,39 @@ describe("Aura MCP-facing operational surfaces", () => {
       include_dimensions: ["corrections", "beliefs"],
     }))
     assert.strictEqual(digest.namespaces[0]?.correction_count, 3)
+
+    const suggestions = await run(aura.get_suggested_corrections(5))
+    const suggestionReport = await run(aura.get_suggested_corrections_report(5))
+    assert.deepStrictEqual(suggestionReport.entries, suggestions)
+    assert.ok(suggestionReport.scan_latency_ms >= 0)
+  })
+
+  it("correction aliases use Rust default reasons and causal retraction compatibility", async () => {
+    const aura = await openWritableAura()
+    const record = await Effect.runPromise(provideNode(aura.store("Alpha deploy alias correction evidence", {
+      namespace: "alpha",
+      tags: ["deploy", "ops"],
+      semantic_type: "fact",
+    })))
+    const runFresh = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.runPromise(provideNode(Effect.provide(effect, correctionLayer(record.id))) as Effect.Effect<A, E, never>)
+
+    assert.strictEqual(await runFresh(aura.deprecate_belief("belief-alpha")), true)
+    assert.strictEqual(await runFresh(aura.invalidate_causal_pattern("causal-alpha")), true)
+    assert.strictEqual(await runFresh(aura.retract_causal_pattern("causal-alpha")), true)
+    assert.strictEqual(await runFresh(aura.retract_causal_pattern_with_reason("causal-alpha", "legacy_retraction")), true)
+    assert.strictEqual(await runFresh(aura.retract_policy_hint("policy-alpha")), true)
+
+    assert.deepStrictEqual(
+      aura.get_correction_log().map((entry) => [entry.target_kind, entry.operation, entry.reason]),
+      [
+        ["belief", "deprecate", "manual_deprecation"],
+        ["causal_pattern", "invalidate", "manual_invalidation"],
+        ["causal_pattern", "invalidate", "manual_retraction"],
+        ["causal_pattern", "invalidate", "legacy_retraction"],
+        ["policy_hint", "retract", "manual_retraction"],
+      ],
+    )
   })
 
   it("explainability surfaces use recall trace plus maintenance evidence", async () => {

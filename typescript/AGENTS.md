@@ -312,6 +312,7 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 | 06.1 | `.planning/phases/06.1-/06.1-LEARNINGS.md` | 1D + 2L + 1P + 1S |
 | 06.2 | `.planning/phases/06.2-epistemicruntime-maintain-maintenanceservice-rust/06.2-LEARNINGS.md` | 12D + 7L + 6P + 6S |
 | 06.3 | `.planning/phases/06.3-engine-algorithm-parity/06.3-LEARNINGS.md` | 5D + 5L + 4P + 4S |
+| 07 | `.planning/phases/07-mcp-polish/07-LEARNINGS.md` | 14D + 9L + 9P + 6S |
 
 ### 9.1 浓缩关键教训（新 phase 讨论/规划前必须过一遍）
 
@@ -327,6 +328,10 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 | 8 | **Windows: Edit 工具可能引入智能引号** — 编辑含中文注释的文件时可能把 `"` 变成 `"` `"`，导致 TS1127 错误。恢复方法是 `git checkout` 后用 Write 重写 | 06.1-L2 |
 | 9 | **Effect 版本 API 差异** — beta.68 的 `Effect.gen` 不支持 `$` 参数模式、没有 `Effect.dieMessage`、`satisfies` 不缩窄返回类型、Ref 类型是 `Ref.Ref` 不是 `Effect.Ref.Ref` | 06.2-L1, 06.1-S1 |
 | 10 | **遵循已有 engine 模式可大幅加速实现** — ConceptEngine 模式被 CausalEngine/PolicyEngine 复用，减少设计开销到几乎为零 | 06-L1 |
+| 11 | **Vitest 2.1.9 不支持 --filter** — `bun run test --filter "@aura/pkg"` 会报 Unknown option，必须用文件级路径 `bun run test packages/pkg/src/file.test.ts` 替代 | 07-L1 |
+| 12 | **Layer 合并顺序决定服务可见性** — `Layer.mergeAll` 并排合并不建立 provide 关系；子 Layer 需要的服务必须由父 Layer provide，否则静默缺失并以不透明的 Effect.die 报错 | 07-L4 |
+| 13 | **删除导出前必须跨包 grep 调用者** — 移除 `packages/policy` 的 adapter 导致 `packages/epistemic-runtime` 编译失败；跨包依赖在 typecheck 通过时不明显，但删除即刻暴露 | 07-L5 |
+| 14 | **Zod ref schema 会让 MCP tool 从 inventory 中静默消失** — Mastra MCP client 无法解析 JSON Schema $ref，导致 tools/list 少返回 tool；必须用 per-field factory 生成 inline schema | 07-L3 |
 
 ### 9.2 已确立的模式（新 engine/模块应遵循）
 
@@ -340,6 +345,10 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 | P6 | TypeScript string enum（非 string union） | 跨包类型对齐 Rust enum |
 | P7 | grep-verified constant parity | 常量/阈值/公式对齐 Rust（比运行时 E2E 快） |
 | P8 | TDD RED-GREEN commit pairs | 所有行为添加型任务 |
+| P9 | 两层收敛架构：core facade + thin transport | MCP/HTTP transport 层只做参数映射和序列化，业务逻辑全部在 core facade |
+| P10 | Canonical inventory ledger — 单一数组驱动注册+测试+验证 | 10+ tool 的 MCP server，防止注册/测试/parity 三处 drift |
+| P11 | Rust-shaped DTO with Mcp* prefix for clashing exports | MCP 对外的 snake_case DTO 与内部 camelCase 类型同名时，用 Mcp* 前缀区分 |
+| P12 | Typed unsupported error with Rust reference | Rust-facing surface 暂未实现时，返回 TaggedError 含 surface/rust_reference/missing_prerequisites，不用 Effect.die |
 
 ### 8.3 下一步建议（推进顺序）
 

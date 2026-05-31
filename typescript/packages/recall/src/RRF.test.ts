@@ -1,28 +1,24 @@
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import type { RecallView } from "@aura/contract"
-import { filterByStrengthAndNamespace, rrfFuse } from "./RRF"
+import { rrfFuse } from "./RRF"
 
-it("filterByStrengthAndNamespace mirrors Rust rrf_fuse filter_map", () => {
+it("rrfFuse mirrors Rust filter_map for strength and namespace", () => {
   const records: RecallView["records"] = new Map<string, unknown>([
     ["defaulted", { id: "defaulted", strength: 0.9 }],
     ["weak", { id: "weak", strength: 0.1, namespace: "default" }],
     ["other_ns", { id: "other_ns", strength: 1, namespace: "other" }],
   ])
 
-  const filtered = filterByStrengthAndNamespace(
+  const filtered = rrfFuse(
     records,
-    [
-      [0.7, "defaulted"],
-      [0.6, "weak"],
-      [0.5, "other_ns"],
-      [0.4, "missing"],
-    ],
+    [[["defaulted", 0.7], ["weak", 0.6], ["other_ns", 0.5], ["missing", 0.4]]],
     0.5,
+    10,
     ["default"],
   )
 
-  assert.deepStrictEqual(filtered, [[0.7, "defaulted"]])
+  assert.deepStrictEqual(filtered.map(([, id]) => id), ["defaulted"])
 })
 
 it("rrfFuse matches Rust signature filtering and topK truncation", () => {

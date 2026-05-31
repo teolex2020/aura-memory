@@ -34,7 +34,7 @@ function inNamespaces(rec: RrfRecord, namespaces: ReadonlyArray<string>): boolea
  * 按 Rust `rrf_fuse` 的 `filter_map` 阶段过滤记录强度与命名空间。
  * Rust reference: `rrf_fuse(...).filter_map(...)` (recall.rs).
  */
-export function filterByStrengthAndNamespace(
+function filterByStrengthAndNamespace(
   records: RecallView["records"],
   scored: Scored,
   minStrength: number,

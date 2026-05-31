@@ -62,6 +62,11 @@ function temporalRecallView(view: RecallView, timestamp: number): RecallView {
   return { ...view, records }
 }
 
+/**
+ * Run recallPipeline with storage/RecallViewLive and file-backed RecallFinalizer.
+ * 使用 storage/RecallViewLive + 文件持久化 RecallFinalizer 运行 recallPipeline。
+ * Rust reference: `Aura::recall_core` / `Aura::recall_finalize` (`../src/aura.rs`).
+ */
 export function recallScored(
   dir: string,
   query: string,
@@ -81,8 +86,6 @@ export function recallScored(
   | FinalizeError,
   FileRead | FileWrite
 > {
-  // 使用 storage/RecallViewLive + 文件持久化 RecallFinalizer 运行 recallPipeline。
-  // Rust reference: Aura::recall_core / Aura::recall_finalize (aura.rs)
   const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
   return withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
 }

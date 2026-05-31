@@ -63,9 +63,9 @@
 - Rust reference：`in_namespace`、`collect_sdr`、`collect_ngram`、`collect_tags`、`rrf_fuse`、`graph_walk`、`causal_walk`（`../src/recall.rs`）。
 - 验证：仅注释形态调整；复用本轮已通过的 `bun run typecheck` 与 `bun run test`。
 
-## 2026-06-01 - Core session/finalizer 注释块规范化
+## 2026-06-01 - Core recall/session/finalizer 注释块规范化
 
-- 范围：`packages/core/src/Aura.ts`、`packages/core/src/RecallFinalizer.ts`。
-- 实现：将 `Aura.decay`、`Aura.reflect`、`Aura.end_session`、session tracker helpers、activation/finalize helpers 的 Rust reference / 中文逻辑说明提升为块级 JSDoc，保留 Rust 原始方法/函数位置引用。
+- 范围：`packages/core/src/Aura.ts`、`packages/core/src/Recall.ts`、`packages/core/src/RecallFinalizer.ts`。
+- 实现：将 `Aura.decay`、`Aura.reflect`、`Aura.end_session`、`recallScored`、session tracker helpers、activation/finalize helpers 的 Rust reference / 中文逻辑说明提升为块级 JSDoc，保留 Rust 原始方法/函数位置引用。
 - Rust reference：`Aura::decay`、`Aura::reflect`、`Aura::end_session`（`../src/aura.rs`），`SessionTracker`（`../src/graph.rs`），`Record::activate` / `activate_and_strengthen`（`../src/record.rs`、`../src/recall.rs`）。
 - 验证：仅注释形态调整；复用本轮已通过的 `bun run typecheck` 与 `bun run test`。

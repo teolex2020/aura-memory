@@ -149,6 +149,62 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.is_belief_rerank_enabled(), true)
   })
 
+  it("reports Rust-shaped startup validation fallbacks on open", async () => {
+    const aura = await openWritableAura()
+    const report = aura.get_startup_validation_report()
+    const event = (surface: string, status?: string) =>
+      report.events.find((item) => item.surface === surface && (status === undefined || item.status === status))
+
+    assert.strictEqual(report.loaded_surfaces, 2)
+    assert.strictEqual(report.missing_fallbacks, 7)
+    assert.strictEqual(report.recovered_fallbacks, 0)
+    assert.strictEqual(report.derived_skips, 0)
+    assert.strictEqual(report.has_recovery_warnings, true)
+
+    assert.strictEqual(event("records", "loaded")?.detail, "loaded 0 records")
+    assert.strictEqual(event("belief", "missing_fallback")?.recovered, true)
+    assert.strictEqual(event("concept", "missing_fallback")?.recovered, false)
+    assert.strictEqual(event("causal", "missing_fallback")?.recovered, true)
+    assert.strictEqual(event("policy", "missing_fallback")?.recovered, true)
+    assert.strictEqual(event("persistence_manifest", "missing_fallback")?.recovered, true)
+    assert.strictEqual(event("persistence_manifest", "loaded")?.detail, "loaded current persistence manifest")
+    assert.strictEqual(event("maintenance_trends", "missing_fallback")?.recovered, true)
+    assert.strictEqual(event("reflection_summaries", "missing_fallback")?.recovered, true)
+  })
+
+  it("reports startup validation recovery for corrupt persisted surfaces", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-startup-corrupt-"))
+    await Effect.runPromise(provideNode(BrainAuraFile.open(brainPath).pipe(Effect.flatMap((file) => file.flush()))))
+    fs.writeFileSync(path.join(brainPath, "policies.cog"), "{ not valid json")
+    fs.writeFileSync(path.join(brainPath, "maintenance_trends.json"), "{ not valid json")
+    fs.writeFileSync(path.join(brainPath, "reflection_summaries.json"), "{ not valid json")
+
+    const aura = await Effect.runPromise(provideNode(Aura.open(brainPath)))
+    const report = aura.get_startup_validation_report()
+    const health = await Effect.runPromise(Effect.provide(aura.memory_health(5), governanceLayer({})))
+
+    assert.strictEqual(report.has_recovery_warnings, true)
+    assert.ok(report.recovered_fallbacks >= 3)
+    assert.ok(report.events.some((event) =>
+      event.surface === "policy" &&
+      event.status === "load_error_fallback" &&
+      event.recovered
+    ))
+    assert.ok(report.events.some((event) =>
+      event.surface === "maintenance_trends" &&
+      event.status === "load_error_fallback" &&
+      event.recovered
+    ))
+    assert.ok(report.events.some((event) =>
+      event.surface === "reflection_summaries" &&
+      event.status === "load_error_fallback" &&
+      event.recovered
+    ))
+    assert.strictEqual(aura.get_maintenance_trend_history().length, 0)
+    assert.strictEqual(aura.get_reflection_summaries(8).length, 0)
+    assert.strictEqual(health.startup_has_recovery_warnings, true)
+  })
+
   it("exposes Rust-shaped maintenance trend and reflection history", async () => {
     const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-maintenance-history-"))
     await Effect.runPromise(provideNode(BrainAuraFile.open(brainPath).pipe(Effect.flatMap((file) => file.flush()))))
@@ -280,6 +336,10 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(manifest.schema_version, 1)
     assert.strictEqual(manifest.surfaces.maintenance_trends, 1)
     assert.strictEqual(manifest.surfaces.reflection_summaries, 1)
+
+    const startup = aura.get_startup_validation_report()
+    assert.strictEqual(startup.events.find((event) => event.surface === "maintenance_trends")?.status, "loaded")
+    assert.strictEqual(startup.events.find((event) => event.surface === "reflection_summaries")?.status, "loaded")
 
     const trends = aura.get_maintenance_trend_history()
     assert.strictEqual(trends.length, 2)

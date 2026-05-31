@@ -24,14 +24,18 @@ import {
   DEFAULT_SEMANTIC_TYPE,
   defaultCrossNamespaceDigestOptions,
   defaultConfidenceForSource,
+  finalizeStartupValidationReport,
+  startupValidationEvent,
   validateRecordSourceType,
   validateRecordStoreInput,
+  type StartupValidationEvent,
+  type StartupValidationReport,
 } from "@aura/contract";
 import {
   BeliefStoreFile,
   CognitiveStoreFile,
   loadCognitiveRecords,
-  loadPersistenceManifestWithValidation,
+  loadPersistenceManifestWithStartupValidation,
   MaintenanceTrendsFile,
   ReflectionSummariesFile,
   readBrainAuraFile,
@@ -58,6 +62,7 @@ import { id12 } from "@aura/utils";
 const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
 const RECORD_SALIENCE_REASON_KEY = "salience_reason"
 const MAX_AUTO_CONNECTIONS = 50
+const startupJsonDecoder = new TextDecoder()
 
 function numberOr(raw: unknown, fallback: number): number {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback
@@ -178,6 +183,146 @@ function migrateLegacyConfidence(record: AuraRecord): AuraRecord | undefined {
     return { ...record, confidence: expected }
   }
   return undefined
+}
+
+type StartupJsonSurfaceOptions<T> = {
+  readonly path: string
+  readonly surface: string
+  readonly empty: () => T
+  readonly missingDetail: string
+  readonly emptyDetail: string
+  readonly loadedDetail: (value: T) => string
+  readonly missingRecovered: boolean
+  readonly isValid?: (value: unknown) => boolean
+}
+
+function formatStartupCause(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
+function recordObjectCount(value: unknown, field: string): number {
+  if (typeof value !== "object" || value === null) return 0
+  const raw = (value as Record<string, unknown>)[field]
+  return typeof raw === "object" && raw !== null ? Object.keys(raw as Record<string, unknown>).length : 0
+}
+
+function hasObjectField(value: unknown, field: string): boolean {
+  if (typeof value !== "object" || value === null) return false
+  const raw = (value as Record<string, unknown>)[field]
+  return typeof raw === "object" && raw !== null
+}
+
+function loadJsonSurfaceWithStartupValidation<T>(
+  options: StartupJsonSurfaceOptions<T>,
+): Effect.Effect<{ readonly value: T; readonly event: StartupValidationEvent }, never, FileRead> {
+  return Effect.gen(function* () {
+    const fr = yield* Effect.service(FileRead)
+    let existsError: unknown = null
+    const exists = yield* fr.exists(options.path).pipe(
+      Effect.catchTag("FileReadError", (cause) => {
+        existsError = cause
+        return Effect.succeed(false)
+      }),
+    )
+
+    if (existsError !== null) {
+      return {
+        value: options.empty(),
+        event: startupValidationEvent(
+          options.surface,
+          options.path,
+          "load_error_fallback",
+          formatStartupCause(existsError),
+          true,
+        ),
+      }
+    }
+
+    if (!exists) {
+      return {
+        value: options.empty(),
+        event: startupValidationEvent(
+          options.surface,
+          options.path,
+          "missing_fallback",
+          options.missingDetail,
+          options.missingRecovered,
+        ),
+      }
+    }
+
+    let readError: unknown = null
+    const bytes = yield* fr.readFile(options.path).pipe(
+      Effect.catchTag("FileReadError", (cause) => {
+        readError = cause
+        return Effect.succeed(new Uint8Array())
+      }),
+    )
+    if (readError !== null) {
+      return {
+        value: options.empty(),
+        event: startupValidationEvent(
+          options.surface,
+          options.path,
+          "load_error_fallback",
+          formatStartupCause(readError),
+          true,
+        ),
+      }
+    }
+
+    const raw = startupJsonDecoder.decode(bytes).trim()
+    if (raw.length === 0) {
+      return {
+        value: options.empty(),
+        event: startupValidationEvent(
+          options.surface,
+          options.path,
+          "empty_fallback",
+          options.emptyDetail,
+          options.missingRecovered,
+        ),
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (options.isValid !== undefined && !options.isValid(parsed)) {
+        return {
+          value: options.empty(),
+          event: startupValidationEvent(
+            options.surface,
+            options.path,
+            "load_error_fallback",
+            "invalid startup surface shape",
+            true,
+          ),
+        }
+      }
+      const value = parsed as T
+      return {
+        value,
+        event: startupValidationEvent(
+          options.surface,
+          options.path,
+          "loaded",
+          options.loadedDetail(value),
+          false,
+        ),
+      }
+    } catch (cause) {
+      return {
+        value: options.empty(),
+        event: startupValidationEvent(
+          options.surface,
+          options.path,
+          "load_error_fallback",
+          formatStartupCause(cause),
+          true,
+        ),
+      }
+    }
+  })
 }
 
 // ── MaintenanceService function imports ──
@@ -301,6 +446,7 @@ export class Aura {
     private readonly records: BrainAuraRecord[],
     private searchRecords: Map<string, AuraRecord> = new Map(),
     private readonly persistenceManifest: PersistenceManifest,
+    private readonly startupValidationReport: StartupValidationReport,
     private readonly maintenanceTrendHistory: MaintenanceTrendSnapshot[] = [],
     private readonly reflectionSummaries: ReflectionSummary[] = [],
     private readonly correctionLog: CorrectionLogEntry[] = [],
@@ -321,7 +467,7 @@ export class Aura {
     const brainAuraPath = `${brainPath}/brain.aura`;
     return Effect.gen(function* () {
       const fs = yield* Effect.service(FileRead);
-      const persistenceManifest = yield* loadPersistenceManifestWithValidation(brainPath);
+      const startupEvents: StartupValidationEvent[] = []
       const buf = yield* fs.readFile(brainAuraPath);
       const parsed = yield* Effect.try({
         try: () => readBrainAuraFile(buf),
@@ -331,17 +477,84 @@ export class Aura {
             message: cause instanceof Error ? cause.message : String(cause),
           }),
       });
-      const trendFile = MaintenanceTrendsFile.new(brainPath)
-      const reflectionFile = ReflectionSummariesFile.new(brainPath)
-      const trends = yield* trendFile.load().pipe(
-        Effect.map((history) => history.map(fromMcpMaintenanceTrendSnapshot)),
-        Effect.catch(() => Effect.succeed([] as MaintenanceTrendSnapshot[]))
-      )
-      const reflections = yield* reflectionFile.load().pipe(
-        Effect.map((history) => history.map(fromMcpReflectionSummary)),
-        Effect.catch(() => Effect.succeed([] as ReflectionSummary[]))
-      )
       const cognitiveRecords = yield* loadCognitiveRecords(brainPath)
+      startupEvents.push(startupValidationEvent(
+        "records",
+        brainPath,
+        "loaded",
+        `loaded ${cognitiveRecords.size} records`,
+        false,
+      ))
+      const beliefValidation = yield* loadJsonSurfaceWithStartupValidation({
+        path: `${brainPath}/beliefs.cog`,
+        surface: "belief",
+        empty: () => ({}),
+        missingDetail: "belief store missing; started with empty belief engine",
+        emptyDetail: "belief store file was empty; started with empty belief engine",
+        loadedDetail: (value) => `loaded ${recordObjectCount(value, "beliefs")} beliefs`,
+        missingRecovered: true,
+        isValid: (value) => hasObjectField(value, "beliefs"),
+      })
+      startupEvents.push(beliefValidation.event)
+      const conceptValidation = yield* loadJsonSurfaceWithStartupValidation({
+        path: `${brainPath}/concepts.cog`,
+        surface: "concept",
+        empty: () => ({}),
+        missingDetail: "concept store missing; started with empty concept engine",
+        emptyDetail: "concept store file was empty; started with empty concept engine",
+        loadedDetail: (value) => `loaded ${recordObjectCount(value, "concepts")} concepts`,
+        missingRecovered: false,
+        isValid: (value) => hasObjectField(value, "concepts"),
+      })
+      startupEvents.push(conceptValidation.event)
+      const causalValidation = yield* loadJsonSurfaceWithStartupValidation({
+        path: `${brainPath}/causal.cog`,
+        surface: "causal",
+        empty: () => ({}),
+        missingDetail: "causal store missing; started with empty causal engine",
+        emptyDetail: "causal store file was empty; started with empty causal engine",
+        loadedDetail: (value) => `loaded ${recordObjectCount(value, "patterns")} causal patterns`,
+        missingRecovered: true,
+        isValid: (value) => hasObjectField(value, "patterns"),
+      })
+      startupEvents.push(causalValidation.event)
+      const policyValidation = yield* loadJsonSurfaceWithStartupValidation({
+        path: `${brainPath}/policies.cog`,
+        surface: "policy",
+        empty: () => ({}),
+        missingDetail: "policy store missing; started with empty policy engine",
+        emptyDetail: "policy store file was empty; started with empty policy engine",
+        loadedDetail: (value) => `loaded ${recordObjectCount(value, "hints")} policy hints`,
+        missingRecovered: true,
+        isValid: (value) => hasObjectField(value, "hints"),
+      })
+      startupEvents.push(policyValidation.event)
+      const manifestValidation = yield* loadPersistenceManifestWithStartupValidation(brainPath)
+      startupEvents.push(...manifestValidation.events)
+      const trendValidation = yield* loadJsonSurfaceWithStartupValidation({
+        path: `${brainPath}/maintenance_trends.json`,
+        surface: "maintenance_trends",
+        empty: MaintenanceTrendsFile.empty,
+        missingDetail: "maintenance trend history missing; started with empty trend history",
+        emptyDetail: "maintenance trend history file was empty",
+        loadedDetail: (history) => `loaded ${history.length} maintenance trend snapshots`,
+        missingRecovered: true,
+        isValid: Array.isArray,
+      })
+      startupEvents.push(trendValidation.event)
+      const reflectionValidation = yield* loadJsonSurfaceWithStartupValidation({
+        path: `${brainPath}/reflection_summaries.json`,
+        surface: "reflection_summaries",
+        empty: ReflectionSummariesFile.empty,
+        missingDetail: "reflection summary history missing; started with empty reflection history",
+        emptyDetail: "reflection summary history file was empty",
+        loadedDetail: (history) => `loaded ${history.length} reflection summaries`,
+        missingRecovered: true,
+        isValid: Array.isArray,
+      })
+      startupEvents.push(reflectionValidation.event)
+      const trends = trendValidation.value.map(fromMcpMaintenanceTrendSnapshot)
+      const reflections = reflectionValidation.value.map(fromMcpReflectionSummary)
       const migratedRecords: AuraRecord[] = []
       for (const [id, record] of cognitiveRecords) {
         const migrated = migrateLegacyConfidence(record)
@@ -357,7 +570,16 @@ export class Aura {
         }
         yield* store.flush()
       }
-      return new Aura(brainPath, parsed.records, cognitiveRecords, persistenceManifest, trends, reflections);
+      const startupValidationReport = finalizeStartupValidationReport(startupEvents)
+      return new Aura(
+        brainPath,
+        parsed.records,
+        cognitiveRecords,
+        manifestValidation.manifest,
+        startupValidationReport,
+        trends,
+        reflections,
+      );
     });
   }
 
@@ -1382,6 +1604,7 @@ export class Aura {
     const trendSummary = summarizeTrends(this.maintenanceTrendHistory)
     const trendDirection = deriveMaintenanceTrendDirection(trendSummary)
     const recentCorrectionCount = this.correctionLog.length
+    const startupHasRecoveryWarnings = this.startupValidationReport.has_recovery_warnings
 
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
@@ -1452,7 +1675,7 @@ export class Aura {
 
       return {
         total_records: records.size,
-        startup_has_recovery_warnings: false,
+        startup_has_recovery_warnings: startupHasRecoveryWarnings,
         high_salience_record_count: saliences.filter((salience) => salience >= 0.70).length,
         avg_salience: saliences.length === 0 ? 0 : totalSalience / saliences.length,
         max_salience: maxSalience,
@@ -2061,6 +2284,25 @@ export class Aura {
     return {
       schema_version: this.persistenceManifest.schema_version,
       surfaces: { ...this.persistenceManifest.surfaces },
+    }
+  }
+
+  /**
+   * Return the startup validation and recovery report for the current runtime.
+   * 返回当前 runtime 的启动验证与恢复报告。
+   *
+   * NON-PARITY IMPLEMENTATION: TS validates persisted surface files during `Aura.open`,
+   * while engine hydration still belongs to Effect Layers rather than this Aura instance.
+   * Rust reference: `Aura::get_startup_validation_report` (`../src/aura.rs`).
+   */
+  get_startup_validation_report(): StartupValidationReport {
+    return {
+      loaded_surfaces: this.startupValidationReport.loaded_surfaces,
+      missing_fallbacks: this.startupValidationReport.missing_fallbacks,
+      recovered_fallbacks: this.startupValidationReport.recovered_fallbacks,
+      derived_skips: this.startupValidationReport.derived_skips,
+      has_recovery_warnings: this.startupValidationReport.has_recovery_warnings,
+      events: this.startupValidationReport.events.map((event) => ({ ...event })),
     }
   }
 

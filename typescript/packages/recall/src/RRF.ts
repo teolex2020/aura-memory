@@ -30,6 +30,29 @@ function inNamespaces(rec: RrfRecord, namespaces: ReadonlyArray<string>): boolea
   return namespaces.includes(namespaceOf(rec))
 }
 
+/**
+ * 按 Rust `rrf_fuse` 的 `filter_map` 阶段过滤记录强度与命名空间。
+ * Rust reference: `rrf_fuse(...).filter_map(...)` (recall.rs).
+ */
+export function filterByStrengthAndNamespace(
+  records: RecallView["records"],
+  scored: Scored,
+  minStrength: number,
+  namespaces: ReadonlyArray<string>
+): Scored {
+  const out: Scored = []
+
+  for (const [score, rid] of scored) {
+    const rec = asRecord(records.get(rid))
+    if (!rec) continue
+    if (strengthOf(rec) < minStrength) continue
+    if (!inNamespaces(rec, namespaces)) continue
+    out.push([score, rid])
+  }
+
+  return out
+}
+
 export function rrfFuse(
   records: RecallView["records"],
   rankedLists: ReadonlyArray<RankedList>,
@@ -54,14 +77,11 @@ export function rrfFuse(
   }
 
   const maxPossible = rankedLists.length / (RRF_K + 1)
-  const out: Scored = []
-  for (const [rid, score] of scores.entries()) {
-    const rec = asRecord(records.get(rid))
-    if (!rec) continue
-    if (strengthOf(rec) < minStrength) continue
-    if (!inNamespaces(rec, namespaces)) continue
-    out.push([maxPossible > 0 ? score / maxPossible : score, rid])
-  }
+  const normalized: Scored = Array.from(scores.entries(), ([rid, score]) => [
+    maxPossible > 0 ? score / maxPossible : score,
+    rid,
+  ])
+  const out = filterByStrengthAndNamespace(records, normalized, minStrength, namespaces)
 
   out.sort((a, b) => b[0] - a[0])
   if (out.length > topK) out.length = Math.max(0, topK)

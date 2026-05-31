@@ -1,6 +1,12 @@
 import type { RecallView } from "@aura/contract"
 import type { RecallRecord, Scored } from "./Types"
 
+/**
+ * Maximum causal chain depth.
+ * 最大 causal chain 深度。
+ *
+ * Rust reference: `CAUSAL_MAX_DEPTH` (`../src/recall.rs`).
+ */
 export const CAUSAL_MAX_DEPTH = 3
 
 const DEFAULT_NAMESPACE = "default"
@@ -25,14 +31,18 @@ function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boo
   return namespaces.includes(namespaceOf(rec))
 }
 
+/**
+ * Follow caused_by_id chains to discover causal context.
+ * 沿 caused_by_id 链发现 causal context。
+ *
+ * Rust reference: `causal_walk` (`../src/recall.rs`).
+ */
 export function causalWalk(
   view: RecallView,
   matched: Scored,
   minStrength: number,
   namespaces: ReadonlyArray<string>
 ): Scored {
-  // SIMPLE IMPLEMENTATION: 仅按 caused_by_id 向上追溯（depth<=3），使用固定衰减（0.8 * 0.9^depth）。
-  // FULL IMPLEMENTATION: 对齐 Rust [causal_walk](file:///workspace/src/recall.rs#L412-L452) 的去重/断链语义，并扩展支持 richer causal edges。
   const matchedIds = new Set<string>(matched.map(([, rid]) => rid))
   const additions: Scored = []
 
@@ -69,4 +79,3 @@ export function causalWalk(
   matched.push(...additions)
   return matched
 }
-

@@ -28,14 +28,18 @@ function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boo
   return namespaces.includes(namespaceOf(rec))
 }
 
+/**
+ * Expand matched records through `Record.connections`.
+ * 通过 `Record.connections` 扩展已匹配记录。
+ *
+ * Rust reference: `graph_walk` (`../src/recall.rs`).
+ */
 export function graphWalk(
   view: RecallView,
   matched: Scored,
   minStrength: number,
   namespaces: ReadonlyArray<string>
 ): Scored {
-  // SIMPLE IMPLEMENTATION: 复刻 Rust 的 2-hop 图扩展（damping + min_score + max_expanded），但不做更复杂的剪枝/并行。
-  // FULL IMPLEMENTATION: 对齐 Rust [graph_walk](file:///workspace/src/recall.rs#L266-L333) 的去重/排序细节、以及未来的多跳/方向性权重。
   const matchedIds = new Set<string>(matched.map(([, rid]) => rid))
   let expandedCount = 0
 
@@ -64,12 +68,16 @@ export function graphWalk(
       }
     }
 
+    // Deduplicate frontier (keep best score)
+    // 去重 frontier（保留最高分）。
     const dedup = new Map<string, number>()
     for (const [score, rid] of next) {
       const prev = dedup.get(rid) ?? 0
       if (score > prev) dedup.set(rid, score)
     }
 
+    // Add to matched results
+    // 添加到匹配结果。
     const sorted = Array.from(dedup.entries()).sort((a, b) => b[1] - a[1])
     const newFrontier: Array<readonly [score: number, recordId: string]> = []
 
@@ -95,4 +103,3 @@ export function graphWalk(
 
   return matched
 }
-

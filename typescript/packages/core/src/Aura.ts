@@ -28,6 +28,7 @@ import {
   defaultConfidenceForSource,
   finalizeStartupValidationReport,
   startupValidationEvent,
+  validateRecordNamespace,
   validateRecordSourceType,
   validateRecordStoreInput,
   type StartupValidationEvent,
@@ -167,6 +168,7 @@ function recallReportOptions(
 }
 
 type AuraRecallHit = readonly [score: number, record: AuraRecord]
+type MemoryTierKind = "cognitive" | "core"
 
 function recallHitsFromScored(
   scored: RecallScored,
@@ -845,6 +847,46 @@ export class Aura {
   }
 
   /**
+   * Recall from the cognitive tier only (WORKING + DECISIONS).
+   * 仅从 cognitive tier（WORKING + DECISIONS）召回 records。
+   *
+   * When `query` is provided, runs the full RRF Fusion pipeline (SDR + MinHash +
+   * Tag Jaccard + optional embeddings) and then filters results to cognitive-tier
+   * records. This gives the same ranking quality as `recall_structured()`.
+   * 当提供 `query` 时，先运行完整 RRF Fusion pipeline（SDR + MinHash +
+   * Tag Jaccard + 可选 embeddings），再过滤到 cognitive-tier records；
+   * 这与 `recall_structured()` 具备相同 ranking quality。
+   *
+   * When `query` is None, returns all cognitive records sorted by importance.
+   * 当 `query` 为 None/null/undefined 时，返回按 importance 排序的全部 cognitive records。
+   *
+   * Rust reference: `Aura::recall_cognitive` and `py_recall_cognitive` (`../src/aura.rs`).
+   */
+  recall_cognitive(query?: string | null, limit?: number, namespaces?: ReadonlyArray<string>) {
+    return this.recallTierRecords("cognitive", query, limit, namespaces)
+  }
+
+  /**
+   * Recall from the core tier only (DOMAIN + IDENTITY).
+   * 仅从 core tier（DOMAIN + IDENTITY）召回 records。
+   *
+   * When `query` is provided, runs the full RRF Fusion pipeline (SDR + MinHash +
+   * Tag Jaccard + optional embeddings) and then filters results to core-tier
+   * records. This gives the same ranking quality as `recall_structured()`.
+   * 当提供 `query` 时，先运行完整 RRF Fusion pipeline（SDR + MinHash +
+   * Tag Jaccard + 可选 embeddings），再过滤到 core-tier records；
+   * 这与 `recall_structured()` 具备相同 ranking quality。
+   *
+   * When `query` is None, returns all core records sorted by importance.
+   * 当 `query` 为 None/null/undefined 时，返回按 importance 排序的全部 core records。
+   *
+   * Rust reference: `Aura::recall_core_tier` and `py_recall_core_tier` (`../src/aura.rs`).
+   */
+  recall_core_tier(query?: string | null, limit?: number, namespaces?: ReadonlyArray<string>) {
+    return this.recallTierRecords("core", query, limit, namespaces)
+  }
+
+  /**
    * List all distinct namespaces present in the brain.
    * 列出当前 brain 中出现过的 namespace；始终包含 Rust 默认 namespace。
    *
@@ -856,6 +898,88 @@ export class Aura {
       namespaces.add(record.namespace)
     }
     return [...namespaces].sort()
+  }
+
+  /**
+   * Move a record to a different namespace.
+   *
+   * Prunes connections that would become cross-namespace after the move.
+   * 将 record 移动到另一个 namespace，并剪掉移动后会跨 namespace 的连接。
+   *
+   * Rust reference: `Aura::move_record` and `py_move_record` (`../src/aura.rs`).
+   */
+  move_record(
+    record_id: string,
+    new_namespace: string,
+  ): Effect.Effect<AuraRecord | null, FileReadError | FileWriteError, FileRead | FileWrite> {
+    const validationError = validateRecordNamespace(new_namespace)
+    if (validationError !== undefined) {
+      return Effect.succeed(null)
+    }
+
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const records = new Map(self.searchRecords)
+
+      // 1. Collect outgoing connection keys and old namespace (immutable access)
+      // 1. 收集 outgoing connection keys 和旧 namespace（只读访问）。
+      const existing = records.get(record_id)
+      if (existing === undefined) return null
+      const oldNamespace = existing.namespace
+      const outgoingKeys = Object.keys(existing.connections)
+
+      // 2. Move the record
+      // 2. 移动 record。
+      const movedConnections: { [recordId: string]: number } = { ...existing.connections }
+
+      // 3. Determine which outgoing connections are now cross-namespace
+      // 3. 找出移动后变成跨 namespace 的 outgoing connections。
+      const crossNamespaceIds: string[] = []
+      for (const connectionId of outgoingKeys) {
+        const peer = records.get(connectionId)
+        if (peer !== undefined && peer.namespace !== new_namespace) {
+          crossNamespaceIds.push(connectionId)
+        }
+      }
+
+      // 4. Prune cross-namespace outgoing connections
+      //    (re-borrow after immutable filter above)
+      // 4. 剪掉跨 namespace 的 outgoing connections（对应 Rust 的重新借用）。
+      for (const connectionId of crossNamespaceIds) {
+        delete movedConnections[connectionId]
+      }
+
+      const moved: AuraRecord = {
+        ...existing,
+        namespace: new_namespace,
+        connections: movedConnections,
+      }
+
+      // 5. Prune incoming connections from old-namespace records pointing to this one
+      // 5. 剪掉旧 namespace records 中指向当前 record 的 incoming connections。
+      records.set(record_id, moved)
+      for (const [peerId, peer] of records) {
+        if (peerId === record_id) continue
+        if (peer.namespace !== oldNamespace) continue
+        if (peer.connections[record_id] === undefined) continue
+        const peerConnections: { [recordId: string]: number } = { ...peer.connections }
+        delete peerConnections[record_id]
+        records.set(peerId, {
+          ...peer,
+          connections: peerConnections,
+        })
+      }
+
+      const store = yield* CognitiveStoreFile.open(dir)
+      yield* store.appendUpdate(moved)
+      yield* store.flush()
+      // NON-PARITY IMPLEMENTATION: Rust clears recall caches after namespace moves.
+      // 非对齐点：TS core 暂无 recall cache surface；当前仅替换 in-memory read model。
+      // Rust reference: `Aura::move_record` (`../src/aura.rs`).
+      self.searchRecords = records
+      return cloneAuraRecord(moved)
+    })
   }
 
   /**
@@ -1229,6 +1353,56 @@ export class Aura {
       ...(options ?? {}),
       boundedRerankModes: this.currentBoundedRerankModes(),
     }
+  }
+
+  private recallTierRecords(
+    tier: MemoryTierKind,
+    query: string | null | undefined,
+    limit: number | undefined,
+    namespaces: ReadonlyArray<string> | undefined,
+  ): Effect.Effect<ReadonlyArray<AuraRecord>, never, FileRead | FileWrite> {
+    const self = this
+    const max = rustOptionalTopK(limit)
+    const nsList = namespaces ?? [DEFAULT_NAMESPACE]
+    return Effect.gen(function* () {
+      if (query !== undefined && query !== null) {
+        // RRF pipeline -> filter to requested tier.
+        // 先跑 RRF pipeline，再过滤到目标 tier。
+        // Request more from pipeline to compensate for tier filtering.
+        // 多取结果以补偿 tier filter。
+        // Rust reference: `Aura::recall_cognitive` / `Aura::recall_core_tier` (`../src/aura.rs`).
+        const pipelineLimit = max * 3
+        const hitsOrNull = yield* Effect.gen(function* () {
+          const hits = yield* recallRecordsEffect<AuraRecord>(
+            self.brainDir,
+            query,
+            self.recallOptionsWithRuntimeModes({
+              topK: pipelineLimit,
+              minStrength: 0.1,
+              expandConnections: true,
+              namespaces: nsList,
+            }),
+          )
+          self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+          return hits as ReadonlyArray<readonly [number, AuraRecord]>
+        }).pipe(
+          Effect.catch(() => Effect.succeed(null as ReadonlyArray<readonly [number, AuraRecord]> | null)),
+        )
+
+        if (hitsOrNull !== null) {
+          return hitsOrNull
+            .map(([, record]) => record)
+            .filter((record) => isLevelInTier(record.level, tier))
+            .slice(0, max)
+            .map(cloneAuraRecord)
+        }
+      }
+
+      // No query or pipeline error -> list requested tier by importance.
+      // 无 query 或 pipeline 失败时，按 importance 返回目标 tier 的 records。
+      // Rust reference: `Aura::recall_cognitive` / `Aura::recall_core_tier` (`../src/aura.rs`).
+      return tierRecords([...self.searchRecords.values()], tier, max, nsList)
+    })
   }
 
   recall(query: string, options?: Partial<RecallPipelineOptions>) {
@@ -3583,6 +3757,30 @@ function isCognitiveLevel(level: Level): boolean {
   // 检查 level 是否属于 cognitive tier（Working + Decisions）。
   // Rust reference: `Level::is_cognitive` (`../src/levels.rs`).
   return level === Level.Working || level === Level.Decisions
+}
+
+function isCoreLevel(level: Level): boolean {
+  // Check if this level belongs to the core tier (Domain + Identity).
+  // 检查 level 是否属于 core tier（Domain + Identity）。
+  // Rust reference: `Level::is_core` (`../src/levels.rs`).
+  return level === Level.Domain || level === Level.Identity
+}
+
+function isLevelInTier(level: Level, tier: MemoryTierKind): boolean {
+  return tier === "cognitive" ? isCognitiveLevel(level) : isCoreLevel(level)
+}
+
+function tierRecords(
+  records: ReadonlyArray<AuraRecord>,
+  tier: MemoryTierKind,
+  limit: number,
+  namespaces: ReadonlyArray<string>,
+): ReadonlyArray<AuraRecord> {
+  return records
+    .filter((record) => isLevelInTier(record.level, tier) && namespaces.includes(record.namespace))
+    .sort((a, b) => recordImportance(b) - recordImportance(a))
+    .slice(0, limit)
+    .map(cloneAuraRecord)
 }
 
 function promoteLevel(level: Level): Level | null {

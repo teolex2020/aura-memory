@@ -539,6 +539,94 @@ describe("Aura MCP-facing operational surfaces", () => {
     })
   })
 
+  it("move_record mirrors Rust namespace move and connection pruning semantics", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-move-record-"))
+    await Effect.runPromise(provideNode(Effect.gen(function* () {
+      const brain = yield* BrainAuraFile.open(brainPath)
+      yield* brain.flush()
+      const store = yield* CognitiveStoreFile.open(brainPath)
+      const makeRecord = (
+        id: string,
+        namespace: string,
+        connections: Record<string, number>,
+        connectionTypes: Record<string, string>,
+      ) => ({
+        id,
+        content: `${id} content`,
+        level: Level.Working,
+        strength: 1,
+        activation_count: 0,
+        created_at: 1,
+        last_activated: 1,
+        tags: [],
+        connections,
+        connection_types: connectionTypes,
+        content_type: "text",
+        source_type: "recorded",
+        namespace,
+        semantic_type: "fact",
+        activation_velocity: 0,
+        salience: 0,
+        metadata: {},
+        aura_id: null,
+        caused_by_id: null,
+        confidence: 0.9,
+        support_mass: 0,
+        conflict_mass: 0,
+        volatility: 0,
+      })
+
+      yield* store.appendStore(makeRecord(
+        "move-me",
+        "alpha",
+        { "alpha-peer": 0.7, "beta-peer": 0.9 },
+        { "alpha-peer": "associative", "beta-peer": "causal" },
+      ))
+      yield* store.appendStore(makeRecord(
+        "alpha-peer",
+        "alpha",
+        { "move-me": 0.7 },
+        { "move-me": "associative" },
+      ))
+      yield* store.appendStore(makeRecord(
+        "beta-peer",
+        "beta",
+        { "move-me": 0.9 },
+        { "move-me": "causal" },
+      ))
+      yield* store.flush()
+    })))
+
+    const aura = await Effect.runPromise(provideNode(Aura.open(brainPath)))
+
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.move_record("move-me", "ns/path"))), null)
+    assert.strictEqual(aura.get("move-me")?.namespace, "alpha")
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.move_record("missing", "beta"))), null)
+
+    const moved = await Effect.runPromise(provideNode(aura.move_record("move-me", "beta")))
+    if (moved === null) throw new Error("expected move_record to return moved record")
+
+    assert.strictEqual(moved.namespace, "beta")
+    assert.strictEqual(moved.connections["alpha-peer"], undefined)
+    assert.strictEqual(moved.connections["beta-peer"], 0.9)
+    assert.strictEqual(moved.connection_types["alpha-peer"], "associative")
+    moved.content = "mutated outside Aura"
+    assert.strictEqual(aura.get("move-me")?.content, "move-me content")
+
+    const alphaPeer = aura.get("alpha-peer")
+    const betaPeer = aura.get("beta-peer")
+    assert.strictEqual(alphaPeer?.connections["move-me"], undefined)
+    assert.strictEqual(alphaPeer?.connection_types["move-me"], "associative")
+    assert.strictEqual(betaPeer?.connections["move-me"], 0.9)
+    assert.deepStrictEqual(aura.list_namespaces(), ["alpha", "beta", "default"])
+    assert.deepStrictEqual(aura.namespace_stats(), { alpha: 1, beta: 2 })
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get("move-me")?.namespace, "beta")
+    assert.strictEqual(persisted.get("move-me")?.connections["alpha-peer"], undefined)
+    assert.strictEqual(persisted.get("move-me")?.connections["beta-peer"], 0.9)
+  })
+
   it("open migrates legacy deserialized confidence to source_type defaults", async () => {
     const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-legacy-confidence-"))
     await Effect.runPromise(provideNode(Effect.gen(function* () {
@@ -1031,6 +1119,19 @@ describe("Aura MCP-facing operational surfaces", () => {
       total: 5,
     })
 
+    assert.deepStrictEqual(
+      (await Effect.runPromise(provideNode(aura.recall_cognitive(null, 10)))).map((record) => record.id),
+      ["decisions-candidate", "working-candidate", "working-weak"],
+    )
+    assert.deepStrictEqual(
+      (await Effect.runPromise(provideNode(aura.recall_core_tier(undefined, 10)))).map((record) => record.id),
+      ["identity-core", "domain-core"],
+    )
+    assert.deepStrictEqual(
+      (await Effect.runPromise(provideNode(aura.recall_cognitive(undefined, 10, ["missing"])))).map((record) => record.id),
+      [],
+    )
+
     const candidates = aura.promotion_candidates()
     assert.deepStrictEqual(candidates.map((record) => record.id), ["decisions-candidate", "working-candidate"])
     candidates[0]!.content = "mutated outside Aura"
@@ -1057,6 +1158,75 @@ describe("Aura MCP-facing operational surfaces", () => {
 
     const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
     assert.strictEqual(persisted.get("working-candidate")?.level, Level.Identity)
+  })
+
+  it("two-tier recall facades run query pipeline then filter tier and namespace", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-two-tier-recall-"))
+    const aura = await Effect.runPromise(provideNode(Effect.gen(function* () {
+      const brain = yield* BrainAuraFile.open(brainPath)
+      yield* brain.flush()
+      const store = yield* CognitiveStoreFile.open(brainPath)
+      const makeRecord = (
+        id: string,
+        level: Level,
+        namespace: string,
+        strength: number,
+      ) => ({
+        id,
+        content: `alpha ${id} content`,
+        level,
+        strength,
+        activation_count: 0,
+        created_at: 1,
+        last_activated: 1,
+        tags: ["alpha"],
+        connections: {},
+        connection_types: {},
+        content_type: "text",
+        source_type: "recorded",
+        namespace,
+        semantic_type: "fact",
+        activation_velocity: 0,
+        salience: 0,
+        metadata: {},
+        aura_id: null,
+        caused_by_id: null,
+        confidence: 0.9,
+        support_mass: 0,
+        conflict_mass: 0,
+        volatility: 0,
+      })
+
+      yield* store.appendStore(makeRecord("alpha-working", Level.Working, "default", 1))
+      yield* store.appendStore(makeRecord("alpha-decision", Level.Decisions, "default", 1))
+      yield* store.appendStore(makeRecord("alpha-domain", Level.Domain, "default", 1))
+      yield* store.appendStore(makeRecord("alpha-identity", Level.Identity, "default", 1))
+      yield* store.appendStore(makeRecord("beta-working", Level.Working, "beta", 1))
+      yield* store.appendStore(makeRecord("beta-domain", Level.Domain, "beta", 1))
+      yield* store.flush()
+      return yield* Aura.open(brainPath)
+    })))
+
+    const cognitive = await Effect.runPromise(provideNode(aura.recall_cognitive("alpha", 5)))
+    assert.deepStrictEqual(
+      new Set(cognitive.map((record) => record.id)),
+      new Set(["alpha-working", "alpha-decision"]),
+    )
+    assert.ok(cognitive.every((record) => record.level === Level.Working || record.level === Level.Decisions))
+    assert.ok(cognitive.every((record) => record.namespace === "default"))
+
+    const core = await Effect.runPromise(provideNode(aura.recall_core_tier("alpha", 5)))
+    assert.deepStrictEqual(
+      new Set(core.map((record) => record.id)),
+      new Set(["alpha-domain", "alpha-identity"]),
+    )
+    assert.ok(core.every((record) => record.level === Level.Domain || record.level === Level.Identity))
+    assert.ok(core.every((record) => record.namespace === "default"))
+
+    const betaCognitive = await Effect.runPromise(provideNode(aura.recall_cognitive("alpha", 5, ["beta"])))
+    assert.deepStrictEqual(betaCognitive.map((record) => record.id), ["beta-working"])
+    const betaCore = await Effect.runPromise(provideNode(aura.recall_core_tier("alpha", 5, ["beta"])))
+    assert.deepStrictEqual(betaCore.map((record) => record.id), ["beta-domain"])
   })
 
   it("correction writers populate logs, review queues, and 07-04 governance backfills", async () => {

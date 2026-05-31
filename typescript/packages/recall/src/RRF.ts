@@ -56,6 +56,14 @@ function filterByStrengthAndNamespace(
   return out
 }
 
+/**
+ * Reciprocal Rank Fusion — combines multiple ranked lists.
+ * 倒数排名融合：组合多个排序列表。
+ *
+ * RRF score = Σ(1 / (k + rank_i)) for each list where record appears.
+ * RRF 分数：对每个包含该 record 的列表累加 1 / (k + rank_i)。
+ * Rust reference: `rrf_fuse(records, ranked_lists, min_strength, top_k, namespaces)` (`../src/recall.rs`).
+ */
 export function rrfFuse(
   records: RecallView["records"],
   rankedLists: ReadonlyArray<RankedList>,
@@ -63,12 +71,6 @@ export function rrfFuse(
   topK: number,
   namespaces: ReadonlyArray<string>
 ): Scored {
-  // Reciprocal Rank Fusion — combines multiple ranked lists.
-  // 倒数排名融合：组合多个排序列表。
-  //
-  // RRF score = Σ(1 / (k + rank_i)) for each list where record appears.
-  // RRF 分数：对每个包含该 record 的列表累加 1 / (k + rank_i)。
-  // Rust reference: `rrf_fuse(records, ranked_lists, min_strength, top_k, namespaces)` (recall.rs).
   const scores = new Map<string, number>()
 
   for (const list of rankedLists) {

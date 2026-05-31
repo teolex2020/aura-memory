@@ -1066,6 +1066,11 @@ export class Aura {
     return this.store_with_channel(content, options);
   }
 
+  /**
+   * Store a code snippet at DOMAIN level.
+   * 将代码片段以 DOMAIN level 存储；language/filename 通过 tags 与 fenced content 暴露。
+   * Rust reference: `AuraMcpServer::store_code` (`../src/mcp.rs`).
+   */
   store_code(
     options: StoreCodeOptions,
   ): Effect.Effect<
@@ -1073,9 +1078,6 @@ export class Aura {
     FileReadError | FileWriteError | RecordValidationError,
     FileRead | FileWrite
   > {
-    // Store a code snippet at DOMAIN level.
-    // 将代码片段以 DOMAIN level 存储；language/filename 通过 tags 与 fenced content 暴露。
-    // Rust reference: AuraMcpServer::store_code (mcp.rs)
     const tags = [...(options.tags ?? []), "code", options.language]
     if (options.filename !== undefined && options.filename.length > 0) {
       tags.push(`file:${options.filename}`)
@@ -1089,6 +1091,11 @@ export class Aura {
     })
   }
 
+  /**
+   * Store a decision with reasoning and rejected alternatives.
+   * 存储决策、理由与被拒绝的备选方案。
+   * Rust reference: `AuraMcpServer::store_decision` (`../src/mcp.rs`).
+   */
   store_decision(
     options: StoreDecisionOptions,
   ): Effect.Effect<
@@ -1096,9 +1103,6 @@ export class Aura {
     FileReadError | FileWriteError | RecordValidationError,
     FileRead | FileWrite
   > {
-    // Store a decision with reasoning and rejected alternatives.
-    // 存储决策、理由与被拒绝的备选方案。
-    // Rust reference: AuraMcpServer::store_decision (mcp.rs)
     let content = `DECISION: ${options.decision}`
     if (options.reasoning !== undefined && options.reasoning.length > 0) {
       content += `\nREASONING: ${options.reasoning}`
@@ -1115,6 +1119,17 @@ export class Aura {
     })
   }
 
+  /**
+   * Store with explicit channel for provenance stamping.
+   * 带显式 channel 的存储，用于 provenance 标记。
+   *
+   * `auto_promote`: if Some(false), disables surprise-based level promotion.
+   * `auto_promote` 为 false 时关闭基于“surprise”的 level 晋升。
+   *
+   * SIMPLE IMPLEMENTATION: only appends to brain.cog (CognitiveStoreFile) and fsyncs.
+   * 简化实现：仅追加写入 brain.cog 并 fsync；不维护 brain.aura 与 index/。
+   * Rust reference: `Aura::store` / `Aura::store_with_channel` (`../src/aura.rs`).
+   */
   store_with_channel(
     content: string,
     options?: StoreOptions & {
@@ -1126,12 +1141,6 @@ export class Aura {
     FileReadError | FileWriteError | RecordValidationError,
     FileRead | FileWrite
   > {
-    // Store with explicit channel for provenance stamping.
-    // `auto_promote`: if Some(false), disables surprise-based level promotion.
-    // 带显式 channel 的存储，用于 provenance 标记；auto_promote 为 false 时关闭基于“surprise”的 level 晋升。
-    // SIMPLE IMPLEMENTATION: only appends to brain.cog (CognitiveStoreFile) and fsyncs.
-    // 简化实现：仅追加写入 brain.cog 并 fsync；不维护 brain.aura 与 index/。
-    // Rust reference: Aura::store / Aura::store_with_channel (aura.rs)
     const dir = this.brainDir;
     const self = this;
     return Effect.gen(function* () {
@@ -1194,6 +1203,14 @@ export class Aura {
     });
   }
 
+  /**
+   * Update a record.
+   * 更新一条 record。
+   *
+   * SIMPLE IMPLEMENTATION: load current in-memory view (from brain.cog/brain.snap) and append an Update record.
+   * 简化实现：从 brain.cog/brain.snap 回放得到当前视图，再追加写入一条 Update 记录。
+   * Rust reference: `Aura::update` (`../src/aura.rs`).
+   */
   update(
     record_id: string,
     patch?: UpdateOptions,
@@ -1202,11 +1219,6 @@ export class Aura {
     FileReadError | FileWriteError | FileFormatError | RecordValidationError,
     FileRead | FileWrite
   > {
-    // Update a record.
-    // 更新一条 record。
-    // SIMPLE IMPLEMENTATION: load current in-memory view (from brain.cog/brain.snap) and append an Update record.
-    // 简化实现：从 brain.cog/brain.snap 回放得到当前视图，再追加写入一条 Update 记录。
-    // Rust reference: Aura::update (aura.rs)
     const dir = this.brainDir;
     const self = this;
     return Effect.gen(function* () {
@@ -1259,6 +1271,14 @@ export class Aura {
     });
   }
 
+  /**
+   * Delete a record.
+   * 删除一条 record。
+   *
+   * SIMPLE IMPLEMENTATION: append delete op to brain.cog and return true.
+   * 简化实现：追加写入 delete 操作并返回 true（后续 parity 可返回 existed?）。
+   * Rust reference: `Aura::delete` (`../src/aura.rs`).
+   */
   delete(
     record_id: string,
   ): Effect.Effect<
@@ -1266,11 +1286,6 @@ export class Aura {
     FileReadError | FileWriteError | FileFormatError,
     FileRead | FileWrite
   > {
-    // Delete a record.
-    // 删除一条 record。
-    // SIMPLE IMPLEMENTATION: append delete op to brain.cog and return true.
-    // 简化实现：追加写入 delete 操作并返回 true（后续 parity 可返回 existed?）。
-    // Rust reference: Aura::delete (aura.rs)
     const dir = this.brainDir;
     const self = this;
     return Effect.gen(function* () {
@@ -1286,6 +1301,21 @@ export class Aura {
     });
   }
 
+  /**
+   * Connect two records with optional relationship type.
+   * 连接两条 records（可选 relationship 类型）。
+   *
+   * Relationship types (inspired by molecular reasoning bonds):
+   * - `"causal"`: A caused/led to B
+   * - `"reflective"`: B validates/corrects A
+   * - `"associative"`: A and B are thematically related
+   * - `"coactivation"`: A and B were recalled together in a session
+   * - Any custom string
+   *
+   * SIMPLE IMPLEMENTATION: load records, mutate connections, appendUpdate full records.
+   * 简化实现：加载记录、更新 connections、追加写入完整 record。
+   * Rust reference: `Aura::connect` (`../src/aura.rs`).
+   */
   connect(
     from_id: string,
     to_id: string,
@@ -1296,18 +1326,6 @@ export class Aura {
     FileReadError | FileWriteError | FileFormatError | RecordValidationError,
     FileRead | FileWrite
   > {
-    // Connect two records with optional relationship type.
-    //
-    // Relationship types (inspired by molecular reasoning bonds):
-    // - `"causal"` — A caused/led to B
-    // - `"reflective"` — B validates/corrects A
-    // - `"associative"` — A and B are thematically related
-    // - `"coactivation"` — A and B were recalled together in a session
-    // - Any custom string
-    // 连接两条 records（可选 relationship 类型）。
-    // SIMPLE IMPLEMENTATION: load records, mutate connections, appendUpdate full records.
-    // 简化实现：加载记录、更新 connections、追加写入完整 record。
-    // Rust reference: Aura::connect (aura.rs)
     const dir = this.brainDir;
     const self = this;
     const w =
@@ -1599,21 +1617,30 @@ export class Aura {
     }
   }
 
-  /** Get current belief-aware recall reranking mode. */
+  /**
+   * Get current belief-aware recall reranking mode.
+   * 获取当前 belief-aware recall reranking mode。
+   * Rust reference: `Aura::get_belief_rerank_mode` (`../src/aura.rs`).
+   */
   get_belief_rerank_mode(): BeliefRerankMode {
-    // Rust reference: `Aura::get_belief_rerank_mode` in `../src/aura.rs`.
     return this.boundedRerankModes.beliefMode
   }
 
-  /** Convenience: enable limited belief reranking. */
+  /**
+   * Convenience: enable limited belief reranking.
+   * 便利方法：启用 limited belief reranking。
+   * Rust reference: `Aura::set_belief_rerank_enabled` (`../src/aura.rs`).
+   */
   set_belief_rerank_enabled(enabled: boolean): void {
-    // Rust reference: `Aura::set_belief_rerank_enabled` in `../src/aura.rs`.
     this.set_belief_rerank_mode(enabled ? BeliefRerankMode.Limited : BeliefRerankMode.Off)
   }
 
-  /** Convenience: check if belief reranking is actively influencing ranking. */
+  /**
+   * Convenience: check if belief reranking is actively influencing ranking.
+   * 便利方法：检查 belief reranking 是否正在影响排序。
+   * Rust reference: `Aura::is_belief_rerank_enabled` (`../src/aura.rs`).
+   */
   is_belief_rerank_enabled(): boolean {
-    // Rust reference: `Aura::is_belief_rerank_enabled` in `../src/aura.rs`.
     return this.get_belief_rerank_mode() === BeliefRerankMode.Limited
   }
 
@@ -1633,9 +1660,12 @@ export class Aura {
     }
   }
 
-  /** Get current concept surface mode. */
+  /**
+   * Get current concept surface mode.
+   * 获取当前 concept surface mode。
+   * Rust reference: `Aura::get_concept_surface_mode` (`../src/aura.rs`).
+   */
   get_concept_surface_mode(): ConceptSurfaceMode {
-    // Rust reference: `Aura::get_concept_surface_mode` in `../src/aura.rs`.
     return this.boundedRerankModes.conceptMode
   }
 
@@ -1655,9 +1685,12 @@ export class Aura {
     }
   }
 
-  /** Get current causal-pattern recall reranking mode. */
+  /**
+   * Get current causal-pattern recall reranking mode.
+   * 获取当前 causal-pattern recall reranking mode。
+   * Rust reference: `Aura::get_causal_rerank_mode` (`../src/aura.rs`).
+   */
   get_causal_rerank_mode(): CausalRerankMode {
-    // Rust reference: `Aura::get_causal_rerank_mode` in `../src/aura.rs`.
     return this.boundedRerankModes.causalMode
   }
 
@@ -1674,9 +1707,12 @@ export class Aura {
     this.causalTemporalBudgetMode = parseTemporalBudgetMode(mode)
   }
 
-  /** Get current temporal causal edge budgeting mode. */
+  /**
+   * Get current temporal causal edge budgeting mode.
+   * 获取当前 temporal causal edge budgeting mode。
+   * Rust reference: `Aura::get_causal_temporal_budget_mode` (`../src/aura.rs`).
+   */
   get_causal_temporal_budget_mode(): TemporalBudgetMode {
-    // Rust reference: `Aura::get_causal_temporal_budget_mode` in `../src/aura.rs`.
     return this.causalTemporalBudgetMode
   }
 
@@ -1693,9 +1729,12 @@ export class Aura {
     this.causalEvidenceMode = parseEvidenceMode(mode)
   }
 
-  /** Get current causal evidence gating mode. */
+  /**
+   * Get current causal evidence gating mode.
+   * 获取当前 causal evidence gating mode。
+   * Rust reference: `Aura::get_causal_evidence_mode` (`../src/aura.rs`).
+   */
   get_causal_evidence_mode(): EvidenceMode {
-    // Rust reference: `Aura::get_causal_evidence_mode` in `../src/aura.rs`.
     return this.causalEvidenceMode
   }
 
@@ -1715,9 +1754,12 @@ export class Aura {
     }
   }
 
-  /** Get current policy-hint recall reranking mode. */
+  /**
+   * Get current policy-hint recall reranking mode.
+   * 获取当前 policy-hint recall reranking mode。
+   * Rust reference: `Aura::get_policy_rerank_mode` (`../src/aura.rs`).
+   */
   get_policy_rerank_mode(): PolicyRerankMode {
-    // Rust reference: `Aura::get_policy_rerank_mode` in `../src/aura.rs`.
     return this.boundedRerankModes.policyMode
   }
 
@@ -1776,6 +1818,11 @@ export class Aura {
     }
   }
 
+  /**
+   * Search with filters.
+   * 按过滤条件搜索 records。
+   * Rust reference: `Aura::search` (`../src/aura.rs`).
+   */
   search(
     options?: AuraSearchOptions,
   ): ReadonlyArray<AuraRecord>
@@ -1799,9 +1846,6 @@ export class Aura {
     namespaces?: ReadonlyArray<string>,
     semantic_type?: string,
   ): ReadonlyArray<AuraRecord> {
-    // Search with filters.
-    // 按过滤条件搜索 records。
-    // Rust reference: Aura::search (aura.rs)
     const options: AuraSearchOptions =
       typeof first === "object" && first !== null
         ? first
@@ -1832,10 +1876,12 @@ export class Aura {
     return results.slice(0, max).map(cloneAuraRecord)
   }
 
+  /**
+   * Get statistics.
+   * 获取基础统计。
+   * Rust reference: `Aura::stats` (`../src/aura.rs`).
+   */
   stats(): AuraStats {
-    // Get statistics.
-    // 获取基础统计。
-    // Rust reference: Aura::stats (aura.rs)
     const records = [...this.searchRecords.values()]
     const uniqueTags = new Set<string>()
     let totalConnections = 0
@@ -1862,10 +1908,12 @@ export class Aura {
     }
   }
 
+  /**
+   * MCP insights intentionally mirrors Rust MCP's stats() call path.
+   * MCP insights 在 Rust server 中实际调用 stats()，TS 侧保持同一契约。
+   * Rust reference: `AuraMcpServer::insights` (`../src/mcp.rs`).
+   */
   insights(): AuraStats {
-    // MCP insights intentionally mirrors Rust MCP's stats() call path.
-    // MCP insights 在 Rust server 中实际调用 stats()，TS 侧保持同一契约。
-    // Rust reference: AuraMcpServer::insights (mcp.rs)
     return this.stats()
   }
 
@@ -1994,31 +2042,39 @@ export class Aura {
     })
   }
 
+  /**
+   * Public MCP-facing facade over the maintenance orchestration.
+   * 面向 MCP 的公开维护入口，委托到 runMaintenance。
+   * Rust reference: `Aura::run_maintenance` / `AuraMcpServer` maintain path.
+   */
   maintain(config?: MaintenanceConfig) {
-    // Public MCP-facing facade over the maintenance orchestration.
-    // 面向 MCP 的公开维护入口，委托到 runMaintenance。
-    // Rust reference: Aura::run_maintenance / AuraMcpServer maintain path.
     return this.runMaintenance(config)
   }
 
+  /**
+   * Configure the maintenance pipeline.
+   * 配置 maintenance pipeline。
+   * Rust reference: `Aura::configure_maintenance` (`../src/aura.rs`).
+   */
   configure_maintenance(config: MaintenanceConfig): void {
-    // Configure the maintenance pipeline.
-    // 配置 maintenance pipeline。
-    // Rust reference: Aura::configure_maintenance (aura.rs)
     this.maintenanceConfig = config
   }
 
+  /**
+   * Run the full maintenance pipeline using the configured maintenance settings.
+   * 使用已配置的 maintenance settings 运行完整 maintenance pipeline。
+   * Rust reference: `Aura::run_maintenance` (`../src/aura.rs`).
+   */
   run_maintenance() {
-    // Run the full maintenance pipeline using the configured maintenance settings.
-    // 使用已配置的 maintenance settings 运行完整 maintenance pipeline。
-    // Rust reference: Aura::run_maintenance (aura.rs)
     return this.runMaintenance()
   }
 
+  /**
+   * UNIMPLEMENTED: consolidation is recoverably unsupported until TS has a real merge algorithm.
+   * 未实现：TS 具备真实 merge 算法前，consolidate 以可恢复 typed error 暴露。
+   * Rust reference: `Aura::consolidate` (`../src/aura.rs`).
+   */
   consolidate(): Effect.Effect<never, UnsupportedSurfaceError> {
-    // UNIMPLEMENTED: consolidation is recoverably unsupported until TS has a real merge algorithm.
-    // 未实现：TS 具备真实 merge 算法前，consolidate 以可恢复 typed error 暴露。
-    // Rust reference: Aura::consolidate (aura.rs)
     return Effect.fail(new UnsupportedSurfaceError({
       surface: "Aura.consolidate",
       reason: "TS core has no Rust-parity consolidation merge/update path yet; dummy success counts are forbidden.",
@@ -2030,17 +2086,21 @@ export class Aura {
     }))
   }
 
+  /**
+   * Close and flush everything.
+   * 关闭并 flush 所有持久化 surface。
+   * Rust reference: `Aura::close` (`../src/aura.rs`).
+   */
   close(): Effect.Effect<void, FileReadError | FileWriteError, FileRead | FileWrite> {
-    // Close and flush everything.
-    // 关闭并 flush 所有持久化 surface。
-    // Rust reference: Aura::close (aura.rs)
     return this.flush()
   }
 
+  /**
+   * Flush pending writes.
+   * flush 待写入数据。
+   * Rust reference: `Aura::flush` (`../src/aura.rs`).
+   */
   flush(): Effect.Effect<void, FileReadError | FileWriteError, FileRead | FileWrite> {
-    // Flush pending writes.
-    // flush 待写入数据。
-    // Rust reference: Aura::flush (aura.rs)
     const dir = this.brainDir
     return Effect.gen(function* () {
       const brain = yield* BrainAuraFile.open(dir)
@@ -2050,27 +2110,34 @@ export class Aura {
     })
   }
 
+  /**
+   * Check if encryption is enabled.
+   * 检查当前 Aura 实例是否启用加密。
+   *
+   * TS open_with_password 目前会对 password 返回 UnsupportedSurfaceError，因此已支持打开的实例均未启用加密。
+   * Rust reference: `Aura::is_encrypted` (`../src/aura.rs`).
+   */
   is_encrypted(): boolean {
-    // Check if encryption is enabled.
-    // 检查当前 Aura 实例是否启用加密。
-    // TS open_with_password 目前会对 password 返回 UnsupportedSurfaceError，因此已支持打开的实例均未启用加密。
-    // Rust reference: Aura::is_encrypted (aura.rs)
     return false
   }
 
+  /**
+   * Export all records as JSON.
+   * 将全部 records 导出为 JSON。
+   * Rust reference: `Aura::export_json` (`../src/aura.rs`).
+   */
   export_json(): string {
-    // Export all records as JSON.
-    // 将全部 records 导出为 JSON。
-    // Rust reference: Aura::export_json (aura.rs)
     return JSON.stringify(Array.from(this.searchRecords.values()), null, 2)
   }
 
+  /**
+   * Import records from JSON.
+   * 从 JSON 导入 records。
+   * Rust reference: `Aura::import_json` (`../src/aura.rs`).
+   */
   import_json(
     jsonStr: string,
   ): Effect.Effect<number, JsonParseError | FileWriteError | FileReadError | RecordValidationError, FileRead | FileWrite> {
-    // Import records from JSON.
-    // 从 JSON 导入 records。
-    // Rust reference: Aura::import_json (aura.rs)
     const dir = this.brainDir
     const self = this
     return Effect.gen(function* () {
@@ -2122,10 +2189,12 @@ export class Aura {
     })
   }
 
+  /**
+   * Reuse the EpistemicRuntime read model instead of recomposing belief logic in the MCP layer.
+   * 复用 EpistemicRuntime 读模型，避免 MCP 传输层重复组合业务逻辑。
+   * Rust reference: `Aura::get_belief_instability_summary` (`../src/aura.rs`).
+   */
   get_belief_instability_summary(): Effect.Effect<McpBeliefInstabilitySummary, never, EpistemicRuntime | BeliefEngine> {
-    // Reuse the EpistemicRuntime read model instead of recomposing belief logic in the MCP layer.
-    // 复用 EpistemicRuntime 读模型，避免 MCP 传输层重复组合业务逻辑。
-    // Rust reference: Aura::get_belief_instability_summary (aura.rs)
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
       const summary = yield* runtime.getBeliefInstabilitySummary()
@@ -2137,13 +2206,15 @@ export class Aura {
     return this.get_belief_instability_summary()
   }
 
+  /**
+   * Reuse the EpistemicRuntime policy lifecycle aggregation.
+   * 复用 EpistemicRuntime 的 policy lifecycle 聚合。
+   * Rust reference: `Aura::get_policy_lifecycle_summary` (`../src/aura.rs`).
+   */
   get_policy_lifecycle_summary(
     actionLimit?: number,
     domainLimit?: number,
   ): Effect.Effect<McpPolicyLifecycleSummary, never, EpistemicRuntime | PolicyEngine> {
-    // Reuse the EpistemicRuntime policy lifecycle aggregation.
-    // 复用 EpistemicRuntime 的 policy lifecycle 聚合。
-    // Rust reference: Aura::get_policy_lifecycle_summary (aura.rs)
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
       const summary = yield* runtime.getPolicyLifecycleSummary(actionLimit, domainLimit)
@@ -2438,13 +2509,15 @@ export class Aura {
     return this.cross_namespace_digest_with_options(namespaces, options)
   }
 
+  /**
+   * Build a read-only bounded analytics digest across namespaces.
+   * 构建跨 namespace 的只读有界分析摘要。
+   * Rust reference: `Aura::cross_namespace_digest_with_options` (`../src/aura.rs`).
+   */
   cross_namespace_digest_with_options(
     namespaces?: ReadonlyArray<string>,
     inputOptions?: AuraCrossNamespaceDigestOptions,
   ): Effect.Effect<CrossNamespaceDigest, never, ConceptEngine | CausalEngine | BeliefEngine> {
-    // Build a read-only bounded analytics digest across namespaces.
-    // 构建跨 namespace 的只读有界分析摘要。
-    // Rust reference: Aura::cross_namespace_digest_with_options (aura.rs)
     const started = Date.now()
     const records = [...this.searchRecords.values()]
     const recordsById = new Map(records.map((record) => [record.id, record]))
@@ -2587,10 +2660,12 @@ export class Aura {
     return this.get_memory_health_digest(limit)
   }
 
+  /**
+   * Return an operator-facing digest from runtime read models plus persisted maintenance history.
+   * 从 runtime 读模型和已持久化维护历史生成面向 operator 的健康摘要。
+   * Rust reference: `Aura::get_memory_health_digest` (`../src/aura.rs`).
+   */
   get_memory_health_digest(limit?: number): Effect.Effect<MemoryHealthDigest, never, EpistemicRuntime | BeliefEngine | PolicyEngine> {
-    // Return an operator-facing digest from runtime read models plus persisted maintenance history.
-    // 从 runtime 读模型和已持久化维护历史生成面向 operator 的健康摘要。
-    // Rust reference: Aura::get_memory_health_digest (aura.rs)
     const max = Math.min(20, Math.max(1, limit ?? 8))
     const records = this.searchRecords
     const reflection = summarizeReflections(this.reflectionSummaries)
@@ -2698,12 +2773,14 @@ export class Aura {
     return this.get_namespace_governance_status_filtered(undefined)
   }
 
+  /**
+   * Return read-only governance status grouped per namespace.
+   * 返回按 namespace 聚合的只读治理状态。
+   * Rust reference: `Aura::get_namespace_governance_status_filtered` (`../src/aura.rs`).
+   */
   get_namespace_governance_status_filtered(
     namespaces?: ReadonlyArray<string>,
   ): Effect.Effect<ReadonlyArray<NamespaceGovernanceStatus>, never, EpistemicRuntime | BeliefEngine | PolicyEngine> {
-    // Return read-only governance status grouped per namespace.
-    // 返回按 namespace 聚合的只读治理状态。
-    // Rust reference: Aura::get_namespace_governance_status_filtered (aura.rs)
     const allowed = namespaces !== undefined ? new Set(namespaces) : null
     const namespaceList = [...new Set([...this.searchRecords.values()].map((record) => record.namespace))]
       .filter((namespace) => allowed === null || allowed.has(namespace))
@@ -2772,6 +2849,11 @@ export class Aura {
     return recallRecordsEffect<TRecord>(brainDir, query, options);
   }
 
+  /**
+   * Explain recall results using persisted provenance across belief/concept/causal/policy layers.
+   * 使用 belief/concept/causal/policy 持久化 provenance 解释召回结果。
+   * Rust reference: `Aura::explain_recall` (`../src/aura.rs`).
+   */
   explain_recall(
     query: string,
     topK?: number,
@@ -2790,9 +2872,6 @@ export class Aura {
     | FinalizeError,
     FileRead | EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
   > {
-    // Explain recall results using persisted provenance across belief/concept/causal/policy layers.
-    // 使用 belief/concept/causal/policy 持久化 provenance 解释召回结果。
-    // Rust reference: Aura::explain_recall (aura.rs)
     const started = Date.now()
     const top = clampInt(topK ?? 20, 1, 100)
     const self = this
@@ -2836,6 +2915,11 @@ export class Aura {
     })
   }
 
+  /**
+   * Explain a single record using current persisted provenance.
+   * 用当前持久化 provenance 解释单条 record；不依赖召回排序。
+   * Rust reference: `Aura::explain_record` (`../src/aura.rs`).
+   */
   explain_record(
     recordId: string,
   ): Effect.Effect<
@@ -2843,9 +2927,6 @@ export class Aura {
     never,
     EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
   > {
-    // Explain a single record using current persisted provenance.
-    // 用当前持久化 provenance 解释单条 record；不依赖召回排序。
-    // Rust reference: Aura::explain_record (aura.rs)
     return this.buildRecallExplanationItem(recordId, 1, this.searchRecords.get(recordId)?.strength ?? 0, undefined)
   }
 
@@ -2864,6 +2945,11 @@ export class Aura {
     })
   }
 
+  /**
+   * Build one bounded explainability bundle for UI/debugging.
+   * 构建单条 record 的有界解释包，包含 provenance、修正摘录和运行时摘要。
+   * Rust reference: `Aura::explainability_bundle` (`../src/aura.rs`).
+   */
   explainability_bundle(
     recordId: string,
   ): Effect.Effect<
@@ -2871,9 +2957,6 @@ export class Aura {
     never,
     EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine
   > {
-    // Build one bounded explainability bundle for UI/debugging.
-    // 构建单条 record 的有界解释包，包含 provenance、修正摘录和运行时摘要。
-    // Rust reference: Aura::explainability_bundle (aura.rs)
     const self = this
     return Effect.gen(function* () {
       const explanation = yield* self.explain_record(recordId)
@@ -2902,22 +2985,26 @@ export class Aura {
     })
   }
 
+  /**
+   * Soft-deprecate a belief so it no longer acts as a confident winner.
+   * 软废弃 belief，使其不再作为 confident winner。
+   * Rust reference: `Aura::deprecate_belief` (`../src/aura.rs`).
+   */
   deprecate_belief(
     beliefId: string,
   ): Effect.Effect<boolean, FileWriteError, BeliefEngine | BeliefStore | FileWrite> {
-    // Soft-deprecate a belief so it no longer acts as a confident winner.
-    // 软废弃 belief，使其不再作为 confident winner。
-    // Rust reference: Aura::deprecate_belief (aura.rs)
     return this.deprecate_belief_with_reason(beliefId, "manual_deprecation")
   }
 
+  /**
+   * Soft-deprecate a belief and append an in-memory correction-log entry.
+   * 软废弃 belief 并追加内存 correction log；与 Rust runtime Vec<CorrectionLogEntry> 模型对齐。
+   * Rust reference: `Aura::deprecate_belief_with_reason` (`../src/aura.rs`).
+   */
   deprecate_belief_with_reason(
     beliefId: string,
     reason: string,
   ): Effect.Effect<boolean, FileWriteError, BeliefEngine | BeliefStore | FileWrite> {
-    // Soft-deprecate a belief and append an in-memory correction-log entry.
-    // 软废弃 belief 并追加内存 correction log；与 Rust runtime Vec<CorrectionLogEntry> 模型对齐。
-    // Rust reference: Aura::deprecate_belief_with_reason (aura.rs)
     const self = this
     return Effect.gen(function* () {
       const engine = yield* Effect.service(BeliefEngine)
@@ -2933,22 +3020,26 @@ export class Aura {
     })
   }
 
+  /**
+   * Invalidate a single causal pattern while preserving its tombstone.
+   * 使单个 causal pattern 失效，同时保留 tombstone。
+   * Rust reference: `Aura::invalidate_causal_pattern` (`../src/aura.rs`).
+   */
   invalidate_causal_pattern(
     patternId: string,
   ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
-    // Invalidate a single causal pattern while preserving its tombstone.
-    // 使单个 causal pattern 失效，同时保留 tombstone。
-    // Rust reference: Aura::invalidate_causal_pattern (aura.rs)
     return this.invalidate_causal_pattern_with_reason(patternId, "manual_invalidation")
   }
 
+  /**
+   * Invalidate a causal pattern and preserve the reason in the correction log.
+   * 使 causal pattern 失效，并在 correction log 中保留原因。
+   * Rust reference: `Aura::invalidate_causal_pattern_with_reason` (`../src/aura.rs`).
+   */
   invalidate_causal_pattern_with_reason(
     patternId: string,
     reason: string,
   ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
-    // Invalidate a causal pattern and preserve the reason in the correction log.
-    // 使 causal pattern 失效，并在 correction log 中保留原因。
-    // Rust reference: Aura::invalidate_causal_pattern_with_reason (aura.rs)
     const self = this
     return Effect.gen(function* () {
       const engine = yield* Effect.service(CausalEngine)
@@ -2964,41 +3055,49 @@ export class Aura {
     })
   }
 
+  /**
+   * Legacy compatibility alias: causal retraction now preserves an invalidated tombstone.
+   * 旧兼容别名：causal retraction 现在保留 invalidated tombstone。
+   * Rust reference: `Aura::retract_causal_pattern` (`../src/aura.rs`).
+   */
   retract_causal_pattern(
     patternId: string,
   ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
-    // Legacy compatibility alias: causal retraction now preserves an invalidated tombstone.
-    // 旧兼容别名：causal retraction 现在保留 invalidated tombstone。
-    // Rust reference: Aura::retract_causal_pattern (aura.rs)
     return this.invalidate_causal_pattern_with_reason(patternId, "manual_retraction")
   }
 
+  /**
+   * Legacy compatibility alias: causal retraction now preserves an invalidated tombstone.
+   * 旧兼容别名：causal retraction 现在保留 invalidated tombstone。
+   * Rust reference: `Aura::retract_causal_pattern_with_reason` (`../src/aura.rs`).
+   */
   retract_causal_pattern_with_reason(
     patternId: string,
     reason: string,
   ): Effect.Effect<boolean, FileWriteError, CausalEngine | CausalStore | FileWrite> {
-    // Legacy compatibility alias: causal retraction now preserves an invalidated tombstone.
-    // 旧兼容别名：causal retraction 现在保留 invalidated tombstone。
-    // Rust reference: Aura::retract_causal_pattern_with_reason (aura.rs)
     return this.invalidate_causal_pattern_with_reason(patternId, reason)
   }
 
+  /**
+   * Retract a single policy hint from persisted runtime state.
+   * 从持久化 runtime state 中撤回单个 policy hint。
+   * Rust reference: `Aura::retract_policy_hint` (`../src/aura.rs`).
+   */
   retract_policy_hint(
     hintId: string,
   ): Effect.Effect<boolean, FileWriteError, PolicyEngine | PolicyStore | FileWrite> {
-    // Retract a single policy hint from persisted runtime state.
-    // 从持久化 runtime state 中撤回单个 policy hint。
-    // Rust reference: Aura::retract_policy_hint (aura.rs)
     return this.retract_policy_hint_with_reason(hintId, "manual_retraction")
   }
 
+  /**
+   * Retract a policy hint and append an in-memory correction-log entry.
+   * 撤回 policy hint 并追加内存 correction log。
+   * Rust reference: `Aura::retract_policy_hint_with_reason` (`../src/aura.rs`).
+   */
   retract_policy_hint_with_reason(
     hintId: string,
     reason: string,
   ): Effect.Effect<boolean, FileWriteError, PolicyEngine | PolicyStore | FileWrite> {
-    // Retract a policy hint and append an in-memory correction-log entry.
-    // 撤回 policy hint 并追加内存 correction log。
-    // Rust reference: Aura::retract_policy_hint_with_reason (aura.rs)
     const self = this
     return Effect.gen(function* () {
       const engine = yield* Effect.service(PolicyEngine)
@@ -3035,12 +3134,14 @@ export class Aura {
     return this.get_correction_review_queue(limit)
   }
 
+  /**
+   * Return correction candidates sorted by repeated correction pressure, recency, and downstream impact.
+   * 返回按重复修正压力、新近度和下游影响排序的 correction review 队列。
+   * Rust reference: `Aura::get_correction_review_queue` (`../src/aura.rs`).
+   */
   get_correction_review_queue(
     limit?: number,
   ): Effect.Effect<ReadonlyArray<CorrectionReviewCandidate>, never, BeliefEngine | CausalEngine | PolicyEngine> {
-    // Return correction candidates sorted by repeated correction pressure, recency, and downstream impact.
-    // 返回按重复修正压力、新近度和下游影响排序的 correction review 队列。
-    // Rust reference: Aura::get_correction_review_queue (aura.rs)
     const max = clampInt(limit ?? 10, 1, 50)
     const records = this.searchRecords
     const corrections = this.correctionLog.slice().sort((a, b) => b.timestamp - a.timestamp)
@@ -3100,13 +3201,15 @@ export class Aura {
     return this.get_contradiction_review_queue(namespace, limit)
   }
 
+  /**
+   * Reuse EpistemicRuntime contradiction clusters and add Rust-style review prioritization.
+   * 复用 EpistemicRuntime contradiction clusters，并添加 Rust 风格 review 排序层。
+   * Rust reference: `Aura::get_contradiction_review_queue` (`../src/aura.rs`).
+   */
   get_contradiction_review_queue(
     namespace?: string,
     limit?: number,
   ): Effect.Effect<ReadonlyArray<ContradictionReviewCandidate>, never, EpistemicRuntime | BeliefEngine | CausalEngine | PolicyEngine> {
-    // Reuse EpistemicRuntime contradiction clusters and add Rust-style review prioritization.
-    // 复用 EpistemicRuntime contradiction clusters，并添加 Rust 风格 review 排序层。
-    // Rust reference: Aura::get_contradiction_review_queue (aura.rs)
     const max = clampInt(limit ?? 10, 1, 50)
     const records = this.searchRecords
     return Effect.gen(function* () {
@@ -3171,12 +3274,14 @@ export class Aura {
     return this.get_suggested_corrections(limit)
   }
 
+  /**
+   * Return bounded suggested corrections without auto-applying them.
+   * 返回有界建议修正，不自动执行。
+   * Rust reference: `Aura::get_suggested_corrections` (`../src/aura.rs`).
+   */
   get_suggested_corrections(
     limit?: number,
   ): Effect.Effect<ReadonlyArray<SuggestedCorrection>, never, EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine> {
-    // Return bounded suggested corrections without auto-applying them.
-    // 返回有界建议修正，不自动执行。
-    // Rust reference: Aura::get_suggested_corrections (aura.rs)
     const self = this
     return Effect.gen(function* () {
       const report = yield* self.get_suggested_corrections_report(limit)
@@ -3184,13 +3289,16 @@ export class Aura {
     })
   }
 
+  /**
+   * Return bounded advisory corrections without auto-applying them.
+   *
+   * This advisory surface combines instability, lifecycle state, and review pressure.
+   * 返回带 scan latency 的有界建议修正；该 advisory surface 组合 instability、lifecycle state 与 review pressure。
+   * Rust reference: `Aura::get_suggested_corrections_report` (`../src/aura.rs`).
+   */
   get_suggested_corrections_report(
     limit?: number,
   ): Effect.Effect<SuggestedCorrectionsReport, never, EpistemicRuntime | BeliefEngine | ConceptEngine | CausalEngine | PolicyEngine> {
-    // Return bounded advisory corrections without auto-applying them.
-    // This advisory surface combines instability, lifecycle state, and review pressure.
-    // 返回带 scan latency 的有界建议修正；该 advisory surface 组合 instability、lifecycle state 与 review pressure。
-    // Rust reference: Aura::get_suggested_corrections_report (aura.rs)
     const max = clampInt(limit ?? 10, 1, 50)
     const self = this
     return Effect.gen(function* () {
@@ -3795,40 +3903,48 @@ export class Aura {
     this.searchRecords = next
   }
 
+  /**
+   * UNIMPLEMENTED: relation/entity graph APIs are recoverably unsupported for now.
+   * Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.
+   * Rust reference: `Aura::get_entity_digest` (`../src/aura.rs`).
+   */
   get_entity_digest(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: relation/entity graph APIs are recoverably unsupported for now.
-    // Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.
-    // Rust reference: Aura::get_entity_digest (aura.rs)
     return unsupportedSurface("Aura.get_entity_digest", "Aura::get_entity_digest (aura.rs)", [
       "Relation graph store",
       "Entity digest read model",
     ])
   }
 
+  /**
+   * UNIMPLEMENTED: relation/entity graph APIs are recoverably unsupported for now.
+   * Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.
+   * Rust reference: `Aura::link_entities` (`../src/aura.rs`).
+   */
   link_entities(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: relation/entity graph APIs are recoverably unsupported for now.
-    // Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.
-    // Rust reference: Aura::link_entities (aura.rs)
     return unsupportedSurface("Aura.link_entities", "Aura::link_entities (aura.rs)", [
       "Relation graph store",
       "Entity link mutation path",
     ])
   }
 
+  /**
+   * UNIMPLEMENTED: project graph APIs are recoverably unsupported for now.
+   * Reason: TS does not have the project graph store/index yet; returning dummy values would hide missing capability.
+   * Rust reference: `Aura::get_project_graph` (`../src/aura.rs`).
+   */
   get_project_graph(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: project graph APIs are recoverably unsupported for now.
-    // Reason: TS does not have the project graph store/index yet; returning dummy values would hide missing capability.
-    // Rust reference: Aura::get_project_graph (aura.rs)
     return unsupportedSurface("Aura.get_project_graph", "Aura::get_project_graph (aura.rs)", [
       "Project graph store",
       "Project graph read model",
     ])
   }
 
+  /**
+   * UNIMPLEMENTED: family graph APIs are recoverably unsupported for now.
+   * Reason: TS does not have the family graph store/index yet; returning dummy values would hide missing capability.
+   * Rust reference: `Aura::get_family_graph` (`../src/aura.rs`).
+   */
   get_family_graph(..._args: ReadonlyArray<unknown>) {
-    // UNIMPLEMENTED: family graph APIs are recoverably unsupported for now.
-    // Reason: TS does not have the family graph store/index yet; returning dummy values would hide missing capability.
-    // Rust reference: Aura::get_family_graph (aura.rs)
     return unsupportedSurface("Aura.get_family_graph", "Aura::get_family_graph (aura.rs)", [
       "Family graph store",
       "Family graph read model",
@@ -4049,14 +4165,16 @@ function previewText(text: string, max: number): string {
   return `${normalized.slice(0, Math.max(0, max - 1))}...`
 }
 
+/**
+ * Return records with elevated salience, highest salience first.
+ * 返回 salience 较高的 records，按 salience 降序排列。
+ * Rust reference: `Aura::get_high_salience_records` (`../src/aura.rs`).
+ */
 function highSalienceRecords(
   records: ReadonlyArray<AuraRecord>,
   minSalience: number,
   limit: number,
 ): ReadonlyArray<AuraRecord> {
-  // Return records with elevated salience, highest salience first.
-  // 返回 salience 较高的 records，按 salience 降序排列。
-  // Rust reference: `Aura::get_high_salience_records` (`../src/aura.rs`).
   return records
     .filter((record) => record.salience >= minSalience)
     .sort((a, b) => {
@@ -4305,11 +4423,14 @@ function namespaceFromBeliefKey(key: string): string {
   return key.split(":")[0] || "default"
 }
 
+/**
+ * Composite importance score (0.0-1.0+).
+ *
+ * Formula: strength(40%) + level(25%) + connections(20%) + activations(15%) + bounded salience hint (10%).
+ * 组合重要性分数；与 Rust `Record::importance` 公式对齐。
+ * Rust reference: `Record::importance` (`../src/record.rs`).
+ */
 function recordImportance(record: AuraRecord): number {
-  // Composite importance score (0.0-1.0+).
-  // Formula: strength(40%) + level(25%) + connections(20%) + activations(15%) + bounded salience hint (10%).
-  // 组合重要性分数；与 Rust Record::importance 公式对齐。
-  // Rust reference: Record::importance (record.rs)
   const levelScore = levelValue(record.level) / 4
   const connScore = Math.min(Object.keys(record.connections).length / 50, 1)
   const actScore = Math.min(record.activation_count / 20, 1)
@@ -4330,10 +4451,12 @@ function levelValue(level: Level): number {
   }
 }
 
+/**
+ * Display name for the level.
+ * level 的展示名；与 Rust `Level::name` 保持一致。
+ * Rust reference: `Level::name` (`../src/levels.rs`).
+ */
 function levelDisplayName(level: Level): string {
-  // Display name for the level.
-  // level 的展示名；与 Rust `Level::name` 保持一致。
-  // Rust reference: Level::name (levels.rs)
   switch (level) {
     case Level.Working:
       return "WORKING"
@@ -4346,17 +4469,21 @@ function levelDisplayName(level: Level): string {
   }
 }
 
+/**
+ * Check if this level belongs to the cognitive tier (Working + Decisions).
+ * 检查 level 是否属于 cognitive tier（Working + Decisions）。
+ * Rust reference: `Level::is_cognitive` (`../src/levels.rs`).
+ */
 function isCognitiveLevel(level: Level): boolean {
-  // Check if this level belongs to the cognitive tier (Working + Decisions).
-  // 检查 level 是否属于 cognitive tier（Working + Decisions）。
-  // Rust reference: `Level::is_cognitive` (`../src/levels.rs`).
   return level === Level.Working || level === Level.Decisions
 }
 
+/**
+ * Check if this level belongs to the core tier (Domain + Identity).
+ * 检查 level 是否属于 core tier（Domain + Identity）。
+ * Rust reference: `Level::is_core` (`../src/levels.rs`).
+ */
 function isCoreLevel(level: Level): boolean {
-  // Check if this level belongs to the core tier (Domain + Identity).
-  // 检查 level 是否属于 core tier（Domain + Identity）。
-  // Rust reference: `Level::is_core` (`../src/levels.rs`).
   return level === Level.Domain || level === Level.Identity
 }
 
@@ -4486,9 +4613,11 @@ function decayRecordConnections(record: AuraRecord): AuraRecord {
   return { ...record, connections, connection_types: connectionTypes }
 }
 
+/**
+ * Rust facades return owned `Record` clones; copy mutable containers on the TS side.
+ * Rust 的 facade 返回 owned `Record`；TS 侧复制可变容器，避免泄露内部 read model。
+ */
 function cloneAuraRecord(record: AuraRecord): AuraRecord {
-  // Rust facades return owned `Record` clones; copy mutable containers on the TS side.
-  // Rust 的 facade 返回 owned `Record`；TS 侧复制可变容器，避免泄露内部 read model。
   return {
     ...record,
     tags: [...record.tags],
@@ -4498,9 +4627,14 @@ function cloneAuraRecord(record: AuraRecord): AuraRecord {
   }
 }
 
+/**
+ * Normalize a contract Record into the mutable AuraRecord shape used by core facades.
+ * 将 contract Record 归一化为 core facade 使用的 AuraRecord shape。
+ *
+ * AuraRecord (contract Record) does not have an index signature, so this casts
+ * for dynamic field access during normalization.
+ */
 function toRecordLike(rec: AuraRecord, nowSecs: number): AuraRecord {
-  // AuraRecord (contract Record) does not have an index signature,
-  // so we cast for dynamic field access during normalization.
   const o = rec as unknown as { [k: string]: unknown };
   const id = rec.id;
   const content = typeof o.content === "string" ? o.content : "";

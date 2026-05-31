@@ -33,12 +33,15 @@ export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRec
 export { createRecallSessionTracker, endRecallSession } from "./RecallFinalizer"
 export type { RecallSessionTracker } from "./RecallFinalizer"
 
+/**
+ * Provide Aura-owned recall trust configuration when present.
+ * 存在 Aura-owned recall trust configuration 时，将其注入 recall pipeline。
+ * Rust reference: `Aura::recall_raw` / `Aura::explain_recall` (`../src/aura.rs`).
+ */
 function withTrustConfig<A, E, R>(
   effect: Effect.Effect<A, E, R>,
   trustConfig: TrustConfig | undefined
 ): Effect.Effect<A, E, R> {
-  // Rust passes `Some(&trust_config)` through `RecallPipelineView` for Aura-owned recall paths.
-  // Rust reference: `Aura::recall_raw` / `Aura::explain_recall` (`../src/aura.rs`).
   return trustConfig === undefined
     ? effect
     : effect.pipe(Effect.provideService(TrustConfigTag, trustConfig))

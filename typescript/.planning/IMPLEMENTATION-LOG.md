@@ -1,5 +1,17 @@
 # Implementation Log
 
+## 2026-06-01 - Core/RRF 签名 JSDoc 注释规范补齐
+
+- 范围：`packages/core/src/Aura.ts`、`packages/core/src/Recall.ts`、`packages/recall/src/RRF.ts`。
+- 实现：将写入、搜索、维护、治理、解释、纠正、unsupported facade、core recall trust helper、`rrfFuse` 等函数/方法的签名说明从函数体首行 `//` 迁移到签名前块级 JSDoc，保留 `SIMPLE IMPLEMENTATION:` / `UNIMPLEMENTED:` 等可搜索前缀与 Rust reference。
+- 实现：保留函数体内部流程注释，仅修正承担 API/签名说明职责的注释，避免把算法步骤说明混入签名文档。
+- Rust reference：`Aura::store_code`、`Aura::store_decision`、`Aura::store`、`Aura::update`、`Aura::delete`、`Aura::connect`、`Aura::search`、`Aura::stats`、`Aura::run_maintenance`、`Aura::explain_recall`、`Aura::get_suggested_corrections_report`（`../src/aura.rs`），`rrf_fuse`（`../src/recall.rs`）。
+- 验证：
+  - `git diff --check` 通过。
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Aura.test.ts packages/core/src/Recall.test.ts packages/recall/src/RRF.test.ts` 通过，3 files / 39 tests。
+  - `bun run test` 通过，54 files / 535 tests。
+
 ## 2026-06-01 - RRF 签名与过滤位置确认
 
 - 范围：`packages/recall/src/RRF.ts`、`packages/recall/src/RRF.test.ts`。

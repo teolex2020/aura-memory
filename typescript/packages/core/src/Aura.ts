@@ -481,6 +481,12 @@ export class Aura {
     private readonly sessionTracker: RecallSessionTracker = createRecallSessionTracker(),
   ) {}
 
+  /**
+   * Create a new Aura instance at the given path.
+   * 在给定路径创建 Aura 实例。
+   *
+   * Rust reference: `Aura::open` (`../src/aura.rs`).
+   */
   static open(
     brainPath: string,
   ): Effect.Effect<
@@ -488,8 +494,6 @@ export class Aura {
     FileReadError | FileWriteError | FileFormatError,
     FileRead | FileWrite
   > {
-    // Create a new Aura instance at the given path.
-    // 在给定路径创建 Aura 实例。
     const brainAuraPath = `${brainPath}/brain.aura`;
     return Effect.gen(function* () {
       const fs = yield* Effect.service(FileRead);
@@ -609,6 +613,14 @@ export class Aura {
     });
   }
 
+  /**
+   * Create a new Aura instance with optional encryption.
+   * 创建 Aura 实例（可选加密）。
+   *
+   * NON-PARITY IMPLEMENTATION: password/encryption is not wired yet.
+   * 差异说明：TS core 目前只使用 FileRead/FileWrite 抽象，尚未接入 Rust AuraStorage 的加密管线。
+   * Rust reference: `Aura::open_with_password` (`../src/aura.rs`).
+   */
   static open_with_password(
     brainPath: string,
     password?: string,
@@ -617,11 +629,6 @@ export class Aura {
     FileReadError | FileWriteError | FileFormatError | UnsupportedSurfaceError,
     FileRead | FileWrite
   > {
-    // Create a new Aura instance with optional encryption.
-    // 创建 Aura 实例（可选加密）。
-    // NON-PARITY IMPLEMENTATION: password/encryption is not wired yet.
-    // 差异说明：TS core 目前只使用 FileRead/FileWrite 抽象，尚未接入 Rust AuraStorage 的加密管线。
-    // Rust reference: Aura::open_with_password (aura.rs)
     if (password !== undefined) {
       return Effect.fail(new UnsupportedSurfaceError({
         surface: "Aura.open_with_password",
@@ -1409,11 +1416,14 @@ export class Aura {
     const nsList = namespaces ?? [DEFAULT_NAMESPACE]
     return Effect.gen(function* () {
       if (query !== undefined && query !== null) {
-        // RRF pipeline -> filter to requested tier.
-        // 先跑 RRF pipeline，再过滤到目标 tier。
-        // Request more from pipeline to compensate for tier filtering.
-        // 多取结果以补偿 tier filter。
-        // Rust reference: `Aura::recall_cognitive` / `Aura::recall_core_tier` (`../src/aura.rs`).
+        /**
+         * RRF pipeline -> filter to requested tier.
+         * 先跑 RRF pipeline，再过滤到目标 tier。
+         *
+         * Request more from pipeline to compensate for tier filtering.
+         * 多取结果以补偿 tier filter。
+         * Rust reference: `Aura::recall_cognitive` / `Aura::recall_core_tier` (`../src/aura.rs`).
+         */
         const pipelineLimit = max * 3
         const hitsOrNull = yield* Effect.gen(function* () {
           const hits = yield* recallRecordsEffect<AuraRecord>(
@@ -2229,6 +2239,12 @@ export class Aura {
     return this.get_policy_lifecycle_summary(actionLimit, domainLimit)
   }
 
+  /**
+   * Assemble the Rust MCP policy_lifecycle payload from core/runtime read models.
+   * 从 core/runtime 读模型组装 Rust MCP policy_lifecycle payload，避免 MCP 层承载业务逻辑。
+   *
+   * Rust reference: `AuraMcpServer::policy_lifecycle` (`../src/mcp.rs`).
+   */
   policy_lifecycle_report(
     namespace?: string,
     limit?: number,
@@ -2240,9 +2256,6 @@ export class Aura {
     readonly suppressed: ReadonlyArray<PolicyHint>
     readonly rejected: ReadonlyArray<PolicyHint>
   }, never, EpistemicRuntime | PolicyEngine> {
-    // Assemble the Rust MCP policy_lifecycle payload from core/runtime read models.
-    // 从 core/runtime 读模型组装 Rust MCP policy_lifecycle payload，避免 MCP 层承载业务逻辑。
-    // Rust reference: AuraMcpServer::policy_lifecycle (mcp.rs)
     const self = this
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
@@ -2332,6 +2345,12 @@ export class Aura {
     })
   }
 
+  /**
+   * Assemble the Rust MCP belief_instability payload from core/runtime read models.
+   * 从 core/runtime 读模型组装 Rust MCP belief_instability payload。
+   *
+   * Rust reference: `AuraMcpServer::belief_instability` (`../src/mcp.rs`).
+   */
   belief_instability_report(
     minVolatility?: number,
     maxStability?: number,
@@ -2342,9 +2361,6 @@ export class Aura {
     readonly low_stability: ReadonlyArray<Belief>
     readonly recently_corrected: ReadonlyArray<Belief>
   }, never, EpistemicRuntime | BeliefEngine> {
-    // Assemble the Rust MCP belief_instability payload from core/runtime read models.
-    // 从 core/runtime 读模型组装 Rust MCP belief_instability payload。
-    // Rust reference: AuraMcpServer::belief_instability (mcp.rs)
     const max = clampInt(limit ?? 20, 1, 100)
     const corrections = this.correctionLog
       .filter((entry) => entry.target_kind === "belief")
@@ -3857,15 +3873,17 @@ export class Aura {
     this.searchRecords = new Map(this.searchRecords).set(record.id, record)
   }
 
+  /**
+   * Rust auto_connect mutates the in-memory records map before append_store.
+   * TS mirrors that visibility without appending synthetic Update records.
+   * Rust reference: `graph::auto_connect` (`../src/graph.rs`), `Aura::store` (`../src/aura.rs`).
+   */
   private autoConnectRecord(record: AuraRecord): AuraRecord {
     if (record.tags.length === 0) return record
 
     const connections: { [recordId: string]: number } = { ...record.connections }
     const connectionTypes: { [recordId: string]: string } = { ...record.connection_types }
 
-    // Rust auto_connect mutates the in-memory records map before append_store.
-    // TS mirrors that visibility without appending synthetic Update records.
-    // Rust reference: graph::auto_connect (graph.rs), Aura::store (aura.rs)
     for (const candidate of [...this.searchRecords.values()]) {
       if (Object.keys(connections).length >= MAX_AUTO_CONNECTIONS) break
       if (candidate.id === record.id) continue

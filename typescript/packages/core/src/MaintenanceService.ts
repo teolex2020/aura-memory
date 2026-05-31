@@ -186,9 +186,14 @@ export function createDefaultTagTaxonomy(): TagTaxonomy {
   }
 }
 
+/**
+ * Create the maintenance NGram index with the deterministic verifier seed.
+ * 使用确定性 verifier seed 创建维护链路 NGram 索引。
+ *
+ * Rust reference: `NGramIndex` 使用 MinHash + LSH；TS 复用 @aura/indexing 的同语义实现。
+ * 中文说明：固定 seed 对齐 parity verifier，避免 Rust 默认随机系数造成不可复现排序。
+ */
 export function createNGramIndex(records: ReadonlyMap<string, AuraRecord>): NGramIndex {
-  // Rust reference: `NGramIndex` 使用 MinHash + LSH；TS 复用 @aura/indexing 的同语义实现。
-  // 中文说明：固定 seed 对齐 parity verifier，避免 Rust 默认随机系数造成不可复现排序。
   const index = MinHashNGramIndex.withSeed0()
   for (const [id, record] of records) {
     index.add(id, record.content)
@@ -204,14 +209,18 @@ export function createCognitiveStoreAdapter(store: CognitiveStoreFile): Cognitiv
 }
 
 export const DisabledBackgroundBrain: BackgroundBrain = {
+  /**
+   * NON-PARITY IMPLEMENTATION: BackgroundBrain autonomous discovery is disabled in TS Phase 07.
+   * Rust reference: `background_brain::discover_cross_connections`.
+   */
   discover_cross_connections: () => {
-    // NON-PARITY IMPLEMENTATION: BackgroundBrain autonomous discovery is disabled in TS Phase 07.
-    // Rust reference: `background_brain::discover_cross_connections`.
     return []
   },
+  /**
+   * NON-PARITY IMPLEMENTATION: scheduled task/reminder production is disabled in TS Phase 07.
+   * Rust reference: BackgroundBrain scheduled-task paths.
+   */
   scheduled_tasks: () => {
-    // NON-PARITY IMPLEMENTATION: scheduled task/reminder production is disabled in TS Phase 07.
-    // Rust reference: BackgroundBrain scheduled-task paths.
     return []
   },
 }

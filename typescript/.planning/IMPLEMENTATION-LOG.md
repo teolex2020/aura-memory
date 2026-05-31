@@ -93,3 +93,16 @@
 - 实现：将 `Aura` recall family（`recall`、`recall_structured`、`recall_full`、`recall_at`、shadow/rerank report variants）、`Aura.decay`、`Aura.reflect`、`Aura.end_session`、core recall helpers、session tracker helpers、activation/finalize helpers 的 Rust reference / 中文逻辑说明提升为块级 JSDoc，保留 Rust 原始方法/函数位置引用。
 - Rust reference：`Aura::decay`、`Aura::reflect`、`Aura::end_session`（`../src/aura.rs`），`SessionTracker`（`../src/graph.rs`），`Record::activate` / `activate_and_strengthen`（`../src/record.rs`、`../src/recall.rs`）。
 - 验证：仅注释形态调整；复用本轮已通过的 `bun run typecheck` 与 `bun run test`。
+
+## 2026-06-01 - 方法/函数签名注释规范补漏
+
+- 范围：`packages/core/src/Aura.ts`、`packages/core/src/MaintenanceService.ts`、`packages/core/src/RecallReranker.ts`、`packages/indexing/src/InvertedIndex.ts`、`packages/indexing/src/NGramIndex.ts`、`packages/recall/src/Pipeline.ts`、`packages/recall/src/Trace.ts`、`packages/storage/src/RecallView.ts`。
+- 实现：把函数/方法体首行的说明性 `//` 注释迁移到签名前 JSDoc，包括 `Aura.open`、`Aura.open_with_password`、`policy_lifecycle_report`、`belief_instability_report`、`autoConnectRecord`、`recallPipeline`、`recallPipelineWithTrace`、`rerankRecallRecords`、`RecallViewLive`、`InvertedIndex.searchScored`、`createNGramIndex` 等。
+- 实现：将 `NGramIndex` 内单行 JSDoc 规整为多行块级 JSDoc，保留 Rust reference 与 `SIMPLE IMPLEMENTATION:` / `NON-PARITY IMPLEMENTATION:` 可搜索前缀。
+- 验证：
+  - `git diff --check` 通过。
+  - 签名/函数体首行注释扫描通过（本轮修改文件内没有函数/方法体首行 `//` 说明残留）。
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Aura.test.ts packages/core/src/MaintenanceService.test.ts packages/core/src/RecallReranker.test.ts packages/indexing/src/NGramIndex.test.ts packages/recall/src/Pipeline.test.ts packages/storage/src/RecallView.test.ts` 通过，6 files / 73 tests。
+  - `bun run test packages/indexing/src/InvertedIndex.searchScored.test.ts` 通过，1 file / 7 tests。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 536 tests。

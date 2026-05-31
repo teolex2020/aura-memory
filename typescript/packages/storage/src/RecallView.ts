@@ -14,11 +14,16 @@ import { loadCognitiveRecords } from "./CognitiveRecord"
 
 type AuraHeader = { sdr_indices: ReadonlyArray<number> }
 
+/**
+ * Build the recall NGram index with the deterministic verifier seed.
+ * 使用确定性 verifier seed 构建召回 NGram 索引。
+ *
+ * Rust reference: `NGramIndex::with_seed(None, None, 0)` used by `aura-ts-verify-recall`.
+ * 中文说明：召回 parity 使用固定 seed，避免 Rust 默认随机系数导致 TS/Rust 对照不稳定。
+ */
 function buildNgramIndex(
   records: ReadonlyMap<string, AuraRecord>
 ): ContractRecallView["ngramIndex"] {
-  // Rust reference: `NGramIndex::with_seed(None, None, 0)` used by `aura-ts-verify-recall`.
-  // 中文说明：召回 parity 使用固定 seed，避免 Rust 默认随机系数导致 TS/Rust 对照不稳定。
   const index = NGramIndex.withSeed0()
   for (const [id, rec] of records.entries()) {
     index.add(id, String(rec.content ?? ""))
@@ -83,8 +88,10 @@ export function buildRecallView(
       }
     }
 
-    // SIMPLE IMPLEMENTATION: load `index/` into memory using `@aura/indexing` implementation.
-    // FULL IMPLEMENTATION: ensure byte-level parity with Rust `index.rs` search semantics and ordering under heavy load.
+    /**
+     * SIMPLE IMPLEMENTATION: load `index/` into memory using `@aura/indexing` implementation.
+     * FULL IMPLEMENTATION: ensure byte-level parity with Rust `index.rs` search semantics and ordering under heavy load.
+     */
     const idx = yield* InvertedIndex.load(indexDir)
 
     const view: ContractRecallView = {
@@ -103,10 +110,15 @@ export function buildRecallView(
   })
 }
 
+/**
+ * Build a RecallView Layer from a single in-memory snapshot.
+ * 从单次内存快照构建 RecallView Layer。
+ *
+ * SIMPLE IMPLEMENTATION: build a single in-memory RecallView at startup.
+ * FULL IMPLEMENTATION: add incremental refresh/update hooks so finalize can mutate without full reload.
+ */
 export function RecallViewLive(
   dir: string
 ): Layer.Layer<RecallViewTag, FileReadError | JsonParseError | FileFormatError | IndexFormatError, FileRead> {
-  // SIMPLE IMPLEMENTATION: build a single in-memory RecallView at startup.
-  // FULL IMPLEMENTATION: add incremental refresh/update hooks so finalize can mutate without full reload.
   return Layer.effect(RecallViewTag, buildRecallView(dir))
 }

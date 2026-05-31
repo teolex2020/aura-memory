@@ -101,6 +101,17 @@ function applyRecencyScoring(
   return scored
 }
 
+/**
+ * Full recall pipeline.
+ * 完整召回管线。
+ *
+ * `embeddingRanked` is an optional 4th signal from pluggable embeddings.
+ * 可选 embedding 作为第四路信号参与 RRF。
+ *
+ * `trustConfig` is used for recency boost + source authority scoring.
+ * trustConfig 用于 recency boost 与 source authority 评分。
+ * Rust reference: `recall_pipeline` (`../src/recall.rs`).
+ */
 export function recallPipeline(
   query: string,
   options?: Partial<RecallPipelineOptions>
@@ -109,15 +120,6 @@ export function recallPipeline(
   SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
   RecallViewTag
 > {
-  // Full recall pipeline.
-  // 完整召回管线。
-  //
-  // `embeddingRanked` is an optional 4th signal from pluggable embeddings.
-  // 可选 embedding 作为第四路信号参与 RRF。
-  //
-  // `trustConfig` is used for recency boost + source authority scoring.
-  // trustConfig 用于 recency boost 与 source authority 评分。
-  // Rust reference: `recall_pipeline` (`../src/recall.rs`).
   const opts = normalizeOptions(options)
 
   return Effect.gen(function* () {

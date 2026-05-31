@@ -195,6 +195,12 @@ function applyTraceRecencyScoring(
   return scored
 }
 
+/**
+ * Trace-capable recall pipeline.
+ * 支持 trace 的召回管线；与 Rust `recall_pipeline_with_trace` 一样独立记录每条 record 的中间分数。
+ *
+ * Rust reference: `recall_pipeline_with_trace` (`../src/recall.rs`) and `Aura::explain_recall` (`../src/aura.rs`).
+ */
 export function recallPipelineWithTrace(
   query: string,
   options?: Partial<RecallPipelineOptions>,
@@ -203,9 +209,6 @@ export function recallPipelineWithTrace(
   SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
   RecallViewTag
 > {
-  // Trace-capable recall pipeline.
-  // 支持 trace 的召回管线；与 Rust `recall_pipeline_with_trace` 一样独立记录每条 record 的中间分数。
-  // Rust reference: `recall_pipeline_with_trace` (`../src/recall.rs`) and `Aura::explain_recall` (`../src/aura.rs`).
   const opts = normalizeOptions(options)
 
   return Effect.gen(function* () {

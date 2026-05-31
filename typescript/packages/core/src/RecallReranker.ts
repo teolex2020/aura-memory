@@ -9,16 +9,19 @@ import {
 import { BeliefStoreFile, CausalStoreFile, ConceptStoreFile, PolicyStoreFile } from "@aura/storage"
 import { mergeBoundedRerankModes, rerankWithSnapshots } from "@aura/recall"
 
+/**
+ * Apply bounded recall reranking with persisted epistemic snapshots.
+ * 使用持久化 epistemic 快照执行有界召回重排序。
+ *
+ * Rust reference: `RecallService::apply_bounded_reranking`
+ * (`../src/recall_service.rs:111`) and mode defaults in
+ * `AuraRuntimeState::new` (`../src/aura_state.rs:83`).
+ */
 export function rerankRecallRecords(
   brainDir: string,
   scored: RecallScored,
   context?: BoundedRerankContext
 ): Effect.Effect<RecallScored, RerankError, FileRead> {
-  // Apply bounded recall reranking with persisted epistemic snapshots.
-  // 使用持久化 epistemic 快照执行有界召回重排序。
-  // Rust reference: `RecallService::apply_bounded_reranking`
-  // (`../src/recall_service.rs:111`) and mode defaults in
-  // `AuraRuntimeState::new` (`../src/aura_state.rs:83`).
   return Effect.gen(function* () {
     const snapshots = yield* Effect.all(
       {

@@ -170,7 +170,10 @@ export class NGramIndex {
     return new NGramIndex(a, b, synonymRing)
   }
 
-  /** Create the deterministic verifier index equivalent to Rust `with_seed(None, None, 0)`. 创建与 Rust verifier 等价的确定性索引。 */
+  /**
+   * Create the deterministic verifier index equivalent to Rust `with_seed(None, None, 0)`.
+   * 创建与 Rust verifier 等价的确定性索引。
+   */
   static withSeed0(synonymRing?: SynonymRing): NGramIndex {
     return new NGramIndex(RUST_SEED_0_A, RUST_SEED_0_B, synonymRing)
   }
@@ -184,7 +187,10 @@ export class NGramIndex {
     return this.synonymRing?.expand(text) ?? text
   }
 
-  /** Compute MinHash signature for a set of shingles. 为 shingle 集合计算 MinHash 签名。 */
+  /**
+   * Compute MinHash signature for a set of shingles.
+   * 为 shingle 集合计算 MinHash 签名。
+   */
   private minhash(shingles: ReadonlyArray<number>): ReadonlyArray<number> {
     const sig = Array<number>(this.a.length).fill(Number.MAX_SAFE_INTEGER)
     for (const s of shingles) {
@@ -197,7 +203,10 @@ export class NGramIndex {
     return sig
   }
 
-  /** Index a record. 为记录建立索引。 */
+  /**
+   * Index a record.
+   * 为记录建立索引。
+   */
   add(recordId: string, text: string): void {
     const shingles = tokenizeNGram(this.expand(text))
     if (shingles.length === 0) return
@@ -215,7 +224,10 @@ export class NGramIndex {
     this.signatures.set(recordId, sig)
   }
 
-  /** Remove a record from the index. 从索引中移除记录。 */
+  /**
+   * Remove a record from the index.
+   * 从索引中移除记录。
+   */
   remove(recordId: string): void {
     const sig = this.signatures.get(recordId)
     if (!sig) return

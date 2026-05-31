@@ -143,12 +143,15 @@ export class InvertedIndex {
     return out
   }
 
+  /**
+   * 与 Rust `index.rs` 的 `InvertedIndex::search` 语义对齐：
+   *
+   * - max_bits 选择（128/256/512）控制处理的 query bit 数量
+   * - rarity sort：当 bit 数量超过 max_bits 时，按 bitmap 长度升序（最稀有的优先）
+   * - 只处理前 processing_count 个 bitmaps
+   * - 结果先截断到 limit = (topK * 10).min(500)，再 resolve external IDs
+   */
   searchScored(bits: number[], topK: number, minOverlap: number): Array<[string, number]> {
-    // 与 Rust `index.rs` 的 `InvertedIndex::search` 语义对齐：
-    // - max_bits 选择（128/256/512）控制处理的 query bit 数量
-    // - rarity sort：当 bit 数量超过 max_bits 时，按 bitmap 长度升序（最稀有的优先）
-    // - 只处理前 processing_count 个 bitmaps
-    // - 结果先截断到 limit = (topK * 10).min(500)，再 resolve external IDs
     if (bits.length === 0) return []
 
     const maxBits = topK <= 10 ? 128 : topK <= 50 ? 256 : 512

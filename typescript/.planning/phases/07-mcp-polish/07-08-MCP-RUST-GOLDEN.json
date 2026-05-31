@@ -1,0 +1,425 @@
+{
+  "governance": {
+    "calls": {
+      "belief_instability": {
+        "content": [
+          {
+            "text": {
+              "high_volatility": [],
+              "low_stability": [],
+              "recently_corrected": [],
+              "summary": {
+                "avg_stability": 0,
+                "avg_volatility": 0,
+                "contradiction_cluster_count": 0,
+                "empty": 0,
+                "high_volatility_count": 0,
+                "low_stability_count": 0,
+                "resolved": 0,
+                "singleton": 0,
+                "total_beliefs": 0,
+                "unresolved": 0,
+                "volatility_bands": {
+                  "high": 0,
+                  "low": 0,
+                  "medium": 0
+                }
+              }
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "cross_namespace_digest": {
+        "content": [
+          {
+            "text": {
+              "compact_summary": true,
+              "included_dimensions": [
+                "tags",
+                "structural",
+                "corrections"
+              ],
+              "latency_ms": 0,
+              "namespace_count": 1,
+              "namespaces": [
+                {
+                  "belief_state_summary": null,
+                  "causal_signatures": [],
+                  "concept_count": 0,
+                  "concept_signatures": [],
+                  "correction_count": 0,
+                  "correction_density": 0,
+                  "namespace": "alpha",
+                  "record_count": 3,
+                  "stable_concept_count": 0,
+                  "structural_relation_types": [],
+                  "tags": [],
+                  "top_concepts": []
+                }
+              ],
+              "pairs": []
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "memory_health": {
+        "content": [
+          {
+            "text": {
+              "avg_salience": 0,
+              "contradiction_cluster_count": 0,
+              "high_salience_record_count": 0,
+              "high_volatility_belief_count": 0,
+              "latest_dominant_phase": "",
+              "low_stability_belief_count": 0,
+              "maintenance_trend_direction": "insufficient_data",
+              "max_salience": 0,
+              "policy_pressure_area_count": 0,
+              "recent_correction_count": 0,
+              "reflection_high_severity_findings": 0,
+              "reflection_summary_count": 0,
+              "rejected_policy_hint_count": 0,
+              "startup_has_recovery_warnings": "<startup-recovery-warnings>",
+              "suppressed_policy_hint_count": 0,
+              "top_issues": [],
+              "total_records": 3
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "namespace_governance_status": {
+        "content": [
+          {
+            "text": [
+              {
+                "belief_count": 0,
+                "correction_count": 0,
+                "correction_density": 0,
+                "high_volatility_belief_count": 0,
+                "instability_level": "low",
+                "instability_score": 0,
+                "last_maintenance_cycle": null,
+                "latest_dominant_phase": "none",
+                "low_stability_belief_count": 0,
+                "namespace": "alpha",
+                "policy_pressure_area_count": 0,
+                "record_count": 3,
+                "suggested_correction_count": 0
+              }
+            ],
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "policy_lifecycle": {
+        "content": [
+          {
+            "text": {
+              "pressure": [],
+              "rejected": [],
+              "summary": {
+                "action_summaries": [],
+                "active_hints": 0,
+                "avg_policy_strength": 0,
+                "avg_risk_score": 0,
+                "candidate_hints": 0,
+                "domain_summaries": [],
+                "rejected_hints": 0,
+                "stable_hints": 0,
+                "suppressed_hints": 0,
+                "total_hints": 0
+              },
+              "suppressed": []
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      }
+    },
+    "endState": {
+      "memory_health": {
+        "content": [
+          {
+            "text": {
+              "avg_salience": 0,
+              "contradiction_cluster_count": 0,
+              "high_salience_record_count": 0,
+              "high_volatility_belief_count": 0,
+              "latest_dominant_phase": "",
+              "low_stability_belief_count": 0,
+              "maintenance_trend_direction": "insufficient_data",
+              "max_salience": 0,
+              "policy_pressure_area_count": 0,
+              "recent_correction_count": 0,
+              "reflection_high_severity_findings": 0,
+              "reflection_summary_count": 0,
+              "rejected_policy_hint_count": 0,
+              "startup_has_recovery_warnings": "<startup-recovery-warnings>",
+              "suppressed_policy_hint_count": 0,
+              "top_issues": [],
+              "total_records": 3
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "retrieval": {
+    "calls": {
+      "recall": {
+        "content": [
+          {
+            "text": "=== COGNITIVE CONTEXT ===\n[DOMAIN]\n  - [CODE] [phase07, code, typescript, file:phase.ts]\n```\n```typescript\nexport const phase = 7\n```\n```\n\n[DECISIONS]\n  - DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity {decision} [phase07, decision]\n\n[WORKING]\n  - Phase 7 MCP parity memory [phase07, parity]\n\n=== END CONTEXT ===",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "recall_structured": {
+        "content": [
+          {
+            "text": [
+              {
+                "content": "Phase 7 MCP parity memory",
+                "id": "<record-id>",
+                "level": "Working",
+                "score": 0,
+                "semantic_type": "fact",
+                "source_type": "recorded",
+                "strength": 1,
+                "tags": [
+                  "phase07",
+                  "parity"
+                ]
+              },
+              {
+                "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                "id": "<record-id>",
+                "level": "Decisions",
+                "score": 0,
+                "semantic_type": "decision",
+                "source_type": "recorded",
+                "strength": 1,
+                "tags": [
+                  "phase07",
+                  "decision"
+                ]
+              },
+              {
+                "content": "```typescript\nexport const phase = 7\n```",
+                "id": "<record-id>",
+                "level": "Domain",
+                "score": 0,
+                "semantic_type": "fact",
+                "source_type": "recorded",
+                "strength": 1,
+                "tags": [
+                  "phase07",
+                  "code",
+                  "typescript",
+                  "file:phase.ts"
+                ]
+              }
+            ],
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "search": {
+        "content": [
+          {
+            "text": [
+              {
+                "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                "id": "<record-id>",
+                "level": "Decisions",
+                "semantic_type": "decision",
+                "tags": [
+                  "phase07",
+                  "decision"
+                ]
+              },
+              {
+                "content": "Phase 7 MCP parity memory",
+                "id": "<record-id>",
+                "level": "Working",
+                "semantic_type": "fact",
+                "tags": [
+                  "phase07",
+                  "parity"
+                ]
+              }
+            ],
+            "type": "text"
+          }
+        ],
+        "isError": false
+      }
+    },
+    "endState": {
+      "recall_structured": {
+        "content": [
+          {
+            "text": [
+              {
+                "content": "Phase 7 MCP parity memory",
+                "id": "<record-id>",
+                "level": "Working",
+                "score": 0,
+                "semantic_type": "fact",
+                "source_type": "recorded",
+                "strength": 1,
+                "tags": [
+                  "phase07",
+                  "parity"
+                ]
+              },
+              {
+                "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                "id": "<record-id>",
+                "level": "Decisions",
+                "score": 0,
+                "semantic_type": "decision",
+                "source_type": "recorded",
+                "strength": 1,
+                "tags": [
+                  "phase07",
+                  "decision"
+                ]
+              },
+              {
+                "content": "```typescript\nexport const phase = 7\n```",
+                "id": "<record-id>",
+                "level": "Domain",
+                "score": 0,
+                "semantic_type": "fact",
+                "source_type": "recorded",
+                "strength": 1,
+                "tags": [
+                  "phase07",
+                  "code",
+                  "typescript",
+                  "file:phase.ts"
+                ]
+              }
+            ],
+            "type": "text"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "write": {
+    "calls": {
+      "store": {
+        "content": [
+          {
+            "text": {
+              "id": "<record-id>",
+              "level": "Working"
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "store_code": {
+        "content": [
+          {
+            "text": {
+              "id": "<record-id>",
+              "level": "DOMAIN"
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "store_decision": {
+        "content": [
+          {
+            "text": {
+              "id": "<record-id>",
+              "level": "DECISIONS"
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      }
+    },
+    "endState": {
+      "insights": {
+        "content": [
+          {
+            "text": {
+              "decisions": 1,
+              "domain": 1,
+              "identity": 0,
+              "total_connections": 6,
+              "total_records": 3,
+              "total_tags": 6,
+              "working": 1
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "search": {
+        "content": [
+          {
+            "text": [
+              {
+                "content": "```typescript\nexport const phase = 7\n```",
+                "id": "<record-id>",
+                "level": "Domain",
+                "semantic_type": "fact",
+                "tags": [
+                  "phase07",
+                  "code",
+                  "typescript",
+                  "file:phase.ts"
+                ]
+              },
+              {
+                "content": "DECISION: Use black-box MCP parity\nREASONING: Tool boundary drift is the risk\nALTERNATIVES: unit-only parity",
+                "id": "<record-id>",
+                "level": "Decisions",
+                "semantic_type": "decision",
+                "tags": [
+                  "phase07",
+                  "decision"
+                ]
+              },
+              {
+                "content": "Phase 7 MCP parity memory",
+                "id": "<record-id>",
+                "level": "Working",
+                "semantic_type": "fact",
+                "tags": [
+                  "phase07",
+                  "parity"
+                ]
+              }
+            ],
+            "type": "text"
+          }
+        ],
+        "isError": false
+      }
+    }
+  }
+}

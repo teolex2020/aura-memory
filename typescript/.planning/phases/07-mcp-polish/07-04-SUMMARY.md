@@ -144,7 +144,6 @@ None - this plan adds read-only in-process facades and no new network endpoints,
 ## Issues Encountered
 
 - Vitest in this workspace does not support the requested `--filter` flag, so package-scoped verification was replaced with file-scoped test runs.
-- Unrelated untracked files existed after SDK/test activity: `../.codex/`, `.planning/ROADMAP.md.lock`, `.planning/STATE.md.lock`, and `.planning/debug/`. They were left untouched.
 
 ## User Setup Required
 

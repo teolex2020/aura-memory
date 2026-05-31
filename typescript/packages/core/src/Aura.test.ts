@@ -114,6 +114,48 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.insights().decisions, 1)
   })
 
+  it("store defaults semantic_type to fact and auto-connects same-namespace shared tags", async () => {
+    const aura = await openWritableAura()
+
+    const first = await Effect.runPromise(provideNode(aura.store("first MCP parity record", {
+      namespace: "alpha",
+      tags: ["phase07"],
+    })))
+    const second = await Effect.runPromise(provideNode(aura.store("second MCP parity record", {
+      namespace: "alpha",
+      tags: ["phase07"],
+    })))
+    const third = await Effect.runPromise(provideNode(aura.store("third MCP parity record", {
+      namespace: "alpha",
+      tags: ["phase07"],
+    })))
+    await Effect.runPromise(provideNode(aura.store("beta MCP parity record", {
+      namespace: "beta",
+      tags: ["phase07"],
+    })))
+
+    assert.strictEqual(first.semantic_type, "fact")
+
+    const records = new Map(
+      aura.search({ namespace: "alpha", tags: ["phase07"], limit: 10 })
+        .map((record) => [record.id, record]),
+    )
+    const firstView = records.get(first.id)!
+    const secondView = records.get(second.id)!
+    const thirdView = records.get(third.id)!
+
+    assert.strictEqual(records.size, 3)
+    assert.strictEqual(firstView.connections[second.id], 0.35)
+    assert.strictEqual(firstView.connections[third.id], 0.35)
+    assert.strictEqual(secondView.connections[first.id], 0.35)
+    assert.strictEqual(secondView.connections[third.id], 0.35)
+    assert.strictEqual(thirdView.connections[first.id], 0.35)
+    assert.strictEqual(thirdView.connections[second.id], 0.35)
+    assert.strictEqual(firstView.connection_types[second.id], "associative")
+    assert.strictEqual(secondView.connection_types[third.id], "associative")
+    assert.strictEqual(aura.stats().total_connections, 6)
+  })
+
   it("search is owned by Aura and refreshes through store/update/connect/delete mutations", async () => {
     const aura = await openWritableAura()
 

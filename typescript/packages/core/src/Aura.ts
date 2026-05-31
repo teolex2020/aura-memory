@@ -37,6 +37,9 @@ import {
 } from "./Recall";
 import { id12 } from "@aura/utils";
 
+const DEFAULT_SEMANTIC_TYPE = "fact"
+const MAX_AUTO_CONNECTIONS = 50
+
 // ── MaintenanceService function imports ──
 import {
   runInitialPhases,
@@ -241,8 +244,8 @@ export class Aura {
     FileReadError | FileWriteError,
     FileRead | FileWrite
   > {
-    // Store a code snippet at DOMAIN level with language metadata.
-    // 将代码片段以 DOMAIN level 存储，并写入语言/文件名元数据。
+    // Store a code snippet at DOMAIN level.
+    // 将代码片段以 DOMAIN level 存储；language/filename 通过 tags 与 fenced content 暴露。
     // Rust reference: AuraMcpServer::store_code (mcp.rs)
     const tags = [...(options.tags ?? []), "code", options.language]
     if (options.filename !== undefined && options.filename.length > 0) {
@@ -254,10 +257,6 @@ export class Aura {
       tags,
       content_type: "code",
       namespace: options.namespace,
-      metadata: {
-        language: options.language,
-        ...(options.filename !== undefined ? { filename: options.filename } : {}),
-      },
     })
   }
 
@@ -319,7 +318,7 @@ export class Aura {
         ? options!.tags.filter((t): t is string => typeof t === "string")
         : [];
 
-      const record: AuraRecord = {
+      let record: AuraRecord = {
         id,
         content,
         level: options?.level ?? Level.Working,
@@ -333,11 +332,12 @@ export class Aura {
         content_type: options?.content_type ?? "text",
         source_type: options?.source_type ?? "recorded",
         namespace: options?.namespace ?? "default",
-        semantic_type: options?.semantic_type ?? "memory",
+        semantic_type: options?.semantic_type ?? DEFAULT_SEMANTIC_TYPE,
         metadata: { ...(options?.metadata ?? {}), timestamp: nowIso },
         caused_by_id: options?.caused_by_id ?? null,
       };
 
+      record = self.autoConnectRecord(record)
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendStore(record);
       yield* store.flush();
@@ -383,7 +383,7 @@ export class Aura {
         content_type: base?.content_type ?? "text",
         source_type: base?.source_type ?? "recorded",
         namespace: base?.namespace ?? "default",
-        semantic_type: base?.semantic_type ?? "memory",
+        semantic_type: base?.semantic_type ?? DEFAULT_SEMANTIC_TYPE,
         metadata: {
           ...(base?.metadata ?? {}),
           ...(patch?.metadata ?? {}),
@@ -476,7 +476,7 @@ export class Aura {
         content_type: base?.content_type ?? "text",
         source_type: base?.source_type ?? "recorded",
         namespace: base?.namespace ?? "default",
-        semantic_type: base?.semantic_type ?? "memory",
+        semantic_type: base?.semantic_type ?? DEFAULT_SEMANTIC_TYPE,
         metadata: { ...(base?.metadata ?? {}), timestamp: nowIso },
         aura_id: base?.aura_id ?? null,
         caused_by_id: base?.caused_by_id ?? null,
@@ -1903,6 +1903,46 @@ export class Aura {
     this.searchRecords = new Map(this.searchRecords).set(record.id, record)
   }
 
+  private autoConnectRecord(record: AuraRecord): AuraRecord {
+    if (record.tags.length === 0) return record
+
+    const connections: { [recordId: string]: number } = { ...record.connections }
+    const connectionTypes: { [recordId: string]: string } = { ...record.connection_types }
+
+    // Rust auto_connect mutates the in-memory records map before append_store.
+    // TS mirrors that visibility without appending synthetic Update records.
+    // Rust reference: graph::auto_connect (graph.rs), Aura::store (aura.rs)
+    for (const candidate of [...this.searchRecords.values()]) {
+      if (Object.keys(connections).length >= MAX_AUTO_CONNECTIONS) break
+      if (candidate.id === record.id) continue
+      if (candidate.namespace !== record.namespace) continue
+
+      const sharedCount = sharedTagCount(record.tags, candidate.tags)
+      if (sharedCount === 0) continue
+
+      const weight = Math.min(0.2 + 0.15 * sharedCount, 0.8)
+      connections[candidate.id] = weight
+      connectionTypes[candidate.id] = "associative"
+
+      if (Object.keys(candidate.connections).length < MAX_AUTO_CONNECTIONS) {
+        this.replaceSearchRecord({
+          ...candidate,
+          connections: { ...candidate.connections, [record.id]: weight },
+          connection_types: {
+            ...candidate.connection_types,
+            [record.id]: "associative",
+          },
+        })
+      }
+    }
+
+    return {
+      ...record,
+      connections,
+      connection_types: connectionTypes,
+    }
+  }
+
   private removeSearchRecord(recordId: string): void {
     const next = new Map(this.searchRecords)
     next.delete(recordId)
@@ -2474,11 +2514,23 @@ function toRecordLike(rec: AuraRecord, nowSecs: number): AuraRecord {
     source_type: typeof o.source_type === "string" ? o.source_type : "recorded",
     namespace: typeof o.namespace === "string" ? o.namespace : "default",
     semantic_type:
-      typeof o.semantic_type === "string" ? o.semantic_type : "memory",
+      typeof o.semantic_type === "string" ? o.semantic_type : DEFAULT_SEMANTIC_TYPE,
     metadata,
     aura_id: typeof o.aura_id === "string" ? o.aura_id : null,
     caused_by_id: typeof o.caused_by_id === "string" ? o.caused_by_id : null,
   };
+}
+
+function sharedTagCount(
+  left: ReadonlyArray<string>,
+  right: ReadonlyArray<string>,
+): number {
+  const rightTags = new Set(right)
+  let count = 0
+  for (const tag of left) {
+    if (rightTags.has(tag)) count += 1
+  }
+  return count
 }
 
 function toMcpMaintenanceTrendSnapshot(snapshot: MaintenanceTrendSnapshot): McpMaintenanceTrendSnapshot {

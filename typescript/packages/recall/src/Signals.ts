@@ -16,9 +16,11 @@ function getNamespace(rec: RecallRecord): string {
   return typeof rec.namespace === "string" && rec.namespace.length > 0 ? rec.namespace : DEFAULT_NAMESPACE
 }
 
+/**
+ * Rust reference: `in_namespace` uses `namespaces.contains(...)`; an empty slice matches nothing.
+ * 中文说明：空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
+ */
 function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boolean {
-  // Rust reference: `in_namespace` uses `namespaces.contains(...)`; an empty slice matches nothing.
-  // 中文说明：空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
   return namespaces.includes(getNamespace(rec))
 }
 
@@ -31,6 +33,10 @@ function uniqueLowerWords(text: string): string[] {
   return Array.from(out)
 }
 
+/**
+ * Rust reference: `collect_sdr` ignores the returned overlap after candidate retrieval.
+ * 中文说明：overlap 只影响 `InvertedIndex::search` 的候选顺序/截断；最终信号分数按 Tanimoto 重新计算并排序。
+ */
 export function collectSdr(
   view: RecallView,
   sdr: SDRInterpreter,
@@ -38,8 +44,6 @@ export function collectSdr(
   topK: number,
   namespaces: ReadonlyArray<string>
 ): RankedList {
-  // Rust reference: `collect_sdr` ignores the returned overlap after candidate retrieval.
-  // 中文说明：overlap 只影响 `InvertedIndex::search` 的候选顺序/截断；最终信号分数按 Tanimoto 重新计算并排序。
   const queryBits = sdr.textToSdr(query, false)
   if (queryBits.length === 0) return []
 
@@ -67,14 +71,16 @@ export function collectSdr(
   return results
 }
 
+/**
+ * Rust reference: `collect_ngram` queries topK * 4, filters namespaces, then takes topK.
+ * 中文说明：NGramIndex 自身负责 MinHash+LSH 相似度排序；这里仅投影 Rust 的过滤与截断流程。
+ */
 export function collectNgram(
   view: RecallView,
   query: string,
   topK: number,
   namespaces: ReadonlyArray<string>
 ): RankedList {
-  // Rust reference: `collect_ngram` queries topK * 4, filters namespaces, then takes topK.
-  // 中文说明：NGramIndex 自身负责 MinHash+LSH 相似度排序；这里仅投影 Rust 的过滤与截断流程。
   const hits = view.ngramIndex.query(query, topK * 4)
   const out: RankedList = []
   for (const [sim, rid] of hits) {
@@ -88,15 +94,17 @@ export function collectNgram(
   return out
 }
 
+/**
+ * Collect Tag Jaccard similarity results.
+ * 收集 tag Jaccard 相似度结果。
+ * Rust reference: `collect_tags` (`../src/recall.rs`).
+ */
 export function collectTags(
   view: RecallView,
   query: string,
   topK: number,
   namespaces: ReadonlyArray<string>
 ): RankedList {
-  // Collect Tag Jaccard similarity results.
-  // 收集 tag Jaccard 相似度结果。
-  // Rust reference: `collect_tags` (`../src/recall.rs`).
   const queryTags = uniqueLowerWords(query)
   if (queryTags.length === 0) return []
 
@@ -139,6 +147,10 @@ export function collectTags(
   return out
 }
 
+/**
+ * SIMPLE IMPLEMENTATION: 直接透传可选 embedding 服务的 ranked list，并做 namespace filter。
+ * FULL IMPLEMENTATION: 对齐 Rust 侧 embedding 信号的归一化、阈值过滤、以及与 SDR/NGram/Tags 的融合权重策略。
+ */
 export function collectEmbedding(
   view: RecallView,
   embedding: {
@@ -148,8 +160,6 @@ export function collectEmbedding(
   topK: number,
   namespaces: ReadonlyArray<string>
 ): Effect.Effect<RankedList, EmbeddingQueryError> {
-  // SIMPLE IMPLEMENTATION: 直接透传可选 embedding 服务的 ranked list，并做 namespace filter。
-  // FULL IMPLEMENTATION: 对齐 Rust 侧 embedding 信号的归一化、阈值过滤、以及与 SDR/NGram/Tags 的融合权重策略。
   return embedding.query(query, topK).pipe(
     Effect.map((pairs) => {
       const out: RankedList = []

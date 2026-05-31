@@ -16,10 +16,20 @@ import { CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
 const MAX_FINALIZED_RECORDS = 10
 const ACTIVATION_VELOCITY_ALPHA = 0.3
 
+/**
+ * Aura-owned session-scoped co-activation tracker.
+ * Aura 实例持有的 session 范围共同激活追踪器。
+ * Rust reference: `SessionTracker` (`../src/graph.rs`).
+ */
 export type RecallSessionTracker = Map<string, Set<string>>
 
 // ── Activation & Co-recall strengthening ──
 
+/**
+ * Activate a recalled record and update activation velocity.
+ * 激活被召回的 record，并更新 activation velocity。
+ * Rust reference: `Record::activate` / `activate_and_strengthen` (`../src/record.rs`, `../src/recall.rs`).
+ */
 function activateRecord(record: AuraRecord, nowSeconds: number): AuraRecord {
   const gapDays = Math.max((nowSeconds - record.last_activated) / 86_400, 0.001)
   const instantRate = Math.min(1 / gapDays, 100)
@@ -34,6 +44,11 @@ function activateRecord(record: AuraRecord, nowSeconds: number): AuraRecord {
   }
 }
 
+/**
+ * Strengthen a co-recalled pair with diminishing returns.
+ * 用递减收益增强共同召回 pair。
+ * Rust reference: `activate_and_strengthen` (`../src/recall.rs`).
+ */
 function strengthenPair(record: AuraRecord, otherId: string): AuraRecord {
   const current = record.connections[otherId] ?? 0
   const delta = 0.05 * (1 - current)
@@ -47,6 +62,11 @@ function strengthenPair(record: AuraRecord, otherId: string): AuraRecord {
   }
 }
 
+/**
+ * Strengthen a session pair and preserve existing relation type.
+ * 增强 session pair，并保留已有 relation type。
+ * Rust reference: `SessionTracker::end_session` / `consolidate_session` (`../src/graph.rs`).
+ */
 function strengthenSessionPair(record: AuraRecord, otherId: string, boosted: number): AuraRecord {
   return {
     ...record,
@@ -61,25 +81,34 @@ function strengthenSessionPair(record: AuraRecord, otherId: string, boosted: num
   }
 }
 
+/**
+ * Limit recall finalization to the same top-N records as Rust.
+ * 将 recall finalize 限制为与 Rust 相同的 top-N records。
+ * Rust reference: `activate_and_strengthen` (`../src/recall.rs`).
+ */
 function topRecordIds(scored: RecallScored): ReadonlyArray<string> {
   return scored.slice(0, MAX_FINALIZED_RECORDS).map(([, recordId]) => recordId)
 }
 
+/**
+ * Manages session-scoped co-activation tracking.
+ * 管理 session 范围的共同激活追踪。
+ * Rust reference: `SessionTracker::new` (`../src/graph.rs`).
+ */
 export function createRecallSessionTracker(): RecallSessionTracker {
-  // Manages session-scoped co-activation tracking.
-  // 管理 session 范围的共同激活追踪。
-  // Rust reference: `SessionTracker::new` (`../src/graph.rs`).
   return new Map<string, Set<string>>()
 }
 
+/**
+ * Track that these record IDs were activated in a session.
+ * 记录这些 record IDs 在同一个 session 中被激活。
+ * Rust reference: `SessionTracker::track_activation` (`../src/graph.rs`).
+ */
 export function trackRecallSession(
   sessionTracker: RecallSessionTracker | undefined,
   sessionId: string | undefined,
   recordIds: ReadonlyArray<string>
 ): void {
-  // Track that these record IDs were activated in a session.
-  // 记录这些 record IDs 在同一个 session 中被激活。
-  // Rust reference: `SessionTracker::track_activation` (`../src/graph.rs`).
   if (sessionTracker === undefined || sessionId === undefined) return
   let ids = sessionTracker.get(sessionId)
   if (ids === undefined) {
@@ -89,14 +118,16 @@ export function trackRecallSession(
   for (const id of recordIds) ids.add(id)
 }
 
+/**
+ * End a session and return co-activation strengthening stats.
+ * 结束 session 并返回共同激活增强统计。
+ * Rust reference: `Aura::end_session` and `SessionTracker::end_session` (`../src/aura.rs`, `../src/graph.rs`).
+ */
 export function endRecallSession(
   brainDir: string,
   sessionTracker: RecallSessionTracker,
   sessionId: string
 ): Effect.Effect<Record<string, number>, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
-  // End a session and return co-activation strengthening stats.
-  // 结束 session 并返回共同激活增强统计。
-  // Rust reference: `Aura::end_session` and `SessionTracker::end_session` (`../src/aura.rs`, `../src/graph.rs`).
   const ids = sessionTracker.get(sessionId)
   if (ids === undefined) return Effect.succeed({})
   sessionTracker.delete(sessionId)
@@ -140,16 +171,19 @@ export function endRecallSession(
   })
 }
 
+/**
+ * Activate top records and strengthen co-recalled connections.
+ * 激活 top records，并增强共同召回记录之间的连接。
+ * Rust reference: `activate_and_strengthen` (`../src/recall.rs`).
+ *
+ * 中文说明：默认 recall_core 副作用必须落盘，否则后续 graph/causal 扩展缺少长期 co-recall 状态。
+ */
 export function finalizeRecallRecords(
   brainDir: string,
   scored: RecallScored,
   sessionId?: string,
   sessionTracker?: RecallSessionTracker
 ): Effect.Effect<void, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
-  // Activate top records and strengthen co-recalled connections.
-  // 激活 top records，并增强共同召回记录之间的连接。
-  // Rust reference: `activate_and_strengthen` (recall.rs).
-  // 中文说明：默认 recall_core 副作用必须落盘，否则后续 graph/causal 扩展缺少长期 co-recall 状态。
   const topIds = topRecordIds(scored)
   trackRecallSession(sessionTracker, sessionId, topIds)
   if (topIds.length === 0) return Effect.void

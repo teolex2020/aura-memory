@@ -1855,10 +1855,12 @@ export class Aura {
     return this.stats()
   }
 
+  /**
+   * Apply decay to all records.
+   * 对所有 records 应用衰减。
+   * Rust reference: `Aura::decay` and `py_decay` (`../src/aura.rs`).
+   */
   decay(): Effect.Effect<readonly [number, number], FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
-    // Apply decay to all records.
-    // 对所有 records 应用衰减。
-    // Rust reference: `Aura::decay` and `py_decay` (`../src/aura.rs`).
     const dir = this.brainDir
     const self = this
     return Effect.gen(function* () {
@@ -1892,10 +1894,12 @@ export class Aura {
     })
   }
 
+  /**
+   * Reflect — promote, archive, detect conflicts.
+   * 反思维护：提升符合条件的 records，并归档死亡 records。
+   * Rust reference: `Aura::reflect` and `py_reflect` (`../src/aura.rs`).
+   */
   reflect(): Effect.Effect<Record<string, number>, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
-    // Reflect — promote, archive, detect conflicts.
-    // 反思维护：提升符合条件的 records，并归档死亡 records。
-    // Rust reference: `Aura::reflect` and `py_reflect` (`../src/aura.rs`).
     const dir = this.brainDir
     const self = this
     return Effect.gen(function* () {
@@ -1961,10 +1965,12 @@ export class Aura {
     })
   }
 
+  /**
+   * End a session (co-activation strengthening).
+   * 结束 session（共同激活增强）。
+   * Rust reference: `Aura::end_session` and `py_end_session` (`../src/aura.rs`).
+   */
   end_session(session_id: string): Effect.Effect<Record<string, number>, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
-    // End a session (co-activation strengthening).
-    // 结束 session（共同激活增强）。
-    // Rust reference: `Aura::end_session` and `py_end_session` (`../src/aura.rs`).
     const dir = this.brainDir
     const self = this
     return Effect.gen(function* () {
@@ -4357,10 +4363,12 @@ function tierRecords(
     .map(cloneAuraRecord)
 }
 
+/**
+ * Promote to the next level.
+ * 晋升到下一个 level。
+ * Rust reference: `Record::promote` (`../src/record.rs`).
+ */
 function promoteLevel(level: Level): Level | null {
-  // Promote to the next level.
-  // 晋升到下一个 level。
-  // Rust reference: `Record::promote` (`../src/record.rs`).
   switch (level) {
     case Level.Working:
       return Level.Decisions
@@ -4373,10 +4381,12 @@ function promoteLevel(level: Level): Level | null {
   }
 }
 
+/**
+ * Daily decay rate for this level.
+ * 当前 level 的每日衰减率。
+ * Rust reference: `Level::decay_rate` (`../src/levels.rs`).
+ */
 function levelDecayRate(level: Level): number {
-  // Daily decay rate for this level.
-  // 当前 level 的每日衰减率。
-  // Rust reference: `Level::decay_rate` (`../src/levels.rs`).
   switch (level) {
     case Level.Working:
       return 0.80
@@ -4389,24 +4399,30 @@ function levelDecayRate(level: Level): number {
   }
 }
 
+/**
+ * Whether this record is still alive (not archived).
+ * 判断 record 是否仍存活（未归档）。
+ * Rust reference: `Record::is_alive` (`../src/record.rs`).
+ */
 function isRecordAlive(record: AuraRecord): boolean {
-  // Whether this record is still alive (not archived).
-  // 判断 record 是否仍存活（未归档）。
-  // Rust reference: `Record::is_alive` (`../src/record.rs`).
   return record.strength >= 0.05
 }
 
+/**
+ * Whether this record is eligible for promotion.
+ * 判断 record 是否符合晋升条件。
+ * Rust reference: `Record::can_promote` (`../src/record.rs`).
+ */
 function canPromoteRecord(record: AuraRecord): boolean {
-  // Whether this record is eligible for promotion.
-  // 判断 record 是否符合晋升条件。
-  // Rust reference: `Record::can_promote` (`../src/record.rs`).
   return record.activation_count >= 5 && record.strength >= 0.7 && record.level !== Level.Identity
 }
 
+/**
+ * Contextual hub promotion (10+ connections, avg weight >= 0.4).
+ * 上下文 hub 提升：至少 10 条连接，平均权重不低于 0.4。
+ * Rust reference: `Aura::reflect` (`../src/aura.rs`).
+ */
 function canPromoteContextualHub(record: AuraRecord): boolean {
-  // Contextual hub promotion (10+ connections, avg weight >= 0.4).
-  // 上下文 hub 提升：至少 10 条连接，平均权重不低于 0.4。
-  // Rust reference: `Aura::reflect` (`../src/aura.rs`).
   const weights = Object.values(record.connections)
   if (weights.length < 10) return false
   if (record.strength < 0.5) return false
@@ -4415,17 +4431,19 @@ function canPromoteContextualHub(record: AuraRecord): boolean {
   return averageWeight + Number.EPSILON >= 0.4
 }
 
+/**
+ * Apply daily decay based on level and semantic type.
+ *
+ * Uses adaptive decay: rate interpolates from base toward 0.999
+ * as activation_count grows (ceiling effect for frequently used records).
+ * Retention is driven by Level (Identity=0.99 .. Working=0.80) and activation frequency.
+ * semantic_type does not influence decay — Level already encodes information importance.
+ * Salience adds only a bounded retention bias.
+ *
+ * 基于 level 与 activation frequency 应用自适应衰减；semantic_type 不参与衰减。
+ * Rust reference: `Record::apply_decay` (`../src/record.rs`).
+ */
 function applyRecordDecay(record: AuraRecord): AuraRecord {
-  // Apply daily decay based on level and semantic type.
-  //
-  // Uses adaptive decay: rate interpolates from base toward 0.999
-  // as activation_count grows (ceiling effect for frequently used records).
-  // Retention is driven by Level (Identity=0.99 .. Working=0.80) and activation frequency.
-  // semantic_type does not influence decay — Level already encodes information importance.
-  // Salience adds only a bounded retention bias.
-  //
-  // 基于 level 与 activation frequency 应用自适应衰减；semantic_type 不参与衰减。
-  // Rust reference: `Record::apply_decay` (`../src/record.rs`).
   const baseRate = levelDecayRate(record.level)
   const ceilingFactor = Math.min(record.activation_count / 10, 1)
   const activationRate = Math.min(baseRate + (0.999 - baseRate) * ceilingFactor, 0.999)
@@ -4434,6 +4452,11 @@ function applyRecordDecay(record: AuraRecord): AuraRecord {
   return { ...record, strength: record.strength * effectiveRate }
 }
 
+/**
+ * Decay connection weights and remove weak connections.
+ * 衰减 connection 权重，并移除弱连接。
+ * Rust reference: `Aura::decay` connection pass (`../src/aura.rs`).
+ */
 function decayRecordConnections(record: AuraRecord): AuraRecord {
   const connections: { [k: string]: number } = {}
   const connectionTypes: { [k: string]: string } = { ...record.connection_types }

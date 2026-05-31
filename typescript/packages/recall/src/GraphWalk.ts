@@ -23,9 +23,11 @@ function namespaceOf(rec: RecallRecord): string {
   return typeof rec.namespace === "string" && rec.namespace.length > 0 ? rec.namespace : DEFAULT_NAMESPACE
 }
 
+/**
+ * Rust reference: `in_namespace` uses `namespaces.contains(...)`; an empty slice matches nothing.
+ * 中文说明：空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
+ */
 function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boolean {
-  // Rust reference: `in_namespace` uses `namespaces.contains(...)`; an empty slice matches nothing.
-  // 中文说明：空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
   return namespaces.includes(namespaceOf(rec))
 }
 

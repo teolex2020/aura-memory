@@ -886,6 +886,72 @@ describe("Aura MCP-facing operational surfaces", () => {
     ))
   })
 
+  it("salience facades mirror Rust PyO3 ordering and summary semantics", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-salience-facades-"))
+    const aura = await Effect.runPromise(provideNode(Effect.gen(function* () {
+      const brain = yield* BrainAuraFile.open(brainPath)
+      yield* brain.flush()
+      const store = yield* CognitiveStoreFile.open(brainPath)
+      const records = [
+        { id: "low", content: "Low salience record", salience: 0.10, strength: 1, level: Level.Working },
+        { id: "medium", content: "Medium salience record", salience: 0.40, strength: 1, level: Level.Decisions },
+        { id: "boundary", content: "Boundary salience record", salience: 0.50, strength: 1, level: Level.Decisions },
+        { id: "high-weaker", content: "High salience weaker record", salience: 0.85, strength: 0.10, level: Level.Working },
+        { id: "high-stronger", content: "High salience stronger record", salience: 0.85, strength: 1, level: Level.Identity },
+      ] as const
+      for (const record of records) {
+        yield* store.appendStore({
+          id: record.id,
+          content: record.content,
+          level: record.level,
+          strength: record.strength,
+          activation_count: 0,
+          created_at: 1,
+          last_activated: 1,
+          tags: ["salience"],
+          connections: {},
+          connection_types: {},
+          content_type: "text",
+          source_type: "recorded",
+          namespace: "alpha",
+          semantic_type: "fact",
+          activation_velocity: 0,
+          salience: record.salience,
+          metadata: {},
+          aura_id: null,
+          caused_by_id: null,
+          confidence: 0.9,
+          support_mass: 0,
+          conflict_mass: 0,
+          volatility: 0,
+        })
+      }
+      yield* store.flush()
+      return yield* Aura.open(brainPath)
+    })))
+
+    const topDefault = aura.get_high_salience_records()
+    assert.deepStrictEqual(topDefault.map((record) => record.id), ["high-stronger", "high-weaker", "boundary"])
+    topDefault[0]!.content = "mutated outside Aura"
+    assert.strictEqual(aura.get("high-stronger")?.content, "High salience stronger record")
+
+    assert.deepStrictEqual(
+      aura.get_high_salience_records(0.30, 10).map((record) => record.id),
+      ["high-stronger", "high-weaker", "boundary", "medium"],
+    )
+    assert.deepStrictEqual(
+      aura.get_high_salience_records(-1, 2).map((record) => record.id),
+      ["high-stronger", "high-weaker"],
+    )
+
+    const summary = aura.get_salience_summary()
+    assert.strictEqual(summary.total_records, 5)
+    assert.strictEqual(summary.high_salience_count, 2)
+    assert.ok(Math.abs(summary.avg_salience - 0.54) < 0.000001)
+    assert.strictEqual(summary.max_salience, 0.85)
+    assert.deepStrictEqual(summary.bands, { low: 1, medium: 2, high: 2 })
+  })
+
   it("correction writers populate logs, review queues, and 07-04 governance backfills", async () => {
     const aura = await openWritableAura()
     const record = await Effect.runPromise(provideNode(aura.store("Alpha deploy correction evidence", {

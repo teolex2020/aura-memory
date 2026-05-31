@@ -14,6 +14,7 @@ import {
   RerankError,
   type RecallScored,
   type Record as AuraRecord,
+  type SalienceSummary,
   type StoreOptions,
   type UpdateOptions,
   Clock,
@@ -62,6 +63,7 @@ import { id12, nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
 const RECORD_SALIENCE_REASON_KEY = "salience_reason"
+const RECORD_SALIENCE_MARKED_AT_KEY = "salience_marked_at"
 const MAX_AUTO_CONNECTIONS = 50
 const startupJsonDecoder = new TextDecoder()
 
@@ -625,6 +627,110 @@ export class Aura {
   get(recordId: string): AuraRecord | null {
     const record = this.searchRecords.get(recordId)
     return record === undefined ? null : cloneAuraRecord(record)
+  }
+
+  /**
+   * Return records with elevated salience, highest salience first.
+   * 返回高 salience records，按 salience 降序排列。
+   *
+   * Rust reference: `Aura::get_high_salience_records` and `py_get_high_salience_records` (`../src/aura.rs`).
+   */
+  get_high_salience_records(min_salience?: number, limit?: number): ReadonlyArray<AuraRecord> {
+    const threshold = clamp01(min_salience ?? 0.50)
+    const max = clampInt(limit ?? 20, 0, 100)
+    return highSalienceRecords([...this.searchRecords.values()], threshold, max)
+      .map(cloneAuraRecord)
+  }
+
+  /**
+   * Return a bounded summary of current record salience distribution.
+   * 返回当前 record salience 分布摘要。
+   *
+   * Rust reference: `Aura::get_salience_summary` and `py_get_salience_summary` (`../src/aura.rs`).
+   */
+  get_salience_summary(): SalienceSummary {
+    const records = [...this.searchRecords.values()]
+    const total = records.length
+    if (total === 0) {
+      return {
+        total_records: 0,
+        high_salience_count: 0,
+        avg_salience: 0,
+        max_salience: 0,
+        bands: { low: 0, medium: 0, high: 0 },
+      }
+    }
+
+    let highSalienceCount = 0
+    let avgSalience = 0
+    let maxSalience = 0
+    const bands = { low: 0, medium: 0, high: 0 }
+    for (const record of records) {
+      const salience = record.salience
+      avgSalience += salience
+      maxSalience = Math.max(maxSalience, salience)
+      if (salience >= 0.70) {
+        highSalienceCount++
+        bands.high++
+      } else if (salience >= 0.30) {
+        bands.medium++
+      } else {
+        bands.low++
+      }
+    }
+    return {
+      total_records: total,
+      high_salience_count: highSalienceCount,
+      avg_salience: avgSalience / total,
+      max_salience: maxSalience,
+      bands,
+    }
+  }
+
+  /**
+   * Mark a record with bounded manual salience and optional reason metadata.
+   * 标记一条 record 的人工 salience，并可写入 reason 元数据。
+   *
+   * Rust reference: `Aura::mark_record_salience` and `py_mark_record_salience` (`../src/aura.rs`).
+   */
+  mark_record_salience(
+    record_id: string,
+    salience: number,
+    reason?: string | null,
+  ): Effect.Effect<
+    AuraRecord | null,
+    FileReadError | FileWriteError | FileFormatError,
+    FileRead | FileWrite
+  > {
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const clock = yield* Clock
+      const records = yield* loadCognitiveRecords(dir)
+      const existing = records.get(record_id)
+      if (existing === undefined) return null
+
+      const metadata = { ...existing.metadata }
+      const trimmedReason = reason?.trim()
+      if (trimmedReason !== undefined && trimmedReason.length > 0) {
+        metadata[RECORD_SALIENCE_REASON_KEY] = trimmedReason
+      } else {
+        delete metadata[RECORD_SALIENCE_REASON_KEY]
+      }
+      metadata[RECORD_SALIENCE_MARKED_AT_KEY] = clock.nowSeconds().toFixed(3)
+
+      const updated: AuraRecord = {
+        ...existing,
+        salience: clamp01(salience),
+        metadata,
+      }
+
+      const store = yield* CognitiveStoreFile.open(dir)
+      yield* store.appendUpdate(updated)
+      yield* store.flush()
+      self.replaceSearchRecord(updated)
+      return cloneAuraRecord(updated)
+    })
   }
 
   /**
@@ -3084,12 +3190,14 @@ function highSalienceRecords(
   minSalience: number,
   limit: number,
 ): ReadonlyArray<AuraRecord> {
-  const threshold = clamp01(minSalience)
+  // Return records with elevated salience, highest salience first.
+  // 返回 salience 较高的 records，按 salience 降序排列。
+  // Rust reference: `Aura::get_high_salience_records` (`../src/aura.rs`).
   return records
-    .filter((record) => clamp01(record.salience ?? 0) >= threshold)
+    .filter((record) => record.salience >= minSalience)
     .sort((a, b) => {
-      const salienceDelta = clamp01(b.salience ?? 0) - clamp01(a.salience ?? 0)
-      if (salienceDelta !== 0) return salienceDelta
+      const salienceDelta = b.salience - a.salience
+      if (Number.isFinite(salienceDelta) && salienceDelta !== 0) return salienceDelta
       return recordImportance(b) - recordImportance(a)
     })
     .slice(0, Math.min(100, Math.max(0, limit)))

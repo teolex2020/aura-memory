@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import {
   EmbeddingQueryError,
   FileFormatError,
@@ -6,6 +6,7 @@ import {
   FinalizeError,
   JsonParseError,
   type FileRead,
+  type FileWrite,
   RecallViewTag,
   type RecallScored,
   RerankError
@@ -19,6 +20,7 @@ import {
   type RecallPipelineOptions,
   type RecallTraceResult,
 } from "@aura/recall"
+import { RecallFinalizerFileLive } from "./RecallFinalizer"
 
 export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRecord]
 
@@ -36,11 +38,11 @@ export function recallScored(
   | EmbeddingQueryError
   | RerankError
   | FinalizeError,
-  FileRead
+  FileRead | FileWrite
 > {
-  // SIMPLE IMPLEMENTATION: 使用 storage/RecallViewLive 提供 RecallViewTag，然后直接运行 @aura/recall 的 recallPipeline。
-  // FULL IMPLEMENTATION: 加入可选 trace/telemetry 注入点，以及对齐 Rust recall_service 的错误类型与可观测性字段。
-  return recallPipeline(query, options).pipe(Effect.provide(RecallViewLive(dir)))
+  // 使用 storage/RecallViewLive + 文件持久化 RecallFinalizer 运行 recallPipeline。
+  // Rust reference: Aura::recall_core / Aura::recall_finalize (aura.rs)
+  return recallPipeline(query, options).pipe(Effect.provide(recallCoreLayer(dir)))
 }
 
 export function recallRecords<TRecord = unknown>(
@@ -57,9 +59,10 @@ export function recallRecords<TRecord = unknown>(
   | EmbeddingQueryError
   | RerankError
   | FinalizeError,
-  FileRead
+  FileRead | FileWrite
 > {
-  // SIMPLE IMPLEMENTATION: 在同一 Effect 上下文内读取 RecallViewTag，将 recallPipeline 的 recordId 映射为 view.records 的对象。
+  // 在同一 Effect 上下文内读取 RecallViewTag，将 recallPipeline 的 recordId 映射为 view.records 的对象。
+  // Rust reference: Aura::recall_structured / recall_core (aura.rs)
   // FULL IMPLEMENTATION: 支持返回结构化 DTO（包含命中信号/解释）、并对齐 Rust recall 输出的字段与排序稳定性。
   const program = Effect.gen(function* () {
     const view = yield* Effect.service(RecallViewTag)
@@ -74,7 +77,7 @@ export function recallRecords<TRecord = unknown>(
     return out
   })
 
-  return program.pipe(Effect.provide(RecallViewLive(dir)))
+  return program.pipe(Effect.provide(recallCoreLayer(dir)))
 }
 
 export function recallWithTrace(
@@ -96,4 +99,8 @@ export function recallWithTrace(
   // SIMPLE IMPLEMENTATION: expose @aura/recall trace helper with the same RecallViewLive provider as recallScored.
   // Rust reference: Aura::explain_recall / RecallTraceScore (aura.rs)
   return recallPipelineWithTrace(query, options).pipe(Effect.provide(RecallViewLive(dir)))
+}
+
+function recallCoreLayer(dir: string) {
+  return Layer.mergeAll(RecallViewLive(dir), RecallFinalizerFileLive(dir))
 }

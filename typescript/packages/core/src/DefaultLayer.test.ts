@@ -5,7 +5,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
-import { BeliefStore, CausalStore, ConceptStore, EpistemicRuntime, EpistemicTrace, PolicyStore, RecallViewTag } from "@aura/contract"
+import { BeliefStore, BoundedReranker, CausalStore, ConceptStore, EpistemicRuntime, EpistemicTrace, PolicyStore, RecallFinalizer, RecallViewTag } from "@aura/contract"
 import { DefaultLayer } from "./DefaultLayer"
 
 it("DefaultLayer provides epistemic services", async () => {
@@ -26,6 +26,8 @@ it("DefaultLayer provides epistemic services", async () => {
     yield* Effect.service(PolicyStore)
     yield* Effect.service(EpistemicRuntime)
     yield* Effect.service(EpistemicTrace)
+    yield* Effect.service(BoundedReranker)
+    yield* Effect.service(RecallFinalizer)
     return true as const
   }).pipe(Effect.provide(layer))
 

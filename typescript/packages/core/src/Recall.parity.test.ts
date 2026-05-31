@@ -6,7 +6,7 @@ import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
 import { Clock } from "@aura/contract"
-import { NodeFileReadLive } from "@aura/platform-node"
+import { NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import { Aura } from "./index"
 
 it("Rust recall verifier parity with TS Aura.recallScored (SDR+tags+ngram)", async () => {
@@ -32,6 +32,7 @@ it("Rust recall verifier parity with TS Aura.recallScored (SDR+tags+ngram)", asy
   const scored = await Effect.runPromise(
     Aura.recallScored(dir, query, { topK: 10, expandConnections: false }).pipe(
       Effect.provide(NodeFileReadLive),
+      Effect.provide(NodeFileWriteLive),
       Effect.provideService(Clock, clock)
     )
   )
@@ -40,4 +41,3 @@ it("Rust recall verifier parity with TS Aura.recallScored (SDR+tags+ngram)", asy
   assert.deepStrictEqual(tsIds, rustIds)
   assert.deepStrictEqual(tsIds, ["000000000001", "000000000002"])
 })
-

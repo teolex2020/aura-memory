@@ -1,4 +1,5 @@
 export * from "./Aura"
 export * from "./Recall"
+export * from "./RecallFinalizer"
 export * from "./DefaultLayer"
 export * from "./MaintenanceService"

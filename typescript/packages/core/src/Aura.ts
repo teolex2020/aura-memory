@@ -579,14 +579,24 @@ export class Aura {
     // NON-PARITY IMPLEMENTATION: returns RecallScored rather than Rust's richer RecallItem.
     // 差异说明：TS recall pipeline 目前返回 scored IDs；structured/explainability 尚未实现。
     // Rust reference: Aura::recall (aura.rs)
-    return recallScoredEffect(this.brainDir, query, options);
+    const self = this
+    return Effect.gen(function* () {
+      const scored = yield* recallScoredEffect(self.brainDir, query, options)
+      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      return scored
+    })
   }
 
   recall_structured(query: string, options?: Partial<RecallPipelineOptions>) {
     // NON-PARITY IMPLEMENTATION: approximates structured recall via recallRecords.
     // Reason: TS does not yet model RecallExplanation/trace bundle.
     // Rust reference: Aura::recall_structured (aura.rs)
-    return recallRecordsEffect<AuraRecord>(this.brainDir, query, options);
+    const self = this
+    return Effect.gen(function* () {
+      const records = yield* recallRecordsEffect<AuraRecord>(self.brainDir, query, options)
+      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      return records
+    })
   }
 
   recall_full(query: string, options?: Partial<RecallPipelineOptions>) {

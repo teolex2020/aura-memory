@@ -242,6 +242,30 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(aura.search({ query: "alpha", namespace: "default" }).length, 0)
   })
 
+  it("recall persists activation side effects and refreshes the open Aura view", async () => {
+    const aura = await openWritableAura()
+    const first = await Effect.runPromise(provideNode(aura.store("shared recall finalizer alpha one", {
+      namespace: "default",
+    })))
+    const second = await Effect.runPromise(provideNode(aura.store("shared recall finalizer alpha two", {
+      namespace: "default",
+    })))
+
+    await Effect.runPromise(provideNode(aura.recall("shared recall finalizer alpha", {
+      topK: 2,
+      expandConnections: false,
+    })))
+
+    const records = new Map(aura.listCognitiveRecords().map((record) => [record.id, record]))
+    const updatedFirst = records.get(first.id)!
+    const updatedSecond = records.get(second.id)!
+
+    assert.strictEqual(updatedFirst.activation_count, 1)
+    assert.strictEqual(updatedSecond.activation_count, 1)
+    assert.strictEqual(updatedFirst.connections[second.id], 0.05)
+    assert.strictEqual(updatedSecond.connections[first.id], 0.05)
+  })
+
   it("store/update/delete/connect follow Rust record validation boundaries", async () => {
     const aura = await openWritableAura()
 

@@ -72,10 +72,6 @@ function strengthOf(rec: RecallRecord): number {
   return typeof rec.strength === "number" && Number.isFinite(rec.strength) ? rec.strength : 1
 }
 
-function namespaceOf(rec: RecallRecord): string {
-  return typeof rec.namespace === "string" && rec.namespace.length > 0 ? rec.namespace : DEFAULT_NAMESPACE
-}
-
 function metadataOf(rec: RecallRecord): Record<string, string> {
   const metadata = rec.metadata
   return metadata && typeof metadata === "object" ? metadata : {}
@@ -83,11 +79,6 @@ function metadataOf(rec: RecallRecord): Record<string, string> {
 
 function sourceTypeOf(rec: RecallRecord): string {
   return typeof rec.source_type === "string" && rec.source_type.length > 0 ? rec.source_type : "recorded"
-}
-
-function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boolean {
-  if (namespaces.length === 0) return true
-  return namespaces.includes(namespaceOf(rec))
 }
 
 function normalizeOptions(options?: Partial<RecallPipelineOptions>): RecallPipelineOptions {
@@ -155,28 +146,6 @@ function addSignalEvidence(
   }
 }
 
-function filterByStrengthAndNamespace(
-  view: RecallView,
-  scored: Scored,
-  minStrength: number,
-  namespaces: ReadonlyArray<string>,
-): Scored {
-  const out: Scored = []
-  for (const [score, recordId] of scored) {
-    const rec = asRecord(view.records.get(recordId))
-    if (!rec) continue
-    if (!inNamespaces(rec, namespaces)) continue
-    if (strengthOf(rec) < minStrength) continue
-    out.push([score, recordId])
-  }
-  return out
-}
-
-function truncateTopK(scored: Scored, topK: number): Scored {
-  if (topK > 0 && scored.length > topK) scored.length = topK
-  return scored
-}
-
 function scoreMap(scored: Scored): Map<string, number> {
   const out = new Map<string, number>()
   for (const [score, recordId] of scored) out.set(recordId, score)
@@ -219,7 +188,7 @@ function applyTraceRecencyScoring(
   }
 
   scored.sort((a, b) => b[0] - a[0])
-  if (topK > 0 && scored.length > topK) scored.length = topK
+  if (scored.length > topK) scored.length = Math.max(0, topK)
   return scored
 }
 
@@ -278,13 +247,8 @@ export function recallPipelineWithTrace(
       addSignalEvidence(evidence, signal, list, rankedLists.length)
     }
 
-    let matched: Scored = rrfFuse(rankedLists)
+    let matched: Scored = rrfFuse(view.records, rankedLists, opts.minStrength, opts.topK, opts.namespaces)
     for (const [rrfScore, recordId] of matched) patchEvidence(evidence, recordId, { rrfScore })
-
-    matched = filterByStrengthAndNamespace(view, matched, opts.minStrength, opts.namespaces)
-    // Rust `rrf_fuse` applies topK before graph/causal expansion.
-    // 中文说明：trace 路径保持与主 pipeline 相同的候选扩展边界。
-    matched = truncateTopK(matched, opts.topK)
 
     if (opts.expandConnections) {
       const beforeGraph = scoreMap(matched)

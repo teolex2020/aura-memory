@@ -90,6 +90,12 @@ export function recallScored(
   return withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
 }
 
+/**
+ * Run raw recall without bounded rerank/finalize services.
+ * 运行 raw recall，不装配 bounded rerank/finalize 服务。
+ * Rust reference: `Aura::recall_raw` used by
+ * `recall_structured_with_shadow` / `recall_structured_with_rerank_report` (`../src/aura.rs`).
+ */
 export function recallRawScored(
   dir: string,
   query: string,
@@ -107,13 +113,16 @@ export function recallRawScored(
   | FinalizeError,
   FileRead
 > {
-  // Run raw recall without bounded rerank/finalize services.
-  // 运行 raw recall，不装配 bounded rerank/finalize 服务。
-  // Rust reference: `Aura::recall_raw` used by
-  // `recall_structured_with_shadow` / `recall_structured_with_rerank_report` (aura.rs).
   return withTrustConfig(recallPipeline(query, options), trustConfig).pipe(Effect.provide(RecallViewLive(dir)))
 }
 
+/**
+ * Resolve recallPipeline record IDs to records from the same RecallView context.
+ * 在同一 Effect 上下文内读取 RecallViewTag，将 recallPipeline 的 recordId 映射为 view.records 的对象。
+ *
+ * FULL IMPLEMENTATION: 支持返回结构化 DTO（包含命中信号/解释）、并对齐 Rust recall 输出的字段与排序稳定性。
+ * Rust reference: `Aura::recall_structured` / `Aura::recall_core` (`../src/aura.rs`).
+ */
 export function recallRecords<TRecord = unknown>(
   dir: string,
   query: string,
@@ -133,9 +142,6 @@ export function recallRecords<TRecord = unknown>(
   | FinalizeError,
   FileRead | FileWrite
 > {
-  // 在同一 Effect 上下文内读取 RecallViewTag，将 recallPipeline 的 recordId 映射为 view.records 的对象。
-  // Rust reference: Aura::recall_structured / recall_core (aura.rs)
-  // FULL IMPLEMENTATION: 支持返回结构化 DTO（包含命中信号/解释）、并对齐 Rust recall 输出的字段与排序稳定性。
   const program = Effect.gen(function* () {
     const view = yield* Effect.service(RecallViewTag)
     const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
@@ -153,6 +159,18 @@ export function recallRecords<TRecord = unknown>(
   return program.pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
 }
 
+/**
+ * Temporal recall: recall only from records created at or before a given timestamp.
+ * 时间召回：仅从创建时间不晚于指定 timestamp 的记录中召回。
+ *
+ * Answers the question: "What did the agent know at time X?"
+ * 回答“agent 在 X 时刻知道什么？”。
+ *
+ * The pipeline is identical to `recall_structured`, but the record set is
+ * pre-filtered by `created_at <= timestamp` before scoring.
+ * 管线与 `recall_structured` 相同，但 scoring 前先用 `created_at <= timestamp` 过滤 record set。
+ * Rust reference: `Aura::recall_at` / `RecallService::recall_temporal` (`../src/aura.rs`).
+ */
 export function recallTemporalRecords<TRecord = unknown>(
   dir: string,
   query: string,
@@ -172,16 +190,6 @@ export function recallTemporalRecords<TRecord = unknown>(
   | FinalizeError,
   FileRead | FileWrite
 > {
-  // Temporal recall: recall only from records created at or before a given timestamp.
-  // 时间召回：仅从创建时间不晚于指定 timestamp 的记录中召回。
-  //
-  // Answers the question: "What did the agent know at time X?"
-  // 回答“agent 在 X 时刻知道什么？”。
-  //
-  // The pipeline is identical to `recall_structured`, but the record set is
-  // pre-filtered by `created_at <= timestamp` before scoring.
-  // 管线与 `recall_structured` 相同，但 scoring 前先用 `created_at <= timestamp` 过滤 record set。
-  // Rust reference: `Aura::recall_at` / `RecallService::recall_temporal` (`../src/aura.rs`).
   const program = Effect.gen(function* () {
     const view = yield* Effect.service(RecallViewTag)
     const temporalView = temporalRecallView(view, timestamp)
@@ -202,15 +210,17 @@ export function recallTemporalRecords<TRecord = unknown>(
   return program.pipe(Effect.provide(recallTemporalLayer(dir, sessionTracker)))
 }
 
+/**
+ * Apply file-backed recall finalization after report-specific raw/reranked recall.
+ * 在 report 专用 raw/reranked recall 后执行文件持久化 finalize。
+ * Rust reference: `Aura::recall_finalize` after shadow/rerank-report recall (`../src/aura.rs`).
+ */
 export function finalizeRecallScored(
   dir: string,
   scored: RecallScored,
   sessionId?: string,
   sessionTracker?: RecallSessionTracker
 ): Effect.Effect<void, FinalizeError, FileRead | FileWrite> {
-  // Apply file-backed recall finalization after report-specific raw/reranked recall.
-  // 在 report 专用 raw/reranked recall 后执行文件持久化 finalize。
-  // Rust reference: `Aura::recall_finalize` after shadow/rerank-report recall (aura.rs).
   return Effect.gen(function* () {
     const finalizer = yield* Effect.service(RecallFinalizer)
     yield* finalizer.finalize(scored, sessionId)

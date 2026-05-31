@@ -19,7 +19,7 @@
   - `bun run test packages/core/src/Aura.test.ts` 通过，31 tests。
   - `bun run typecheck` 通过。
   - `bun run test` 通过，54 files / 530 tests。
-  - PyO3 surface regex check：`rust_py_total 158`，`missing 70`；首批缺口为 `end_session`、`set_taxonomy`、`get_taxonomy`、`get_structural_relations`、`get_relations` 等。
+  - PyO3 surface regex check：`rust_py_total 158`，`missing 70`；首批缺口为 `add_research_finding`、`clear_embedding_fn`、`complete_research`、`diff`、`end_session` 等。
 
 ## 2026-06-01 - Aura end_session / SessionTracker 对齐
 
@@ -33,7 +33,7 @@
   - `bun run test packages/core/src/Recall.test.ts packages/recall/src/Pipeline.test.ts packages/core/src/DefaultLayer.test.ts` 通过，12 tests。
   - `bun run typecheck` 通过。
   - `bun run test` 通过，54 files / 535 tests。
-  - PyO3 surface regex check：`rust_py_total 158`，`missing 69`；首批缺口为 `set_taxonomy`、`get_taxonomy`、`get_structural_relations`、`get_relations`、`get_structural_relations_for_record` 等。
+  - PyO3 surface regex check：`rust_py_total 158`，`missing 69`；首批缺口为 `add_research_finding`、`clear_embedding_fn`、`complete_research`、`diff`、`export_context` 等。
 
 ## 2026-06-01 - Recall namespace filter Rust semantics
 

@@ -435,7 +435,7 @@ export function createAuraTools(runtime: AuraMcpRuntime) {
 
     consolidate: createTool({
       id: "consolidate",
-      description: "Merge similar memory records when the core layer supports a Rust-parity consolidation path. Currently returns the core typed unsupported error.",
+      description: "Merge similar memory records through the Rust-parity consolidation path.",
       inputSchema: emptySchema,
       execute: async () => runText(runtime, runtime.aura.consolidate()),
     }),

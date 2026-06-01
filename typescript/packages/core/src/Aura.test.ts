@@ -26,7 +26,6 @@ import {
   Clock,
   Level,
   RecordValidationError,
-  UnsupportedSurfaceError,
   defaultMaintenanceConfig,
 } from "@aura/contract"
 
@@ -983,12 +982,30 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(await Effect.runPromise(provideNode(aura.delete("missing-record"))), false)
   })
 
-  it("consolidate gap fails with a typed unsupported error", async () => {
-    const aura = await openWritableAura()
+  it("consolidate hard-merges same-namespace duplicate records", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-consolidate-"))
+    const aura = await openWritableAuraIn(brainPath)
 
-    const consolidate = await Effect.runPromise(Effect.flip(aura.consolidate()))
-    assert.instanceOf(consolidate, UnsupportedSurfaceError)
-    assert.strictEqual(consolidate.surface, "Aura.consolidate")
+    const low = await Effect.runPromise(provideNode(aura.store("duplicate consolidation memory", {
+      namespace: "default",
+      tags: ["low"],
+      level: Level.Working,
+    })))
+    const high = await Effect.runPromise(provideNode(aura.store("duplicate consolidation memory", {
+      namespace: "default",
+      tags: ["high"],
+      level: Level.Domain,
+    })))
+
+    const consolidate = await Effect.runPromise(provideNode(aura.consolidate()))
+
+    assert.deepStrictEqual(consolidate, { merged: 1, checked: 1 })
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.has(low.id), false)
+    assert.strictEqual(persisted.has(high.id), true)
+    assert.ok(persisted.get(high.id)?.tags.includes("low"))
+    assert.strictEqual(aura.get(low.id), null)
+    assert.strictEqual(aura.get(high.id)?.level, Level.Domain)
   })
 
   it("lifecycle facades flush close and expose encryption state", async () => {

@@ -36,7 +36,7 @@ export const TOOL_INVENTORY = [
   { name: "policy_lifecycle", status: "implemented", rustReference: "AuraMcpServer::policy_lifecycle (mcp.rs)", responseMedia: "text-json", coreSurface: "Aura.policy_lifecycle_report" },
   { name: "belief_instability", status: "implemented", rustReference: "AuraMcpServer::belief_instability (mcp.rs)", responseMedia: "text-json", coreSurface: "Aura.belief_instability_report" },
   { name: "memory_health", status: "implemented", rustReference: "AuraMcpServer::memory_health (mcp.rs)", responseMedia: "text-json", coreSurface: "Aura.memory_health" },
-  { name: "consolidate", status: "unsupported", rustReference: "AuraMcpServer::consolidate (mcp.rs)", responseMedia: "text-json", coreSurface: "Aura.consolidate" },
+  { name: "consolidate", status: "implemented", rustReference: "AuraMcpServer::consolidate (mcp.rs)", responseMedia: "text-json", coreSurface: "Aura.consolidate" },
 ] as const satisfies ReadonlyArray<ToolInventoryEntry>
 
 export const recallSchema = z.object({

@@ -1,4 +1,4 @@
-import type { Level } from "../levels/Level"
+import { Level } from "../levels/Level"
 import { RecordValidationError } from "../Errors"
 
 export type RecordId = string
@@ -21,7 +21,7 @@ export const MAX_TAGS = 50
 export type SourceType = typeof VALID_SOURCE_TYPES[number]
 export type SemanticType = typeof VALID_SEMANTIC_TYPES[number]
 
-export type Record = {
+export interface Record {
   id: RecordId
   content: string
   level: Level
@@ -86,6 +86,42 @@ export function defaultConfidenceForSource(sourceType: string): number {
       return 0.5
     default:
       return 0.5
+  }
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(1, Math.max(0, value))
+}
+
+function levelValue(level: Level): number {
+  switch (level) {
+    case Level.Working:
+      return 1
+    case Level.Decisions:
+      return 2
+    case Level.Domain:
+      return 3
+    case Level.Identity:
+      return 4
+  }
+}
+
+export namespace Record {
+  /**
+   * Composite importance score (0.0-1.0+).
+   *
+   * Formula: strength(40%) + level(25%) + connections(20%) + activations(15%) + bounded salience hint (10%).
+   * @zh 组合重要性分数；与 Rust `Record::importance` 公式对齐。
+   *
+   * Rust reference: `Record::importance` (`../src/record.rs`).
+   */
+  export function importance(record: Record): number {
+    const levelScore = levelValue(record.level) / 4
+    const connScore = Math.min(Object.keys(record.connections).length / 50, 1)
+    const actScore = Math.min(record.activation_count / 20, 1)
+    const salience = clamp01(record.salience ?? 0)
+    return 0.40 * record.strength + 0.25 * levelScore + 0.20 * connScore + 0.15 * actScore + 0.10 * salience
   }
 }
 

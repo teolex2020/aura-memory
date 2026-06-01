@@ -19,14 +19,13 @@
       "namespace_governance_status",
       "policy_lifecycle",
       "belief_instability",
-      "memory_health"
+      "memory_health",
+      "consolidate"
     ],
     "tsOnlyValidated": [
       "maintain"
     ],
-    "unsupportedValidated": [
-      "consolidate"
-    ]
+    "unsupportedValidated": []
   },
   "rustPayload": {
     "governance": {
@@ -391,6 +390,18 @@
         }
       },
       "endState": {
+        "consolidate": {
+          "content": [
+            {
+              "text": {
+                "checked": 0,
+                "merged": 0
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
         "insights": {
           "content": [
             {
@@ -460,28 +471,6 @@
   },
   "status": "passed_live_rust",
   "tsOnly": {
-    "consolidate": {
-      "content": [
-        {
-          "text": {
-            "error": {
-              "code": "unsupported_surface",
-              "message": "TS core has no Rust-parity consolidation merge/update path yet; dummy success counts are forbidden.",
-              "missing_prerequisites": [
-                "Rust-parity consolidation algorithm",
-                "coherent ngram/tag/aura index mutation during merges"
-              ],
-              "rust_reference": "Aura::consolidate (aura.rs)",
-              "surface": "Aura.consolidate",
-              "tag": "UnsupportedSurfaceError"
-            },
-            "ok": false
-          },
-          "type": "text"
-        }
-      ],
-      "isError": false
-    },
     "maintain": {
       "content": [
         {
@@ -1070,6 +1059,18 @@
         }
       },
       "endState": {
+        "consolidate": {
+          "content": [
+            {
+              "text": {
+                "checked": 0,
+                "merged": 0
+              },
+              "type": "text"
+            }
+          ],
+          "isError": false
+        },
         "insights": {
           "content": [
             {

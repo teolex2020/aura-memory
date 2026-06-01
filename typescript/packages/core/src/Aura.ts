@@ -13,7 +13,7 @@ import {
   RecordValidationError,
   RerankError,
   type RecallScored,
-  type Record as AuraRecord,
+  Record as AuraRecord,
   type SalienceSummary,
   type StoreOptions,
   type TrustConfig,
@@ -67,6 +67,7 @@ import {
 } from "./Recall";
 import * as Graph from "./Graph"
 import * as RecallFinalizer from "./RecallFinalizer"
+import * as Consolidation from "./Consolidation"
 import { id12, nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
@@ -1893,7 +1894,7 @@ export class Aura {
       if (query !== undefined && !record.content.toLowerCase().includes(query)) return false
       return true
     })
-    results.sort((a, b) => recordImportance(b) - recordImportance(a))
+    results.sort((a, b) => AuraRecord.importance(b) - AuraRecord.importance(a))
     return results.slice(0, max).map(cloneAuraRecord)
   }
 
@@ -2091,20 +2092,34 @@ export class Aura {
   }
 
   /**
-   * UNIMPLEMENTED: consolidation is recoverably unsupported until TS has a real merge algorithm.
-   * 未实现：TS 具备真实 merge 算法前，consolidate 以可恢复 typed error 暴露。
+   * Consolidate duplicates.
+   * 合并重复 records。
+   *
    * Rust reference: `Aura::consolidate` (`../src/aura.rs`).
    */
-  consolidate(): Effect.Effect<never, UnsupportedSurfaceError> {
-    return Effect.fail(new UnsupportedSurfaceError({
-      surface: "Aura.consolidate",
-      reason: "TS core has no Rust-parity consolidation merge/update path yet; dummy success counts are forbidden.",
-      rustReference: "Aura::consolidate (aura.rs)",
-      missingPrerequisites: [
-        "Rust-parity consolidation algorithm",
-        "coherent ngram/tag/aura index mutation during merges",
-      ],
-    }))
+  consolidate(): Effect.Effect<
+    Record<string, number>,
+    FileReadError | FileWriteError | FileFormatError,
+    FileRead | FileWrite
+  > {
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const records = yield* loadCognitiveRecords(dir)
+      const store = yield* CognitiveStoreFile.open(dir)
+      const result = yield* Consolidation.consolidate(
+        records,
+        createNGramIndex(records),
+        Graph.createTagIndex(records),
+        Consolidation.createAuraIndex(records),
+        store,
+      )
+      self.searchRecords = new Map(records)
+      return {
+        merged: result.merged,
+        checked: result.checked,
+      }
+    })
   }
 
   /**
@@ -3787,8 +3802,8 @@ export class Aura {
       const postDiscovery = yield* runPostDiscoveryPhases(
         records,
         createNGramIndex(records),
-        new Map(), // tagIndex
-        new Map(), // auraIndex
+        Graph.createTagIndex(records),
+        Consolidation.createAuraIndex(records),
         cognitiveStoreAdapter,
         DefaultBackgroundBrain,
         cfg,
@@ -4161,7 +4176,7 @@ function highSalienceRecords(
     .sort((a, b) => {
       const salienceDelta = b.salience - a.salience
       if (Number.isFinite(salienceDelta) && salienceDelta !== 0) return salienceDelta
-      return recordImportance(b) - recordImportance(a)
+      return AuraRecord.importance(b) - AuraRecord.importance(a)
     })
     .slice(0, Math.min(100, Math.max(0, limit)))
 }
@@ -4405,34 +4420,6 @@ function namespaceFromBeliefKey(key: string): string {
 }
 
 /**
- * Composite importance score (0.0-1.0+).
- *
- * Formula: strength(40%) + level(25%) + connections(20%) + activations(15%) + bounded salience hint (10%).
- * 组合重要性分数；与 Rust `Record::importance` 公式对齐。
- * Rust reference: `Record::importance` (`../src/record.rs`).
- */
-function recordImportance(record: AuraRecord): number {
-  const levelScore = levelValue(record.level) / 4
-  const connScore = Math.min(Object.keys(record.connections).length / 50, 1)
-  const actScore = Math.min(record.activation_count / 20, 1)
-  const salience = clamp01(record.salience ?? 0)
-  return 0.40 * record.strength + 0.25 * levelScore + 0.20 * connScore + 0.15 * actScore + 0.10 * salience
-}
-
-function levelValue(level: Level): number {
-  switch (level) {
-    case Level.Working:
-      return 1
-    case Level.Decisions:
-      return 2
-    case Level.Domain:
-      return 3
-    case Level.Identity:
-      return 4
-  }
-}
-
-/**
  * Display name for the level.
  * level 的展示名；与 Rust `Level::name` 保持一致。
  * Rust reference: `Level::name` (`../src/levels.rs`).
@@ -4480,7 +4467,7 @@ function tierRecords(
 ): ReadonlyArray<AuraRecord> {
   return records
     .filter((record) => isLevelInTier(record.level, tier) && namespaces.includes(record.namespace))
-    .sort((a, b) => recordImportance(b) - recordImportance(a))
+    .sort((a, b) => AuraRecord.importance(b) - AuraRecord.importance(a))
     .slice(0, limit)
     .map(cloneAuraRecord)
 }

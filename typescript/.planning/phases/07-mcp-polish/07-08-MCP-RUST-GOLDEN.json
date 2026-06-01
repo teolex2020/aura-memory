@@ -361,6 +361,18 @@
       }
     },
     "endState": {
+      "consolidate": {
+        "content": [
+          {
+            "text": {
+              "checked": 0,
+              "merged": 0
+            },
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
       "insights": {
         "content": [
           {

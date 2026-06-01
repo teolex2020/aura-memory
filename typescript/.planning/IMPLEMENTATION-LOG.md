@@ -273,3 +273,18 @@
 - 验证：
   - `bun run test packages/indexing/src/NGramIndex.test.ts` 通过，1 file / 6 tests。
   - `git diff --check` 通过。
+
+## 2026-06-01 - Record.importance 命名空间与 Core Consolidation 对齐
+
+- 范围：`packages/contract/src/record/Record.ts`、`packages/contract/src/Record.test.ts`、`packages/core/src/Consolidation.ts`、`packages/core/src/Consolidation.test.ts`、`packages/core/src/Aura.ts`、`packages/core/src/Aura.test.ts`、`packages/core/src/MaintenanceService.ts`、MCP inventory/parity 测试与 07-08 parity artifacts。
+- 实现：将 Rust `Record::importance` 公式归位到 contract `Record` namespace，调用方通过合并导入 `Record as AuraRecord` 同时使用类型与 `AuraRecord.importance(...)`，不再拆分 `Record as RecordFns` 这类函数别名。
+- 实现：新增 core `Consolidation.ts`，投影 Rust `CONSOLIDATION_THRESHOLD` / `CONSOLIDATION_SOFT_THRESHOLD` / `ConsolidationResult` / `consolidation::consolidate`；硬合并复用 `Graph.mergeRecords`，并在 facade 层同步 ngram/tag/aura index 与 `CognitiveStore.appendDelete` / `appendUpdate` / `flush`。
+- 实现：`Aura.consolidate` 从 typed unsupported 改为真实 Effect facade；`MaintenanceService.runPostDiscoveryPhases` 复用同一 consolidation 模块，并由 `Aura.runMaintenance` 传入真实 `tag_index` / `aura_index`。
+- 实现：MCP `consolidate` inventory 状态改为 implemented，Parity harness 将 `consolidate` 纳入 Rust-comparable family，并刷新 07-08 parity JSON/golden/verification artifacts。
+- 后续规则：同类 Rust 类型方法优先挂到对应 contract namespace，后续 `Record` impl 其它方法按 `AuraRecord.method` 模式补齐；`levelDisplayName` 这类 helper 后续可迁移为 `Level.displayName`。
+- 验证：
+  - `bun run typecheck` 未通过：当前被既有 noUnused 报错阻塞（belief/causal/code-extraction/concept/core MaintenanceService.test/epistemic-runtime/indexing/policy/recall/storage 等文件），本次改动引入的 MCP status 比较与 `MaintenanceService` 残留导入已修复。
+  - `bun run test packages/contract/src/Record.test.ts packages/core/src/Consolidation.test.ts packages/core/src/Aura.test.ts packages/mcp/src/Inventory.test.ts packages/mcp/src/Invocation.test.ts` 通过，5 files / 41 tests。
+  - `bun run test packages/core/src/MaintenanceService.test.ts` 通过，1 file / 27 tests。
+  - `bun run test packages/mcp/src/Parity.test.ts` 通过，1 file / 2 tests（live Rust MCP parity passed）。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 553 tests。

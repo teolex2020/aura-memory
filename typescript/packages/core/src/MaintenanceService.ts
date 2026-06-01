@@ -27,18 +27,18 @@ import type {
   FeedbackAuditReport, ConsolidationReport,
   MaintenanceTrendSnapshot, MaintenanceTrendSummary,
   ConceptSurfaceTelemetry,
-  ReflectionSummary, ReflectionFinding, ReflectionJobReport, ReflectionDigest, ReflectionKindSummary,
-  MaintenanceReport
+  ReflectionSummary, ReflectionFinding, ReflectionJobReport, ReflectionDigest, ReflectionKindSummary
 } from "@aura/contract"
 import type { ContradictionCluster } from "@aura/contract"
 import type { SdrLookup } from "@aura/contract"
 import type { Record as AuraRecord } from "@aura/contract"
-import type { BeliefEngineState, ConceptEngineState, CausalEngineState, PolicyEngineState } from "@aura/contract"
+import type { BeliefEngineState } from "@aura/contract"
 import type { FileWrite } from "@aura/contract"
 import type { FileWriteError } from "@aura/contract"
 import { SDRInterpreter } from "@aura/recall"
 import { CognitiveStoreFile } from "@aura/storage"
 import { NGramIndex as MinHashNGramIndex } from "@aura/indexing"
+import * as Consolidation from "./Consolidation"
 
 // ═══════════════════════════════════════════════════════════════════════
 // Typed maintenance dependency adapters
@@ -63,13 +63,10 @@ export type TagTaxonomy = {
   classify: (record: AuraRecord) => TaxonomyClassification
 }
 
-export type NGramIndex = {
-  query: (text: string, topK: number) => ReadonlyArray<readonly [number, string]>
-}
+export type NGramIndex = MinHashNGramIndex
 
-export type CognitiveStore = {
+export type CognitiveStore = Consolidation.ConsolidationStore & {
   delete: (id: string) => Effect.Effect<void, FileWriteError, FileWrite>
-  flush: () => Effect.Effect<void, FileWriteError, FileWrite>
 }
 
 export type BackgroundBrain = {
@@ -106,14 +103,6 @@ const DEFAULT_TASK_TAGS = new Set(["scheduled-task", "todo-item", "task", "actio
 const DEFAULT_CONTRADICTION_TAGS = new Set(["contradiction", "conflict", "rejected", "correction"])
 const UTF8_ENCODER = new TextEncoder()
 
-// ═══════════════════════════════════════════════════════════════════════
-// Internal mutable type aliases
-// Contract types use readonly fields.  During a maintenance cycle the Rust
-// originals accept `&mut` — we mirror that with writable aliases.
-// ═══════════════════════════════════════════════════════════════════════
-
-type _PhaseTimings = { -readonly [K in keyof PhaseTimings]: PhaseTimings[K] }
-type _MaintenanceHotspots = { -readonly [K in keyof MaintenanceHotspots]: MaintenanceHotspots[K] }
 type MutableRecord = AuraRecord & {
   support_mass?: number
   conflict_mass?: number
@@ -204,6 +193,8 @@ export function createNGramIndex(records: ReadonlyMap<string, AuraRecord>): NGra
 
 export function createCognitiveStoreAdapter(store: CognitiveStoreFile): CognitiveStore {
   return {
+    appendUpdate: (record) => store.appendUpdate(record),
+    appendDelete: (id) => store.appendDelete(id),
     delete: (id) => store.appendDelete(id),
     flush: () => store.flush(),
   }
@@ -977,12 +968,11 @@ export function runInitialPhases(
   cognitiveStore: CognitiveStore,
   cycle: number,
   timings: PhaseTimings,
-  hotspots: MaintenanceHotspots
+  _hotspots: MaintenanceHotspots
 ): Effect.Effect<InitialMaintenancePhaseResult, FileWriteError, EpistemicTrace | FileWrite> {
   return Effect.gen(function* () {
     const trace = yield* Effect.service(EpistemicTrace)
     const mt = toMutable(timings)
-    const mh = toMutable(hotspots)
 
     yield* trace.event("maintenance.initial.start", { records: records.size, cycle })
 
@@ -1295,21 +1285,21 @@ export function runDiscoveryPhases(
  * Run the post-discovery phases:
  *   consolidation → cross_connections → task_reminders → archival
  *
- * Consolidation remains approximate; cross-connections and task reminders
- * are direct TS projections of `background_brain.rs`.
+ * Consolidation delegates to the Rust-shaped hard-merge module; cross-connections
+ * and task reminders are direct TS projections of `background_brain.rs`.
  */
 export function runPostDiscoveryPhases(
   records: Map<string, AuraRecord>,
   ngramIndex: NGramIndex,
-  _tagIndex: Map<string, Set<string>>,
-  _auraIndex: Map<string, string>,
-  _cognitiveStore: CognitiveStore,
+  tagIndex: Map<string, Set<string>>,
+  auraIndex: Map<string, string>,
+  cognitiveStore: CognitiveStore,
   background: BackgroundBrain | undefined,
   config: MaintenanceConfig,
   _taxonomy: TagTaxonomy,
   timings: PhaseTimings,
   hotspots: MaintenanceHotspots
-): Effect.Effect<PostDiscoveryPhaseResult> {
+): Effect.Effect<PostDiscoveryPhaseResult, FileWriteError, FileWrite> {
   return Effect.gen(function* () {
     const mt = toMutable(timings)
     const mh = toMutable(hotspots)
@@ -1317,25 +1307,14 @@ export function runPostDiscoveryPhases(
     let t = Date.now()
 
     // Consolidation
-    let clustersFound = 0
-    if (config.consolidationEnabled) {
-      const seen = new Set<string>()
-      for (const [id, record] of records) {
-        if (seen.has(id) || !isAlive(record)) continue
-        const hits = ngramIndex.query(record.content, Math.max(2, config.maxClustersPerRun + 1))
-          .filter(([, hitId]) => hitId !== id)
-        const hasSimilarPeer = hits.some(([score, hitId]) => {
-          const peer = records.get(hitId)
-          return peer !== undefined && peer.namespace === record.namespace && score >= 0.25
-        })
-        if (hasSimilarPeer) {
-          clustersFound += 1
-          seen.add(id)
-        }
-        if (clustersFound >= config.maxClustersPerRun) break
-      }
+    const consolidationResult = config.consolidationEnabled
+      ? yield* Consolidation.consolidate(records, ngramIndex, tagIndex, auraIndex, cognitiveStore)
+      : { merged: 0, checked: 0 }
+    const consolidation: ConsolidationReport = {
+      nativeMerged: consolidationResult.merged,
+      clustersFound: 0,
+      metaCreated: 0,
     }
-    const consolidation: ConsolidationReport = { nativeMerged: 0, clustersFound, metaCreated: 0 }
     mt.consolidationMs = Date.now() - t
 
     // Cross connections

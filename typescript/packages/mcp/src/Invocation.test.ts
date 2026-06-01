@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { Aura } from "@aura/core"
-import { Level, UnsupportedSurfaceError } from "@aura/contract"
+import { Level } from "@aura/contract"
 import { createAuraTools } from "./tools"
 import { TOOL_NAMES, type ToolName } from "./inventory"
 import type { AuraMcpRuntime } from "./runtime"
@@ -72,12 +72,7 @@ const aura = Object.assign(Object.create(Aura.prototype), {
     recently_corrected: [],
   }),
   memory_health: () => Effect.succeed({ total_records: 1, top_issues: [] }),
-  consolidate: () => Effect.fail(new UnsupportedSurfaceError({
-    surface: "Aura.consolidate",
-    reason: "TS core has no Rust-parity consolidation merge/update path yet; dummy success counts are forbidden.",
-    rustReference: "Aura::consolidate (aura.rs)",
-    missingPrerequisites: ["Rust-parity consolidation algorithm"],
-  })),
+  consolidate: () => Effect.succeed({ merged: 1, checked: 2 }),
 }) as Aura
 
 const runtime: AuraMcpRuntime = {
@@ -101,21 +96,6 @@ describe("Aura MCP invocation coverage", () => {
     }
   })
 
-  it("maps unsupported core surfaces to the standardized MCP text error payload", async () => {
-    const tools = createAuraTools(runtime)
-    const output = await executable(tools.consolidate).execute({ context: {} })
-    const parsed = JSON.parse(String(output))
-
-    expect(parsed).toMatchObject({
-      ok: false,
-      error: {
-        code: "unsupported_surface",
-        surface: "Aura.consolidate",
-        rust_reference: "Aura::consolidate (aura.rs)",
-      },
-    })
-  })
-
   it("keeps Rust-shaped JSON text payloads for representative tools", async () => {
     const tools = createAuraTools(runtime)
 
@@ -135,6 +115,10 @@ describe("Aura MCP invocation coverage", () => {
         semantic_type: "fact",
       },
     ])
+    expect(JSON.parse(String(await executable(tools.consolidate).execute({ context: contexts.consolidate })))).toEqual({
+      merged: 1,
+      checked: 2,
+    })
   })
 
   it("formats recall through the Rust-shaped token-budgeted text path", async () => {

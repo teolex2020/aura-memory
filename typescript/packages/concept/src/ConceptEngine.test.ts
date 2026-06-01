@@ -15,7 +15,7 @@ import {
   type Record as AuraRecord,
   type SdrLookup
 } from "@aura/contract"
-import { nowSecs } from "@aura/utils"
+import { nowSecs, xxh3_64 } from "@aura/utils"
 import {
   ConceptEngineImpl,
   stemWord,
@@ -220,6 +220,8 @@ it("ConceptEngine: candidates form from resolved/singleton beliefs and provenanc
 
   const stats = await Effect.runPromise(concept.stats())
   for (const c of Object.values(stats.concepts)) {
+    assert.strictEqual(c.id, `c-${xxh3_64(c.key).toString(16).padStart(12, "0")}`)
+    assert.strictEqual(stats.key_index[c.key], c.id)
     assert.ok(c.belief_ids.length > 0)
     assert.ok(c.record_ids.length > 0)
     for (const bid of c.belief_ids) assert.ok(state.beliefs[bid] !== undefined)

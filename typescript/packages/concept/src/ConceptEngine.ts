@@ -1,5 +1,5 @@
-import xxhash from "xxhash-wasm"
 import { Effect, Layer, Option } from "effect"
+import { xxh3_64 } from "@aura/utils"
 import {
   BeliefState,
   type BeliefEngine,
@@ -91,18 +91,6 @@ const CANONICAL_SIMILARITY_THRESHOLD = 0.12
  * 每个分区最大 seed 数，避免 O(n²) 比较过大。
  */
 const MAX_PARTITION_SIZE = 80
-
-type Hasher = Readonly<{
-  h64: (input: string) => bigint
-  h64Raw: (input: Uint8Array) => bigint
-}>
-
-let hasherPromise: Promise<Hasher> | undefined
-
-function getHasher(): Promise<Hasher> {
-  hasherPromise ??= xxhash().then((h) => ({ h64: h.h64, h64Raw: h.h64Raw }))
-  return hasherPromise
-}
 
 function tanimotoSorted(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
   if (a.length === 0 || b.length === 0) return 0
@@ -963,15 +951,19 @@ function conceptKey(
   return `${namespace}:${tags.join(",")}:${semanticType}:${keyTerms.join(",")}:${centroidSigU32Hex}`
 }
 
-async function deterministicId(hasher: Hasher, key: string): Promise<string> {
-  // NON-PARITY IMPLEMENTATION: Rust uses xxh3_64; TS uses xxh64 for determinism until xxh3 is available.
-  // 差异说明：Rust 使用 xxh3_64；TS 先用 xxh64 保证可复现，后续补齐 xxh3 后可进一步对齐。
-  const h = hasher.h64(key) & ((1n << 64n) - 1n)
-  const hex = h.toString(16).padStart(16, "0")
-  return `c-${hex.slice(-12)}`
+/**
+ * Generate a deterministic concept ID from key using xxh3.
+ * Rust reference: `deterministic_id` (`../src/concept.rs`).
+ */
+function deterministicId(key: string): string {
+  return `c-${xxh3_64(key).toString(16).padStart(12, "0")}`
 }
 
-async function centroidSignatureU32Hex(hasher: Hasher, centroids: ReadonlyArray<ReadonlyArray<number>>): Promise<string> {
+/**
+ * Build the low-32-bit centroid signature used in Rust concept keys.
+ * Rust reference: `concept_key` (`../src/concept.rs`).
+ */
+function centroidSignatureU32Hex(centroids: ReadonlyArray<ReadonlyArray<number>>): string {
   const all: number[] = []
   for (const c of centroids) all.push(...c)
   dedupSorted(all)
@@ -981,7 +973,7 @@ async function centroidSignatureU32Hex(hasher: Hasher, centroids: ReadonlyArray<
     bytes[i * 2] = v & 0xff
     bytes[i * 2 + 1] = (v >>> 8) & 0xff
   }
-  const h = hasher.h64Raw(bytes) & ((1n << 64n) - 1n)
+  const h = xxh3_64(bytes)
   const u32 = Number(h & 0xffffffffn) >>> 0
   return u32.toString(16).padStart(8, "0")
 }
@@ -1469,8 +1461,6 @@ export class ConceptEngineImpl implements ConceptEngine.Interface {
       const newConcepts: Record<string, ConceptCandidate> = {}
       const newKeyIndex: Record<string, string> = {}
 
-      const hasher = yield* Effect.tryPromise(() => getHasher()).pipe(Effect.orDie)
-
       const clusterSizes: number[] = []
       let clustersWithMultipleBeliefs = 0
       let largestClusterSize = 0
@@ -1535,10 +1525,10 @@ export class ConceptEngineImpl implements ConceptEngine.Interface {
               : ConceptState.Rejected
 
         const clusterCentroids = clusterBeliefIds.map((bid) => centroids.get(bid) ?? [])
-        const centroidSig = yield* Effect.tryPromise(() => centroidSignatureU32Hex(hasher, clusterCentroids)).pipe(Effect.orDie)
+        const centroidSig = centroidSignatureU32Hex(clusterCentroids)
 
         const key = conceptKey(namespace, semanticType, tags, coreTerms, centroidSig)
-        const id = yield* Effect.tryPromise(() => deterministicId(hasher, key)).pipe(Effect.orDie)
+        const id = deterministicId(key)
 
         const candidate: ConceptCandidate = {
           id,

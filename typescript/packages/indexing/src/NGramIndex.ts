@@ -1,15 +1,9 @@
 import { SynonymRing } from "./SynonymRing"
+import { xxh3_64 } from "@aura/utils"
 
 const PRIME = 2_147_483_647
 const PRIME_BIGINT = 2_147_483_647n
 const DEFAULT_NUM_HASHES = 128
-const U64_MASK = (1n << 64n) - 1n
-const XXH64_PRIME_2 = 0xC2B2AE3D27D4EB4Fn
-const XXH64_PRIME_3 = 0x165667B19E3779F9n
-const SECRET_U32_0 = 0x396cfeb8
-const SECRET_U32_4 = 0xbe4ba423
-const SECRET_U64_56 = 0x4c263a81e69035e0n
-const SECRET_U64_64 = 0xcb00c391bb52283cn
 const U31_SPACE = 0x80000000
 
 const te = new TextEncoder()
@@ -60,44 +54,28 @@ const RUST_SEED_0_B = [
   1416719692, 2066451675, 805116310, 331581256, 718688739, 386807013, 1006643801, 1190611323
 ] as const
 
-function xxh64Avalanche(input: bigint): bigint {
-  let value = input & U64_MASK
-  value ^= value >> 33n
-  value = (value * XXH64_PRIME_2) & U64_MASK
-  value ^= value >> 29n
-  value = (value * XXH64_PRIME_3) & U64_MASK
-  value ^= value >> 32n
-  return value & U64_MASK
-}
-
 /**
  * Rust `xxh3_64` projection for the only byte lengths used by NGram tokenization.
  *
  * Rust reference: `xxhash_rust::xxh3::xxh3_64` through `NGramIndex::hash_str`.
- * NGram hashes either 1-2 byte short strings or 3-byte shingles.
+ * 中文说明：NGram 只投影 1-2 byte 短字符串或 3-byte shingle，并保留 Rust 的 31-bit mask。
  */
 export function xxh3NGramHash(bytes: Uint8Array): number {
   if (bytes.byteLength > 3) {
     throw new RangeError("xxh3NGramHash only supports NGram short inputs up to 3 bytes")
   }
-  if (bytes.byteLength === 0) {
-    return Number(xxh64Avalanche(SECRET_U64_56 ^ SECRET_U64_64) & 0x7fffffffn)
-  }
-
-  const len = bytes.byteLength
-  const c1 = bytes[0]!
-  const c2 = bytes[len >> 1]!
-  const c3 = bytes[len - 1]!
-  const combo = (((c1 << 16) >>> 0) | ((c2 << 24) >>> 0) | c3 | (len << 8)) >>> 0
-  const flip = BigInt((SECRET_U32_0 ^ SECRET_U32_4) >>> 0)
-  return Number(xxh64Avalanche(BigInt(combo) ^ flip) & 0x7fffffffn)
+  return Number(xxh3_64(bytes) & 0x7fffffffn)
 }
 
 function isRustAlphanumeric(char: string): boolean {
   return /^[\p{Alphabetic}\p{Number}]$/u.test(char)
 }
 
-/** Tokenize text into character trigram hashes. */
+/**
+ * Tokenize text into character trigram hashes.
+ * Rust reference: `NGramIndex::tokenize` (`../src/ngram.rs`).
+ * 中文说明：规范化文本后按 UTF-8 byte trigram 取 `xxh3_64 & 0x7fffffff`。
+ */
 export function tokenizeNGram(text: string): ReadonlyArray<number> {
   const normalized = Array.from(text.toLowerCase(), (char) =>
     isRustAlphanumeric(char) ? char : " "
@@ -303,7 +281,10 @@ export class NGramIndex {
     return results
   }
 
-  /** Compute exact Jaccard similarity between two record signatures. 计算两个记录签名之间的 Jaccard 估计值。 */
+  /**
+   * Compute exact Jaccard similarity between two record signatures.
+   * 中文说明：计算两个记录签名之间的 Jaccard 估计值。
+   */
   jaccard(idA: string, idB: string): number {
     const sigA = this.signatures.get(idA)
     const sigB = this.signatures.get(idB)
@@ -316,7 +297,10 @@ export class NGramIndex {
     return matching / this.a.length
   }
 
-  /** Find all pairs with Jaccard similarity >= threshold. 查找相似度不低于阈值的记录对。 */
+  /**
+   * Find all pairs with Jaccard similarity >= threshold.
+   * 中文说明：查找相似度不低于阈值的记录对。
+   */
   findSimilarPairs(threshold: number): Array<[string, string, number]> {
     const ids = Array.from(this.signatures.keys())
     const pairs: Array<[string, string, number]> = []
@@ -329,7 +313,10 @@ export class NGramIndex {
     return pairs
   }
 
-  /** Number of indexed records. 已索引记录数量。 */
+  /**
+   * Number of indexed records.
+   * 中文说明：返回已索引记录数量。
+   */
   len(): number {
     return this.signatures.size
   }
@@ -338,7 +325,10 @@ export class NGramIndex {
     return this.signatures.size === 0
   }
 
-  /** Check if a record is indexed. 检查记录是否已索引。 */
+  /**
+   * Check if a record is indexed.
+   * 中文说明：检查记录是否已索引。
+   */
   contains(recordId: string): boolean {
     return this.signatures.has(recordId)
   }

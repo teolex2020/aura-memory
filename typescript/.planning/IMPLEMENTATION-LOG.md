@@ -160,3 +160,16 @@
   - `bun run test packages/mcp/src/Inventory.test.ts packages/mcp/src/MastraCompat.test.ts packages/mcp/src/Parity.test.ts packages/mcp/src/StdioSmoke.test.ts` 通过，4 files / 6 tests。
   - `git diff --check` 通过。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 540 tests。
+
+## 2026-06-01 - ConceptEngine / NGramIndex 共享 xxh3_64 对齐
+
+- 范围：`packages/utils/src/Xxh3.ts`、`packages/utils/src/Xxh3.test.ts`、`packages/indexing/src/NGramIndex.ts`、`packages/concept/src/ConceptEngine.ts`、对应 package metadata 与 `bun.lock`。
+- 实现：新增 `@aura/utils` 的默认 seed/default secret `xxh3_64` 纯 TS 投影，覆盖 Rust `xxhash_rust::xxh3::xxh3_64` 的 0..16、17..128、129..240、241+ byte 路径，并提供 `xxh3_64Hex`。
+- 实现：`NGramIndex` 移除局部 0..3 byte xxh3 片段，改为复用共享 `xxh3_64(bytes) & 0x7fffffff`，保留 Rust `NGramIndex::hash_str` 的短输入/31-bit mask 语义。
+- 实现：`ConceptEngine` 移除 `xxhash-wasm` / `xxh64` workaround，`deterministicId` 改为 Rust `format!("c-{:012x}", xxh3_64(key.as_bytes()))` 语义，centroid signature 改为 `xxh3_64(bytes) as u32`。
+- Rust reference：`xxhash-rust/src/xxh3.rs`、`xxh3_common.rs`，`NGramIndex::hash_str`（`../src/ngram.rs`），`deterministic_id` / `concept_key`（`../src/concept.rs`）。
+- 验证：
+  - `bun install --lockfile-only` 仅更新 `@aura/concept` 与 `@aura/indexing` 的 `@aura/utils` workspace 依赖。
+  - `bun run typecheck` 通过。
+  - `bun run test packages/utils/src/Xxh3.test.ts packages/indexing/src/NGramIndex.test.ts packages/concept/src/ConceptEngine.test.ts` 通过，3 files / 89 tests。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，55 files / 541 tests。

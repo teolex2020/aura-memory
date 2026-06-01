@@ -25,6 +25,7 @@ Last updated: 2026-06-01
 - [x] Legacy `packages/recall` RecallFinalizer implementation and tests removed after migration to `@aura/core` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Maintenance BackgroundBrain cross-connection and scheduled task semantics aligned — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] NGramIndex random coefficient distribution aligned to Rust `gen_range` semantics — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] ConceptEngine and NGramIndex now share Rust-compatible `xxh3_64` from `@aura/utils` — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
@@ -35,7 +36,6 @@ Last updated: 2026-06-01
 - [ ] Consolidation: replace typed unsupported `consolidate` surface with a real Rust-parity merge algorithm and coherent index mutation path.
 - [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces.
 - [ ] Maintenance history/reflection persistence decision: either match Rust in-memory behavior exactly or keep documented TS persistence as explicit parity exception.
-- [ ] ConceptEngine hash parity: replace deterministic `xxh64` workaround with Rust `xxh3_64` where required.
 - [ ] SDRInterpreter optimization gap: decide whether ASCII + UTF-8 fallback is sufficient parity or implement Rust SIMD/threading equivalent.
 - [ ] RecallView startup/load gap: audit `SIMPLE IMPLEMENTATION:` in `packages/storage/src/RecallView.ts` against Rust read model construction.
 - [ ] MCP parity exact scores: close the remaining test-level NON-PARITY note in `packages/mcp/src/Parity.test.ts`.
@@ -43,5 +43,5 @@ Last updated: 2026-06-01
 
 ## Current Marker Snapshot
 
-- `rg "NON-PARITY IMPLEMENTATION|SIMPLE IMPLEMENTATION|UNIMPLEMENTED|TODO:" packages -n` still reports open markers in `packages/core`, `packages/concept`, `packages/recall`, `packages/storage`, and MCP parity tests.
+- `rg "NON-PARITY IMPLEMENTATION|SIMPLE IMPLEMENTATION|UNIMPLEMENTED|TODO:" packages -n` still reports open markers in `packages/core`, `packages/recall`, `packages/storage`, and MCP parity tests.
 - `packages/code-extraction` TODO markers are currently out of the Aura Rust-core parity path unless later brought into scope.

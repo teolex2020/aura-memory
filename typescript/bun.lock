@@ -38,6 +38,9 @@
     },
     "packages/concept": {
       "name": "@aura/concept",
+      "dependencies": {
+        "@aura/utils": "workspace:*",
+      },
     },
     "packages/contract": {
       "name": "@aura/contract",
@@ -54,6 +57,9 @@
     },
     "packages/indexing": {
       "name": "@aura/indexing",
+      "dependencies": {
+        "@aura/utils": "workspace:*",
+      },
     },
     "packages/mcp": {
       "name": "@aura/mcp",

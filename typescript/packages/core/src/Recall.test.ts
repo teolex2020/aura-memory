@@ -4,10 +4,44 @@ import * as path from "node:path"
 import { it } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
-import { Clock } from "@aura/contract"
+import { Clock, Level, Record as AuraRecord } from "@aura/contract"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import { BrainAuraFile, CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
 import { Aura, recallRecords, recallScored } from "./index"
+import * as RecallService from "./RecallService"
+
+function recallTestRecord(
+  id: string,
+  content: string,
+  level: Level,
+  overrides: Partial<AuraRecord> = {},
+): AuraRecord {
+  return {
+    id,
+    content,
+    level,
+    strength: 1,
+    activation_count: 0,
+    created_at: 1_700_000_000,
+    last_activated: 1_700_000_000,
+    tags: [],
+    connections: {},
+    connection_types: {},
+    content_type: "text",
+    source_type: "recorded",
+    namespace: "default",
+    semantic_type: "fact",
+    activation_velocity: 0,
+    salience: 0,
+    metadata: {},
+    caused_by_id: null,
+    confidence: 0.9,
+    support_mass: 0,
+    conflict_mass: 0,
+    volatility: 0,
+    ...overrides,
+  }
+}
 
 it("core recallScored + recallRecords work via RecallViewLive + recallPipeline", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-core-recall-"))
@@ -79,6 +113,72 @@ it("core recallScored + recallRecords work via RecallViewLive + recallPipeline",
     )
   )
   assert.isTrue(hits.some(([, rec]) => rec.id === "cog_1"))
+})
+
+it("RecallService formats preambles with Rust level order and labels", () => {
+  const parent = recallTestRecord("parent", "Root causal note that should be previewed", Level.Working)
+  const identity = recallTestRecord("identity", "I prefer Rust-shaped modules", Level.Identity, {
+    tags: ["profile"],
+  })
+  const decision = recallTestRecord("decision", "Use RecallService for formatted recall", Level.Decisions, {
+    tags: ["recall"],
+    source_type: "generated",
+    semantic_type: "decision",
+    caused_by_id: "parent",
+  })
+  const records = new Map([
+    [parent.id, parent],
+    [identity.id, identity],
+    [decision.id, decision],
+  ])
+
+  const output = RecallService.formatPreamble(
+    [[0.8, decision], [0.9, identity]],
+    2048,
+    records,
+  )
+
+  assert.include(output, "=== COGNITIVE CONTEXT ===")
+  assert.isTrue(output.indexOf("[IDENTITY]") < output.indexOf("[DECISIONS]"))
+  assert.include(output, "I prefer Rust-shaped modules [profile]")
+  assert.include(output, "Use RecallService for formatted recall [generated] {decision} [recall]")
+  assert.include(output, "^ because: Root causal note")
+  assert.include(output, "=== END CONTEXT ===")
+})
+
+it("RecallService cache keys and structured cache follow Rust cache semantics", async () => {
+  assert.strictEqual(RecallService.textCacheKey("Query", ["beta", "alpha"]), 'Query|ns=["alpha", "beta"]')
+
+  const hit = recallTestRecord("recall-cache", "cacheable structured result", Level.Working)
+  const cache = RecallService.createStructuredRecallCache<AuraRecord>()
+  let runs = 0
+  const runCore = () => Effect.sync(() => {
+    runs += 1
+    return [[1, hit]] as ReadonlyArray<readonly [number, AuraRecord]>
+  })
+
+  const first = await Effect.runPromise(RecallService.recallStructuredCached(
+    cache,
+    "  Cache Query  ",
+    5,
+    0.123,
+    ["default"],
+    runCore,
+  ))
+  const second = await Effect.runPromise(RecallService.recallStructuredCached(
+    cache,
+    "cache query",
+    5,
+    0.12,
+    ["default"],
+    runCore,
+  ))
+
+  assert.strictEqual(runs, 1)
+  assert.deepStrictEqual(second, first)
+  RecallService.clearStructuredRecallCache(cache)
+  await Effect.runPromise(RecallService.recallStructuredCached(cache, "cache query", 5, 0.12, ["default"], runCore))
+  assert.strictEqual(runs, 2)
 })
 
 it("Aura.recall* facade delegates to core Recall.ts", async () => {

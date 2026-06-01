@@ -47,6 +47,7 @@ const contexts: Record<ToolName, ToolContext> = {
 }
 
 const aura = Object.assign(Object.create(Aura.prototype), {
+  recall: () => Effect.succeed("=== COGNITIVE CONTEXT ===\n[WORKING]\n  - stored memory\n\n=== END CONTEXT ==="),
   recall_structured: () => Effect.succeed([[0.9, record]] as const),
   store: () => Effect.succeed(record),
   store_code: () => Effect.succeed({ ...record, level: Level.Domain }),
@@ -121,19 +122,12 @@ describe("Aura MCP invocation coverage", () => {
     })
   })
 
-  it("formats recall through the Rust-shaped token-budgeted text path", async () => {
+  it("delegates recall through the Rust-shaped token-budgeted text path", async () => {
     const seenOptions: Array<Readonly<Record<string, unknown>>> = []
     const localAura = Object.assign(Object.create(Aura.prototype), aura, {
-      recall_structured: (_query: string, options: Readonly<Record<string, unknown>>) => {
+      recall: (_query: string, options: Readonly<Record<string, unknown>>) => {
         seenOptions.push(options)
-        return Effect.succeed([
-          [0.9, {
-            ...record,
-            id: "rec-long",
-            content: "one two three four five six seven eight nine ten eleven twelve thirteen",
-            level: Level.Working,
-          }],
-        ] as const)
+        return Effect.succeed("=== COGNITIVE CONTEXT ===\n[WORKING]\n\n=== END CONTEXT ===")
       },
     }) as Aura
     const tools = createAuraTools({ ...runtime, aura: localAura })
@@ -143,13 +137,12 @@ describe("Aura MCP invocation coverage", () => {
     }))
 
     expect(seenOptions[0]).toMatchObject({
-      topK: 20,
+      tokenBudget: 5,
       minStrength: 0.1,
       expandConnections: true,
     })
     expect(output).toContain("=== COGNITIVE CONTEXT ===")
     expect(output).toContain("[WORKING]")
-    expect(output).not.toContain("one two three")
     expect(output).toContain("=== END CONTEXT ===")
   })
 })

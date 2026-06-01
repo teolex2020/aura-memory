@@ -1,5 +1,20 @@
 # Implementation Log
 
+## 2026-06-01 - Core RecallService / recall cache 对齐
+
+- 范围：`packages/core/src/RecallService.ts`、`packages/core/src/Recall.ts`、`packages/core/src/Aura.ts`、`packages/core/src/Recall.test.ts`、`packages/core/src/Aura.test.ts`、`packages/core/src/index.ts`、`packages/mcp/src/tools.ts`、`packages/mcp/src/Invocation.test.ts`、`.planning/BACKLOG.md`。
+- 实现：新增 core `RecallService.ts`，承载 Rust `recall_service.rs` / `cache.rs` 对应的 text cache key、formatted recall cache、structured recall cache、raw/raw_with_trace wrapper、shadow/rerank report wrapper 与 `format_preamble`/record formatting 逻辑。
+- 实现：`Aura.recall` 从 TS-only scored IDs 改为 Rust `Aura::recall` 语义的 formatted LLM context string，`Aura.recall_structured` 通过 `RecallService.recall_structured_cached` 返回 scored records；保留 `Aura.recall_scored` 作为 TS 兼容 helper 指向 Rust `recall_core` 语义。
+- 实现：`Aura` 实例持有 formatted 与 structured recall cache，并在 store/update/delete/connect/mark salience/promote/move/decay/reflect/consolidate/import/runMaintenance 等写入影响召回结果的路径调用 `clearRecallCaches()`，对齐 Rust `runtime.clear_recall_caches()`。
+- 实现：MCP `recall` tool 不再在 transport 层复刻格式化逻辑，改为直接调用 `Aura.recall`；transport 继续只做参数映射和 text serialization。
+- 测试：新增 `RecallService.formatPreamble` level order/source/semantic/causal preview 覆盖，新增 structured cache key/cache hit/clear 覆盖；新增 `Aura.recall` formatted 输出与 cache invalidation 回归。
+- Rust reference：`RecallService`（`../src/recall_service.rs`）、`RecallCache` / `StructuredRecallCache`（`../src/cache.rs`）、`format_preamble` / `format_record`（`../src/recall.rs`）、`Aura::recall` / `Aura::recall_structured` / `runtime.clear_recall_caches`（`../src/aura.rs`）、`AuraMcpServer::recall`（`../src/mcp.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Recall.test.ts packages/core/src/Aura.test.ts packages/mcp/src/Invocation.test.ts packages/mcp/src/Parity.test.ts` 通过，4 files / 45 tests。
+  - `git diff --check` 通过（仅 CRLF warning）。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 562 passed / 7 skipped。
+
 ## 2026-06-01 - Aura recall_full Rust fallback alignment
 
 - 范围：`packages/core/src/Aura.ts`、`packages/core/src/Aura.test.ts`、`.planning/BACKLOG.md`。

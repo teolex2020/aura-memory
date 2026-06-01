@@ -47,8 +47,6 @@ import {
 } from "@aura/storage";
 import type { IndexFormatError } from "@aura/indexing";
 import {
-  applyBeliefRerank,
-  computeShadowBeliefScores,
   defaultTrustConfig,
   type RecallPipelineOptions,
   type RecallRecordEvidence,
@@ -65,6 +63,7 @@ import {
 import * as Graph from "./Graph"
 import * as RecallFinalizer from "./RecallFinalizer"
 import * as Consolidation from "./Consolidation"
+import * as RecallService from "./RecallService"
 import { id12, nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = AuraRecord.defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
@@ -182,6 +181,10 @@ function recallReportOptions(
 
 type AuraRecallHit = readonly [score: number, record: AuraRecord]
 type MemoryTierKind = "cognitive" | "core"
+type RecallFormattedOptions = Partial<RecallPipelineOptions> & {
+  readonly tokenBudget?: number
+  readonly token_budget?: number
+}
 type RecallFullOptions = Partial<RecallPipelineOptions> & {
   readonly includeFailures?: boolean
   readonly include_failures?: boolean
@@ -218,6 +221,12 @@ function recallFullPipelineOptions(options?: RecallFullOptions): Partial<RecallP
 
 function recallFullIncludeFailures(options?: RecallFullOptions): boolean {
   return options?.includeFailures ?? options?.include_failures ?? true
+}
+
+function recallTokenBudget(options?: RecallFormattedOptions): number {
+  const raw = options?.tokenBudget ?? options?.token_budget
+  if (raw === undefined) return 2048
+  return Math.max(0, Math.trunc(Number.isFinite(raw) ? raw : 2048))
 }
 
 function migrateLegacyConfidence(record: AuraRecord): AuraRecord | undefined {
@@ -487,6 +496,10 @@ export type AuraCrossNamespaceDigestOptions = Partial<CrossNamespaceDigestOption
 export type AuraStats = Readonly<Record<string, number>>
 
 export class Aura {
+  private readonly recallCache: RecallService.RecallCache = RecallService.createRecallCache()
+  private readonly structuredRecallCache: RecallService.StructuredRecallCache<AuraRecord> =
+    RecallService.createStructuredRecallCache()
+
   private constructor(
     private readonly brainDir: string,
     private readonly records: BrainAuraRecord[],
@@ -781,9 +794,6 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir)
       yield* store.appendUpdate(updated)
       yield* store.flush()
-      // NON-PARITY IMPLEMENTATION: Rust calls `runtime.clear_recall_caches()` after append_update.
-      // 非对齐点：TS core 暂无 recall cache surface；当前仅替换 in-memory read model。
-      // Rust reference: `Aura::mark_record_salience` (`../src/aura.rs`).
       self.replaceSearchRecord(updated)
       return cloneAuraRecord(updated)
     })
@@ -886,9 +896,6 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir)
       yield* store.appendUpdate(updated)
       yield* store.flush()
-      // NON-PARITY IMPLEMENTATION: Rust clears recall caches after promotion.
-      // 非对齐点：TS core 暂无 recall cache surface；当前仅替换 in-memory read model。
-      // Rust reference: `Aura::promote_record` (`../src/aura.rs`).
       self.replaceSearchRecord(updated)
       return updated.level
     })
@@ -1022,10 +1029,8 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir)
       yield* store.appendUpdate(moved)
       yield* store.flush()
-      // NON-PARITY IMPLEMENTATION: Rust clears recall caches after namespace moves.
-      // 非对齐点：TS core 暂无 recall cache surface；当前仅替换 in-memory read model。
-      // Rust reference: `Aura::move_record` (`../src/aura.rs`).
       self.searchRecords = records
+      self.clearRecallCaches()
       return cloneAuraRecord(moved)
     })
   }
@@ -1228,6 +1233,7 @@ export class Aura {
       yield* store.appendStore(record);
       yield* store.flush();
       self.searchRecords = new Map(autoConnect.records).set(record.id, record)
+      self.clearRecallCaches()
       return record;
     });
   }
@@ -1335,6 +1341,7 @@ export class Aura {
       yield* store.appendDelete(record_id);
       yield* store.flush();
       self.searchRecords = removal.records
+      self.clearRecallCaches()
       return true;
     });
   }
@@ -1492,11 +1499,80 @@ export class Aura {
   }
 
   /**
-   * NON-PARITY IMPLEMENTATION: returns RecallScored rather than Rust's richer RecallItem.
-   * 差异说明：TS recall pipeline 目前返回 scored IDs；structured/explainability 尚未实现。
-   * Rust reference: `Aura::recall` (`../src/aura.rs`).
+   * Recall memories as a formatted LLM context preamble.
+   * @zh 将召回结果格式化为可注入 LLM 上下文的 preamble。
+   *
+   * Uses the Rust RecallService text cache and `format_preamble` semantics.
+   * @zh 使用 Rust RecallService text cache 与 `format_preamble` 语义。
+   *
+   * Rust reference: `Aura::recall` (`../src/aura.rs`) and
+   * `RecallService::recall_formatted` (`../src/recall_service.rs`).
    */
-  recall(query: string, options?: Partial<RecallPipelineOptions>) {
+  recall(query: string, options?: RecallFormattedOptions) {
+    const self = this
+    const pipelineOptions = self.recallOptionsWithRuntimeModes(options)
+    const tokenBudget = recallTokenBudget(options)
+    return RecallService.recallFormatted(
+      self.recallCache,
+      query,
+      tokenBudget,
+      pipelineOptions.namespaces,
+      () => Effect.gen(function* () {
+        const records = yield* recallRecordsEffect<AuraRecord>(
+          self.brainDir,
+          query,
+          pipelineOptions,
+          undefined,
+          self.currentTrustConfig(),
+          self.sessionTracker,
+        )
+        self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+        return records
+      }),
+      (scored) => RecallService.formatPreamble(scored, tokenBudget, self.searchRecords),
+    )
+  }
+
+  /**
+   * Recall structured scored records with the Rust structured recall cache.
+   * @zh 使用 Rust structured recall cache 返回带分数的 record 列表。
+   *
+   * Rust reference: `Aura::recall_structured` (`../src/aura.rs`) and
+   * `RecallService::recall_structured_cached` (`../src/recall_service.rs`).
+   */
+  recall_structured(query: string, options?: Partial<RecallPipelineOptions>) {
+    const self = this
+    const pipelineOptions = self.recallOptionsWithRuntimeModes(options)
+    const topK = pipelineOptions.topK ?? 20
+    const minStrength = pipelineOptions.minStrength ?? 0.1
+    return RecallService.recallStructuredCached(
+      self.structuredRecallCache,
+      query,
+      topK,
+      minStrength,
+      pipelineOptions.namespaces,
+      () => Effect.gen(function* () {
+        const records = yield* recallRecordsEffect<AuraRecord>(
+          self.brainDir,
+          query,
+          pipelineOptions,
+          undefined,
+          self.currentTrustConfig(),
+          self.sessionTracker,
+        )
+        self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+        return records
+      }),
+    )
+  }
+
+  /**
+   * Recall scored record IDs for compatibility with existing TS callers.
+   * @zh 为现有 TS 调用方保留返回 record ID 的 scored recall helper。
+   *
+   * Rust reference: `Aura::recall_core` (`../src/aura.rs`).
+   */
+  recall_scored(query: string, options?: Partial<RecallPipelineOptions>) {
     const self = this
     return Effect.gen(function* () {
       const scored = yield* recallScoredEffect(
@@ -1509,27 +1585,6 @@ export class Aura {
       )
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
       return scored
-    })
-  }
-
-  /**
-   * NON-PARITY IMPLEMENTATION: approximates structured recall via recallRecords.
-   * Reason: TS does not yet model RecallExplanation/trace bundle.
-   * Rust reference: `Aura::recall_structured` (`../src/aura.rs`).
-   */
-  recall_structured(query: string, options?: Partial<RecallPipelineOptions>) {
-    const self = this
-    return Effect.gen(function* () {
-      const records = yield* recallRecordsEffect<AuraRecord>(
-        self.brainDir,
-        query,
-        self.recallOptionsWithRuntimeModes(options),
-        undefined,
-        self.currentTrustConfig(),
-        self.sessionTracker,
-      )
-      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
-      return records
     })
   }
 
@@ -1661,7 +1716,7 @@ export class Aura {
       const scored = yield* recallRawScoredEffect(self.brainDir, query, options, self.currentTrustConfig())
       const records = yield* loadCognitiveRecords(self.brainDir)
       const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
-      const shadowReport = computeShadowBeliefScores(scored, beliefState, top)
+      const shadowReport = RecallService.shadowReport(scored, beliefState, top)
       const hits = recallHitsFromScored(scored, records)
       yield* finalizeRecallScoredEffect(self.brainDir, scored, sessionId, self.sessionTracker)
       self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
@@ -1692,7 +1747,7 @@ export class Aura {
       const scored = yield* recallRawScoredEffect(self.brainDir, query, options, self.currentTrustConfig())
       const matched = Array.from(scored)
       const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
-      const report = applyBeliefRerank(matched, beliefState, top)
+      const report = RecallService.rerankReport(matched, beliefState, top)
       const records = yield* loadCognitiveRecords(self.brainDir)
       const hits = recallHitsFromScored(matched, records)
       yield* finalizeRecallScoredEffect(self.brainDir, matched, sessionId, self.sessionTracker)
@@ -2052,6 +2107,7 @@ export class Aura {
       }
       yield* store.flush()
       self.searchRecords = records
+      self.clearRecallCaches()
       return [decayed, toArchive.length] as const
     })
   }
@@ -2123,6 +2179,7 @@ export class Aura {
 
       yield* store.flush()
       self.searchRecords = records
+      self.clearRecallCaches()
       return { promoted, archived: dead.length }
     })
   }
@@ -2193,6 +2250,7 @@ export class Aura {
         store,
       )
       self.searchRecords = new Map(records)
+      self.clearRecallCaches()
       return {
         merged: result.merged,
         checked: result.checked,
@@ -2299,6 +2357,7 @@ export class Aura {
         nextRecords.set(record.id, record)
       }
       self.searchRecords = nextRecords
+      self.clearRecallCaches()
       return imported.length
     })
   }
@@ -3933,6 +3992,7 @@ export class Aura {
       })
 
       self.searchRecords = new Map(records)
+      self.clearRecallCaches()
 
       return {
         timestamp,
@@ -3977,6 +4037,12 @@ export class Aura {
 
   private replaceSearchRecord(record: AuraRecord): void {
     this.searchRecords = new Map(this.searchRecords).set(record.id, record)
+    this.clearRecallCaches()
+  }
+
+  private clearRecallCaches(): void {
+    RecallService.clearRecallCache(this.recallCache)
+    RecallService.clearStructuredRecallCache(this.structuredRecallCache)
   }
 
   /**

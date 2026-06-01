@@ -38,6 +38,8 @@ Last updated: 2026-06-01
 - [x] Contract `Level` namespace now carries Rust `Level` impl helpers including `displayName`, so level helper logic can be imported with the enum — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] EpistemicRuntime and PolicyEngine now follow Rust inspection, telemetry, policy rebuild, provenance, suppression, and advisory-pressure semantics at typecheck level — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `Aura.recall_full` now follows Rust's recall_core + substring fallback + outcome-failure fallback algorithm — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Core `RecallService.ts` now owns Rust `recall_service.rs` / `cache.rs` text/structured recall cache semantics, formatted preamble output, and MCP recall delegation through `Aura.recall` — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Core recall cache invalidation now clears formatted and structured caches after write-affecting Aura operations and maintenance refreshes — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
@@ -46,8 +48,6 @@ Last updated: 2026-06-01
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
 - [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test.
-- [ ] Core recall output shape: replace simplified `recall_structured` and formatted `recall` surfaces with Rust-rich recall item / LLM context semantics.
-- [ ] Recall cache invalidation: implement Rust `runtime.clear_recall_caches()` behavior after write-affecting operations.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.
 - [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces.
 - [ ] Maintenance history/reflection persistence decision: either match Rust in-memory behavior exactly or keep documented TS persistence as explicit parity exception.

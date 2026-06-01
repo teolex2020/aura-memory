@@ -19,8 +19,6 @@ import {
 import { type IndexFormatError } from "@aura/indexing"
 import { RecallViewLive } from "@aura/storage"
 import {
-  recallPipeline,
-  recallPipelineWithTrace,
   SdrInterpreterError,
   type RecallPipelineOptions,
   type RecallTraceResult,
@@ -28,6 +26,7 @@ import {
 import { RecallFinalizerFileLive } from "./RecallFinalizer"
 import type { RecallSessionTracker } from "./RecallFinalizer"
 import { BoundedRerankerFileLive } from "./RecallReranker"
+import * as RecallService from "./RecallService"
 
 export type RecallHit<TRecord = unknown> = readonly [score: number, record: TRecord]
 export { createRecallSessionTracker, endRecallSession } from "./RecallFinalizer"
@@ -90,7 +89,7 @@ export function recallScored(
   FileRead | FileWrite
 > {
   const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
-  return withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
+  return withTrustConfig(RecallService.raw(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
 }
 
 /**
@@ -116,7 +115,7 @@ export function recallRawScored(
   | FinalizeError,
   FileRead
 > {
-  return withTrustConfig(recallPipeline(query, options), trustConfig).pipe(Effect.provide(RecallViewLive(dir)))
+  return withTrustConfig(RecallService.raw(query, options), trustConfig).pipe(Effect.provide(RecallViewLive(dir)))
 }
 
 /**
@@ -148,7 +147,7 @@ export function recallRecords<TRecord = unknown>(
   const program = Effect.gen(function* () {
     const view = yield* Effect.service(RecallViewTag)
     const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
-    const scored = yield* withTrustConfig(recallPipeline(query, pipelineOptions), trustConfig)
+    const scored = yield* withTrustConfig(RecallService.raw(query, pipelineOptions), trustConfig)
 
     const out: Array<RecallHit<TRecord>> = []
     for (const [score, id] of scored) {
@@ -197,7 +196,7 @@ export function recallTemporalRecords<TRecord = unknown>(
     const view = yield* Effect.service(RecallViewTag)
     const temporalView = temporalRecallView(view, timestamp)
     const scored = yield* withTrustConfig(
-      recallPipeline(query, options).pipe(Effect.provideService(RecallViewTag, temporalView)),
+      RecallService.raw(query, options).pipe(Effect.provideService(RecallViewTag, temporalView)),
       trustConfig
     )
 
@@ -254,7 +253,7 @@ export function recallWithTrace(
   FileRead
 > {
   const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
-  return withTrustConfig(recallPipelineWithTrace(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallTraceLayer(dir)))
+  return withTrustConfig(RecallService.rawWithTrace(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallTraceLayer(dir)))
 }
 
 function recallCoreLayer(dir: string, sessionTracker?: RecallSessionTracker) {

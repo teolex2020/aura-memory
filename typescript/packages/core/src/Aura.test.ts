@@ -232,14 +232,14 @@ describe("Aura MCP-facing operational surfaces", () => {
       namespace: "default",
     })))
 
-    const scored = await Effect.runPromise(provideNodeAt(aura.recall("session coactivation alpha", {
+    const scored = await Effect.runPromise(provideNodeAt(aura.recall_structured("session coactivation alpha", {
       topK: 2,
       minStrength: 0,
       expandConnections: false,
       sessionId: "session-1",
       namespaces: ["default"],
     }), 4_000))
-    const recalledIds = scored.map(([, id]) => id)
+    const recalledIds = scored.map(([, record]) => record.id)
     assert.ok(recalledIds.includes(first.id))
     assert.ok(recalledIds.includes(second.id))
 
@@ -912,10 +912,12 @@ describe("Aura MCP-facing operational surfaces", () => {
       namespace: "default",
     })))
 
-    await Effect.runPromise(provideNode(aura.recall("shared recall finalizer alpha", {
+    const context = await Effect.runPromise(provideNode(aura.recall("shared recall finalizer alpha", {
       topK: 2,
       expandConnections: false,
     })))
+    assert.include(context, "=== COGNITIVE CONTEXT ===")
+    assert.include(context, "shared recall finalizer alpha")
 
     const records = new Map(aura.listCognitiveRecords().map((record) => [record.id, record]))
     const updatedFirst = records.get(first.id)!
@@ -925,6 +927,37 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(updatedSecond.activation_count, 1)
     assert.strictEqual(updatedFirst.connections[second.id], 0.05)
     assert.strictEqual(updatedSecond.connections[first.id], 0.05)
+  })
+
+  it("recall caches are invalidated after write-affecting updates", async () => {
+    const aura = await openWritableAura()
+    const record = await Effect.runPromise(provideNode(aura.store("cache invalidation alpha original", {
+      namespace: "default",
+      tags: ["cache"],
+    })))
+
+    const first = await Effect.runPromise(provideNode(aura.recall("cache invalidation alpha", {
+      topK: 1,
+      expandConnections: false,
+    })))
+    assert.include(first, "cache invalidation alpha original")
+
+    await Effect.runPromise(provideNode(aura.update(record.id, {
+      content: "cache invalidation alpha replacement",
+    })))
+
+    const second = await Effect.runPromise(provideNode(aura.recall("cache invalidation alpha", {
+      topK: 1,
+      expandConnections: false,
+    })))
+    assert.include(second, "cache invalidation alpha replacement")
+    assert.notInclude(second, "cache invalidation alpha original")
+
+    const structured = await Effect.runPromise(provideNode(aura.recall_structured("cache invalidation alpha", {
+      topK: 1,
+      expandConnections: false,
+    })))
+    assert.strictEqual(structured[0]?.[1].content, "cache invalidation alpha replacement")
   })
 
   it("recall_full merges substring and failure fallbacks after the RRF stage", async () => {

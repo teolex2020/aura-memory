@@ -555,6 +555,7 @@ describe("Aura MCP-facing operational surfaces", () => {
         namespace: "default",
         tags: ["alpha", "report"],
         semantic_type: "fact",
+        deduplicate: false,
       }))))
     }
     const target = stored[3]!
@@ -700,6 +701,122 @@ describe("Aura MCP-facing operational surfaces", () => {
     ))
     const hits = index.searchScored(stored.sdr_indices, 10, 1)
     assert.strictEqual(hits[0]?.[0], record.id)
+  })
+
+  it("store_with_channel deduplicates strong same-namespace text matches like Rust", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-store-dedup-"))
+    const aura = await Effect.runPromise(provideNodeAt(Aura.open(brainPath), 1_700_000_000))
+    const content = "deduplicate alpha memory with enough shared text for rust threshold"
+
+    const first = await Effect.runPromise(provideNodeAt(aura.store(content, {
+      namespace: "alpha",
+      tags: ["original"],
+    }), 1_700_000_010))
+    const duplicate = await Effect.runPromise(provideNodeAt(aura.store(content, {
+      namespace: "alpha",
+      tags: ["merged"],
+    }), 1_700_000_020))
+
+    assert.strictEqual(duplicate.id, first.id)
+    assert.strictEqual(aura.listRecords().length, 1)
+    const active = aura.get(first.id)!
+    assert.strictEqual(active.activation_count, 1)
+    assert.deepStrictEqual(new Set(active.tags), new Set(["original", "merged"]))
+
+    const parsed = readBrainAuraFile(fs.readFileSync(path.join(brainPath, "brain.aura")))
+    assert.strictEqual(parsed.header.count, 1n)
+    const cognitive = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(cognitive.size, 1)
+    assert.strictEqual(cognitive.get(first.id)?.activation_count, 1)
+
+    const crossNamespace = await Effect.runPromise(provideNodeAt(aura.store(content, {
+      namespace: "beta",
+      tags: ["merged"],
+    }), 1_700_000_030))
+    assert.notStrictEqual(crossNamespace.id, first.id)
+    assert.strictEqual(aura.listRecords().length, 2)
+
+    const viaMergedTag = await Effect.runPromise(provideNodeAt(aura.store_with_channel(
+      "fresh alpha record connected only if dedup tag index is rebuilt",
+      {
+        namespace: "alpha",
+        tags: ["merged"],
+        auto_promote: false,
+        deduplicate: false,
+      },
+    ), 1_700_000_040))
+    assert.strictEqual(viaMergedTag.connections[first.id], undefined)
+
+    const multibyte = "多字节重复内容123"
+    assert.ok(multibyte.length < 20)
+    assert.ok(new TextEncoder().encode(multibyte).byteLength >= 20)
+    const multibyteFirst = await Effect.runPromise(provideNodeAt(aura.store(multibyte, {
+      namespace: "gamma",
+      tags: ["utf8"],
+    }), 1_700_000_050))
+    const multibyteDuplicate = await Effect.runPromise(provideNodeAt(aura.store(multibyte, {
+      namespace: "gamma",
+      tags: ["utf8-duplicate"],
+    }), 1_700_000_060))
+    assert.strictEqual(multibyteDuplicate.id, multibyteFirst.id)
+  })
+
+  it("store_with_channel stamps guard provenance, surprise-promotes, and links causal parent", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-store-guards-"))
+    const aura = await Effect.runPromise(provideNodeAt(Aura.open(brainPath), 1_700_000_000))
+
+    const parent = await Effect.runPromise(provideNodeAt(aura.store_with_channel("parent causal anchor memory for store guard test", {
+      namespace: "alpha",
+      tags: ["parent-anchor"],
+      auto_promote: false,
+      deduplicate: false,
+    }), 1_700_000_001))
+    for (let i = 0; i < 4; i += 1) {
+      await Effect.runPromise(provideNodeAt(aura.store_with_channel(`baseline unrelated memory ${i} for surprise gate`, {
+        namespace: "alpha",
+        tags: [`baseline-${i}`],
+        auto_promote: false,
+        deduplicate: false,
+      }), 1_700_000_010 + i))
+    }
+
+    const novel = await Effect.runPromise(provideNodeAt(aura.store("z", {
+      namespace: "alpha",
+      level: Level.Working,
+    }), 1_700_000_090))
+    assert.strictEqual(novel.level, Level.Decisions)
+
+    const child = await Effect.runPromise(provideNodeAt(aura.store_with_channel(
+      "Reach me at test@example.com and rotate api_key: abcdefghijklmnopqrstuvwxyz1234",
+      {
+        namespace: "alpha",
+        tags: ["child"],
+        caused_by_id: parent.id,
+        channel: "telegram",
+        auto_promote: false,
+      },
+    ), 1_700_000_100))
+
+    assert.strictEqual(child.level, Level.Working)
+    assert.ok(child.tags.includes("contact"))
+    assert.ok(child.tags.includes("credential"))
+    assert.strictEqual(child.metadata.source, "user-telegram")
+    assert.strictEqual(child.metadata.verified, "true")
+    assert.strictEqual(child.metadata.trust_score, "0.50")
+    assert.strictEqual(child.metadata.volatility, "stable")
+    assert.strictEqual(child.metadata.timestamp, new Date(1_700_000_100 * 1000).toISOString())
+    assert.strictEqual(child.metadata.actionable, "true")
+    assert.strictEqual(child.caused_by_id, parent.id)
+    assert.strictEqual(child.connections[parent.id], 0.7)
+    assert.strictEqual(child.connection_types[parent.id], "causal")
+
+    const parentLive = aura.get(parent.id)!
+    assert.strictEqual(parentLive.connections[child.id], 0.7)
+    assert.strictEqual(parentLive.connection_types[child.id], "causal")
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get(child.id)?.connections[parent.id], 0.7)
+    assert.strictEqual(persisted.get(parent.id)?.connections[child.id], undefined)
   })
 
   it("basic read facades mirror Rust PyO3 get/count/namespace/history semantics", async () => {
@@ -968,9 +1085,11 @@ describe("Aura MCP-facing operational surfaces", () => {
     const aura = await openWritableAura()
     const first = await Effect.runPromise(provideNode(aura.store("shared recall finalizer alpha one", {
       namespace: "default",
+      deduplicate: false,
     })))
     const second = await Effect.runPromise(provideNode(aura.store("shared recall finalizer alpha two", {
       namespace: "default",
+      deduplicate: false,
     })))
 
     const context = await Effect.runPromise(provideNode(aura.recall("shared recall finalizer alpha", {
@@ -1116,11 +1235,13 @@ describe("Aura MCP-facing operational surfaces", () => {
       namespace: "default",
       tags: ["low"],
       level: Level.Working,
+      deduplicate: false,
     })))
     const high = await Effect.runPromise(provideNode(aura.store("duplicate consolidation memory", {
       namespace: "default",
       tags: ["high"],
       level: Level.Domain,
+      deduplicate: false,
     })))
 
     const consolidate = await Effect.runPromise(provideNode(aura.consolidate()))

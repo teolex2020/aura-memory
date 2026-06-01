@@ -45,7 +45,7 @@ import {
   type BrainAuraRecord,
   type PersistenceManifest,
 } from "@aura/storage";
-import { InvertedIndex, type IndexFormatError } from "@aura/indexing";
+import { InvertedIndex, NGramIndex, type IndexFormatError } from "@aura/indexing";
 import {
   defaultTrustConfig,
   SDRInterpreter,
@@ -65,12 +65,16 @@ import * as Graph from "./Graph"
 import * as RecallFinalizer from "./RecallFinalizer"
 import * as Consolidation from "./Consolidation"
 import * as RecallService from "./RecallService"
+import * as StoreGuards from "./Guards"
+import * as StoreTrust from "./Trust"
 import { nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = AuraRecord.defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
 const RECORD_SALIENCE_REASON_KEY = "salience_reason"
 const RECORD_SALIENCE_MARKED_AT_KEY = "salience_marked_at"
+const SURPRISE_THRESHOLD = 0.2
 const startupJsonDecoder = new TextDecoder()
+const utf8ByteEncoder = new TextEncoder()
 
 type AuraStoreError =
   | FileReadError
@@ -245,6 +249,47 @@ function migrateLegacyConfidence(record: AuraRecord): AuraRecord | undefined {
   return undefined
 }
 
+function createRuntimeNgramIndex(records: ReadonlyMap<string, AuraRecord>): NGramIndex {
+  const index = NGramIndex.random()
+  for (const record of records.values()) {
+    index.add(record.id, record.content)
+  }
+  return index
+}
+
+function utf8ByteLength(text: string): number {
+  return utf8ByteEncoder.encode(text).byteLength
+}
+
+function createRuntimeTagIndex(records: ReadonlyMap<string, AuraRecord>): Map<string, Set<string>> {
+  return Graph.createTagIndex(records)
+}
+
+function addRecordToRuntimeTagIndex(tagIndex: Map<string, Set<string>>, record: AuraRecord): void {
+  for (const tag of record.tags) {
+    let ids = tagIndex.get(tag)
+    if (ids === undefined) {
+      ids = new Set<string>()
+      tagIndex.set(tag, ids)
+    }
+    ids.add(record.id)
+  }
+}
+
+function removeRecordFromRuntimeTagIndex(tagIndex: Map<string, Set<string>>, record: AuraRecord): void {
+  for (const tag of record.tags) {
+    tagIndex.get(tag)?.delete(record.id)
+  }
+}
+
+function mergeRecordTags(record: AuraRecord, tags: ReadonlyArray<string>): AuraRecord {
+  const merged = [...record.tags]
+  for (const tag of tags) {
+    if (!merged.includes(tag)) merged.push(tag)
+  }
+  return { ...record, tags: merged }
+}
+
 type StartupJsonSurfaceOptions<T> = {
   readonly path: string
   readonly surface: string
@@ -401,7 +446,6 @@ import {
   pushReflectionSummary,
   createCognitiveStoreAdapter,
   createDefaultTagTaxonomy,
-  createNGramIndex,
   DefaultBackgroundBrain,
   makeMaintenanceSdrInterpreter,
 } from "./MaintenanceService"
@@ -523,6 +567,8 @@ export class Aura {
     private maintenanceConfig: MaintenanceConfig = defaultMaintenanceConfig,
     private trustConfig: TrustConfig = defaultTrustConfig(),
     private readonly sessionTracker: Graph.SessionTracker = Graph.createSessionTracker(),
+    private ngramIndex: NGramIndex = NGramIndex.random(),
+    private runtimeTagIndex: Map<string, Set<string>> = new Map(),
   ) {}
 
   /**
@@ -648,6 +694,8 @@ export class Aura {
         yield* store.flush()
       }
       const startupValidationReport = finalizeStartupValidationReport(startupEvents)
+      const runtimeNgramIndex = createRuntimeNgramIndex(cognitiveRecords)
+      const runtimeTagIndex = createRuntimeTagIndex(cognitiveRecords)
       return new Aura(
         brainPath,
         parsed.records,
@@ -656,6 +704,15 @@ export class Aura {
         startupValidationReport,
         trends,
         reflections,
+        [],
+        defaultBoundedRerankModes(),
+        TemporalBudgetMode.NearbySuccessors,
+        EvidenceMode.StrictRepeatedWindows,
+        defaultMaintenanceConfig,
+        defaultTrustConfig(),
+        Graph.createSessionTracker(),
+        runtimeNgramIndex,
+        runtimeTagIndex,
       );
     });
   }
@@ -1169,10 +1226,12 @@ export class Aura {
    * `auto_promote`: if Some(false), disables surprise-based level promotion.
    * `auto_promote` 为 false 时关闭基于“surprise”的 level 晋升。
    *
-   * NON-PARITY IMPLEMENTATION: guard/dedup/surprise/audit/embedding/cortex side branches
-   * are still not fully wired; the primary Rust write storage/index closure is maintained.
-   * @zh 非完全对齐：guard/dedup/surprise/audit/embedding/cortex 分支尚未全部接入；
-   * 当前已维护主写入链路的 brain.aura、index/、aura_id 与 cognitive store。
+   * NON-PARITY IMPLEMENTATION: audit/embedding/cortex side branches, configurable taxonomy,
+   * and runtime SDR cache are still not fully wired; guard/dedup/surprise/provenance/causal-link
+   * plus the primary Rust write storage/index closure are maintained.
+   * @zh 非完全对齐：audit/embedding/cortex 分支、可配置 taxonomy 与 runtime SDR cache 尚未全部接入；
+   * 当前已维护 guard/dedup/surprise/provenance/causal-link，以及 brain.aura、index/、
+   * aura_id 与 cognitive store 主写入链路。
    * Rust reference: `Aura::store` / `Aura::store_with_channel` (`../src/aura.rs`).
    */
   store_with_channel(
@@ -1194,7 +1253,7 @@ export class Aura {
       const nowIso = new Date(nowSec * 1000).toISOString();
       const id = AuraRecord.generateId();
 
-      const tags = Array.isArray(options?.tags)
+      let tags = Array.isArray(options?.tags)
         ? options!.tags.filter((t): t is string => typeof t === "string")
         : [];
 
@@ -1211,10 +1270,53 @@ export class Aura {
       if (validationError !== undefined) {
         return yield* Effect.fail(validationError)
       }
+      tags = StoreGuards.autoProtectTags(content, tags)
+      const taxonomy = StoreTrust.createDefaultTagTaxonomy()
+      const guardResult = StoreGuards.applyStoreGuard(content, tags, options?.channel, taxonomy)
+
+      if ((options?.deduplicate ?? true) && (options?.content_type ?? "text") === "text" && utf8ByteLength(content) >= 20) {
+        const match = self.ngramIndex.query(content, 1)[0]
+        if (match !== undefined) {
+          const [similarity, existingId] = match
+          const existing = self.searchRecords.get(existingId)
+          if (similarity >= 0.85 && existing !== undefined && existing.namespace === namespace) {
+            const activated = mergeRecordTags(AuraRecord.activate(existing, nowSec), tags)
+            const store = yield* CognitiveStoreFile.open(dir)
+            yield* store.appendUpdate(activated)
+            yield* store.flush()
+            self.replaceSearchRecord(activated)
+            return activated
+          }
+        }
+      }
+
+      let effectiveLevel = options?.level ?? Level.Working
+      if (options?.auto_promote !== false && self.searchRecords.size >= 5) {
+        const bestSimilarity = self.ngramIndex.query(content, 1)[0]?.[0] ?? 0
+        if (bestSimilarity < SURPRISE_THRESHOLD) {
+          effectiveLevel = Level.promote(effectiveLevel) ?? effectiveLevel
+        }
+      }
+
+      let metadata = StoreTrust.stampProvenance(
+        options?.metadata ?? {},
+        options?.channel,
+        tags,
+        taxonomy,
+        self.trustConfig,
+        nowIso,
+      )
+      for (const [key, value] of guardResult.extraMetadata) {
+        if (metadata[key] === undefined) metadata = { ...metadata, [key]: value }
+      }
+      for (const extraTag of guardResult.extraTags) {
+        if (!tags.includes(extraTag)) tags.push(extraTag)
+      }
+
       let record: AuraRecord = {
         id,
         content,
-        level: options?.level ?? Level.Working,
+        level: effectiveLevel,
         strength: 1,
         activation_count: 0,
         created_at: nowSec,
@@ -1228,7 +1330,7 @@ export class Aura {
         semantic_type: semanticType,
         activation_velocity: 0,
         salience: 0,
-        metadata: { ...(options?.metadata ?? {}), timestamp: nowIso },
+        metadata,
         aura_id: id,
         caused_by_id: options?.caused_by_id ?? null,
         confidence: AuraRecord.defaultConfidenceForSource(sourceType),
@@ -1237,11 +1339,8 @@ export class Aura {
         volatility: 0,
       };
 
-      const tagIndex = Graph.createTagIndex(self.searchRecords, [record])
-      const autoConnect = yield* Graph.autoConnect(record, tagIndex, self.searchRecords)
-      record = autoConnect.record
       const sdr = yield* Effect.promise(() => SDRInterpreter.default())
-      const isIdentity = Level.isIdentitySdr(record.level)
+      const isIdentity = Level.isIdentitySdr(effectiveLevel)
       const sdrIndices = sdr.textToSdr(content, isIdentity)
       const index = yield* InvertedIndex.load(`${dir}/index`)
       index.add(record.id, sdrIndices)
@@ -1249,7 +1348,7 @@ export class Aura {
       const brain = yield* BrainAuraFile.open(dir)
       const offset = yield* brain.appendUnencrypted({
         id: record.id,
-        dna: Level.toDna(record.level),
+        dna: Level.toDna(effectiveLevel),
         timestamp: record.created_at,
         intensity: record.strength,
         stability: options?.pin === true ? 100 : 1,
@@ -1259,12 +1358,24 @@ export class Aura {
         text: content,
       })
       yield* brain.flush()
+      self.ngramIndex.add(record.id, content)
+      addRecordToRuntimeTagIndex(self.runtimeTagIndex, record)
+      const graphRecords = new Map(self.searchRecords)
+      if (options?.caused_by_id !== undefined) {
+        const parent = graphRecords.get(options.caused_by_id)
+        if (parent !== undefined) {
+          graphRecords.set(options.caused_by_id, AuraRecord.addTypedConnection(parent, record.id, 0.7, "causal"))
+        }
+        record = AuraRecord.addTypedConnection(record, options.caused_by_id, 0.7, "causal")
+      }
+      const autoConnect = yield* Graph.autoConnect(record, self.runtimeTagIndex, graphRecords)
+      record = autoConnect.record
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendStore(record);
       yield* store.flush();
       self.records.push({
         id: record.id,
-        dna: Level.toDna(record.level),
+        dna: Level.toDna(effectiveLevel),
         timestamp: record.created_at,
         intensity: record.strength,
         stability: options?.pin === true ? 100 : 1,
@@ -1285,8 +1396,10 @@ export class Aura {
    * Update a record.
    * 更新一条 record。
    *
-   * SIMPLE IMPLEMENTATION: load current in-memory view (from brain.cog/brain.snap) and append an Update record.
-   * 简化实现：从 brain.cog/brain.snap 回放得到当前视图，再追加写入一条 Update 记录。
+   * NON-PARITY IMPLEMENTATION: deterministic relation refresh is not wired yet.
+   * @zh 非完全对齐：`refresh_deterministic_relations_for_namespace` 尚未接入。
+   * 当前对齐 Rust 的 cognitive update 持久化、content runtime ngram re-index 与 cache invalidation；
+   * 不额外改写 brain.aura 或 SDR inverted index。
    * Rust reference: `Aura::update` (`../src/aura.rs`).
    */
   update(
@@ -1308,7 +1421,7 @@ export class Aura {
       }
       const clock = yield* Clock
       const nowSec = clock.nowSeconds();
-      const records = yield* loadCognitiveRecords(dir);
+      const records = self.searchRecords;
       const existing = records.get(record_id);
       const base = existing ? toRecordLike(existing, nowSec) : undefined;
       if (base === undefined) {
@@ -1344,6 +1457,10 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendUpdate(next);
       yield* store.flush();
+      if (patch?.content !== undefined) {
+        self.ngramIndex.remove(record_id)
+        self.ngramIndex.add(record_id, next.content)
+      }
       self.replaceSearchRecord(next)
       return next;
     });
@@ -1381,6 +1498,8 @@ export class Aura {
       if (removedFromIndex) {
         yield* index.save(`${dir}/index`)
       }
+      self.ngramIndex.remove(record_id)
+      removeRecordFromRuntimeTagIndex(self.runtimeTagIndex, removal.removed)
       const store = yield* CognitiveStoreFile.open(dir);
       for (const peer of removal.updatedNeighbors) {
         yield* store.appendUpdate(peer)
@@ -2292,8 +2411,8 @@ export class Aura {
       const store = yield* CognitiveStoreFile.open(dir)
       const result = yield* Consolidation.consolidate(
         records,
-        createNGramIndex(records),
-        Graph.createTagIndex(records),
+        self.ngramIndex,
+        self.runtimeTagIndex,
         Consolidation.createAuraIndex(records),
         store,
       )
@@ -3988,8 +4107,8 @@ export class Aura {
       // ── Phase 5: Post-discovery phases ──
       const postDiscovery = yield* runPostDiscoveryPhases(
         records,
-        createNGramIndex(records),
-        Graph.createTagIndex(records),
+        self.ngramIndex,
+        self.runtimeTagIndex,
         Consolidation.createAuraIndex(records),
         cognitiveStoreAdapter,
         DefaultBackgroundBrain,

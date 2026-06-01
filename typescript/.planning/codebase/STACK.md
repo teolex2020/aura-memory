@@ -52,8 +52,7 @@
 
 **数据结构与索引:**
 - `roaring-wasm` (^1.1.0) — WASM 版 Roaring Bitmap，用于高效稀疏位图操作 (`packages/indexing/src/Roaring.ts`)
-- `xxhash-wasm` (^1.1.0) — WASM 版 xxHash，目前仅保留在 `packages/recall/src/SDRInterpreter.ts` 的剩余 SDR gap 中
-- `@aura/utils` `xxh3_64` — Rust `xxhash_rust::xxh3::xxh3_64` 纯 TS 投影，用于核心维护 ID、fingerprint 与 NGram hash parity
+- `@aura/utils` `xxh3_64` — Rust `xxhash_rust::xxh3::xxh3_64` 纯 TS 投影，用于核心维护 ID、fingerprint、NGram hash 与 SDR seed parity
 
 **代码提取:**
 - `web-tree-sitter` (0.25.10) — WASM 版 Tree-sitter，多语言语法解析

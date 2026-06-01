@@ -18,7 +18,7 @@ function getNamespace(rec: RecallRecord): string {
 
 /**
  * Rust reference: `in_namespace` uses `namespaces.contains(...)`; an empty slice matches nothing.
- * 中文说明：空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
+ * @zh 空 namespaces 与 Rust 一样不匹配任何记录，默认 namespace 由 pipeline 上层注入。
  */
 function inNamespaces(rec: RecallRecord, namespaces: ReadonlyArray<string>): boolean {
   return namespaces.includes(getNamespace(rec))
@@ -35,7 +35,7 @@ function uniqueLowerWords(text: string): string[] {
 
 /**
  * Rust reference: `collect_sdr` ignores the returned overlap after candidate retrieval.
- * 中文说明：overlap 只影响 `InvertedIndex::search` 的候选顺序/截断；最终信号分数按 Tanimoto 重新计算并排序。
+ * @zh overlap 只影响 `InvertedIndex::search` 的候选顺序/截断；最终信号分数按 Tanimoto 重新计算并排序。
  */
 export function collectSdr(
   view: RecallView,
@@ -73,7 +73,7 @@ export function collectSdr(
 
 /**
  * Rust reference: `collect_ngram` queries topK * 4, filters namespaces, then takes topK.
- * 中文说明：NGramIndex 自身负责 MinHash+LSH 相似度排序；这里仅投影 Rust 的过滤与截断流程。
+ * @zh NGramIndex 自身负责 MinHash+LSH 相似度排序；这里仅投影 Rust 的过滤与截断流程。
  */
 export function collectNgram(
   view: RecallView,

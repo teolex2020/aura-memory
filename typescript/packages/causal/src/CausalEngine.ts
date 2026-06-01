@@ -858,7 +858,7 @@ function patternKey(namespace: string, causeBid: string, effectBid: string): str
 
 /**
  * Build a deterministic edge hash from edge data.
- * 中文说明：TS contract 仍保留 edge_hash provenance 字段；Rust pattern ID 不再依赖此字段。
+ * @zh TS contract 仍保留 edge_hash provenance 字段；Rust pattern ID 不再依赖此字段。
  */
 function deterministicEdgeHash(
   namespace: string,

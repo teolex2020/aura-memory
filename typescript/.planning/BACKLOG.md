@@ -27,6 +27,7 @@ Last updated: 2026-06-01
 - [x] NGramIndex random coefficient distribution aligned to Rust `gen_range` semantics — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] ConceptEngine and NGramIndex now share Rust-compatible `xxh3_64` from `@aura/utils` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Maintenance engine stable IDs and causal fingerprints now use Rust-compatible `xxh3_64` — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] SDRInterpreter seed hashing now reuses Rust-compatible `@aura/utils` `xxh3_64`; `xxhash-wasm` dependency removed — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
@@ -37,7 +38,6 @@ Last updated: 2026-06-01
 - [ ] Consolidation: replace typed unsupported `consolidate` surface with a real Rust-parity merge algorithm and coherent index mutation path.
 - [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces.
 - [ ] Maintenance history/reflection persistence decision: either match Rust in-memory behavior exactly or keep documented TS persistence as explicit parity exception.
-- [ ] SDRInterpreter optimization gap: decide whether ASCII + UTF-8 fallback is sufficient parity or implement Rust SIMD/threading equivalent.
 - [ ] RecallView startup/load gap: audit `SIMPLE IMPLEMENTATION:` in `packages/storage/src/RecallView.ts` against Rust read model construction.
 - [ ] MCP parity exact scores: close the remaining test-level NON-PARITY note in `packages/mcp/src/Parity.test.ts`.
 - [ ] Python exported API parity: continue regex/surface audit for remaining PyO3-exported Rust APIs and add TS facades where in scope.

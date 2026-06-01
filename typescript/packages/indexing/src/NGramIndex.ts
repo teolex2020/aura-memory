@@ -58,7 +58,7 @@ const RUST_SEED_0_B = [
  * Rust `xxh3_64` projection for the only byte lengths used by NGram tokenization.
  *
  * Rust reference: `xxhash_rust::xxh3::xxh3_64` through `NGramIndex::hash_str`.
- * 中文说明：NGram 只投影 1-2 byte 短字符串或 3-byte shingle，并保留 Rust 的 31-bit mask。
+ * @zh NGram 只投影 1-2 byte 短字符串或 3-byte shingle，并保留 Rust 的 31-bit mask。
  */
 export function xxh3NGramHash(bytes: Uint8Array): number {
   if (bytes.byteLength > 3) {
@@ -74,7 +74,7 @@ function isRustAlphanumeric(char: string): boolean {
 /**
  * Tokenize text into character trigram hashes.
  * Rust reference: `NGramIndex::tokenize` (`../src/ngram.rs`).
- * 中文说明：规范化文本后按 UTF-8 byte trigram 取 `xxh3_64 & 0x7fffffff`。
+ * @zh 规范化文本后按 UTF-8 byte trigram 取 `xxh3_64 & 0x7fffffff`。
  */
 export function tokenizeNGram(text: string): ReadonlyArray<number> {
   const normalized = Array.from(text.toLowerCase(), (char) =>
@@ -105,7 +105,7 @@ export function tokenizeNGram(text: string): ReadonlyArray<number> {
 
 /**
  * Draw a 31-bit unsigned integer from Web Crypto.
- * 中文说明：Rust `gen_range` 的目标 PRIME 小于 2^31，因此先取 31-bit 空间再做拒绝采样。
+ * @zh Rust `gen_range` 的目标 PRIME 小于 2^31，因此先取 31-bit 空间再做拒绝采样。
  */
 function randomU31(): number {
   const crypto = globalThis.crypto
@@ -118,7 +118,7 @@ function randomU31(): number {
 
 /**
  * Draw an unbiased integer in `[0, exclusiveMax)`.
- * 中文说明：丢弃不能整除目标区间的尾部值，避免 modulo bias。
+ * @zh 丢弃不能整除目标区间的尾部值，避免 modulo bias。
  */
 function randomIntBelow(exclusiveMax: number): number {
   const limit = Math.floor(U31_SPACE / exclusiveMax) * exclusiveMax
@@ -166,7 +166,7 @@ export class NGramIndex {
    * Create a new n-gram index.
    * 创建新的 n-gram 索引。
    * Rust reference: `NGramIndex::new` (`../src/ngram.rs`).
-   * 中文说明：使用 Web Crypto 随机源 + rejection sampling，对齐 Rust `gen_range(1..PRIME)`
+   * @zh 使用 Web Crypto 随机源 + rejection sampling，对齐 Rust `gen_range(1..PRIME)`
    * / `gen_range(0..PRIME)` 的整数区间分布；跨语言确定性 verifier 仍使用 `withSeed0`。
    */
   static random(numHashes = DEFAULT_NUM_HASHES, synonymRing?: SynonymRing): NGramIndex {
@@ -283,7 +283,7 @@ export class NGramIndex {
 
   /**
    * Compute exact Jaccard similarity between two record signatures.
-   * 中文说明：计算两个记录签名之间的 Jaccard 估计值。
+   * @zh 计算两个记录签名之间的 Jaccard 估计值。
    */
   jaccard(idA: string, idB: string): number {
     const sigA = this.signatures.get(idA)
@@ -299,7 +299,7 @@ export class NGramIndex {
 
   /**
    * Find all pairs with Jaccard similarity >= threshold.
-   * 中文说明：查找相似度不低于阈值的记录对。
+   * @zh 查找相似度不低于阈值的记录对。
    */
   findSimilarPairs(threshold: number): Array<[string, string, number]> {
     const ids = Array.from(this.signatures.keys())
@@ -315,7 +315,7 @@ export class NGramIndex {
 
   /**
    * Number of indexed records.
-   * 中文说明：返回已索引记录数量。
+   * @zh 返回已索引记录数量。
    */
   len(): number {
     return this.signatures.size
@@ -327,7 +327,7 @@ export class NGramIndex {
 
   /**
    * Check if a record is indexed.
-   * 中文说明：检查记录是否已索引。
+   * @zh 检查记录是否已索引。
    */
   contains(recordId: string): boolean {
     return this.signatures.has(recordId)

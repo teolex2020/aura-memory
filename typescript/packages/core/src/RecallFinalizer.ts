@@ -176,7 +176,7 @@ export function endRecallSession(
  * 激活 top records，并增强共同召回记录之间的连接。
  * Rust reference: `activate_and_strengthen` (`../src/recall.rs`).
  *
- * 中文说明：默认 recall_core 副作用必须落盘，否则后续 graph/causal 扩展缺少长期 co-recall 状态。
+ * @zh 默认 recall_core 副作用必须落盘，否则后续 graph/causal 扩展缺少长期 co-recall 状态。
  */
 export function finalizeRecallRecords(
   brainDir: string,

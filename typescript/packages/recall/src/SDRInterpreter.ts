@@ -1,4 +1,4 @@
-import xxhash from "xxhash-wasm"
+import { xxh3_64 } from "@aura/utils"
 
 const DEFAULT_TOTAL_BITS = 262144
 const DEFAULT_NUM_ACTIVE = 512
@@ -49,33 +49,25 @@ function dedupSortedU16(xs: number[]): number[] {
   return xs
 }
 
-type Hasher = Readonly<{
-  h64: (input: string) => bigint
-  h64Raw: (input: Uint8Array) => bigint
-}>
-
-let hasherPromise: Promise<Hasher> | undefined
-
-function getHasher(): Promise<Hasher> {
-  hasherPromise ??= xxhash().then((h) => ({ h64: h.h64, h64Raw: h.h64Raw }))
-  return hasherPromise
-}
-
+/**
+ * Sparse Distributed Representation interpreter.
+ * Rust reference: `SDRInterpreter` in `../src/sdr.rs`.
+ * @zh 将文本编码为稀疏 u16 bit index 列表，保持 ASCII fast path 与 UTF-8 fallback 的 Rust 语义。
+ */
 export class SDRInterpreter {
   private constructor(
-    private readonly h64: Hasher["h64"],
-    private readonly h64Raw: Hasher["h64Raw"],
     readonly totalBits: number,
     readonly numActive: number,
     readonly protectedRange: readonly [number, number],
     readonly generalRange: readonly [number, number]
   ) {}
 
+  /**
+   * Rust `Default for SDRInterpreter`.
+   * @zh 默认 full resolution：256k bits、512 active。
+   */
   static async default(): Promise<SDRInterpreter> {
-    const { h64, h64Raw } = await getHasher()
     return new SDRInterpreter(
-      h64,
-      h64Raw,
       DEFAULT_TOTAL_BITS,
       DEFAULT_NUM_ACTIVE,
       DEFAULT_PROTECTED_RANGE,
@@ -83,17 +75,27 @@ export class SDRInterpreter {
     )
   }
 
+  /**
+   * Rust `SDRInterpreter::lite`.
+   * @zh lite resolution：16k bits、128 active。
+   */
   static async lite(): Promise<SDRInterpreter> {
-    const { h64, h64Raw } = await getHasher()
-    return new SDRInterpreter(h64, h64Raw, 16384, 128, [0, 1024], [1024, 16384])
+    return new SDRInterpreter(16384, 128, [0, 1024], [1024, 16384])
   }
 
+  /**
+   * Rust `SDRInterpreter::with_resolution`.
+   * @zh 自定义 resolution，protected range 为 totalBits / 64。
+   */
   static async withResolution(totalBits: number, numActive: number): Promise<SDRInterpreter> {
-    const { h64, h64Raw } = await getHasher()
     const protectedSize = Math.floor(totalBits / 64)
-    return new SDRInterpreter(h64, h64Raw, totalBits, numActive, [0, protectedSize], [protectedSize, totalBits])
+    return new SDRInterpreter(totalBits, numActive, [0, protectedSize], [protectedSize, totalBits])
   }
 
+  /**
+   * Rust `SDRInterpreter::tanimoto_sparse`.
+   * @zh 对已排序稀疏 SDR index 列表计算 Tanimoto 相似度。
+   */
   tanimotoSparse(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
     if (a.length === 0 || b.length === 0) return 0
 
@@ -118,14 +120,26 @@ export class SDRInterpreter {
     return union === 0 ? 0 : intersection / union
   }
 
+  /**
+   * Rust `SDRInterpreter::text_to_sdr`.
+   * @zh 对文本执行 trim、大小写规范化与 n-gram seed 扰动后生成稀疏 SDR。
+   */
   textToSdr(text: string, isIdentity: boolean): number[] {
     return this.textToSdrInner(text, isIdentity, false)
   }
 
+  /**
+   * Rust `SDRInterpreter::text_to_sdr_lowered`.
+   * @zh 调用方保证输入已 lower 时跳过 lowercase 转换。
+   */
   textToSdrLowered(text: string, isIdentity: boolean): number[] {
     return this.textToSdrInner(text, isIdentity, true)
   }
 
+  /**
+   * Rust `SDRInterpreter::text_to_sdr_inner`.
+   * @zh 字节级对齐 Rust 的 `xxh3_64` 种子扰动、wrapping 行为与 u16 截断。
+   */
   private textToSdrInner(text: string, isIdentity: boolean, preLowered: boolean): number[] {
     const bitRange = isIdentity ? this.protectedRange : this.generalRange
     const rangeSize = bitRange[1] - bitRange[0]
@@ -135,9 +149,6 @@ export class SDRInterpreter {
     if (trimmed.length === 0) return []
 
     const indices: number[] = []
-
-    // SIMPLE IMPLEMENTATION: 使用与 Rust 一致的 ASCII fast path + UTF-8 fallback，但未做额外的 SIMD/多线程优化。
-    // FULL IMPLEMENTATION: 字节级对齐 Rust [sdr.rs](file:///workspace/src/sdr.rs) 的 xxh3_64 种子扰动、wrapping 行为与 u16 截断。
 
     if (isAsciiString(trimmed)) {
       const bytes = new Uint8Array(trimmed.length)
@@ -155,7 +166,7 @@ export class SDRInterpreter {
             gramBuf[j] = preLowered ? b : toAsciiLowerByte(b)
           }
 
-          let seed = u64(this.h64Raw(gramBuf.subarray(0, 4)))
+          let seed = u64(xxh3_64(gramBuf.subarray(0, 4)))
           if (hasDigit) seed = rotr64(u64(seed ^ 0x1234567812345678n), 3)
 
           for (let k = 0n; k < 20n; k++) {
@@ -175,7 +186,7 @@ export class SDRInterpreter {
             gramBuf[j] = preLowered ? b : toAsciiLowerByte(b)
           }
 
-          let seed = u64(this.h64Raw(gramBuf.subarray(0, 3)))
+          let seed = u64(xxh3_64(gramBuf.subarray(0, 3)))
           if (hasDigit) seed = rotl64(u64(seed ^ 0x5f3759df5f3759dfn), 7)
 
           for (let k = 0n; k < 2n; k++) {
@@ -190,7 +201,7 @@ export class SDRInterpreter {
           const b = bytes[j]!
           loweredBuf[j] = preLowered ? b : toAsciiLowerByte(b)
         }
-        const seed = u64(this.h64Raw(loweredBuf.subarray(0, len)))
+        const seed = u64(xxh3_64(loweredBuf.subarray(0, len)))
         for (let k = 0n; k < 2n; k++) {
           const s = u64(seed + k * 1337n)
           const idx = Number(s % BigInt(rangeSize))
@@ -204,7 +215,7 @@ export class SDRInterpreter {
           const b1 = bytes[i + 1]!
           gramBuf[0] = preLowered ? b0 : toAsciiLowerByte(b0)
           gramBuf[1] = preLowered ? b1 : toAsciiLowerByte(b1)
-          const seed = u64(this.h64Raw(gramBuf.subarray(0, 2)))
+          const seed = u64(xxh3_64(gramBuf.subarray(0, 2)))
           const idx = Number(seed % BigInt(rangeSize))
           indices.push((base + idx) & 0xffff)
         }
@@ -236,7 +247,7 @@ export class SDRInterpreter {
           pos += out.written
         }
 
-        let seed = u64(this.h64Raw(gramBuf.subarray(0, pos)))
+        let seed = u64(xxh3_64(gramBuf.subarray(0, pos)))
         if (hasDigit) seed = rotr64(u64(seed ^ 0x1234567812345678n), 3)
 
         for (let k = 0n; k < 20n; k++) {
@@ -261,7 +272,7 @@ export class SDRInterpreter {
           pos += out.written
         }
 
-        let seed = u64(this.h64Raw(gramBuf.subarray(0, pos)))
+        let seed = u64(xxh3_64(gramBuf.subarray(0, pos)))
         if (hasDigit) seed = rotl64(u64(seed ^ 0x5f3759df5f3759dfn), 7)
 
         for (let k = 0n; k < 2n; k++) {
@@ -271,7 +282,7 @@ export class SDRInterpreter {
         }
       }
     } else {
-      const seed = u64(this.h64Raw(encoder.encode(textLower)))
+      const seed = u64(xxh3_64(encoder.encode(textLower)))
       for (let k = 0n; k < 2n; k++) {
         const s = u64(seed + k * 1337n)
         const idx = Number(s % BigInt(rangeSize))
@@ -287,7 +298,7 @@ export class SDRInterpreter {
           const out = encoder.encodeInto(c, gramBuf.subarray(pos))
           pos += out.written
         }
-        const seed = u64(this.h64Raw(gramBuf.subarray(0, pos)))
+        const seed = u64(xxh3_64(gramBuf.subarray(0, pos)))
         const idx = Number(seed % BigInt(rangeSize))
         indices.push((base + idx) & 0xffff)
       }

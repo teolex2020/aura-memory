@@ -11,7 +11,6 @@
         "argon2-wasm-edge": "^1.0.23",
         "effect": "4.0.0-beta.68",
         "roaring-wasm": "^1.1.0",
-        "xxhash-wasm": "^1.1.0",
       },
       "devDependencies": {
         "@types/node": "^22.0.0",
@@ -91,6 +90,9 @@
     },
     "packages/recall": {
       "name": "@aura/recall",
+      "dependencies": {
+        "@aura/utils": "workspace:*",
+      },
     },
     "packages/storage": {
       "name": "@aura/storage",
@@ -1031,8 +1033,6 @@
     "xstate": ["xstate@5.32.0", "", {}, "sha512-zsk73aWGmxn9z34P0kbiod5JwTvdYRW3+IDxITq8sd9+VWwMyW7BUzpplnYy9mIEXa6V8IMDv7Hy4m0mhT5+2Q=="],
 
     "xtend": ["xtend@4.0.2", "", {}, "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="],
-
-    "xxhash-wasm": ["xxhash-wasm@1.1.0", "", {}, "sha512-147y/6YNh+tlp6nd/2pWq38i9h6mz/EuQ6njIrmW8D1BS5nCqs0P6DG+m6zTGnNz5I+uhZ0SHxBs9BsPrwcKDA=="],
 
     "y18n": ["y18n@5.0.8", "", {}, "sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA=="],
 

@@ -1,5 +1,22 @@
 # Implementation Log
 
+## 2026-06-01 - SDRInterpreter xxh3 seed parity
+
+- 范围：`packages/recall/src/SDRInterpreter.ts`、`packages/recall/src/SDRInterpreter.test.ts`、`packages/recall/package.json`、根 `package.json` 与 `bun.lock`。
+- 实现：`SDRInterpreter` 移除 `xxhash-wasm` lazy hasher 和 `h64Raw` 注入字段，所有 ASCII / UTF-8 quadgram、trigram、bigram seed 点统一复用 `@aura/utils` 的 Rust-compatible `xxh3_64`。
+- 实现：保留 `SDRInterpreter.default()` / `lite()` / `withResolution()` 的 async 外部签名以避免扩大调用面，但内部构造已同步化；补齐类与方法签名前 JSDoc，移除过期 `SIMPLE IMPLEMENTATION` 标记。
+- 实现：根依赖移除 `xxhash-wasm`，`@aura/recall` 显式声明 `@aura/utils` workspace 依赖。
+- 实现：同步纳入中文注释规范化，将 JSDoc 中文说明行统一为 `@zh ...` 形式。
+- 测试：`SDRInterpreter.test.ts` 新增保存的 Rust fixture exact vector，锁定 `SDRInterpreter::text_to_sdr("alpha", false)` 输出；本轮尝试重新运行 Rust `aura-ts-recall-fixtures` 被本机 Cargo `target/debug/.cargo-lock` 权限错误挡住，因此未把 live Rust 生成伪装成通过。
+- Rust reference：`SDRInterpreter::text_to_sdr_inner` 的 `xxhash_rust::xxh3::xxh3_64` seed 点（`../src/sdr.rs`）。
+- 验证：
+  - `bun install --lockfile-only` 更新 lockfile，移除 `xxhash-wasm` 并记录 `@aura/recall` 的 `@aura/utils` 依赖。
+  - `bun run test packages/recall/src/SDRInterpreter.test.ts` 通过，1 file / 4 tests。
+  - `bun run typecheck` 通过。
+  - `bun run test packages/recall/src/SDRInterpreter.test.ts packages/recall/src/Signals.test.ts packages/recall/src/Pipeline.test.ts` 通过，3 files / 17 tests。
+  - `git diff --check` 通过（仅 CRLF warning）。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，55 files / 542 tests。
+
 ## 2026-06-01 - NGramIndex SynonymRing expansion parity
 
 - 范围：`packages/indexing/src/SynonymRing.ts`、`packages/indexing/src/NGramIndex.ts`、`packages/indexing/src/NGramIndex.test.ts`、`packages/indexing/src/index.ts`。

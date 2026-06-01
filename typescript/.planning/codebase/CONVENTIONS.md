@@ -57,7 +57,7 @@
 
 **顺序:**
 1. Node built-in 模块 (`"node:path"`, `"node:fs"`, `"node:os"`, `"node:crypto"`)
-2. 第三方外部包 (`"vitest"`, `"effect"`, `"xxhash-wasm"`)
+2. 第三方外部包 (`"vitest"`, `"effect"`, `"roaring-wasm"`)
 3. 内部 workspace 包 (`"@aura/contract"`, `"@aura/codec"`, `"@aura/utils"`)
 4. 本地相对导入 (`"./Surface"`, `"./index"`, `"./Trust"`)
 

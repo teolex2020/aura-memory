@@ -192,7 +192,7 @@ export function createDefaultTagTaxonomy(): TagTaxonomy {
  * 使用确定性 verifier seed 创建维护链路 NGram 索引。
  *
  * Rust reference: `NGramIndex` 使用 MinHash + LSH；TS 复用 @aura/indexing 的同语义实现。
- * 中文说明：固定 seed 对齐 parity verifier，避免 Rust 默认随机系数造成不可复现排序。
+ * @zh 固定 seed 对齐 parity verifier，避免 Rust 默认随机系数造成不可复现排序。
  */
 export function createNGramIndex(records: ReadonlyMap<string, AuraRecord>): NGramIndex {
   const index = MinHashNGramIndex.withSeed0()

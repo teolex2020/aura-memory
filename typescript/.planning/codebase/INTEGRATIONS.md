@@ -10,7 +10,7 @@
 
 **SDK/Client 依赖:**
 - 所有依赖均为本地计算库，无云服务 SDK
-- 加密使用 WASM/纯 TS 库（argon2-wasm-edge、@noble/ciphers、@noble/hashes）；Rust 兼容 `xxh3_64` 由 `@aura/utils` 纯 TS 实现提供，`xxhash-wasm` 仅剩 recall SDR gap 使用
+- 加密使用 WASM/纯 TS 库（argon2-wasm-edge、@noble/ciphers、@noble/hashes）；Rust 兼容 `xxh3_64` 由 `@aura/utils` 纯 TS 实现提供，并覆盖维护 ID、fingerprint、NGram 与 SDR seed hashing
 - 代码解析使用本地 Tree-sitter WASM (`web-tree-sitter` + `tree-sitter-wasms`)
 - MCP 协议使用 `@mastra/mcp` 实现本地 stdio 传输
 

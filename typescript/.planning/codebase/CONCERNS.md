@@ -67,7 +67,7 @@
 
 ### xxh3 哈希对齐状态
 
-- **状态:** 已完成核心维护链路的稳定 ID / fingerprint 对齐。`@aura/utils` 提供纯 TS `xxh3_64`，并被 `BeliefEngine`、`ConceptEngine`、`CausalEngine`、`PolicyEngine`、`EpistemicRuntime`、`NGramIndex` 复用。
+- **状态:** 已完成核心维护链路与 recall SDR seed hashing 的稳定 ID / fingerprint / n-gram seed 对齐。`@aura/utils` 提供纯 TS `xxh3_64`，并被 `BeliefEngine`、`ConceptEngine`、`CausalEngine`、`PolicyEngine`、`EpistemicRuntime`、`NGramIndex`、`SDRInterpreter` 复用。
 - **文件:**
   - `packages/utils/src/Xxh3.ts`
   - `packages/belief/src/BeliefEngine.ts`
@@ -75,7 +75,8 @@
   - `packages/causal/src/CausalEngine.ts`
   - `packages/policy/src/PolicyEngine.ts`
   - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
-- **剩余注意:** `packages/recall/src/SDRInterpreter.ts` 仍直接使用 `xxhash-wasm`，该项单独由 BACKLOG 的 SDRInterpreter gap 跟踪。
+  - `packages/recall/src/SDRInterpreter.ts`
+- **剩余注意:** `xxhash-wasm` 已从根依赖移除；后续若再出现 xxHash 用法，应优先复用 `@aura/utils` 的 Rust-compatible `xxh3_64`，除非 Rust reference 明确使用其他算法。
 
 ### recall 分数差异
 

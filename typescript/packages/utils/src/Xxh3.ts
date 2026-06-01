@@ -20,7 +20,7 @@ const encoder = new TextEncoder()
 
 /**
  * Rust `xxhash_rust::xxh3::DEFAULT_SECRET`.
- * 中文说明：默认 secret 必须逐字节对齐 Rust/C xxHash3，否则所有 ID 与 fingerprint 都会漂移。
+ * @zh 默认 secret 必须逐字节对齐 Rust/C xxHash3，否则所有 ID 与 fingerprint 都会漂移。
  */
 const DEFAULT_SECRET = Uint8Array.from([
   0xb8, 0xfe, 0x6c, 0x39, 0x23, 0xa4, 0x4b, 0xbe, 0x7c, 0x01, 0x81, 0x2c, 0xf7, 0x21, 0xad, 0x1c,
@@ -39,7 +39,7 @@ const DEFAULT_SECRET = Uint8Array.from([
 
 /**
  * Rust `INITIAL_ACC` from `xxhash-rust/src/xxh3.rs`.
- * 中文说明：long input 路径使用 8 lane accumulator，对齐 scalar/SIMD 共同语义。
+ * @zh long input 路径使用 8 lane accumulator，对齐 scalar/SIMD 共同语义。
  */
 const INITIAL_ACC = [
   PRIME32_3,
@@ -54,7 +54,7 @@ const INITIAL_ACC = [
 
 /**
  * Keep an arithmetic result in Rust `u64` wrapping range.
- * 中文说明：BigInt 不会溢出，所有乘加/移位后必须显式截断到 u64。
+ * @zh BigInt 不会溢出，所有乘加/移位后必须显式截断到 u64。
  */
 function u64(value: bigint): bigint {
   return value & U64_MASK
@@ -62,7 +62,7 @@ function u64(value: bigint): bigint {
 
 /**
  * Read a little-endian `u32` from a byte slice.
- * 中文说明：对齐 Rust `read_32le_unaligned`。
+ * @zh 对齐 Rust `read_32le_unaligned`。
  */
 function readU32LE(bytes: Uint8Array, offset: number): number {
   return (
@@ -75,7 +75,7 @@ function readU32LE(bytes: Uint8Array, offset: number): number {
 
 /**
  * Read a little-endian `u64` from a byte slice.
- * 中文说明：对齐 Rust `read_64le_unaligned`。
+ * @zh 对齐 Rust `read_64le_unaligned`。
  */
 function readU64LE(bytes: Uint8Array, offset: number): bigint {
   let out = 0n
@@ -87,7 +87,7 @@ function readU64LE(bytes: Uint8Array, offset: number): bigint {
 
 /**
  * Swap byte order for a Rust `u64`.
- * 中文说明：用于 `xxh3_64_9to16` 中的 `input_lo.swap_bytes()`。
+ * @zh 用于 `xxh3_64_9to16` 中的 `input_lo.swap_bytes()`。
  */
 function swapBytes64(value: bigint): bigint {
   let out = 0n
@@ -99,7 +99,7 @@ function swapBytes64(value: bigint): bigint {
 
 /**
  * Rotate a Rust `u64` left.
- * 中文说明：用于 `strong_avalanche`，旋转后保持 u64 wrapping。
+ * @zh 用于 `strong_avalanche`，旋转后保持 u64 wrapping。
  */
 function rotl64(value: bigint, bits: bigint): bigint {
   return u64((value << bits) | (value >> (64n - bits)))
@@ -107,7 +107,7 @@ function rotl64(value: bigint, bits: bigint): bigint {
 
 /**
  * Rust `xxh64_common::avalanche`.
- * 中文说明：XXH3 的 0/1..3 byte 路径沿用 XXH64 avalanche。
+ * @zh XXH3 的 0/1..3 byte 路径沿用 XXH64 avalanche。
  */
 function xxh64Avalanche(input: bigint): bigint {
   let value = u64(input)
@@ -121,7 +121,7 @@ function xxh64Avalanche(input: bigint): bigint {
 
 /**
  * Rust `xxh3_common::avalanche`.
- * 中文说明：XXH3 中长输入 merge 和 17..240 byte 路径使用此 avalanche。
+ * @zh XXH3 中长输入 merge 和 17..240 byte 路径使用此 avalanche。
  */
 function avalanche(input: bigint): bigint {
   let value = u64(input)
@@ -133,7 +133,7 @@ function avalanche(input: bigint): bigint {
 
 /**
  * Rust `xxh3_common::strong_avalanche`.
- * 中文说明：对齐 4..8 byte 路径的强 avalanche。
+ * @zh 对齐 4..8 byte 路径的强 avalanche。
  */
 function strongAvalanche(input: bigint, len: number): bigint {
   let value = u64(input)
@@ -147,7 +147,7 @@ function strongAvalanche(input: bigint, len: number): bigint {
 
 /**
  * Rust `mul128_fold64`.
- * 中文说明：BigInt 直接计算 128-bit 乘积，再折叠高低 64 位。
+ * @zh BigInt 直接计算 128-bit 乘积，再折叠高低 64 位。
  */
 function mul128Fold64(left: bigint, right: bigint): bigint {
   const product = u64(left) * u64(right)
@@ -156,7 +156,7 @@ function mul128Fold64(left: bigint, right: bigint): bigint {
 
 /**
  * Rust `mix16_b` with seed fixed to 0 for `xxh3_64`.
- * 中文说明：Aura Rust 当前只调用无 seed 的 `xxh3_64`，因此这里投影默认 seed 语义。
+ * @zh Aura Rust 当前只调用无 seed 的 `xxh3_64`，因此这里投影默认 seed 语义。
  */
 function mix16B(input: Uint8Array, inputOffset: number, secretOffset: number): bigint {
   const inputLo = readU64LE(input, inputOffset) ^ readU64LE(DEFAULT_SECRET, secretOffset)
@@ -166,7 +166,7 @@ function mix16B(input: Uint8Array, inputOffset: number, secretOffset: number): b
 
 /**
  * Rust `xxh3_64_1to3`.
- * 中文说明：覆盖 1..3 byte 输入，NGram short hash 也复用此路径。
+ * @zh 覆盖 1..3 byte 输入，NGram short hash 也复用此路径。
  */
 function xxh3_64_1to3(input: Uint8Array): bigint {
   const len = input.length
@@ -180,7 +180,7 @@ function xxh3_64_1to3(input: Uint8Array): bigint {
 
 /**
  * Rust `xxh3_64_4to8`.
- * 中文说明：覆盖 4..8 byte 输入。
+ * @zh 覆盖 4..8 byte 输入。
  */
 function xxh3_64_4to8(input: Uint8Array): bigint {
   const input1 = readU32LE(input, 0)
@@ -192,7 +192,7 @@ function xxh3_64_4to8(input: Uint8Array): bigint {
 
 /**
  * Rust `xxh3_64_9to16`.
- * 中文说明：覆盖 9..16 byte 输入。
+ * @zh 覆盖 9..16 byte 输入。
  */
 function xxh3_64_9to16(input: Uint8Array): bigint {
   const flip1 = readU64LE(DEFAULT_SECRET, 24) ^ readU64LE(DEFAULT_SECRET, 32)
@@ -205,7 +205,7 @@ function xxh3_64_9to16(input: Uint8Array): bigint {
 
 /**
  * Rust `xxh3_64_0to16`.
- * 中文说明：0..16 byte dispatcher。
+ * @zh 0..16 byte dispatcher。
  */
 function xxh3_64_0to16(input: Uint8Array): bigint {
   if (input.length > 8) return xxh3_64_9to16(input)
@@ -216,7 +216,7 @@ function xxh3_64_0to16(input: Uint8Array): bigint {
 
 /**
  * Rust `xxh3_64_7to128`.
- * 中文说明：实际由 17..128 byte dispatcher 调用，函数名保留 Rust 原始命名。
+ * @zh 实际由 17..128 byte dispatcher 调用，函数名保留 Rust 原始命名。
  */
 function xxh3_64_7to128(input: Uint8Array): bigint {
   let acc = u64(BigInt(input.length) * PRIME64_1)
@@ -239,7 +239,7 @@ function xxh3_64_7to128(input: Uint8Array): bigint {
 
 /**
  * Rust `xxh3_64_129to240`.
- * 中文说明：覆盖中等长度输入，包含 first 8 rounds、二次 avalanche 与 last round。
+ * @zh 覆盖中等长度输入，包含 first 8 rounds、二次 avalanche 与 last round。
  */
 function xxh3_64_129to240(input: Uint8Array): bigint {
   const START_OFFSET = 3
@@ -262,7 +262,7 @@ function xxh3_64_129to240(input: Uint8Array): bigint {
 
 /**
  * Rust scalar `accumulate_512`.
- * 中文说明：long input 路径的 SIMD/scalar 版本语义一致，TS 采用 scalar 投影。
+ * @zh long input 路径的 SIMD/scalar 版本语义一致，TS 采用 scalar 投影。
  */
 function accumulate512(acc: bigint[], input: Uint8Array, inputOffset: number, secretOffset: number): void {
   for (let idx = 0; idx < ACC_NB; idx++) {
@@ -277,7 +277,7 @@ function accumulate512(acc: bigint[], input: Uint8Array, inputOffset: number, se
 
 /**
  * Rust scalar `scramble_acc`.
- * 中文说明：每个 block 后对 accumulator 做 avalanche-like 扰动。
+ * @zh 每个 block 后对 accumulator 做 avalanche-like 扰动。
  */
 function scrambleAcc(acc: bigint[], secretOffset: number): void {
   for (let idx = 0; idx < ACC_NB; idx++) {
@@ -289,7 +289,7 @@ function scrambleAcc(acc: bigint[], secretOffset: number): void {
 
 /**
  * Rust `accumulate_loop`.
- * 中文说明：按 64-byte stripe 累积 long input。
+ * @zh 按 64-byte stripe 累积 long input。
  */
 function accumulateLoop(acc: bigint[], input: Uint8Array, inputOffset: number, secretOffset: number, nbStripes: number): void {
   for (let idx = 0; idx < nbStripes; idx++) {
@@ -299,7 +299,7 @@ function accumulateLoop(acc: bigint[], input: Uint8Array, inputOffset: number, s
 
 /**
  * Rust `hash_long_internal_loop`.
- * 中文说明：覆盖 241+ byte 输入，包含完整 blocks、partial block 与 last stripe。
+ * @zh 覆盖 241+ byte 输入，包含完整 blocks、partial block 与 last stripe。
  */
 function hashLongInternalLoop(acc: bigint[], input: Uint8Array): void {
   const nbStripes = Math.floor((DEFAULT_SECRET.length - STRIPE_LEN) / SECRET_CONSUME_RATE)
@@ -318,7 +318,7 @@ function hashLongInternalLoop(acc: bigint[], input: Uint8Array): void {
 
 /**
  * Rust `merge_accs`.
- * 中文说明：将 long input 的 8-lane accumulator 折叠为最终 u64。
+ * @zh 将 long input 的 8-lane accumulator 折叠为最终 u64。
  */
 function mergeAccs(acc: bigint[], result: bigint): bigint {
   let out = u64(result)
@@ -337,7 +337,7 @@ function mergeAccs(acc: bigint[], result: bigint): bigint {
 
 /**
  * Rust `xxh3_64_long_impl`.
- * 中文说明：默认 secret、无 seed 的 long input 路径。
+ * @zh 默认 secret、无 seed 的 long input 路径。
  */
 function xxh3_64_long(input: Uint8Array): bigint {
   const acc = [...INITIAL_ACC]
@@ -348,7 +348,7 @@ function xxh3_64_long(input: Uint8Array): bigint {
 /**
  * Compute Rust-compatible `xxhash_rust::xxh3::xxh3_64`.
  * Rust reference: `xxhash-rust/src/xxh3.rs` and `xxh3_common.rs`.
- * 中文说明：当前仅投影 Aura Rust 使用的默认 seed/default secret `xxh3_64(input)`。
+ * @zh 当前仅投影 Aura Rust 使用的默认 seed/default secret `xxh3_64(input)`。
  */
 export function xxh3_64(input: string | Uint8Array): bigint {
   const bytes = typeof input === "string" ? encoder.encode(input) : input
@@ -360,7 +360,7 @@ export function xxh3_64(input: string | Uint8Array): bigint {
 
 /**
  * Compute lower-case 16-character Rust-compatible XXH3 hex.
- * 中文说明：用于 Rust `format!("{:016x}", xxh3_64(...))` 对齐。
+ * @zh 用于 Rust `format!("{:016x}", xxh3_64(...))` 对齐。
  */
 export function xxh3_64Hex(input: string | Uint8Array): string {
   return xxh3_64(input).toString(16).padStart(16, "0")

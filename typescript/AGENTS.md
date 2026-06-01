@@ -7,7 +7,7 @@
 ## 1. 最高优先级原则（按顺序执行）
 
 1) 对齐 Rust 行为与持久化格式：优先确保磁盘格式互通（必要时字节级一致），其次对齐算法语义与输出。
-2) 可验证性优先：任何改动必须可通过 `bun run --cwd typescript typecheck` 与相关测试；不允许“只凭肉眼”对齐。
+2) 可验证性优先：任何改动必须可通过仓库根目录下的 `bun run typecheck` 与相关测试；不允许“只凭肉眼”对齐。
 3) 不确定性先消除：Rust reference 若含随机性/非确定性，优先让 verifier/fixture 可复现，再做 TS 对齐。
 4) 依赖注入与分层边界必须守住：core/storage/codec/indexing/recall 禁止直接依赖 `node:*`。
 5) 注释与差异必须显式：保留 Rust 同位置注释并翻译为中文；差异要能全局搜索定位。同样的结构/类型/方法/函数名称如果在ts端进行了重命名（含大小写），则必须在注视中说明并保留原始命名。
@@ -66,7 +66,9 @@
 
 ### 2.6 测试策略（Rust parity 优先）
 
-- 测试框架：vitest + @effect/vitest（通过 `bun run --cwd typescript test` 执行）。
+- 测试框架：vitest + @effect/vitest（在 `typescript/` 根目录通过 `bun run test` 执行）。
+- 单测/定向回归优先直接传文件路径，例如：`bun run test packages/core/src/Aura.test.ts`。
+- 不要依赖 `bun run test --filter ...`；当前仓库实际工作流以文件路径选择测试目标。
 - 每个算法模块都应有与 Rust 高度一致的测试文件（优先不依赖其它模块者先写）。
 - 跨语言对照：通过 `spawnSync("cargo", ["run", "--bin", ...])` 在测试中运行 Rust verifier/fixture。
 
@@ -98,6 +100,14 @@
   - 只依赖 `contract`（取 services）与纯逻辑模块；不做 IO。
 - `packages/core`
   - 门面层（Aura.open / Aura.recall* 等），负责把 storage view + recall pipeline 串起来。
+- `packages/belief` / `packages/concept` / `packages/causal` / `packages/policy`
+  - 四层维护引擎与各自 store 的读写/发现逻辑。
+- `packages/epistemic-runtime`
+  - inspection / trace 运行时，只读聚合各层状态，不承载写侧维护编排。
+- `packages/mcp`
+  - Mastra-based MCP stdio server；transport 保持 thin，业务组合继续落在 `@aura/core`。
+- `packages/code-extraction`
+  - 独立代码分析/知识图谱实验包；不属于 Aura core + MCP 主链路。
 
 ---
 
@@ -200,10 +210,10 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
   - `packages/recall/src/BoundedReranker.ts` 同时暴露纯算法与 engine-backed `BoundedRerankerLive`，通过 Belief/Concept/Causal/Policy engine stats 运行同一套 Rust guardrails。
     - `computeShadowBeliefScores` 已对齐 Rust `compute_shadow_belief_scores`，支持 Shadow observe-only report（不改变输入排序）。
 - 影响
-  - finalize 的 records 落盘副作用已对齐；但 SessionTracker / AuditLog 仍未接入。
+  - finalize 的 records 落盘副作用已对齐；session-scoped co-activation tracking 已通过 `RecallSessionTracker` / `endRecallSession` 接入，但 AuditLog 风格持久化仍未补齐。
   - 默认 bounded rerank 已从旧的非对齐位置 boost 改为 Rust runtime 默认的 file-backed Limited/Inspect 组合；Shadow report 计算已具备，但运行期开关 API 与 trace/report 对外表面尚未补齐。
 - 后续对齐建议
-  - 补齐 file-backed SessionTracker 与 AuditLog。
+  - 继续评估是否需要补齐更 Rust-shaped 的 audit/report 持久化表面。
   - 补齐 bounded rerank 的运行期开关 API 与 report/trace 对外表面。
 
 ### 5.6 Record 模型与默认字段不一致（中影响）—— ✅ 已完成
@@ -294,13 +304,14 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 - 已补齐 Record schema 默认字段、source/semantic/namespace 校验、store/update/delete/connect 写入边界语义，并接入 salience 到重要性与 memory_health 表面。
 - 已补齐 recall finalize 的 records 落盘副作用：`RecallFinalizerFileLive` 默认装配，top-10 activate 与 co-recall strengthening 按 Rust `activate_and_strengthen` 更新 `brain.cog`。
 - 已补齐 file-backed bounded rerank 默认链路：`BoundedRerankerFileLive` 默认装配，按 Rust runtime 默认执行 belief/causal/policy Limited 与 concept Inspect，移除旧的非对齐位置 boost。
+- 已完成 `@aura/mcp`：Mastra stdio server、canonical `TOOL_INVENTORY`、Inventory/MastraCompat/StdioSmoke/Parity 测试已落地；当前 inventory 为 20 个 implemented tools + 1 个显式 unsupported `consolidate`。
 
 ### 8.2 当前差异与风险（下一步优先级）
 
-- 高优先级对齐项：bounded rerank 开关/report/trace 对外表面与 recall finalize 的 SessionTracker/AuditLog。
+- 当前主线已从 Phase 7 切到 backlog `999.3`：优先做 engine/tooling 公共工具去重，避免继续在各包复制 Effect wrapper / hash / polarity / 并查集一类 helper。
+- 高优先级对齐项：bounded rerank 的运行期开关、report/trace 对外表面；`consolidate` 仍保持 explicit unsupported，不能伪造成功。
 - 中优先级对齐项：graph/causal 扩展所需字段的写入侧闭环、NGramIndex 的 SynonymRing 可选扩展。
-- 低-中优先级对齐项：召回缓存与 trace/可观测性。
-- 编排缺口：`@aura/core` 中尚未实现 MaintenanceService（写入后自动触发四层维护的编排服务），各引擎已独立可用但缺少统一入口。
+- 低-中优先级对齐项：召回缓存与 trace/可观测性；Rust MCP 若本地不可构建，parity artifact 必须继续诚实标记 `skipped_no_rust_or_golden`，不能写成 parity passed。
 
 ## 9. Phase Learnings（跨 phase 经验沉淀）
 
@@ -352,12 +363,11 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 
 ### 8.3 下一步建议（推进顺序）
 
-1) 补齐 bounded rerank 运行期开关 API 与 report/trace 对外表面，并扩展 verifier/trace 断言。
-2) 补齐 recall finalize 的 SessionTracker/AuditLog 持久化语义。
+1) 推进 backlog `999.3`：把已重复出现的 Effect wrappers / hash / polarity signals / UnionFind 收敛到 `@aura/utils` 或现有公共层，先消除跨包复制，再动行为语义。
+2) 补齐 bounded rerank 运行期开关 API 与 report/trace 对外表面，并扩展 verifier/trace 断言。
 3) 审计 graph/causal 扩展所需字段的写入侧闭环（connections / caused_by_id / finalize-strengthen）。
 4) 对照 Rust store_with_channel 继续收敛 dedup / guard / provenance / surprise promotion 等剩余写入语义。
-5) 实现 MaintenanceService 编排层：串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine 的自动维护流程，并在 `Aura.store/update/delete/connect` 中可选触发。
-6) 后续如启用 Rust `SynonymRing`，在 TS `NGramIndex` 内接入同义词扩展并补 verifier。
+5) 后续如启用 Rust `SynonymRing`，在 TS `NGramIndex` 内接入同义词扩展并补 verifier。
 
 ### 8.4 维护流程分阶段状态（Phase 3+）
 
@@ -415,6 +425,6 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
   - `packages/contract/src/EpistemicRuntime.ts`
   - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
   - `packages/epistemic-runtime/src/EpistemicTrace.ts`（`EpistemicTraceImpl` + `EpistemicTraceLive`）
-- MaintenanceService：尚未在 `@aura/core` 中实现”写入后自动维护 + 四层落盘”的编排服务（各引擎已独立可用，缺少统一入口串联 BeliefEngine → ConceptEngine → CausalEngine → PolicyEngine）。
+- MaintenanceService：已在 `@aura/core` 中实现完整维护编排，`Aura.runMaintenance()` 已接到该 pipeline；当前剩余缺口不是“没有入口”，而是写侧是否自动触发维护、以及若干 Phase 8/非 parity-grade 算法仍保持显式简化实现。
 - BoundedReranker：`@aura/recall` 暴露 Rust guardrail 纯算法、Shadow observe-only report 与 engine-backed `BoundedRerankerLive`；`@aura/core` 的 `BoundedRerankerFileLive` 已默认接入 Rust runtime Limited/Inspect guardrails；仍缺少运行期开关 API 与 report/trace 对外表面。
 - Aura 写入触发：`Aura.store/update/delete/connect` 目前只负责写入 `brain.cog`（以及 snapshot），尚未触发维护服务（Phase 5 完成后应默认开启，可配置关闭）。

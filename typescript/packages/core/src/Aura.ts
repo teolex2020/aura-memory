@@ -45,9 +45,10 @@ import {
   type BrainAuraRecord,
   type PersistenceManifest,
 } from "@aura/storage";
-import type { IndexFormatError } from "@aura/indexing";
+import { InvertedIndex, type IndexFormatError } from "@aura/indexing";
 import {
   defaultTrustConfig,
+  SDRInterpreter,
   type RecallPipelineOptions,
   type RecallRecordEvidence,
   type SdrInterpreterError,
@@ -64,12 +65,19 @@ import * as Graph from "./Graph"
 import * as RecallFinalizer from "./RecallFinalizer"
 import * as Consolidation from "./Consolidation"
 import * as RecallService from "./RecallService"
-import { id12, nowSecs } from "@aura/utils";
+import { nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = AuraRecord.defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
 const RECORD_SALIENCE_REASON_KEY = "salience_reason"
 const RECORD_SALIENCE_MARKED_AT_KEY = "salience_marked_at"
 const startupJsonDecoder = new TextDecoder()
+
+type AuraStoreError =
+  | FileReadError
+  | FileWriteError
+  | JsonParseError
+  | IndexFormatError
+  | RecordValidationError
 
 function numberOr(raw: unknown, fallback: number): number {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback
@@ -534,6 +542,9 @@ export class Aura {
     return Effect.gen(function* () {
       const fs = yield* Effect.service(FileRead);
       const startupEvents: StartupValidationEvent[] = []
+      const brainFile = yield* BrainAuraFile.open(brainPath)
+      yield* brainFile.flush()
+      yield* CognitiveStoreFile.open(brainPath)
       const buf = yield* fs.readFile(brainAuraPath);
       const parsed = yield* Effect.try({
         try: () => readBrainAuraFile(buf),
@@ -1092,7 +1103,7 @@ export class Aura {
     options?: StoreOptions,
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError | RecordValidationError,
+    AuraStoreError,
     FileRead | FileWrite
   > {
     return this.store_with_channel(content, options);
@@ -1107,7 +1118,7 @@ export class Aura {
     options: StoreCodeOptions,
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError | RecordValidationError,
+    AuraStoreError,
     FileRead | FileWrite
   > {
     const tags = [...(options.tags ?? []), "code", options.language]
@@ -1132,7 +1143,7 @@ export class Aura {
     options: StoreDecisionOptions,
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError | RecordValidationError,
+    AuraStoreError,
     FileRead | FileWrite
   > {
     let content = `DECISION: ${options.decision}`
@@ -1158,8 +1169,10 @@ export class Aura {
    * `auto_promote`: if Some(false), disables surprise-based level promotion.
    * `auto_promote` 为 false 时关闭基于“surprise”的 level 晋升。
    *
-   * SIMPLE IMPLEMENTATION: only appends to brain.cog (CognitiveStoreFile) and fsyncs.
-   * 简化实现：仅追加写入 brain.cog 并 fsync；不维护 brain.aura 与 index/。
+   * NON-PARITY IMPLEMENTATION: guard/dedup/surprise/audit/embedding/cortex side branches
+   * are still not fully wired; the primary Rust write storage/index closure is maintained.
+   * @zh 非完全对齐：guard/dedup/surprise/audit/embedding/cortex 分支尚未全部接入；
+   * 当前已维护主写入链路的 brain.aura、index/、aura_id 与 cognitive store。
    * Rust reference: `Aura::store` / `Aura::store_with_channel` (`../src/aura.rs`).
    */
   store_with_channel(
@@ -1170,7 +1183,7 @@ export class Aura {
     },
   ): Effect.Effect<
     AuraRecord,
-    FileReadError | FileWriteError | RecordValidationError,
+    AuraStoreError,
     FileRead | FileWrite
   > {
     const dir = this.brainDir;
@@ -1178,11 +1191,8 @@ export class Aura {
     return Effect.gen(function* () {
       const clock = yield* Clock
       const nowSec = clock.nowSeconds();
-      const nowIso = new Date().toISOString();
-      // NON-PARITY: id12() generates random IDs — record IDs must be deterministic
-      // for engine parity. Tracked: defer until Rust-aligned AuraStorage provides
-      // deterministic record ID generation (e.g., content-hash-based).
-      const id = id12();
+      const nowIso = new Date(nowSec * 1000).toISOString();
+      const id = AuraRecord.generateId();
 
       const tags = Array.isArray(options?.tags)
         ? options!.tags.filter((t): t is string => typeof t === "string")
@@ -1219,6 +1229,7 @@ export class Aura {
         activation_velocity: 0,
         salience: 0,
         metadata: { ...(options?.metadata ?? {}), timestamp: nowIso },
+        aura_id: id,
         caused_by_id: options?.caused_by_id ?? null,
         confidence: AuraRecord.defaultConfidenceForSource(sourceType),
         support_mass: 0,
@@ -1229,9 +1240,41 @@ export class Aura {
       const tagIndex = Graph.createTagIndex(self.searchRecords, [record])
       const autoConnect = yield* Graph.autoConnect(record, tagIndex, self.searchRecords)
       record = autoConnect.record
+      const sdr = yield* Effect.promise(() => SDRInterpreter.default())
+      const isIdentity = Level.isIdentitySdr(record.level)
+      const sdrIndices = sdr.textToSdr(content, isIdentity)
+      const index = yield* InvertedIndex.load(`${dir}/index`)
+      index.add(record.id, sdrIndices)
+      yield* index.save(`${dir}/index`)
+      const brain = yield* BrainAuraFile.open(dir)
+      const offset = yield* brain.appendUnencrypted({
+        id: record.id,
+        dna: Level.toDna(record.level),
+        timestamp: record.created_at,
+        intensity: record.strength,
+        stability: options?.pin === true ? 100 : 1,
+        decay_velocity: 0,
+        entropy: 0,
+        sdr_indices: sdrIndices,
+        text: content,
+      })
+      yield* brain.flush()
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendStore(record);
       yield* store.flush();
+      self.records.push({
+        id: record.id,
+        dna: Level.toDna(record.level),
+        timestamp: record.created_at,
+        intensity: record.strength,
+        stability: options?.pin === true ? 100 : 1,
+        decay_velocity: 0,
+        entropy: 0,
+        sdr_indices: sdrIndices,
+        text: content,
+        offset,
+        encrypted_flag: 0,
+      })
       self.searchRecords = new Map(autoConnect.records).set(record.id, record)
       self.clearRecallCaches()
       return record;

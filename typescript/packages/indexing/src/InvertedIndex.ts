@@ -25,7 +25,7 @@ export class InvertedIndex {
   ) {}
 
   static empty(): InvertedIndex {
-    return new InvertedIndex(1, new Map(), new Map(), new Map())
+    return new InvertedIndex(0, new Map(), new Map(), new Map())
   }
 
   static load(dir: string): Effect.Effect<InvertedIndex, FileReadError | JsonParseError | IndexFormatError, FileRead> {

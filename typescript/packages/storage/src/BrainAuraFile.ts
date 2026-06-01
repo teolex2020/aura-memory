@@ -29,6 +29,34 @@ function headerBytes(createdSecF64: number, count: bigint): Uint8Array {
   return w.toUint8Array()
 }
 
+function recordBytes(
+  record: BrainAuraFileAppendRecord,
+  textBytes: Uint8Array,
+  encryptedFlag: 0 | 1,
+): Uint8Array {
+  const sdr_count = record.sdr_indices.length
+  if (sdr_count > 0xffff) {
+    throw new Error("sdr_indices too large")
+  }
+
+  const w = new BinaryWriter()
+  w.bytes(fixedBytes(record.id, 32))
+  w.bytes(fixedBytes(record.dna, 16))
+  w.f64le(record.timestamp)
+  w.f32le(record.intensity)
+  w.f32le(record.stability)
+  w.f32le(record.decay_velocity)
+  w.f32le(record.entropy)
+  w.u16le(sdr_count)
+  w.u32le(textBytes.byteLength)
+  w.u8(encryptedFlag)
+  for (const idx of record.sdr_indices) {
+    w.u16le(idx)
+  }
+  w.bytes(textBytes)
+  return w.toUint8Array()
+}
+
 export class BrainAuraFile {
   private constructor(
     private readonly filePath: string,
@@ -72,48 +100,55 @@ export class BrainAuraFile {
     })
   }
 
-  append(record: BrainAuraFileAppendRecord): Effect.Effect<void, FileWriteError | CryptoError, FileWrite | Crypto> {
+  /**
+   * Append an unencrypted stored record and return its byte offset.
+   * @zh 追加未加密 StoredRecord，并返回其在 `brain.aura` 中的 byte offset。
+   *
+   * Rust reference: `AuraStorage::append` plaintext branch (`../src/storage.rs`).
+   */
+  appendUnencrypted(record: BrainAuraFileAppendRecord): Effect.Effect<bigint, FileWriteError, FileWrite> {
+    const self = this
+    return Effect.gen(function* () {
+      const fw = yield* Effect.service(FileWrite)
+      const offset = BigInt(self.endOff)
+      const plaintext = te.encode(record.text)
+      const buf = recordBytes(record, plaintext, 0)
+      yield* fw.appendFile(self.filePath, buf)
+      self.endOff += buf.byteLength
+      self.count += 1n
+      return offset
+    })
+  }
+
+  /**
+   * Append a stored record and return its byte offset.
+   * @zh 追加 StoredRecord，并返回其在 `brain.aura` 中的 byte offset。
+   *
+   * Rust reference: `AuraStorage::append` (`../src/storage.rs`).
+   */
+  append(record: BrainAuraFileAppendRecord): Effect.Effect<bigint, FileWriteError | CryptoError, FileWrite | Crypto> {
     const encrypted_flag = record.encrypted_flag === 1 ? 1 : 0
+    if (encrypted_flag === 0) {
+      return this.appendUnencrypted(record)
+    }
+
     const self = this
     return Effect.gen(function* () {
       const fw = yield* Effect.service(FileWrite)
       const crypto = yield* Effect.service(Crypto)
 
       const plaintext: Uint8Array = te.encode(record.text)
-      let textBytes: Uint8Array = plaintext
-      if (encrypted_flag === 1) {
-        if (!self.key32) {
-          throw new Error("missing key32 for encryption")
-        }
-        const enc: Uint8Array = yield* crypto.encryptData(plaintext, self.key32)
-        textBytes = enc
+      if (!self.key32) {
+        throw new Error("missing key32 for encryption")
       }
+      const textBytes = yield* crypto.encryptData(plaintext, self.key32)
 
-      const sdr_count = record.sdr_indices.length
-      if (sdr_count > 0xffff) {
-        throw new Error("sdr_indices too large")
-      }
-
-      const w = new BinaryWriter()
-      w.bytes(fixedBytes(record.id, 32))
-      w.bytes(fixedBytes(record.dna, 16))
-      w.f64le(record.timestamp)
-      w.f32le(record.intensity)
-      w.f32le(record.stability)
-      w.f32le(record.decay_velocity)
-      w.f32le(record.entropy)
-      w.u16le(sdr_count)
-      w.u32le(textBytes.byteLength)
-      w.u8(encrypted_flag)
-      for (const idx of record.sdr_indices) {
-        w.u16le(idx)
-      }
-      w.bytes(textBytes)
-
-      const buf = w.toUint8Array()
+      const offset = BigInt(self.endOff)
+      const buf = recordBytes(record, textBytes, 1)
       yield* fw.appendFile(self.filePath, buf)
       self.endOff += buf.byteLength
       self.count += 1n
+      return offset
     })
   }
 

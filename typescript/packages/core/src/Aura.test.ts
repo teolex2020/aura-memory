@@ -13,7 +13,9 @@ import {
   loadCognitiveRecords,
   MaintenanceTrendsFile,
   ReflectionSummariesFile,
+  readBrainAuraFile,
 } from "@aura/storage"
+import { InvertedIndex } from "@aura/indexing"
 import { EpistemicRuntimeLive } from "@aura/epistemic-runtime"
 import {
   BeliefEngine, ConceptEngine, CausalEngine, PolicyEngine,
@@ -65,6 +67,23 @@ it("Aura.open loads minimal fixture", async () => {
   assert.strictEqual(all[0]?.id, "ts_fixture_1")
 
   assert.ok(fs.existsSync(path.join(brainPath, "persistence_manifest.json")))
+})
+
+it("Aura.open bootstraps empty Rust storage files", async () => {
+  const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-empty-open-"))
+
+  const aura = await Effect.runPromise(
+    Aura.open(brainPath).pipe(
+      Effect.provide(NodeFileReadLive),
+      Effect.provide(NodeFileWriteLive),
+    )
+  )
+
+  assert.strictEqual(aura.listRecords().length, 0)
+  assert.ok(fs.existsSync(path.join(brainPath, "brain.aura")))
+  assert.ok(fs.existsSync(path.join(brainPath, "brain.cog")))
+  const parsed = readBrainAuraFile(fs.readFileSync(path.join(brainPath, "brain.aura")))
+  assert.strictEqual(parsed.header.count, 0n)
 })
 
 describe("Aura MCP-facing operational surfaces", () => {
@@ -648,6 +667,39 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(firstView.connection_types[second.id], "associative")
     assert.strictEqual(secondView.connection_types[third.id], "associative")
     assert.strictEqual(aura.stats().total_connections, 6)
+  })
+
+  it("store_with_channel persists brain.aura, SDR index, and aura_id", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-store-write-"))
+    const aura = await Effect.runPromise(provideNodeAt(Aura.open(brainPath), 1_700_000_000))
+
+    const record = await Effect.runPromise(provideNodeAt(aura.store("indexed alpha storage closure", {
+      namespace: "alpha",
+      level: Level.Domain,
+      tags: ["indexed", "alpha"],
+      pin: true,
+    }), 1_700_000_123))
+
+    assert.strictEqual(record.aura_id, record.id)
+    assert.strictEqual(aura.listRecords().length, 1)
+
+    const parsed = readBrainAuraFile(fs.readFileSync(path.join(brainPath, "brain.aura")))
+    assert.strictEqual(parsed.header.count, 1n)
+    const stored = parsed.records[0]!
+    assert.strictEqual(stored.id, record.id)
+    assert.strictEqual(stored.dna, "user_core")
+    assert.strictEqual(stored.text, "indexed alpha storage closure")
+    assert.strictEqual(stored.stability, 100)
+    assert.ok(stored.sdr_indices.length > 0)
+
+    const cognitive = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(cognitive.get(record.id)?.aura_id, record.id)
+
+    const index = await Effect.runPromise(InvertedIndex.load(path.join(brainPath, "index")).pipe(
+      Effect.provide(NodeFileReadLive)
+    ))
+    const hits = index.searchScored(stored.sdr_indices, 10, 1)
+    assert.strictEqual(hits[0]?.[0], record.id)
   })
 
   it("basic read facades mirror Rust PyO3 get/count/namespace/history semantics", async () => {

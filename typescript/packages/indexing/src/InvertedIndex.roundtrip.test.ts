@@ -16,6 +16,13 @@ it("InvertedIndex save/load roundtrip", async () => {
     yield* idx.save(dir)
     const loaded = yield* InvertedIndex.load(dir)
     assert.deepStrictEqual(loaded.search([2, 3]).sort(), ["r1", "r2"].sort())
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, "index_manifest.json"), "utf8")) as {
+      next_doc_id: number
+      id_map: Record<string, number>
+    }
+    assert.strictEqual(manifest.next_doc_id, 2)
+    assert.strictEqual(manifest.id_map.r1, 0)
+    assert.strictEqual(manifest.id_map.r2, 1)
   }).pipe(Effect.provide(NodeFileReadLive), Effect.provide(NodeFileWriteLive))
   await Effect.runPromise(program)
 })

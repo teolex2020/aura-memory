@@ -1,5 +1,19 @@
 # Implementation Log
 
+## 2026-06-01 - Aura open/store storage-index 写入闭环对齐
+
+- 子代理审计：Epicurus / Wegener 只读核对 open→write→recall 全流程，均将 `Aura.store_with_channel` 未维护 `brain.aura` / SDR index / `aura_id` 判为 P0；同时指出 `InvertedIndex.empty()` 从 doc id 1 起步会在开始写 index 后产生磁盘格式偏差。
+- 范围：`packages/core/src/Aura.ts`、`packages/core/src/Aura.test.ts`、`packages/storage/src/BrainAuraFile.ts`、`packages/indexing/src/InvertedIndex.ts`、`packages/indexing/src/InvertedIndex.roundtrip.test.ts`、`.planning/BACKLOG.md`。
+- 实现：`Aura.open` 现在按 Rust startup 行为自举 `brain.aura` 与 `brain.cog`，空目录 open 不再依赖外部预先创建 storage 文件。
+- 实现：`Aura.store_with_channel` 的主写入闭环现在生成 Rust SDR、写入 `index/` 的 `InvertedIndex`、追加 `brain.aura` StoredRecord、设置 `record.aura_id = record.id`、追加 `brain.cog` 并刷新实例级 `listRecords` / search read model / recall caches。
+- 实现：`BrainAuraFile.appendUnencrypted` 提供无加密 StoredRecord append 路径并返回 byte offset，避免普通未加密写入被尚未对齐的 encryption service 污染；原 `append` 保留 encrypted branch。
+- 实现：`InvertedIndex.empty()` 从 Rust `InvertedIndex::new` 的 `next_doc_id = 0` 起步，roundtrip 测试断言 manifest 中 `r1=0`、`r2=1`、`next_doc_id=2`。
+- 仍未完成：store guard/dedup/surprise/audit/embedding/cortex 分支尚未全量接入，因此 `Aura.store_with_channel` 保留更精确的 `NON-PARITY IMPLEMENTATION` marker；update/delete/connect 的 storage/index/cache 闭环仍在 backlog。
+- Rust reference：`Aura::open` / `Aura::open_with_password` / `Aura::store_with_channel`（`../src/aura.rs`），`AuraStorage::with_encryption` / `AuraStorage::append`（`../src/storage.rs`），`InvertedIndex::new` / `InvertedIndex::add` / `InvertedIndex::save`（`../src/index.rs`），`SDRInterpreter::text_to_sdr`（`../src/sdr.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/storage/src/BrainAuraFile.test.ts packages/indexing/src/InvertedIndex.roundtrip.test.ts packages/indexing/src/InvertedIndex.searchScored.test.ts packages/core/src/Aura.test.ts packages/storage/src/RecallView.test.ts packages/core/src/Recall.parity.test.ts packages/mcp/src/Parity.test.ts` 通过，7 files / 50 tests。
+
 ## 2026-06-01 - RecallView startup/load read model 对齐
 
 - 范围：`packages/storage/src/RecallView.ts`、`packages/storage/src/RecallView.test.ts`、`.planning/BACKLOG.md`。

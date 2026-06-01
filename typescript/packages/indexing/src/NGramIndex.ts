@@ -10,8 +10,10 @@ const SECRET_U32_0 = 0x396cfeb8
 const SECRET_U32_4 = 0xbe4ba423
 const SECRET_U64_56 = 0x4c263a81e69035e0n
 const SECRET_U64_64 = 0xcb00c391bb52283cn
+const U31_SPACE = 0x80000000
 
 const te = new TextEncoder()
+const randomBuffer = new Uint32Array(1)
 
 /**
  * Rust `NGramIndex::with_seed(None, None, 0)` coefficient projection.
@@ -123,12 +125,37 @@ export function tokenizeNGram(text: string): ReadonlyArray<number> {
   return shingles
 }
 
+/**
+ * Draw a 31-bit unsigned integer from Web Crypto.
+ * 中文说明：Rust `gen_range` 的目标 PRIME 小于 2^31，因此先取 31-bit 空间再做拒绝采样。
+ */
+function randomU31(): number {
+  const crypto = globalThis.crypto
+  if (crypto === undefined) {
+    throw new Error("NGramIndex.random requires globalThis.crypto.getRandomValues")
+  }
+  crypto.getRandomValues(randomBuffer)
+  return randomBuffer[0]! >>> 1
+}
+
+/**
+ * Draw an unbiased integer in `[0, exclusiveMax)`.
+ * 中文说明：丢弃不能整除目标区间的尾部值，避免 modulo bias。
+ */
+function randomIntBelow(exclusiveMax: number): number {
+  const limit = Math.floor(U31_SPACE / exclusiveMax) * exclusiveMax
+  while (true) {
+    const value = randomU31()
+    if (value < limit) return value % exclusiveMax
+  }
+}
+
 function randomCoefficientA(): number {
-  return 1 + Math.floor(Math.random() * (PRIME - 1))
+  return 1 + randomIntBelow(PRIME - 1)
 }
 
 function randomCoefficientB(): number {
-  return Math.floor(Math.random() * PRIME)
+  return randomIntBelow(PRIME)
 }
 
 /**
@@ -160,9 +187,9 @@ export class NGramIndex {
   /**
    * Create a new n-gram index.
    * 创建新的 n-gram 索引。
-   *
-   * NON-PARITY IMPLEMENTATION: this mirrors Rust's non-deterministic constructor shape,
-   * but JS Math.random is not Rust thread_rng. Use `withSeed0` for verifier parity.
+   * Rust reference: `NGramIndex::new` (`../src/ngram.rs`).
+   * 中文说明：使用 Web Crypto 随机源 + rejection sampling，对齐 Rust `gen_range(1..PRIME)`
+   * / `gen_range(0..PRIME)` 的整数区间分布；跨语言确定性 verifier 仍使用 `withSeed0`。
    */
   static random(numHashes = DEFAULT_NUM_HASHES, synonymRing?: SynonymRing): NGramIndex {
     const a = Array.from({ length: numHashes }, randomCoefficientA)

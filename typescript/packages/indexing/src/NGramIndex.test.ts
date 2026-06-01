@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
 import * as path from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { NGramIndex, tokenizeNGram, xxh3NGramHash } from "./NGramIndex"
 import { SynonymRing } from "./SynonymRing"
 
@@ -54,6 +54,20 @@ describe("NGramIndex Rust parity", () => {
     expect(idx.query(rust.query_text, 10)).toEqual(rust.query)
     for (const [left, right, expected] of rust.jaccard) {
       expect(idx.jaccard(left, right)).toBe(expected)
+    }
+  })
+
+  it("uses crypto-backed random coefficients without Math.random", () => {
+    const mathRandom = vi.spyOn(Math, "random").mockImplementation(() => {
+      throw new Error("Math.random should not be used for NGramIndex.random")
+    })
+    try {
+      const idx = NGramIndex.random(8)
+      idx.add("r1", "deploy staging safety checklist")
+      idx.add("r2", "unrelated banana note")
+      expect(idx.query("staging safety", 4).some(([, id]) => id === "r1")).toBe(true)
+    } finally {
+      mathRandom.mockRestore()
     }
   })
 

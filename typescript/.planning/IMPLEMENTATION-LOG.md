@@ -144,3 +144,19 @@
   - `bun run test packages/core/src/MaintenanceService.test.ts packages/core/src/Aura.test.ts` 通过，2 files / 59 tests。
   - `git diff --check` 通过。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 539 tests。
+
+## 2026-06-01 - NGramIndex random coefficient 分布对齐
+
+- 范围：`packages/indexing/src/NGramIndex.ts`、`packages/indexing/src/NGramIndex.test.ts`、`vitest.config.ts`、`vitest.setup.ts`、`tsconfig.json`、`.planning/BACKLOG.md`。
+- 实现：`NGramIndex.random()` 不再使用 `Math.random()`，改为 `globalThis.crypto.getRandomValues` 生成 31-bit 随机数，并通过 rejection sampling 对齐 Rust `rng.gen_range(1..PRIME)` / `rng.gen_range(0..PRIME)` 的整数区间分布。
+- 实现：移除 `NGramIndex.random()` 的 `NON-PARITY IMPLEMENTATION` 标记；确定性跨语言 verifier 仍由 `NGramIndex.withSeed0()` 覆盖。
+- 实现：为当前 Windows PATH 下的 Node 16.20.2 测试环境补齐 Vitest worker Web API setup（`crypto`、`fetch`、`Request`、`Response`、`Headers`、`Blob`、Web Streams），并保留 `vitest.config.ts` 中 Vite 启动阶段需要的 `node:crypto.getRandomValues` polyfill；生产包不引入 `node:*`。
+- 文档：初始化 `.planning/BACKLOG.md`，从 ROADMAP Phase 8 与 IMPLEMENTATION-LOG 已完成项整理当前 parity backlog 和完成进度。
+- Rust reference：`NGramIndex::new` / `NGramIndex::with_seed`（`../src/ngram.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/indexing/src/NGramIndex.test.ts` 通过，1 file / 6 tests。
+  - `bun run test packages/indexing/src/NGramIndex.test.ts packages/codec/src/Crypto.test.ts packages/storage/src/BrainAuraFile.test.ts` 通过，3 files / 10 tests。
+  - `bun run test packages/mcp/src/Inventory.test.ts packages/mcp/src/MastraCompat.test.ts packages/mcp/src/Parity.test.ts packages/mcp/src/StdioSmoke.test.ts` 通过，4 files / 6 tests。
+  - `git diff --check` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，54 files / 540 tests。

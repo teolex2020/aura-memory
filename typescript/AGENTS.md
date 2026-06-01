@@ -74,40 +74,17 @@
 
 ---
 
-## 3. workspace 结构（按职责分包）
+## 3. workspace 结构
 
-`typescript/` 是一个 workspaces 仓库（见 `package.json`）。核心意图是把“纯逻辑”“二进制格式”“平台 IO”“门面编排”拆开，便于对齐 Rust 与测试。
+详见 `.planning/codebase/` 下的 codebase 映射文档：
 
-- `packages/contract`
-  - 只放“契约”：Effect Context/Tag 定义与领域类型。
-  - 不放实现细节，不直接依赖 node:*。
-- `packages/platform-node`
-  - 平台实现层：Bun/Node 的文件系统、时钟、crypto 等 Live Layer。
-  - 所有 node:* 仅允许出现在这里。
-- `packages/utils`
-  - 纯函数工具（bytes/hex/crc32 等），无 IO、无 Effect 依赖（或极少）。
-  - 约定：秒级时间戳获取统一用 `nowSecs()`（`packages/utils/src/Time.ts`），避免散落 `Date.now() / 1000`。
-- `packages/codec`
-  - 二进制编解码与 crypto 原语（Binary/Bincode/Crypto）。
-  - 目标是字节级对齐 Rust（磁盘格式互通）。
-- `packages/storage`
-  - 各类持久化文件的格式解析/写入（read-first）。
-  - 以及为召回构建 read model（RecallView）。
-- `packages/indexing`
-  - SDR 倒排索引（manifest + sdr.idx）与 Roaring 序列化。
-- `packages/recall`
-  - 召回流水线算法（signals → RRF → graph/causal → trust/recency → optional rerank/finalize）。
-  - 只依赖 `contract`（取 services）与纯逻辑模块；不做 IO。
-- `packages/core`
-  - 门面层（Aura.open / Aura.recall* 等），负责把 storage view + recall pipeline 串起来。
-- `packages/belief` / `packages/concept` / `packages/causal` / `packages/policy`
-  - 四层维护引擎与各自 store 的读写/发现逻辑。
-- `packages/epistemic-runtime`
-  - inspection / trace 运行时，只读聚合各层状态，不承载写侧维护编排。
-- `packages/mcp`
-  - Mastra-based MCP stdio server；transport 保持 thin，业务组合继续落在 `@aura/core`。
-- `packages/code-extraction`
-  - 独立代码分析/知识图谱实验包；不属于 Aura core + MCP 主链路。
+- `.planning/codebase/STRUCTURE.md` — 完整目录布局、各包用途、命名约定
+- `.planning/codebase/ARCHITECTURE.md` — 分层架构、数据流、入口点、抽象模式
+- `.planning/codebase/STACK.md` — 语言、运行时、框架、依赖
+- `.planning/codebase/INTEGRATIONS.md` — 外部 API、数据库、auth、webhook
+- `.planning/codebase/CONVENTIONS.md` — 代码风格、命名、错误处理模式
+- `.planning/codebase/TESTING.md` — 测试框架、结构、mock、覆盖率
+- `.planning/codebase/CONCERNS.md` — 技术债务、已知问题、安全/性能风险
 
 ---
 
@@ -368,63 +345,3 @@ embedding/rerank/finalize 可作为可选 Context 提供：若不提供则不执
 3) 审计 graph/causal 扩展所需字段的写入侧闭环（connections / caused_by_id / finalize-strengthen）。
 4) 对照 Rust store_with_channel 继续收敛 dedup / guard / provenance / surprise promotion 等剩余写入语义。
 5) 后续如启用 Rust `SynonymRing`，在 TS `NGramIndex` 内接入同义词扩展并补 verifier。
-
-### 8.4 维护流程分阶段状态（Phase 3+）
-
-本项目的维护链路按 `Record → Belief → Concept → Causal → Policy` 推进；为避免上下文漂移，本节固定记录 Phase 3 及之后的”实现现状 + 缺口”。
-
-#### Phase 3：Causal（已完成）
-
-- contract 状态：`CausalEngine.Interface` 定义了完整的 `discover()` / `invalidate_pattern()` / `retract_pattern()` / `stats()` 契约；`CausalStore.Interface` 定义了 `load()` / `save()` 持久化契约。`CausalEngineImpl` 与 `CausalStoreImpl` 为指向对应 Interface 的 deprecated type alias：
-  - `packages/contract/src/Causal.ts`
-  - `packages/contract/src/causal/CausalTypes.ts`（`CausalPattern`、`CausalEngineState`、`CausalReport`、`CausalEdgeKind`、`CausalState`、`CausalDiscoveryMode`、`TemporalBudgetMode`、`EvidenceMode` 等类型定义）
-- storage 状态：`CausalStoreFile` 完整实现 `causal.cog` 的 load/save，通过 `CogJsonSnapshotFile` 统一读写：
-  - `packages/storage/src/CausalStoreFile.ts`
-- engine 状态：`CausalEngineImpl`（1175 行）完整实现，含：
-  - `extractEdges()`：从 records 的显式链接与时间接近性中提取 record-level causal edges
-  - `aggregateToPatterns()`：将 record-level edges 聚合为 belief-level `CausalPattern`（含 support/confidence/lift/transition_lift/temporal_consistency/causal_strength 等 20+ 字段）
-  - `scorePattern()`：计算 causal_strength 综合得分
-  - `computeCorpusFingerprint()`：corpus 指纹用于 skip detection
-  - Gates：`meetsSupportGate` / `meetsEvidenceGate` / `meetsCounterfactualGate`
-  - `discover()`：完整四阶段发现流程（extract → aggregate → score → gate → persist）
-  - `CausalEngineLive` Layer
-  - `packages/causal/src/CausalEngine.ts`
-  - `packages/causal/src/CausalStore.ts`（`CausalStoreImpl` + `CausalStoreLive`）
-- 目标 spec：
-  - `../docs/superpowers/specs/2026-05-22-typescript-maintenance-belief-concept-causal-policy-design.md`
-
-#### Phase 4：Policy（已完成）
-
-- contract 状态：`PolicyEngine.Interface` 定义了完整的 `discover()` / `retract_hint()` / `stats()` 契约（依赖 CausalEngine + ConceptEngine + BeliefEngine）；`PolicyStore.Interface` 定义了 `load()` / `save()` 持久化契约。`PolicyEngineImpl` 与 `PolicyStoreImpl` 为指向对应 Interface 的 deprecated type alias：
-  - `packages/contract/src/Policy.ts`
-  - `packages/contract/src/policy/PolicyTypes.ts`（`PolicyHint`、`PolicyEngineState`、`PolicyReport`、`PolicyState`、`PolicyActionKind`、`Polarity` 等类型定义）
-- storage 状态：`PolicyStoreFile` 完整实现 `policies.cog` 的 load/save，通过 `CogJsonSnapshotFile` 统一读写：
-  - `packages/storage/src/PolicyStoreFile.ts`
-- engine 状态：`PolicyEngineImpl`（777 行）完整实现，含：
-  - `selectSeeds()`：从 causal patterns 中筛选种子（6 gates：Strength / Support / Evidence / Counterevidence / Counterfactual / Belief）
-  - `buildHints()`：从 seeds 构建 `PolicyHint`（含 condition/action/priority/confidence/riskScore/polarity/recommendation 等字段）
-  - `classifyPolarity()`：基于 effect-side record 信号计数分类为 Positive/Negative/Neutral
-  - `mapActionKind()`：映射为 Avoid/VerifyFirst/Prefer/Recommend/Warn 五种 action kind
-  - `computePolicyStrength()`：计算 policy 强度分数（0–1）
-  - `generateRecommendation()`：基于模板生成推荐文本
-  - `applySuppression()`：冲突检测与抑制
-  - `discover()`：完整发现流程（seed → hint → score → suppress → persist）
-  - `PolicyEngineLive` Layer
-  - `packages/policy/src/PolicyEngine.ts`
-  - `packages/policy/src/PolicyStore.ts`（`PolicyStoreImpl` + `PolicyStoreLive`）
-
-#### Phase 5：端到端维护编排（部分完成）
-
-- EpistemicRuntime：已完成（694 行），`EpistemicRuntimeImpl` 实现 `EpistemicRuntime.Interface`，提供 18+ inspection 方法：
-  - Belief 层（6 方法）：`getBeliefs()` / `getBeliefForRecord()` / `getHighVolatilityBeliefs()` / `getLowStabilityBeliefs()` / `getBeliefInstabilitySummary()` / `getContradictionClusters()`
-  - Concept 层（4 方法）：`getConcepts()` / `getSurfacedConcepts()` / `getSurfacedConceptsForNamespace()` / `getSurfacedConceptsForRecord()`
-  - Causal 层（1 方法）：`getCausalPatterns()`
-  - Policy 层（7 方法）：`getPolicyHints()` / `getSuppressedPolicyHints()` / `getRejectedPolicyHints()` / `getPolicyLifecycleSummary()` / `getPolicyPressureReport()` / `getSurfacedPolicyHints()` / `getSurfacedPolicyHintsForNamespace()`
-  - 含 telemetry 计数（global/namespace/record 调用次数、concepts/hints 返回量）
-  - `EpistemicRuntimeLive` Layer
-  - `packages/contract/src/EpistemicRuntime.ts`
-  - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
-  - `packages/epistemic-runtime/src/EpistemicTrace.ts`（`EpistemicTraceImpl` + `EpistemicTraceLive`）
-- MaintenanceService：已在 `@aura/core` 中实现完整维护编排，`Aura.runMaintenance()` 已接到该 pipeline；当前剩余缺口不是“没有入口”，而是写侧是否自动触发维护、以及若干 Phase 8/非 parity-grade 算法仍保持显式简化实现。
-- BoundedReranker：`@aura/recall` 暴露 Rust guardrail 纯算法、Shadow observe-only report 与 engine-backed `BoundedRerankerLive`；`@aura/core` 的 `BoundedRerankerFileLive` 已默认接入 Rust runtime Limited/Inspect guardrails；仍缺少运行期开关 API 与 report/trace 对外表面。
-- Aura 写入触发：`Aura.store/update/delete/connect` 目前只负责写入 `brain.cog`（以及 snapshot），尚未触发维护服务（Phase 5 完成后应默认开启，可配置关闭）。

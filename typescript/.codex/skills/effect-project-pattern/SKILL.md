@@ -86,6 +86,56 @@ export const EpistemicRuntimeLive = Layer.effect(
 )
 ```
 
+### Context.Reference 模式（带默认值的服务）
+
+`Context.Reference` 创建一个自带默认值的服务 Tag，无需显式列入依赖类型（R 通道），但保留了 DI 覆盖能力。
+
+参照项目中的 `Clock`（`packages/contract/src/Clock.ts`）：
+
+```typescript
+import { Context } from "effect"
+
+export class Clock extends Context.Reference<{
+  nowSeconds: () => number
+}>("aura.contract.Clock", {
+  defaultValue() {
+    return { nowSeconds: nowSecs }  // 生产环境默认实现
+  },
+}) {
+  static nowSeconds = () => Clock.useSync((_) => _.nowSeconds())
+  static fixed = (nowUnixSec: number) => ({ nowSeconds: () => nowUnixSec })
+}
+```
+
+**为什么不需要列入 R 通道：**
+
+`Context.Reference` 的类型签名是 `Reference<Shape>` extends `Service<never, Shape>`。因为 Identifier 是 `never`，Effect 类型系统认为该依赖"永远已满足"，不会出现在 `Effect.Effect<A, E, R>` 的 `R` 中。这避免了每个调用方都要声明 `R = Clock` 的繁琐。
+
+**DI 仍然可用：**
+
+```typescript
+// 默认用法 — 无需 provide，自动使用 defaultValue
+const time = yield* Clock
+
+// 测试中覆盖 — 与普通 Tag 完全一样的 DI 方式
+const fixedClock = Layer.succeed(Clock, Clock.fixed(1700000000))
+program.pipe(Effect.provide(fixedClock))
+```
+
+**适用场景：**
+
+| 适用 | 不适用 |
+|------|--------|
+| 工具/横切服务（Clock、Random、Logger） | 明确的服务类依赖（引擎、仓储、API 客户端） |
+| 有合理默认实现，80% 场景不需要替换 | 必须由调用方显式提供的核心依赖 |
+| 测试中偶尔需要固定值 | 每个测试都需要不同 mock 的服务 |
+
+**规则：**
+
+- 只有提供合理默认值的工具类服务才使用 `Context.Reference`
+- 明确的服务类依赖（如 `BeliefEngine`、`EpistemicRuntime`、任何 `*Repo`）**绝对不能**使用此模式 — 它们必须走标准 `Tag` + `Layer`，在 R 通道中显式声明
+- 如果犹豫一个服务是否该用 Reference，答案是：**不要用**。默认走 `Tag`
+
 ### 可选服务注入 (serviceOption)
 
 ```typescript

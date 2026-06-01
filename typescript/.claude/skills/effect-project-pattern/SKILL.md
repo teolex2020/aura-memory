@@ -101,6 +101,62 @@ if (Option.isSome(traceOpt)) {
 - 横切关注点（trace、rerank、finalize）用 serviceOption
 - 核心依赖用 `Effect.service()` 强制要求
 
+### Promise 缓存模块 → Layer 替换（最小 Promise 模式）
+
+项目中存在大量 `function getHasher(): Promise<{ h64: ... }>` 模式的懒加载缓存函数，本质是用 module-level 的 `let` 做 `Promise` 缓存：
+
+```typescript
+// ❌ 反模式：Promise 缓存模块加载
+let _hasher: Promise<Hasher> | null = null
+
+export function getHasher(): Promise<{ h64: (input: string) => bigint }> {
+  if (!_hasher) _hasher = createHasher()
+  return _hasher
+}
+
+// 调用方
+const hasher = await getHasher()
+const hash = hasher.h64("input")
+```
+
+**为什么这是问题：**
+- 隐式全局状态，无法在测试中替换
+- Promise 缓存生命周期不可控（没有 teardown）
+- 与 Effect 的依赖注入体系割裂，调用方必须用 `await` 逃出 Effect pipeline
+
+**最小迁移模式 — 用 Layer 表达可缓存的一次性初始化：**
+
+```typescript
+// ✅ Layer 替换：Effect 原生的"可缓存模块加载"
+import { Layer } from "effect"
+
+export class Hasher extends Tag("aura.Hasher")<Hasher, {
+  h64: (input: string) => Effect.Effect<bigint>
+  unsafeH64: (input: string) => bigint
+}>() {}
+
+export const HasherLive = Layer.effect(
+  Hasher,
+  Effect.gen(function* () {
+    const _ = yield* Effect.promise(() => createHasher())
+    return Hasher.of({
+      h64: (input) => Effect.sync(() => _.h64(input)), // or Effect.promise(() => _.h64Async(input))
+      unsafeH64: (input) => _.h64(input),
+    })
+  })
+)
+
+// 调用方 — 通过 Effect.service 获取，无需 await
+const hasher = yield* Hasher
+const hash = yield* hasher.h64("input")
+```
+
+规则：
+- **封装 `Promise` 只在 `Layer.effect` 内出现一次**，其余代码全部走 `Tag` + `yield*`
+- `Layer` 天然缓存：同一 `Layer` 在同一个 `Runtime` 内只初始化一次
+- 测试时直接 `Layer.succeed(Hasher, mock)` 替换，无需 hack module-level 变量
+- 如果 `Promise` 返回的函数有同步路径，用 `Effect.sync(() => raw.fn(input))` 包裹，避免 `Effect.promise` 的微任务开销 pollute 调用链
+
 ## Effect.gen 规范 (beta.68)
 
 ```typescript
@@ -243,3 +299,4 @@ function surfaceXxx(state: XxxState, limit = 20): SurfacedXxx[] {
 6. **workspace 依赖需显式声明** — 跨包 import 要在 `package.json` 加 `"@aura/xxx": "workspace:*"`
 7. **智能引号问题** — Windows 上 Edit 工具可能把 `"` 变成中文引号，导致 TS1127
 8. **Effect.gen 返回类型** — 返回 `Effect.Effect<T, E, R>` 的完整标注可能与推断冲突，优先不加显式返回类型
+9. **`getHasher()` Promise 缓存** — 用 `Layer.effect` + `Tag` 替换 module-level 的 `let _cache: Promise<T> | null` 模式，Promise 只在 Layer 内出现一次

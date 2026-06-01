@@ -111,12 +111,12 @@ effect.pipe(
 )
 ```
 
-### Either 与 Option
+### Result 与 Option
 
 ```typescript
-import { Effect, Either, Option } from "effect"
+import { Effect, Result, Option } from "effect"
 
-Effect.either(Effect.fail("err")) // Effect<Either<string, never>>
+Effect.result(Effect.fail("err")) // Effect<Result<string, never>>
 Effect.option(Effect.fail("err")) // Effect<Option<string>>
 Effect.fail("err").pipe(Effect.ignore) // Effect<void>
 ```
@@ -227,9 +227,9 @@ Effect.forkAll([a, b, c]).pipe(Effect.flatMap(fibers => Fiber.joinAll(fibers)))
 import { Effect } from "effect"
 
 Effect.sync(() => JSON.parse(str))                    // 同步，异常转缺陷
-Effect.try(() => JSON.parse(str))                     // 同步，异常转 Either
-Effect.promise(() => fetch(url))                      // Promise，不可中断
-Effect.tryPromise(() => fetch(url).then(r => r.json())) // Promise，异常转 Either
+Effect.try(() => JSON.parse(str))                     // 同步，异常转 Result
+Effect.promise(() => fetch(url).then(r => r.json()))                     // Promise，不可中断
+Effect.result(Effect.tryPromise(() => fetch(url).then(r => r.json()))) // Promise，异常转 Result
 ```
 
 ## 计时与日志

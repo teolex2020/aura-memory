@@ -1,5 +1,19 @@
 # Implementation Log
 
+## 2026-06-01 - RecallView startup/load read model 对齐
+
+- 范围：`packages/storage/src/RecallView.ts`、`packages/storage/src/RecallView.test.ts`、`.planning/BACKLOG.md`。
+- 实现：审计 `RecallView` 的 startup/load marker；`InvertedIndex.load/searchScored` 与 NGram deterministic verifier path 已由前序实现对齐，因此移除过期 `SIMPLE IMPLEMENTATION` 注释，改为明确 Rust `Aura::open` / `InvertedIndex::load` read-model 构造引用。
+- 实现：`buildTagIndex` 不再把 tag key lower-case，改为保留 Rust `Aura::open` / `Aura::store_with_channel` / `rollback` 的 `entry(tag.clone())` 语义；`collect_tags` 仍按 Rust 函数自身处理 query/tag scoring。
+- 测试：`RecallView.test.ts` 增加 mixed-case tag key 回归，锁定 read-model 构建边界不额外规范化 tag casing。
+- 旁证：尝试移除 MCP parity harness 的 `score` normalization 后，live Rust MCP exact compare 仍只在 `recall_structured` score 数值上失败；因此 `packages/mcp/src/Parity.test.ts` 的 NON-PARITY marker 保留，并在 `BACKLOG.md` 继续追踪。
+- Rust reference：`Aura::open` / `Aura::store_with_channel` / `rollback` tag index 构造（`../src/aura.rs`），`InvertedIndex::load` / `InvertedIndex::search`（`../src/index.rs`），`collect_tags`（`../src/recall.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/storage/src/RecallView.test.ts packages/core/src/Recall.parity.test.ts packages/recall/src/Signals.test.ts` 通过，3 files / 5 tests。
+  - `bun run test packages/mcp/src/Parity.test.ts` 当前 normalization 下通过；临时关闭 score normalization 时失败，证明 score gap 仍未闭合。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 562 passed / 7 skipped。
+
 ## 2026-06-01 - Core RecallService / recall cache 对齐
 
 - 范围：`packages/core/src/RecallService.ts`、`packages/core/src/Recall.ts`、`packages/core/src/Aura.ts`、`packages/core/src/Recall.test.ts`、`packages/core/src/Aura.test.ts`、`packages/core/src/index.ts`、`packages/mcp/src/tools.ts`、`packages/mcp/src/Invocation.test.ts`、`.planning/BACKLOG.md`。

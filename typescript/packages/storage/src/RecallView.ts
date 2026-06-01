@@ -37,7 +37,7 @@ function buildTagIndex(records: ReadonlyMap<string, AuraRecord>): ReadonlyMap<st
   for (const [id, rec] of records.entries()) {
     const tags = Array.isArray(rec.tags) ? rec.tags : []
     for (const t of tags) {
-      const key = String(t).toLowerCase()
+      const key = String(t)
       const set = tagIndex.get(key) ?? new Set<string>()
       set.add(id)
       tagIndex.set(key, set)
@@ -89,8 +89,11 @@ export function buildRecallView(
     }
 
     /**
-     * SIMPLE IMPLEMENTATION: load `index/` into memory using `@aura/indexing` implementation.
-     * FULL IMPLEMENTATION: ensure byte-level parity with Rust `index.rs` search semantics and ordering under heavy load.
+     * Load the persisted SDR inverted index into the recall read model.
+     * @zh 将持久化 SDR 倒排索引加载到召回 read model。
+     *
+     * Rust reference: `InvertedIndex::new(...).load()` in `Aura::open` (`../src/aura.rs`)
+     * and `InvertedIndex::search` (`../src/index.rs`).
      */
     const idx = yield* InvertedIndex.load(indexDir)
 
@@ -114,8 +117,10 @@ export function buildRecallView(
  * Build a RecallView Layer from a single in-memory snapshot.
  * 从单次内存快照构建 RecallView Layer。
  *
- * SIMPLE IMPLEMENTATION: build a single in-memory RecallView at startup.
- * FULL IMPLEMENTATION: add incremental refresh/update hooks so finalize can mutate without full reload.
+ * Rust reference: `Aura::open` constructs records, ngram_index, tag_index,
+ * aura_index, and storage/index handles from persisted state (`../src/aura.rs`).
+ * @zh core Aura 的写入/召回 facade 在写影响召回结果后刷新 read model；
+ * storage 层只负责从当前磁盘状态构建一次 Rust-shaped 召回视图。
  */
 export function RecallViewLive(
   dir: string

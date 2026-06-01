@@ -20,7 +20,7 @@ it("buildRecallView builds contract-compatible view from brain.cog+snap, brain.a
 
   const recordsToWrite: ReadonlyArray<Record<string, unknown>> = [
     { id: "cog_1", content: "Hello TS Fixture", tags: ["ts"], aura_id: "ts_fixture_1" },
-    { id: "cog_2", content: "hello index", tags: ["index"], aura_id: "doc_a" }
+    { id: "cog_2", content: "hello index", tags: ["index", "CaseTag"], aura_id: "doc_a" }
   ]
 
   const writeProgram = Effect.gen(function* () {
@@ -62,6 +62,8 @@ it("buildRecallView builds contract-compatible view from brain.cog+snap, brain.a
     assert.strictEqual(view.auraIndex.get("ts_fixture_1"), "cog_1")
     assert.deepStrictEqual(view.auraHeaders.get("ts_fixture_1")!.sdr_indices, [1, 10, 100, 2000])
     assert.deepStrictEqual(Array.from(view.tagIndex.get("ts") ?? []).sort(), ["cog_1"].sort())
+    assert.deepStrictEqual(Array.from(view.tagIndex.get("CaseTag") ?? []).sort(), ["cog_2"].sort())
+    assert.isUndefined(view.tagIndex.get("casetag"))
 
     const sdrHits = view.invertedIndex.search([2, 3], 10, 1)
     assert.strictEqual(sdrHits[0]![0], "doc_a")

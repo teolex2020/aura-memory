@@ -40,6 +40,7 @@ Last updated: 2026-06-01
 - [x] Core `Aura.recall_full` now follows Rust's recall_core + substring fallback + outcome-failure fallback algorithm — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `RecallService.ts` now owns Rust `recall_service.rs` / `cache.rs` text/structured recall cache semantics, formatted preamble output, and MCP recall delegation through `Aura.recall` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core recall cache invalidation now clears formatted and structured caches after write-affecting Aura operations and maintenance refreshes — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] RecallView startup/load gap audited: storage read model now documents Rust `Aura::open` construction, uses parity-aligned `InvertedIndex.load/search`, and preserves Rust tag-index key casing — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
@@ -51,11 +52,10 @@ Last updated: 2026-06-01
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.
 - [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces.
 - [ ] Maintenance history/reflection persistence decision: either match Rust in-memory behavior exactly or keep documented TS persistence as explicit parity exception.
-- [ ] RecallView startup/load gap: audit `SIMPLE IMPLEMENTATION:` in `packages/storage/src/RecallView.ts` against Rust read model construction.
-- [ ] MCP parity exact scores: close the remaining test-level NON-PARITY note in `packages/mcp/src/Parity.test.ts`.
+- [ ] MCP parity exact scores: close the remaining test-level NON-PARITY note in `packages/mcp/src/Parity.test.ts`; 2026-06-01 live exact-score check still failed only on `recall_structured` score values, so do not remove normalization until scorer/finalize parity is fixed.
 - [ ] Python exported API parity: continue regex/surface audit for remaining PyO3-exported Rust APIs and add TS facades where in scope.
 
 ## Current Marker Snapshot
 
-- `rg "NON-PARITY IMPLEMENTATION|SIMPLE IMPLEMENTATION|UNIMPLEMENTED|TODO:" packages -n` still reports open markers in `packages/core`, `packages/recall`, `packages/storage`, and MCP parity tests.
+- `rg "NON-PARITY IMPLEMENTATION|SIMPLE IMPLEMENTATION|UNIMPLEMENTED|TODO:" packages -n` still reports open Rust-core parity markers in `packages/core` and MCP parity tests.
 - `packages/code-extraction` TODO markers are currently out of the Aura Rust-core parity path unless later brought into scope.

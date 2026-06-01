@@ -1,4 +1,3 @@
-import type { Node as SyntaxNode } from 'web-tree-sitter';
 import { getNodeText, getChildByField } from '../tree-sitter-helpers';
 import type { LanguageExtractor } from '../tree-sitter-types';
 

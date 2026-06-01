@@ -1357,7 +1357,6 @@ export class ConceptEngineImpl implements ConceptEngine.Interface {
       const centroids = self.buildCentroids(seeds, beliefs, hypotheses, sdr_lookup)
 
       const nonEmptyCentroids = Array.from(centroids.values()).filter((c) => c.length > 0)
-      const centroidsBuilt = nonEmptyCentroids.length
       const avgCentroidSize =
         nonEmptyCentroids.length === 0
           ? 0
@@ -1389,7 +1388,7 @@ export class ConceptEngineImpl implements ConceptEngine.Interface {
       for (const bid of seeds) {
         const belief = beliefs[bid]
         if (!belief) continue
-        const [ns, st] = parseBeliefKeyNsSt(belief.key)
+        const [, st] = parseBeliefKeyNsSt(belief.key)
         beliefFamilies.set(bid, parseBeliefKeyFamily(belief.key))
         beliefSemanticTypes.set(bid, st)
       }

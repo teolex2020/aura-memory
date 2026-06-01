@@ -19,7 +19,7 @@ export type BackupHeader = {
 }
 
 export class BackupManager {
-  private constructor(private readonly sourceDir: string) {}
+  private constructor(_sourceDir: string) {}
 
   static open(sourceDir: string): BackupManager {
     return new BackupManager(sourceDir)

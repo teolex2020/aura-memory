@@ -18,10 +18,10 @@ import {
   type CausalEngineState,
   type CausalPattern,
   type BeliefEngineState,
+  type ConceptEngineState,
 } from "@aura/contract"
-import { EvidenceMode, CausalState, BeliefState } from "@aura/contract"
+import { EvidenceMode, CausalState, BeliefState, ConceptState } from "@aura/contract"
 import {
-  meetsSupportGate,
   meetsEvidenceGate,
   meetsCounterfactualGate,
 } from "@aura/causal"
@@ -228,6 +228,13 @@ export class PolicyEngineImpl implements PolicyEngine.Interface {
       const trace = Option.isSome(traceOpt) ? traceOpt.value : undefined
       if (trace) yield* trace.event("policy.discover.start", {})
 
+      self.state = {
+        version: 1 as const,
+        hints: {},
+        metadata: {},
+        key_index: {},
+      }
+
       // ── Phase A: Select causal seeds (6 gates) ──
       const causalState = yield* causal_engine.stats()
       const beliefState = yield* belief_engine.stats()
@@ -254,40 +261,47 @@ export class PolicyEngineImpl implements PolicyEngine.Interface {
       }
 
       // ── P2: Build hints from seeds (scoring + recommendation) ──
-      yield* concept_engine.stats() // validate concept engine connectivity
+      const conceptState = yield* concept_engine.stats()
       const nowSecs = yield* Clock.nowSeconds()
-      const hints = buildHints(seeds, belief_engine, records, nowSecs, beliefState.beliefs)
+      const hints = buildHints(seeds, conceptState, records, nowSecs, beliefState.beliefs)
       const hintsFound = hints.length
 
-      // ── Classify state + store hints ──
-      const newHints: Record<string, PolicyHint> = { ...self.state.hints }
-      const newKeyIndex: Record<string, string> = { ...self.state.key_index }
+      // ── Store generated hints as candidates before suppression ──
+      const newHints: Record<string, PolicyHint> = {}
+      const newKeyIndex: Record<string, string> = {}
+      let strengthSum = 0
+      let confidenceSum = 0
       for (const hint of hints) {
-        // Classify state based on policy_strength thresholds (Rust lines 388-397)
-        const classifiedHint: PolicyHint = {
-          ...hint,
-          state: hint.policyStrength >= STABLE_THRESHOLD ? PolicyState.Stable
-            : hint.policyStrength >= CANDIDATE_THRESHOLD ? PolicyState.Candidate
-            : PolicyState.Candidate,
-        }
-        newHints[classifiedHint.id] = classifiedHint
-        newKeyIndex[classifiedHint.cause_key] = classifiedHint.id
+        newHints[hint.id] = hint
+        newKeyIndex[hint.cause_key] = hint.id
+        strengthSum += hint.policyStrength
+        confidenceSum += hint.confidence
       }
 
       // ── Phase E: Suppression (Rust lines 727-786) ──
       const hintValues = Object.values(newHints)
       const suppressed = applySuppression(hintValues)
       let finalStableHints = 0
+      let finalCandidateHints = 0
       let finalSuppressed = 0
-      let strengthSum = 0
-      let confidenceSum = 0
+      let finalRejected = 0
       const finalHints: Record<string, PolicyHint> = {}
       for (const hint of suppressed) {
-        finalHints[hint.id] = hint
-        if (hint.state === PolicyState.Stable) finalStableHints++
-        if (hint.state === PolicyState.Suppressed) finalSuppressed++
-        strengthSum += hint.policyStrength
-        confidenceSum += hint.confidence
+        let classified = hint
+        if (hint.state === PolicyState.Suppressed) {
+          finalSuppressed++
+        } else {
+          const nextState = hint.policyStrength >= STABLE_THRESHOLD
+            ? PolicyState.Stable
+            : hint.policyStrength >= CANDIDATE_THRESHOLD
+              ? PolicyState.Candidate
+              : PolicyState.Rejected
+          classified = { ...hint, state: nextState }
+          if (nextState === PolicyState.Stable) finalStableHints++
+          else if (nextState === PolicyState.Candidate) finalCandidateHints++
+          else if (nextState === PolicyState.Rejected) finalRejected++
+        }
+        finalHints[classified.id] = classified
       }
       self.state = { ...self.state, hints: finalHints, key_index: newKeyIndex }
 
@@ -303,13 +317,13 @@ export class PolicyEngineImpl implements PolicyEngine.Interface {
 
       const report: PolicyReport = {
         hints_found: hintsFound,
-        hints_active: finalStableHints,
+        hints_active: finalStableHints + finalCandidateHints,
         hints_suppressed: finalSuppressed,
         avg_confidence: avgConfidence,
         seeds_found: seedsFound,
         stable_hints: finalStableHints,
         suppressed_hints: finalSuppressed,
-        rejected_hints: 0,
+        rejected_hints: finalRejected,
         avg_policy_strength: avgPolicyStrength,
       }
 
@@ -320,8 +334,11 @@ export class PolicyEngineImpl implements PolicyEngine.Interface {
   retract_hint(id: string): Effect.Effect<void> {
     const self = this
     return Effect.sync(() => {
+      const removed = self.state.hints[id]
+      if (!removed) return
       const { [id]: _removed, ...remaining } = self.state.hints
-      self.state = { ...self.state, hints: remaining }
+      const { [removed.cause_key]: _removedKey, ...remainingKeyIndex } = self.state.key_index
+      self.state = { ...self.state, hints: remaining, key_index: remainingKeyIndex }
     })
   }
 
@@ -470,6 +487,21 @@ export function mapActionKind(
   }
 }
 
+function hasMixedExplicitOutcomeAmbiguity(
+  pattern: CausalPattern,
+  records: ReadonlyMap<string, AuraRecord>
+): boolean {
+  if (
+    pattern.explicit_support_count < MIN_CAUSAL_SUPPORT_FOR_SEED ||
+    pattern.effect_record_signature_variants <= 1
+  ) {
+    return false
+  }
+
+  const { positiveSignals, negativeSignals } = polaritySignalCounts(pattern.effect_record_ids, records)
+  return positiveSignals >= 2 && negativeSignals >= 2
+}
+
 /**
  * Rust policy action kind string used in stable policy hint keys.
  * Rust reference: `action_kind_str` (`../src/policy.rs`).
@@ -555,57 +587,31 @@ export function generateRecommendation(
 /**
  * Aggregate confidence from resolved beliefs.
  *
- * Averages confidence of Resolved/Singleton beliefs from the belief engine,
- * with fallback to record-level confidence or 0.50 neutral default.
+ * Averages confidence of Resolved/Singleton beliefs from the belief engine.
+ * The caller applies Rust's record-level/neutral fallback when this returns 0.
  *
  * Matches Rust policy.rs aggregate_belief_confidence (lines 654-677).
  *
  * @param beliefIds - IDs of beliefs to aggregate confidence from.
- * @param beliefEngine - BeliefEngine.Interface; only consumed in Phases 2-3
- *   when `beliefs` is NOT provided (fallback path). In the primary integration
- *   path through `discover()`, cached `beliefs` are always passed so this
- *   parameter is unused.
- * @param beliefs - Pre-fetched belief state snapshot (Phase 1 cache-bypass).
- * @param records - Full AuraRecord map for record-level confidence fallback.
- * @param recordIds - Optional subset of record IDs for fallback computation.
+ * @param beliefs - Pre-fetched belief state snapshot from BeliefEngine.
  */
 function aggregateBeliefConfidence(
   beliefIds: string[],
-  beliefEngine: BeliefEngine.Interface,
-  beliefs?: Readonly<Record<string, { confidence: number }>>,
-  records?: ReadonlyMap<string, AuraRecord>,
-  recordIds?: string[]
+  beliefs: Readonly<Record<string, { confidence: number; state: BeliefState }>>
 ): number {
-  // Phase 1: average confidence from pre-fetched belief state
-  if (beliefs && beliefIds.length > 0) {
-    let sum = 0
-    let count = 0
-    for (const bid of beliefIds) {
-      const b = beliefs[bid]
-      if (b) {
-        sum += b.confidence
-        count++
-      }
+  let sum = 0
+  let count = 0
+  for (const bid of beliefIds) {
+    const belief = beliefs[bid]
+    if (
+      belief &&
+      (belief.state === BeliefState.Resolved || belief.state === BeliefState.Singleton)
+    ) {
+      sum += belief.confidence
+      count++
     }
-    if (count > 0) return sum / count
   }
-
-  // Phase 2: if no belief-based confidence, fall back to record-level
-  if (records && recordIds && recordIds.length > 0) {
-    let recordSum = 0
-    let recordCount = 0
-    for (const rid of recordIds) {
-      const rec = records.get(rid)
-      if (rec) {
-        recordSum += rec.confidence ?? 0
-        recordCount++
-      }
-    }
-    if (recordCount > 0) return recordSum / recordCount
-  }
-
-  // Phase 3: neutral default
-  return 0.50
+  return count > 0 ? sum / count : 0
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -614,8 +620,9 @@ function aggregateBeliefConfidence(
 
 /** Truncate string to max chars, adding "..." if shortened. */
 function truncate(s: string, maxChars: number): string {
-  if (s.length <= maxChars) return s
-  return s.slice(0, maxChars) + "..."
+  const chars = Array.from(s)
+  if (chars.length <= maxChars) return s
+  return `${chars.slice(0, maxChars).join("")}...`
 }
 
 /** Extract domain from the most common tags of cause records. */
@@ -636,6 +643,42 @@ function extractDomain(
   return sorted.slice(0, 2).map(([tag]) => tag).join("/")
 }
 
+function buildBeliefToConcepts(conceptState: ConceptEngineState): Readonly<Record<string, ReadonlyArray<string>>> {
+  const map: Record<string, string[]> = {}
+  for (const [conceptId, concept] of Object.entries(conceptState.concepts)) {
+    if (concept.state !== ConceptState.Stable) continue
+    for (const beliefId of concept.belief_ids) {
+      const ids = map[beliefId] ?? []
+      if (!ids.includes(conceptId)) ids.push(conceptId)
+      map[beliefId] = ids
+    }
+  }
+  return map
+}
+
+function uniqueStrings(values: ReadonlyArray<string>): string[] {
+  const out: string[] = []
+  for (const value of values) {
+    if (!out.includes(value)) out.push(value)
+  }
+  return out
+}
+
+function averageRecordConfidence(
+  recordIds: ReadonlyArray<string>,
+  records: ReadonlyMap<string, AuraRecord>
+): number {
+  let sum = 0
+  let count = 0
+  for (const recordId of recordIds) {
+    const record = records.get(recordId)
+    if (!record) continue
+    sum += record.confidence
+    count++
+  }
+  return count > 0 ? sum / count : 0.50
+}
+
 /**
  * Build PolicyHints from selected seeds.
  *
@@ -644,18 +687,20 @@ function extractDomain(
  */
 function buildHints(
   seeds: PolicySeed[],
-  beliefEngine: BeliefEngine.Interface,
+  conceptState: ConceptEngineState,
   records: ReadonlyMap<string, AuraRecord>,
   nowSecs: number,
-  beliefs?: Readonly<Record<string, { confidence: number }>>
+  beliefs: Readonly<Record<string, { confidence: number; state: BeliefState }>>
 ): PolicyHint[] {
   const hints: PolicyHint[] = []
+  const beliefToConcepts = buildBeliefToConcepts(conceptState)
 
   for (const seed of seeds) {
     const pattern = seed.pattern
+    if (hasMixedExplicitOutcomeAmbiguity(pattern, records)) continue
 
     // Extract domain from cause record tags
-    const domain = extractDomain(pattern, records) || "general"
+    const domain = extractDomain(pattern, records)
 
     // Get cause summary from first cause record (Rust: truncated to 80 chars)
     const firstCauseRid = pattern.cause_record_ids[0]
@@ -672,15 +717,22 @@ function buildHints(
     // ── Scoring ──
     const causal_strength = pattern.causal_strength
 
-    // Confidence: use record-level confidence average as fallback
-    const allRecordIds = [...pattern.cause_record_ids, ...pattern.effect_record_ids]
-    const confidence = aggregateBeliefConfidence(
-      [pattern.cause_belief_id ?? ""].filter(Boolean),
-      beliefEngine,
-      beliefs,
-      records,
-      allRecordIds
-    )
+    const allBeliefIds = uniqueStrings([
+      pattern.cause_belief_id,
+      pattern.effect_belief_id,
+    ].filter((id) => id.length > 0))
+    const allRecordIds = uniqueStrings([...pattern.cause_record_ids, ...pattern.effect_record_ids])
+    const conceptIds: string[] = []
+    for (const beliefId of allBeliefIds) {
+      for (const conceptId of beliefToConcepts[beliefId] ?? []) {
+        if (!conceptIds.includes(conceptId)) conceptIds.push(conceptId)
+      }
+    }
+
+    const beliefConfidence = aggregateBeliefConfidence(allBeliefIds, beliefs)
+    const confidence = beliefConfidence > 0
+      ? beliefConfidence
+      : averageRecordConfidence(allRecordIds, records)
 
     // Utility: outcome stability * temporal consistency (Rust line 589)
     const utilityScore = Math.min(1.0, pattern.outcome_stability * pattern.temporal_consistency)
@@ -729,6 +781,10 @@ function buildHints(
       cause_key: key,
       effect_keys: [...pattern.effect_record_ids],
       cause_record_ids: [...pattern.cause_record_ids],
+      trigger_causal_ids: [pattern.id],
+      trigger_concept_ids: conceptIds,
+      trigger_belief_ids: allBeliefIds,
+      supporting_record_ids: allRecordIds,
     }
     hints.push(hint)
   }
@@ -743,7 +799,7 @@ function buildHints(
 /**
  * Apply suppression: detect conflicting hints in same namespace+domain
  * with opposite polarity + overlapping cause_record_ids, and suppress
- * the lower-strength hint. Equal strengths (within 0.01) suppress neither.
+ * the lower-strength hint; exact ties suppress the later pair member as in Rust.
  *
  * Matches Rust policy.rs apply_suppression.
  */
@@ -760,8 +816,8 @@ export function applySuppression(hints: PolicyHint[]): PolicyHint[] {
       if (a.namespace !== b.namespace || a.domain !== b.domain) continue
 
       // Check opposite polarity: one positive (Prefer/Recommend), one negative (Avoid/VerifyFirst)
-      const aPositive = a.actionKind === "prefer" || a.actionKind === "recommend"
-      const bPositive = b.actionKind === "prefer" || b.actionKind === "recommend"
+      const aPositive = a.actionKind === PolicyActionKind.Prefer || a.actionKind === PolicyActionKind.Recommend
+      const bPositive = b.actionKind === PolicyActionKind.Prefer || b.actionKind === PolicyActionKind.Recommend
 
       if (aPositive === bPositive) continue // same direction — no conflict
 
@@ -769,15 +825,6 @@ export function applySuppression(hints: PolicyHint[]): PolicyHint[] {
       const aCauses = new Set(a.cause_record_ids)
       const overlap = b.cause_record_ids.filter(id => aCauses.has(id))
       if (overlap.length === 0) continue // no shared cause records — not a real conflict
-
-      // Both must be Candidate or Stable (not already Suppressed/Rejected)
-      if (
-        (a.state !== PolicyState.Stable && a.state !== PolicyState.Candidate) ||
-        (b.state !== PolicyState.Stable && b.state !== PolicyState.Candidate)
-      ) continue
-
-      // Suppress the weaker one; equal within 0.01 → suppress neither (conservative)
-      if (Math.abs(a.policyStrength - b.policyStrength) < 0.01) continue
 
       if (a.policyStrength < b.policyStrength) {
         toSuppress.add(i)

@@ -7,6 +7,12 @@ import {
   CausalEngine,
   PolicyEngine,
   ConceptSurfaceMode,
+  BeliefState,
+  ConceptState,
+  CausalState,
+  PolicyState,
+  PolicyActionKind,
+  DEFAULT_NAMESPACE,
   type SurfacedConcept,
   type SurfacedPolicyHint,
   type BeliefInstabilitySummary,
@@ -65,12 +71,9 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     })
   }
 
-  private trackConceptsReturned(n: number): Effect.Effect<void> {
-    return Ref.update(this.conceptsReturned, (c: number) => c + n)
-  }
-
-  private trackRecordAnnotationsReturned(n: number): Effect.Effect<void> {
-    return Ref.update(this.recordAnnotationsReturned, (r: number) => r + n)
+  private conceptSurfaceEnabled(): boolean {
+    return this.conceptSurfaceMode === ConceptSurfaceMode.Inspect
+      || this.conceptSurfaceMode === ConceptSurfaceMode.Limited
   }
 
   // ── Belief layer (6 methods) ──
@@ -80,8 +83,7 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
       const engine = yield* Effect.service(BeliefEngine)
       const state = yield* engine.stats()
       const beliefs = Object.values(state.beliefs)
-      if (stateFilter) return beliefs.filter((b) => b.state === stateFilter)
-      return beliefs
+      return beliefs.filter((belief) => matchesBeliefStateFilter(belief.state, stateFilter))
     })
   }
 
@@ -103,10 +105,10 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
       const engine = yield* Effect.service(BeliefEngine)
       const state = yield* engine.stats()
       const minVola = Math.max(0, Math.min(1, minVolatility ?? 0.20))
-      const maxLimit = Math.max(1, Math.min(100, limit ?? 20))
+      const maxLimit = rustLimit(limit, 20, 100)
       const beliefs = Object.values(state.beliefs)
         .filter((b) => b.volatility >= minVola)
-        .sort((a, b) => b.volatility - a.volatility)
+        .sort((a, b) => (b.volatility - a.volatility) || (a.stability - b.stability))
         .slice(0, maxLimit)
       return beliefs
     })
@@ -119,17 +121,20 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     return Effect.gen(function* () {
       const engine = yield* Effect.service(BeliefEngine)
       const state = yield* engine.stats()
-      const maxStab = Math.max(0, Math.min(1, maxStability ?? 1.0))
-      const maxLimit = Math.max(1, Math.min(100, limit ?? 20))
+      const maxStab = Math.max(0, maxStability ?? 1.0)
+      const maxLimit = rustLimit(limit, 20, 100)
       const beliefs = Object.values(state.beliefs)
         .filter((b) => b.stability <= maxStab)
-        .sort((a, b) => a.stability - b.stability)
+        .sort((a, b) => (a.stability - b.stability) || (b.volatility - a.volatility))
         .slice(0, maxLimit)
       return beliefs
     })
   }
 
-  getBeliefInstabilitySummary(): Effect.Effect<BeliefInstabilitySummary, never, BeliefEngine> {
+  getBeliefInstabilitySummary(
+    records: ReadonlyMap<string, AuraRecord>
+  ): Effect.Effect<BeliefInstabilitySummary, never, BeliefEngine> {
+    const self = this
     return Effect.gen(function* () {
       const engine = yield* Effect.service(BeliefEngine)
       const state = yield* engine.stats()
@@ -158,14 +163,15 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
         sumStability += b.stability
         if (b.volatility >= 0.20) highVolatilityCount++
         if (b.stability <= 1.0) lowStabilityCount++
-        if (b.volatility < 0.20) lowBand++
-        else if (b.volatility <= 0.50) mediumBand++
-        else highBand++
+        if (b.volatility >= 0.20) highBand++
+        else if (b.volatility >= 0.05) mediumBand++
+        else lowBand++
       }
+      const contradictionClusters = yield* self.getContradictionClusters(records)
       return {
         totalBeliefs: total,
         resolved, unresolved, singleton, empty,
-        contradictionClusterCount: 0,
+        contradictionClusterCount: contradictionClusters.length,
         highVolatilityCount,
         lowStabilityCount,
         avgVolatility: sumVolatility / total,
@@ -183,100 +189,96 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     return Effect.gen(function* () {
       const engine = yield* Effect.service(BeliefEngine)
       const state = yield* engine.stats()
-      const beliefs = Object.values(state.beliefs)
-      const hypotheses = Object.values(state.hypotheses)
-      const maxLimit = Math.min(100, Math.max(1, limit ?? 20))
-      if (beliefs.length === 0) return []
+      const maxLimit = rustLimit(limit, 20, 100)
+      const nodes: Array<{
+        belief: Belief
+        recordIds: ReadonlyArray<string>
+        tags: ReadonlySet<string>
+        namespace: string
+      }> = []
 
-      // Build belief → record IDs mapping from hypotheses
-      const beliefRecords = new Map<string, Set<string>>()
-      for (const h of hypotheses) {
-        if (!beliefRecords.has(h.belief_id)) beliefRecords.set(h.belief_id, new Set())
-        const rs = beliefRecords.get(h.belief_id)!
-        for (const rid of h.prototype_record_ids) rs.add(rid)
-      }
-      for (const b of beliefs) {
-        if (!beliefRecords.has(b.id)) beliefRecords.set(b.id, new Set())
-      }
+      for (const belief of Object.values(state.beliefs)) {
+        const beliefNamespace = namespaceFromBeliefKey(belief.key)
+        if (namespace !== undefined && namespace !== beliefNamespace) continue
+        if (
+          belief.state !== BeliefState.Unresolved &&
+          belief.volatility < 0.20 &&
+          belief.stability > 1.0 &&
+          belief.conflict_mass <= 0
+        ) {
+          continue
+        }
 
-      // Build adjacency graph: two beliefs connected if they share any record ID
-      const beliefIds = beliefs.map((b) => b.id)
-      const adj = new Map<string, Set<string>>()
-      for (const id of beliefIds) adj.set(id, new Set())
-      for (let i = 0; i < beliefIds.length; i++) {
-        for (let j = i + 1; j < beliefIds.length; j++) {
-          const ri = beliefRecords.get(beliefIds[i]!)!
-          const rj = beliefRecords.get(beliefIds[j]!)!
-          let connected = false
-          for (const rid of ri) {
-            if (rj.has(rid)) { connected = true; break }
-          }
-          if (connected) {
-            adj.get(beliefIds[i]!)!.add(beliefIds[j]!)
-            adj.get(beliefIds[j]!)!.add(beliefIds[i]!)
+        const recordIds = sortedUnique(
+          belief.hypothesis_ids.flatMap((hid) => state.hypotheses[hid]?.prototype_record_ids ?? [])
+        )
+        const tags = new Set<string>()
+        for (const rid of recordIds) {
+          const record = records.get(rid)
+          if (record) {
+            for (const tag of record.tags) tags.add(tag)
           }
         }
+        nodes.push({ belief, recordIds, tags, namespace: beliefNamespace })
       }
 
-      // BFS connected components
-      const visited = new Set<string>()
-      const components: Array<{ ids: string[]; recordIds: string[]; namespace: string }> = []
-      for (const id of beliefIds) {
-        if (visited.has(id)) continue
-        const component: string[] = []
-        const queue = [id]
-        visited.add(id)
-        while (queue.length > 0) {
-          const cur = queue.shift()!
-          component.push(cur)
-          for (const neighbor of adj.get(cur)!) {
-            if (!visited.has(neighbor)) {
-              visited.add(neighbor)
-              queue.push(neighbor)
-            }
-          }
-        }
-        const compRecordIds = new Set<string>()
-        let compNamespace = "default"
-        for (const bid of component) {
-          const rids = beliefRecords.get(bid)!
-          for (const rid of rids) {
-            compRecordIds.add(rid)
-            const rec = records.get(rid)
-            if (rec && compNamespace === "default" && rec.namespace) {
-              compNamespace = rec.namespace
-            }
-          }
-        }
-        components.push({ ids: component, recordIds: [...compRecordIds], namespace: compNamespace })
-      }
-
-      // Filter by namespace
-      let filtered = components
-      if (namespace !== undefined) {
-        filtered = components.filter((c) => c.namespace === namespace)
-      }
-
-      // Build cluster results
-      const beliefMap = new Map(beliefs.map((b) => [b.id, b]))
+      const visited = Array<boolean>(nodes.length).fill(false)
       const results: ContradictionCluster[] = []
-      for (const comp of filtered) {
-        const cBeliefs = comp.ids.map((id) => beliefMap.get(id)!).filter(Boolean)
-        const unresolvedCount = cBeliefs.filter((b) => b.state === "Unresolved").length
+
+      for (let idx = 0; idx < nodes.length; idx++) {
+        if (visited[idx]) continue
+
+        const stack = [idx]
+        const component: number[] = []
+        visited[idx] = true
+
+        while (stack.length > 0) {
+          const current = stack.pop()!
+          component.push(current)
+          for (let next = 0; next < nodes.length; next++) {
+            if (visited[next] || nodes[current]!.namespace !== nodes[next]!.namespace) continue
+            if (
+              intersects(nodes[current]!.recordIds, nodes[next]!.recordIds) ||
+              intersects(nodes[current]!.tags, nodes[next]!.tags)
+            ) {
+              visited[next] = true
+              stack.push(next)
+            }
+          }
+        }
+
+        const clusterNamespace = nodes[component[0]!]!.namespace
+        const beliefIds = component.map((index) => nodes[index]!.belief.id).sort()
+        const beliefKeys = component.map((index) => nodes[index]!.belief.key)
+        const recordIds = sortedUnique(component.flatMap((index) => nodes[index]!.recordIds))
+        const tagCounts = new Map<string, number>()
+        for (const index of component) {
+          for (const tag of nodes[index]!.tags) {
+            tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
+          }
+        }
+        const tagEntries = [...tagCounts.entries()].sort(([a], [b]) => a.localeCompare(b))
+        let sharedTags = tagEntries
+          .filter(([, count]) => count >= 2)
+          .map(([tag]) => tag)
+        if (sharedTags.length === 0) {
+          sharedTags = tagEntries.slice(0, 3).map(([tag]) => tag)
+        }
+
+        const cBeliefs = component.map((index) => nodes[index]!.belief)
+        const unresolvedCount = cBeliefs.filter((b) => b.state === BeliefState.Unresolved).length
         const highVolCount = cBeliefs.filter((b) => b.volatility >= 0.20).length
         const avgVol = cBeliefs.reduce((s, b) => s + b.volatility, 0) / cBeliefs.length
         const avgStab = cBeliefs.reduce((s, b) => s + b.stability, 0) / cBeliefs.length
         const totalCM = cBeliefs.reduce((s, b) => s + b.conflict_mass, 0)
-        const maxCM = Math.max(...cBeliefs.map((b) => b.conflict_mass))
-        const sharedTags = computeSharedTags(cBeliefs, records, beliefRecords)
-        const beliefIds = [...comp.ids].sort()
-        const clusterKey = `${comp.namespace}\0${beliefIds.join("\0")}`
+        const maxCM = cBeliefs.reduce((max, b) => Math.max(max, b.conflict_mass), 0)
+        const clusterKey = `${clusterNamespace}\0${beliefIds.join("\0")}`
         results.push({
           id: xxh3_64(clusterKey).toString(16).padStart(12, "0"),
-          namespace: comp.namespace,
+          namespace: clusterNamespace,
           beliefIds,
-          beliefKeys: cBeliefs.map((b) => b.key),
-          recordIds: comp.recordIds,
+          beliefKeys,
+          recordIds,
           sharedTags,
           unresolvedBeliefCount: unresolvedCount,
           highVolatilityBeliefCount: highVolCount,
@@ -287,7 +289,11 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
         })
       }
 
-      results.sort((a, b) => b.totalConflictMass - a.totalConflictMass)
+      results.sort((a, b) =>
+        (b.avgVolatility - a.avgVolatility) ||
+        (b.totalConflictMass - a.totalConflictMass) ||
+        (b.beliefIds.length - a.beliefIds.length)
+      )
       return results.slice(0, maxLimit)
     })
   }
@@ -299,15 +305,18 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
       const engine = yield* Effect.service(ConceptEngine)
       const state = yield* engine.stats()
       const concepts = Object.values(state.concepts)
-      if (stateFilter) return concepts.filter((c) => c.state === stateFilter)
-      return concepts
+      return concepts.filter((concept) => matchesConceptStateFilter(concept.state, stateFilter))
     })
   }
 
   getSurfacedConcepts(limit?: number): Effect.Effect<ReadonlyArray<SurfacedConcept>, never, ConceptEngine> {
+    const self = this
     return Effect.gen(function* () {
+      if (!self.conceptSurfaceEnabled()) return []
       const engine = yield* Effect.service(ConceptEngine)
-      return yield* surfaceConcepts(engine, limit)
+      const surfaced = yield* surfaceConcepts(engine, limit)
+      yield* self.trackGlobalCall(surfaced.length)
+      return surfaced
     })
   }
 
@@ -315,9 +324,13 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     namespace: string,
     limit?: number
   ): Effect.Effect<ReadonlyArray<SurfacedConcept>, never, ConceptEngine> {
+    const self = this
     return Effect.gen(function* () {
+      if (!self.conceptSurfaceEnabled()) return []
       const engine = yield* Effect.service(ConceptEngine)
-      return yield* surfaceConceptsFiltered(engine, limit, namespace)
+      const surfaced = yield* surfaceConceptsFiltered(engine, limit, namespace)
+      yield* self.trackNamespaceCall(surfaced.length)
+      return surfaced
     })
   }
 
@@ -325,29 +338,16 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     recordId: string,
     limit?: number
   ): Effect.Effect<ReadonlyArray<SurfacedConcept>, never, ConceptEngine> {
+    const self = this
     return Effect.gen(function* () {
+      if (!self.conceptSurfaceEnabled()) return []
       const engine = yield* Effect.service(ConceptEngine)
-      const state = yield* engine.stats()
-      const max = Math.max(1, limit ?? 3)
-      const concepts = Object.values(state.concepts)
-        .filter(
-          (c) =>
-            (c.state === "Stable" || c.state === "Candidate") &&
-            c.record_ids.includes(recordId)
-        )
-        .sort((a, b) => b.abstraction_score - a.abstraction_score)
+      const max = Math.min(3, Math.max(1, limit ?? 3))
+      const surfaced = (yield* surfaceConcepts(engine))
+        .filter((concept) => concept.recordIds.includes(recordId))
         .slice(0, max)
-      return concepts.map((c) => ({
-        id: c.id,
-        key: c.key,
-        state: c.state,
-        namespace: c.namespace,
-        abstractionScore: c.abstraction_score,
-        beliefCount: c.belief_ids.length,
-        recordCount: c.record_ids.length,
-        coreTerms: c.core_terms,
-        recordIds: c.record_ids,
-      }))
+      yield* self.trackRecordCall(surfaced.length)
+      return surfaced
     })
   }
 
@@ -358,8 +358,7 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
       const engine = yield* Effect.service(CausalEngine)
       const state = yield* engine.stats()
       const patterns = Object.values(state.patterns)
-      if (stateFilter) return patterns.filter((p) => p.state === stateFilter)
-      return patterns
+      return patterns.filter((pattern) => matchesCausalStateFilter(pattern.state, stateFilter))
     })
   }
 
@@ -370,8 +369,7 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
       const engine = yield* Effect.service(PolicyEngine)
       const state = yield* engine.stats()
       const hints = Object.values(state.hints)
-      if (stateFilter) return hints.filter((h) => h.state === stateFilter)
-      return hints
+      return hints.filter((hint) => matchesPolicyStateFilter(hint.state, stateFilter))
     })
   }
 
@@ -382,11 +380,7 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     return Effect.gen(function* () {
       const engine = yield* Effect.service(PolicyEngine)
       const state = yield* engine.stats()
-      const maxLimit = Math.max(1, Math.min(100, limit ?? 20))
-      let hints = Object.values(state.hints).filter((h) => h.state === "Suppressed")
-      if (namespace) hints = hints.filter((h) => h.namespace === namespace)
-      hints.sort((a, b) => b.last_updated - a.last_updated)
-      return hints.slice(0, maxLimit)
+      return collectPolicyHintsByState(Object.values(state.hints), PolicyState.Suppressed, namespace, limit)
     })
   }
 
@@ -397,11 +391,7 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
     return Effect.gen(function* () {
       const engine = yield* Effect.service(PolicyEngine)
       const state = yield* engine.stats()
-      const maxLimit = Math.max(1, Math.min(100, limit ?? 20))
-      let hints = Object.values(state.hints).filter((h) => h.state === "Rejected")
-      if (namespace) hints = hints.filter((h) => h.namespace === namespace)
-      hints.sort((a, b) => b.last_updated - a.last_updated)
-      return hints.slice(0, maxLimit)
+      return collectPolicyHintsByState(Object.values(state.hints), PolicyState.Rejected, namespace, limit)
     })
   }
 
@@ -413,8 +403,8 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
       const engine = yield* Effect.service(PolicyEngine)
       const state = yield* engine.stats()
       const hints = Object.values(state.hints)
-      const actMax = Math.min(50, Math.max(1, actionLimit ?? 10))
-      const domMax = Math.min(50, Math.max(1, domainLimit ?? 10))
+      const actMax = rustLimit(actionLimit, 8, 16)
+      const domMax = rustLimit(domainLimit, 12, 32)
 
       if (hints.length === 0) {
         return {
@@ -427,81 +417,134 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
 
       let stableCount = 0, candidateCount = 0, suppressedCount = 0, rejectedCount = 0
       let sumStrength = 0, sumRisk = 0
-      const actionGroups = new Map<string, PolicyHint[]>()
-      const domainGroups = new Map<string, PolicyHint[]>()
+      const actionGroups = new Map<string, {
+        totalHints: number
+        stableHints: number
+        candidateHints: number
+        suppressedHints: number
+        rejectedHints: number
+        totalPolicyStrength: number
+        totalRiskScore: number
+      }>()
+      const domainGroups = new Map<string, {
+        namespace: string
+        domain: string
+        totalHints: number
+        stableHints: number
+        candidateHints: number
+        suppressedHints: number
+        rejectedHints: number
+        totalPolicyStrength: number
+        totalRiskScore: number
+        advisoryPressure: number
+      }>()
 
       for (const h of hints) {
         switch (h.state) {
-          case "Stable": stableCount++; break
-          case "Candidate": candidateCount++; break
-          case "Suppressed": suppressedCount++; break
-          case "Rejected": rejectedCount++; break
+          case PolicyState.Stable: stableCount++; break
+          case PolicyState.Candidate: candidateCount++; break
+          case PolicyState.Suppressed: suppressedCount++; break
+          case PolicyState.Rejected: rejectedCount++; break
         }
         sumStrength += h.policyStrength
         sumRisk += h.riskScore
 
-        const ak = h.actionKind || "unknown"
-        if (!actionGroups.has(ak)) actionGroups.set(ak, [])
-        actionGroups.get(ak)!.push(h)
+        const ak = policyActionKindName(h.actionKind)
+        let action = actionGroups.get(ak)
+        if (!action) {
+          action = {
+            totalHints: 0,
+            stableHints: 0,
+            candidateHints: 0,
+            suppressedHints: 0,
+            rejectedHints: 0,
+            totalPolicyStrength: 0,
+            totalRiskScore: 0,
+          }
+          actionGroups.set(ak, action)
+        }
+        action.totalHints++
+        action.totalPolicyStrength += h.policyStrength
+        action.totalRiskScore += h.riskScore
+        switch (h.state) {
+          case PolicyState.Stable: action.stableHints++; break
+          case PolicyState.Candidate: action.candidateHints++; break
+          case PolicyState.Suppressed: action.suppressedHints++; break
+          case PolicyState.Rejected: action.rejectedHints++; break
+        }
 
         const dk = `${h.namespace}\x00${h.domain}`
-        if (!domainGroups.has(dk)) domainGroups.set(dk, [])
-        domainGroups.get(dk)!.push(h)
+        let domain = domainGroups.get(dk)
+        if (!domain) {
+          domain = {
+            namespace: h.namespace,
+            domain: h.domain,
+            totalHints: 0,
+            stableHints: 0,
+            candidateHints: 0,
+            suppressedHints: 0,
+            rejectedHints: 0,
+            totalPolicyStrength: 0,
+            totalRiskScore: 0,
+            advisoryPressure: 0,
+          }
+          domainGroups.set(dk, domain)
+        }
+        domain.totalHints++
+        domain.totalPolicyStrength += h.policyStrength
+        domain.totalRiskScore += h.riskScore
+        if (h.state === PolicyState.Stable || h.state === PolicyState.Candidate) {
+          domain.advisoryPressure += h.policyStrength * policyActionPressureWeight(h.actionKind)
+        }
+        switch (h.state) {
+          case PolicyState.Stable: domain.stableHints++; break
+          case PolicyState.Candidate: domain.candidateHints++; break
+          case PolicyState.Suppressed: domain.suppressedHints++; break
+          case PolicyState.Rejected: domain.rejectedHints++; break
+        }
       }
 
-      // Action summaries
       const actionSummaries: PolicyActionSummary[] = []
-      for (const [ak, group] of actionGroups) {
-        let aStable = 0, aCand = 0, aSupp = 0, aRej = 0, aStr = 0, aRisk = 0
-        for (const h of group) {
-          switch (h.state) {
-            case "Stable": aStable++; break
-            case "Candidate": aCand++; break
-            case "Suppressed": aSupp++; break
-            case "Rejected": aRej++; break
-          }
-          aStr += h.policyStrength
-          aRisk += h.riskScore
-        }
+      for (const [ak, acc] of actionGroups) {
         actionSummaries.push({
           actionKind: ak,
-          totalHints: group.length,
-          stableHints: aStable, candidateHints: aCand,
-          suppressedHints: aSupp, rejectedHints: aRej,
-          avgPolicyStrength: aStr / group.length,
-          avgRiskScore: aRisk / group.length,
+          totalHints: acc.totalHints,
+          stableHints: acc.stableHints,
+          candidateHints: acc.candidateHints,
+          suppressedHints: acc.suppressedHints,
+          rejectedHints: acc.rejectedHints,
+          avgPolicyStrength: acc.totalHints > 0 ? acc.totalPolicyStrength / acc.totalHints : 0,
+          avgRiskScore: acc.totalHints > 0 ? acc.totalRiskScore / acc.totalHints : 0,
         })
       }
-      actionSummaries.sort((a, b) => b.totalHints - a.totalHints)
+      actionSummaries.sort((a, b) =>
+        (b.totalHints - a.totalHints) ||
+        (b.avgPolicyStrength - a.avgPolicyStrength) ||
+        a.actionKind.localeCompare(b.actionKind)
+      )
 
-      // Domain summaries
       const domainSummaries: PolicyDomainSummary[] = []
-      for (const [dk, group] of domainGroups) {
-        const [ns, dom] = dk.split("\x00")
-        let dStable = 0, dCand = 0, dSupp = 0, dRej = 0, dStr = 0, dRisk = 0
-        for (const h of group) {
-          switch (h.state) {
-            case "Stable": dStable++; break
-            case "Candidate": dCand++; break
-            case "Suppressed": dSupp++; break
-            case "Rejected": dRej++; break
-          }
-          dStr += h.policyStrength
-          dRisk += h.riskScore
-        }
-        const activeDomain = dStable + dCand
+      for (const acc of domainGroups.values()) {
         domainSummaries.push({
-          namespace: ns!, domain: dom!,
-          totalHints: group.length,
-          activeHints: activeDomain,
-          stableHints: dStable, candidateHints: dCand,
-          suppressedHints: dSupp, rejectedHints: dRej,
-          avgPolicyStrength: dStr / group.length,
-          avgRiskScore: dRisk / group.length,
-          advisoryPressure: activeDomain / Math.max(1, group.length),
+          namespace: acc.namespace,
+          domain: acc.domain,
+          totalHints: acc.totalHints,
+          activeHints: acc.stableHints + acc.candidateHints,
+          stableHints: acc.stableHints,
+          candidateHints: acc.candidateHints,
+          suppressedHints: acc.suppressedHints,
+          rejectedHints: acc.rejectedHints,
+          avgPolicyStrength: acc.totalHints > 0 ? acc.totalPolicyStrength / acc.totalHints : 0,
+          avgRiskScore: acc.totalHints > 0 ? acc.totalRiskScore / acc.totalHints : 0,
+          advisoryPressure: acc.advisoryPressure,
         })
       }
-      domainSummaries.sort((a, b) => b.totalHints - a.totalHints)
+      domainSummaries.sort((a, b) =>
+        (b.advisoryPressure - a.advisoryPressure) ||
+        (b.activeHints - a.activeHints) ||
+        a.namespace.localeCompare(b.namespace) ||
+        a.domain.localeCompare(b.domain)
+      )
 
       return {
         totalHints: hints.length,
@@ -524,44 +567,84 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
       const engine = yield* Effect.service(PolicyEngine)
       const state = yield* engine.stats()
       const hints = Object.values(state.hints)
-      const maxLimit = Math.min(100, Math.max(1, limit ?? 20))
+      const maxLimit = rustLimit(limit, 10, 25)
 
-      const groups = new Map<string, PolicyHint[]>()
+      const groups = new Map<string, {
+        namespace: string
+        domain: string
+        advisoryPressure: number
+        activeHints: number
+        suppressedHints: number
+        rejectedHints: number
+        strongestHintId: string
+        strongestActionKind: string
+        strongestPolicyStrength: number
+      }>()
       for (const h of hints) {
         if (namespace !== undefined && h.namespace !== namespace) continue
         const key = `${h.namespace}\x00${h.domain}`
-        if (!groups.has(key)) groups.set(key, [])
-        groups.get(key)!.push(h)
+        let entry = groups.get(key)
+        if (!entry) {
+          entry = {
+            namespace: h.namespace,
+            domain: h.domain,
+            advisoryPressure: 0,
+            activeHints: 0,
+            suppressedHints: 0,
+            rejectedHints: 0,
+            strongestHintId: "",
+            strongestActionKind: "",
+            strongestPolicyStrength: 0,
+          }
+          groups.set(key, entry)
+        }
+        switch (h.state) {
+          case PolicyState.Stable:
+          case PolicyState.Candidate:
+            entry.activeHints++
+            entry.advisoryPressure += h.policyStrength * policyActionPressureWeight(h.actionKind)
+            if (
+              h.policyStrength > entry.strongestPolicyStrength ||
+              (h.policyStrength === entry.strongestPolicyStrength && h.id < entry.strongestHintId)
+            ) {
+              entry.strongestHintId = h.id
+              entry.strongestActionKind = policyActionKindName(h.actionKind)
+              entry.strongestPolicyStrength = h.policyStrength
+            }
+            break
+          case PolicyState.Suppressed:
+            entry.suppressedHints++
+            break
+          case PolicyState.Rejected:
+            entry.rejectedHints++
+            break
+        }
       }
 
       const results: PolicyPressureArea[] = []
-      for (const [, group] of groups) {
-        let active = 0, suppressed = 0, rejected = 0
-        let strongest: PolicyHint | null = null
-        for (const h of group) {
-          switch (h.state) {
-            case "Stable": case "Candidate": active++; break
-            case "Suppressed": suppressed++; break
-            case "Rejected": rejected++; break
-          }
-          if (!strongest || h.policyStrength > strongest.policyStrength) {
-            strongest = h
-          }
+      for (const entry of groups.values()) {
+        if (entry.activeHints === 0 && entry.suppressedHints === 0 && entry.rejectedHints === 0) {
+          continue
         }
         results.push({
-          namespace: group[0]!.namespace,
-          domain: group[0]!.domain,
-          advisoryPressure: active / Math.max(1, group.length),
-          activeHints: active,
-          suppressedHints: suppressed,
-          rejectedHints: rejected,
-          strongestHintId: strongest?.id ?? "",
-          strongestActionKind: strongest?.actionKind ?? "",
-          strongestPolicyStrength: strongest?.policyStrength ?? 0,
+          namespace: entry.namespace,
+          domain: entry.domain,
+          advisoryPressure: entry.advisoryPressure,
+          activeHints: entry.activeHints,
+          suppressedHints: entry.suppressedHints,
+          rejectedHints: entry.rejectedHints,
+          strongestHintId: entry.strongestHintId,
+          strongestActionKind: entry.strongestActionKind,
+          strongestPolicyStrength: entry.strongestPolicyStrength,
         })
       }
 
-      results.sort((a, b) => b.advisoryPressure - a.advisoryPressure)
+      results.sort((a, b) =>
+        (b.advisoryPressure - a.advisoryPressure) ||
+        (b.activeHints - a.activeHints) ||
+        a.namespace.localeCompare(b.namespace) ||
+        a.domain.localeCompare(b.domain)
+      )
       return results.slice(0, maxLimit)
     })
   }
@@ -590,29 +673,104 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function computeSharedTags(
-  beliefs: Belief[],
-  records: ReadonlyMap<string, AuraRecord>,
-  beliefRecords: Map<string, Set<string>>
-): ReadonlyArray<string> {
-  const allRecordIds = new Set<string>()
-  for (const b of beliefs) {
-    const rids = beliefRecords.get(b.id)
-    if (rids) for (const rid of rids) allRecordIds.add(rid)
+function rustLimit(value: number | undefined, defaultValue: number, maxValue: number): number {
+  if (value === undefined || !Number.isFinite(value)) return defaultValue
+  return Math.max(0, Math.min(maxValue, Math.trunc(value)))
+}
+
+function stateFilter(value: string | undefined): string | undefined {
+  return value?.toLowerCase()
+}
+
+function matchesBeliefStateFilter(state: BeliefState, filter: string | undefined): boolean {
+  switch (stateFilter(filter)) {
+    case "resolved": return state === BeliefState.Resolved
+    case "unresolved": return state === BeliefState.Unresolved
+    case "singleton": return state === BeliefState.Singleton
+    case "empty": return state === BeliefState.Empty
+    default: return true
   }
-  if (allRecordIds.size === 0) return []
-  const tagCounts = new Map<string, number>()
-  for (const rid of allRecordIds) {
-    const rec = records.get(rid)
-    if (rec?.tags) {
-      for (const tag of rec.tags) {
-        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
-      }
-    }
+}
+
+function matchesConceptStateFilter(state: ConceptState, filter: string | undefined): boolean {
+  switch (stateFilter(filter)) {
+    case "stable": return state === ConceptState.Stable
+    case "candidate": return state === ConceptState.Candidate
+    case "rejected": return state === ConceptState.Rejected
+    default: return true
   }
-  return [...tagCounts.entries()]
-    .filter(([, count]) => count >= 2)
-    .map(([tag]) => tag)
+}
+
+function matchesCausalStateFilter(state: CausalState, filter: string | undefined): boolean {
+  switch (stateFilter(filter)) {
+    case "stable": return state === CausalState.Stable
+    case "candidate": return state === CausalState.Candidate
+    case "rejected": return state === CausalState.Rejected
+    default: return true
+  }
+}
+
+function matchesPolicyStateFilter(state: PolicyState, filter: string | undefined): boolean {
+  switch (stateFilter(filter)) {
+    case "stable": return state === PolicyState.Stable
+    case "candidate": return state === PolicyState.Candidate
+    case "suppressed": return state === PolicyState.Suppressed
+    case "rejected": return state === PolicyState.Rejected
+    default: return true
+  }
+}
+
+function namespaceFromBeliefKey(key: string): string {
+  return key.split(":")[0] || DEFAULT_NAMESPACE
+}
+
+function sortedUnique(values: Iterable<string>): string[] {
+  return [...new Set(values)].sort()
+}
+
+function intersects<T>(left: Iterable<T>, right: Iterable<T>): boolean {
+  const rightSet = right instanceof Set ? right : new Set(right)
+  for (const value of left) {
+    if (rightSet.has(value)) return true
+  }
+  return false
+}
+
+function policyActionKindName(actionKind: PolicyActionKind): string {
+  switch (actionKind) {
+    case PolicyActionKind.Prefer: return "prefer"
+    case PolicyActionKind.Recommend: return "recommend"
+    case PolicyActionKind.VerifyFirst: return "verify_first"
+    case PolicyActionKind.Avoid: return "avoid"
+    case PolicyActionKind.Warn: return "warn"
+  }
+}
+
+function policyActionPressureWeight(actionKind: PolicyActionKind): number {
+  switch (actionKind) {
+    case PolicyActionKind.Avoid: return 1.30
+    case PolicyActionKind.Warn: return 1.15
+    case PolicyActionKind.VerifyFirst: return 1.00
+    case PolicyActionKind.Recommend: return 0.85
+    case PolicyActionKind.Prefer: return 0.75
+  }
+}
+
+function collectPolicyHintsByState(
+  hints: ReadonlyArray<PolicyHint>,
+  state: PolicyState,
+  namespace: string | undefined,
+  limit: number | undefined
+): ReadonlyArray<PolicyHint> {
+  const max = rustLimit(limit, 20, 100)
+  return hints
+    .filter((hint) => hint.state === state)
+    .filter((hint) => namespace === undefined || hint.namespace === namespace)
+    .sort((a, b) =>
+      (b.policyStrength - a.policyStrength) ||
+      a.cause_key.localeCompare(b.cause_key)
+    )
+    .slice(0, max)
 }
 
 // ── Live Layer ──────────────────────────────────────────────────────

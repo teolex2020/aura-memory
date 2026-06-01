@@ -36,9 +36,11 @@ Last updated: 2026-06-01
 - [x] Core `Consolidation.ts` now owns Rust `consolidation::consolidate` hard-merge semantics and wires `Aura.consolidate` / MaintenanceService / MCP inventory to the implemented surface — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Contract `Record` namespace now carries the remaining Rust `Record` impl helpers, with core activation/decay/promotion/epistemic callers reusing `AuraRecord.*` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Contract `Level` namespace now carries Rust `Level` impl helpers including `displayName`, so level helper logic can be imported with the enum — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] EpistemicRuntime and PolicyEngine now follow Rust inspection, telemetry, policy rebuild, provenance, suppression, and advisory-pressure semantics at typecheck level — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
+- [ ] Rewrite the 7 skipped legacy `EpistemicRuntime.test.ts` assertions against Rust behavior instead of old TS expectations.
 - [ ] Core facade store/update/connect and remaining delete storage/index/cache semantics: close remaining `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.

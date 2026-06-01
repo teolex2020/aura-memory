@@ -597,21 +597,21 @@ export { extractFromSource } from "./tree-sitter";
 /**
  * Log a debug message
  */
-export function logDebug(message: string, context?: Record<string, unknown>): void {
+export function logDebug(_message: string, _context?: Record<string, unknown>): void {
   // currentLogger.debug(message, context);
 }
 
 /**
  * Log a warning message
  */
-export function logWarn(message: string, context?: Record<string, unknown>): void {
+export function logWarn(_message: string, _context?: Record<string, unknown>): void {
   // currentLogger.warn(message, context);
 }
 
 /**
  * Log an error message
  */
-export function logError(message: string, context?: Record<string, unknown>): void {
+export function logError(_message: string, _context?: Record<string, unknown>): void {
   // currentLogger.error(message, context);
 }
 
@@ -695,7 +695,7 @@ export class ExtractionOrchestrator {
    * scan if none are provided). Cached on the orchestrator so repeat calls
    * inside a single run don't re-scan.
    */
-  private ensureDetectedFrameworks(files?: string[]): string[] {
+  private ensureDetectedFrameworks(_files?: string[]): string[] {
     if (this.detectedFrameworkNames !== null) return this.detectedFrameworkNames;
     // const fileList = files ?? scanDirectory(this.rootDir);
     // const context = this.buildDetectionContext(fileList);

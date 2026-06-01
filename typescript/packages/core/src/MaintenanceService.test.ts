@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect } from "vitest"
 import { Effect, Layer, Ref } from "effect"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -32,10 +32,7 @@ import type {
   PhaseTimings,
   MaintenanceHotspots,
   MaintenanceTrendSnapshot,
-  MaintenanceTrendSummary,
-  LayerStability,
   LayerChurn,
-  ContradictionCluster,
   ReflectionSummary,
   ReflectionFinding,
   ReflectionJobReport,

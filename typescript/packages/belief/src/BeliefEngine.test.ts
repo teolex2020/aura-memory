@@ -301,10 +301,8 @@ describe("BeliefEngineImpl", () => {
     const path = await import("node:path")
     const fixtureDir = path.join(process.cwd(), "test/fixtures/epistemic_belief_v1")
     const recordsJson = fs.readFileSync(path.join(fixtureDir, "records.json"), "utf8")
-    const expectedJson = fs.readFileSync(path.join(fixtureDir, "expected.json"), "utf8")
 
     const recordsObj = JSON.parse(recordsJson) as Record<string, AuraRecord>
-    const expected = JSON.parse(expectedJson) as any
 
     const records = new Map(Object.entries(recordsObj))
     const engine = new BeliefEngineImpl()
@@ -568,7 +566,6 @@ describe("record_index", () => {
 // SDR_A and SDR_D: 0 shared / 20 union = 0 (completely different)
 const SDR_A = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 const SDR_B = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
-const SDR_C = [1, 2, 3, 4, 5, 20, 21, 22, 23, 24]
 const SDR_D = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
 const SDR_E = [1, 2, 3, 60, 61, 62, 63, 64, 65, 66]
 const SDR_F = [1, 2, 70, 71, 72, 73, 74, 75, 76, 77]
@@ -577,7 +574,7 @@ function makeSdrRecord(
   id: string,
   content: string,
   tags: string[],
-  sdr: number[]
+  _sdr: number[]
 ): AuraRecord {
   return makeRecord(id, content, tags, "fact", { support_mass: 2 })
 }
@@ -1390,9 +1387,6 @@ describe("apply_layer_feedback (P2 rewrite)", () => {
     const state = await Effect.runPromise(engine.stats())
     const beliefIds = Object.keys(state.beliefs)
     expect(beliefIds.length).toBeGreaterThan(0)
-
-    const origBelief = state.beliefs[beliefIds[0]!]
-    const origConfidence = origBelief?.confidence ?? 0
 
     const mockCausal = mockCausalEngine(beliefIds)
     const mockPolicy = mockPolicyEngine(beliefIds)

@@ -637,7 +637,7 @@ describe("PolicyEngine P2 — Suppression", () => {
     })
     const result = applySuppression([hintA, hintB])
     // Hint B should be suppressed (lower strength) — stub returns both Stable
-    const suppressed = result.filter(h => false) // stub: no suppression
+    const suppressed = result.filter(() => false) // stub: no suppression
     assert.strictEqual(suppressed.length, 0)
     // RED: this assertion will fail against stub that doesn't suppress
     const suppressedHint = result.find(h => h.id === "h-negative")

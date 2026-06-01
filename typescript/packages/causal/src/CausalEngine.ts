@@ -365,8 +365,8 @@ export function aggregateToPatterns(
         entry.acc.explicitCount++
       } else {
         entry.acc.temporalCount++
-        // Bucket by 1-hour windows for temporal window counting
-        entry.acc.temporalWindowBuckets.add(Math.floor(edge.created_at / 3600))
+        // Bucket by fixed repeated-evidence windows.
+        entry.acc.temporalWindowBuckets.add(Math.floor(edge.created_at / EVIDENCE_WINDOW_SECS))
       }
     }
 

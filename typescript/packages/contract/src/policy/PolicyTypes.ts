@@ -86,6 +86,14 @@ export type PolicyHint = {
   readonly effect_keys: ReadonlyArray<string>
   /** Record IDs on the cause side — used for suppression conflict detection. 原因侧record ID列表。 */
   readonly cause_record_ids: ReadonlyArray<string>
+  /** Rust `PolicyHint::trigger_causal_ids`; causal pattern provenance. */
+  readonly trigger_causal_ids?: ReadonlyArray<string>
+  /** Rust `PolicyHint::trigger_concept_ids`; stable concept provenance. */
+  readonly trigger_concept_ids?: ReadonlyArray<string>
+  /** Rust `PolicyHint::trigger_belief_ids`; belief provenance. */
+  readonly trigger_belief_ids?: ReadonlyArray<string>
+  /** Rust `PolicyHint::supporting_record_ids`; transitive cause + effect record provenance. */
+  readonly supporting_record_ids?: ReadonlyArray<string>
 }
 
 /**

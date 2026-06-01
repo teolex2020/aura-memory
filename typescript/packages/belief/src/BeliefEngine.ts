@@ -14,12 +14,8 @@ import {
   type Belief,
   type BeliefEngineState,
   type BeliefReport,
-  type CausalEngineState,
-  type CausalPattern,
   type FeedbackAuditReport,
   type Hypothesis,
-  type PolicyEngineState,
-  type PolicyHint,
   type Record as AuraRecord,
   type SdrLookup,
   Clock
@@ -95,13 +91,6 @@ export const NEIGHBORHOOD_POOL_THRESHOLD = 0.08
  * Rust: TAU_DAYS = 14.0 (belief.rs:34) → RECENCY_HALF_LIFE_SECS = 14 * 24 * 3600
  */
 export const RECENCY_HALF_LIFE_SECS = 14 * 24 * 3600
-
-/**
- * Maximum records per hypothesis before pruning weakest.
- * Reserved for large-scale belief groups.
- * Rust: MAX_RECORDS_PER_HYPOTHESIS = 50 (belief.rs:66)
- */
-const MAX_RECORDS_PER_HYPOTHESIS = 50
 
 /**
  * Bounded top-down feedback damping/boost caps.

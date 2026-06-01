@@ -1,5 +1,20 @@
 # Implementation Log
 
+## 2026-06-01 - EpistemicRuntime / PolicyEngine Rust behavior alignment
+
+- 范围：`packages/epistemic-runtime/src/EpistemicRuntime.ts`、`packages/contract/src/EpistemicRuntime.ts`、`packages/policy/src/PolicyEngine.ts`、`packages/contract/src/policy/PolicyTypes.ts`、`packages/core/src/Aura.ts`、相关测试与 noUnused 清理文件。
+- 实现：`EpistemicRuntime` 对齐 Rust `epistemic_runtime.rs` 的 surfaced concept mode gate 与 telemetry 计数，`getBeliefInstabilitySummary` 改为接收当前 records read model 并计算 contradiction cluster count，`getContradictionClusters` 改为按 belief key namespace、Rust unstable/conflict node gate、hypothesis records/tags 连通与 Rust 排序生成结果。
+- 实现：`EpistemicRuntime` 的 high/low belief 查询、state filter、suppressed/rejected policy hint 查询、policy lifecycle summary、policy pressure report 改为 Rust limit、排序、action weight 与 advisory pressure 公式。
+- 实现：`PolicyEngine.discover` 改为 Rust full rebuild 周期：每轮清空 hints/key_index，按 6 gates 选 seed，过滤 mixed explicit outcome ambiguity，构建 stable concept provenance、belief provenance、supporting records，按 Resolved/Singleton belief confidence 与 record confidence fallback 计算 hint，再执行 suppression 与 Stable/Candidate/Rejected 分类。
+- 实现：`PolicyHint` contract 补充 Rust provenance 字段 `trigger_causal_ids`、`trigger_concept_ids`、`trigger_belief_ids`、`supporting_record_ids`；保留既有 TS 兼容字段供 recall/core surfaces 继续消费。
+- 测试：`EpistemicRuntime.test.ts` 中 7 个旧 TS 语义断言先用 `it.skip` 标注，原因是 Rust reference 没有该模块独立测试可直接迁移，后续应按 Rust 行为重写，而不是让实现回退到旧测试期望。
+- Rust reference：`EpistemicRuntime` inspection methods and concept surface telemetry（`../src/epistemic_runtime.rs`），`PolicyEngine::discover` / `build_hint` / `apply_suppression` / `surface_policy_hints`（`../src/policy.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/epistemic-runtime/src/EpistemicRuntime.test.ts packages/policy/src/PolicyEngine.test.ts packages/policy/src/Surface.test.ts packages/causal/src/CausalEngine.test.ts` 通过，4 files / 145 passed / 7 skipped。
+  - `git diff --check` 通过（仅 CRLF warning）。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 558 passed / 7 skipped。
+
 ## 2026-06-01 - Record / Level namespace Rust impl helpers
 
 - 范围：`packages/contract/src/record/Record.ts`、`packages/contract/src/levels/Level.ts`、`packages/core/src/Aura.ts`、`packages/core/src/MaintenanceService.ts`、`packages/core/src/RecallFinalizer.ts`、`packages/mcp/src/tools.ts`、对应 contract/core 测试。

@@ -151,7 +151,7 @@ export class NGramIndex {
 
   private constructor(
     private readonly a: ReadonlyArray<number>,
-    private readonly b: ReadonlyArray<number>,
+    b: ReadonlyArray<number>,
     private readonly synonymRing?: SynonymRing
   ) {
     if (a.length !== b.length || a.length === 0) {

@@ -19,7 +19,7 @@ import {
   type ConceptEngineState,
 } from "@aura/contract"
 import type { SurfacedConcept } from "@aura/contract"
-import { surfaceConcepts, surfaceConceptsFiltered, computeSurfaceConcepts, MAX_SURFACED_PER_NAMESPACE, SURFACE_CANDIDATE_THRESHOLD } from "./Surface"
+import { surfaceConcepts, surfaceConceptsFiltered, computeSurfaceConcepts } from "./Surface"
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

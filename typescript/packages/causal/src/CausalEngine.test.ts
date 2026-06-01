@@ -5,12 +5,11 @@ import { xxh3_64Hex } from "@aura/utils"
 import { EpistemicTrace, BeliefEngine, Level, TemporalBudgetMode, EvidenceMode, type FeedbackAuditReport } from "@aura/contract"
 import { CausalState, CausalDiscoveryMode, CausalEdgeKind } from "@aura/contract"
 import type { BeliefEngineState, BeliefReport } from "@aura/contract"
-import type { SdrLookup, CausalEdge, CausalReport } from "@aura/contract"
+import type { SdrLookup, CausalEdge } from "@aura/contract"
 import type { Record as AuraRecord } from "@aura/contract"
 import {
   CausalEngineImpl,
   extractEdges,
-  buildRecordToBelief,
   aggregateToPatterns,
   scorePattern,
   meetsSupportGate,
@@ -22,7 +21,6 @@ import {
   MAX_EDGES_PER_NAMESPACE,
   MAX_TEMPORAL_SUCCESSORS_PER_RECORD,
 } from "./CausalEngine"
-import type { EdgeStats } from "./CausalEngine"
 
 // ── Helpers ──
 
@@ -205,7 +203,7 @@ describe("extractEdges", () => {
     records.set("r1", makeRecord("r1", "cause", "default", 1_000_000))
     records.set("r2", makeRecord("r2", "effect", "default", 1_000_000 + MAX_CAUSAL_WINDOW_SECS))
 
-    const { edges, stats } = extractEdges(records)
+    const { stats } = extractEdges(records)
 
     // gap == MAX_CAUSAL_WINDOW_SECS — allowed (gap > 7*86400 is break)
     assert.strictEqual(stats.temporal_edges_found, 1, "exactly 7-day gap should be within window")
@@ -216,7 +214,7 @@ describe("extractEdges", () => {
     records.set("r1", makeRecord("r1", "a", "default", 1_000_000))
     records.set("r2", makeRecord("r2", "b", "default", 1_000_000)) // same timestamp
 
-    const { edges, stats } = extractEdges(records)
+    const { stats } = extractEdges(records)
 
     assert.strictEqual(stats.temporal_edges_found, 0, "gap=0 should not create temporal edge")
   })
@@ -285,7 +283,7 @@ describe("extractEdges", () => {
     records.set("r1", r1)
     records.set("r2", r2)
 
-    const { edges, stats } = extractEdges(records)
+    const { edges } = extractEdges(records)
 
     // same r1→r2 pair discovered via caused_by_id, should only be 1 edge total
     const r1r2Edges = edges.filter((e) => e.cause_record_id === "r1" && e.effect_record_id === "r2")

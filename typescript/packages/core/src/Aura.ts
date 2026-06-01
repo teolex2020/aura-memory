@@ -2225,9 +2225,10 @@ export class Aura {
    * Rust reference: `Aura::get_belief_instability_summary` (`../src/aura.rs`).
    */
   get_belief_instability_summary(): Effect.Effect<McpBeliefInstabilitySummary, never, EpistemicRuntime | BeliefEngine> {
+    const records = this.searchRecords
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
-      const summary = yield* runtime.getBeliefInstabilitySummary()
+      const summary = yield* runtime.getBeliefInstabilitySummary(records)
       return toMcpBeliefInstabilitySummary(summary)
     })
   }
@@ -2385,9 +2386,10 @@ export class Aura {
     const corrections = this.correctionLog
       .filter((entry) => entry.target_kind === "belief")
       .sort((a, b) => b.timestamp - a.timestamp)
+    const records = this.searchRecords
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
-      const summary = yield* runtime.getBeliefInstabilitySummary()
+      const summary = yield* runtime.getBeliefInstabilitySummary(records)
       const highVolatility = yield* runtime.getHighVolatilityBeliefs(minVolatility, max)
       const lowStability = yield* runtime.getLowStabilityBeliefs(maxStability, max)
       const beliefs = yield* runtime.getBeliefs()
@@ -2712,7 +2714,7 @@ export class Aura {
 
     return Effect.gen(function* () {
       const runtime = yield* Effect.service(EpistemicRuntime)
-      const instability = yield* runtime.getBeliefInstabilitySummary()
+      const instability = yield* runtime.getBeliefInstabilitySummary(records)
       const lifecycle = yield* runtime.getPolicyLifecycleSummary(max, max)
       const pressure = yield* runtime.getPolicyPressureReport(undefined, max)
       const highVolatility = yield* runtime.getHighVolatilityBeliefs(0.20, max)

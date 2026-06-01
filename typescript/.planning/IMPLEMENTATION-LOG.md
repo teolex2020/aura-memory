@@ -1,5 +1,20 @@
 # Implementation Log
 
+## 2026-06-01 - Record / Level namespace Rust impl helpers
+
+- 范围：`packages/contract/src/record/Record.ts`、`packages/contract/src/levels/Level.ts`、`packages/core/src/Aura.ts`、`packages/core/src/MaintenanceService.ts`、`packages/core/src/RecallFinalizer.ts`、`packages/mcp/src/tools.ts`、对应 contract/core 测试。
+- 实现：`Record` namespace 补齐 Rust `impl Record` 中剩余纯 helper：`make`（TS 侧对应 `Record::new`，因 `new` 为关键字改名并在注释保留原名）、`generateId`、`activate`、`applyDecay`、`isAlive`、`canPromote`、`promote`、connection helper、age helper、validation/default confidence helper、`updateEpistemicSignals` 与 `epistemicHealth`。
+- 实现：保留旧顶层 `defaultConfidenceForSource` / `validateRecord*` wrapper 作为兼容入口，但真实逻辑集中到 `Record` namespace，后续调用方可统一通过 `Record as AuraRecord` 使用类型与方法。
+- 实现：`Level` enum 合并 namespace，补齐 Rust `impl Level` helper：`decayRate`、`toDna`、`isIdentitySdr`、`promote`、`value`、`fromValue`、`displayName`（TS 侧对应 Rust `Level::name`）、`tier`、`isCognitive`、`isCore`。
+- 实现：`Aura.ts`、`MaintenanceService.ts`、`RecallFinalizer.ts` 与 MCP tools 移除重复的 Record/Level 局部公式，改为复用 `AuraRecord.*` / `Level.*`；Recall finalizer 的 activation 复用 `AuraRecord.activate`。
+- Rust reference：`Record::new`、`Record::generate_id`、`Record::activate`、`Record::apply_decay`、`Record::is_alive`、`Record::can_promote`、`Record::promote`、`Record::add_connection`、`Record::add_typed_connection`、`Record::connection_type`、`Record::age_days`、validation/default confidence/epistemic helpers（`../src/record.rs`），`Level` impl helpers（`../src/levels.rs`）。
+- 验证：
+  - `bun run test packages/contract/src/Record.test.ts packages/contract/src/record/Record.test.ts packages/contract/src/Enums.test.ts` 通过，3 files / 17 tests。
+  - `bun run test packages/contract/src/Record.test.ts packages/contract/src/record/Record.test.ts packages/contract/src/Enums.test.ts packages/core/src/RecallFinalizer.test.ts packages/core/src/Aura.test.ts packages/core/src/MaintenanceService.test.ts` 通过，6 files / 80 tests。
+  - `git diff --check` 通过（仅 CRLF warning）。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 565 tests。
+  - `bun run typecheck` 未通过：仍被既有 noUnused diagnostics 阻塞（belief/causal/code-extraction/concept/core test/epistemic-runtime/indexing/policy/recall/storage 等文件）；本轮触达文件无剩余 typecheck 诊断。
+
 ## 2026-06-01 - Core Graph auto_connect / merge_records skeleton
 
 - 范围：`packages/core/src/Graph.ts`、`packages/core/src/Graph.test.ts`、`packages/core/src/Aura.ts`。

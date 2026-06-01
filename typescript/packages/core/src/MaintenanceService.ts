@@ -16,6 +16,7 @@ import {
   CausalEngine, CausalStore,
   PolicyEngine, PolicyStore,
   Level,
+  Record as AuraRecord,
 } from "@aura/contract"
 import type {
   MaintenanceConfig, PhaseTimings, MaintenanceHotspots,
@@ -31,7 +32,6 @@ import type {
 } from "@aura/contract"
 import type { ContradictionCluster } from "@aura/contract"
 import type { SdrLookup } from "@aura/contract"
-import type { Record as AuraRecord } from "@aura/contract"
 import type { BeliefEngineState } from "@aura/contract"
 import type { FileWrite } from "@aura/contract"
 import type { FileWriteError } from "@aura/contract"
@@ -88,9 +88,6 @@ const REFLECTION_KIND_LIMIT = 12
 const REFLECTION_NAMESPACE_LIMIT = 8
 const IDENTITY_ACTIVATION_THRESHOLD = 20
 const IDENTITY_STRENGTH_THRESHOLD = 0.9
-const PROMOTION_ACTIVATION_THRESHOLD = 5
-const PROMOTION_STRENGTH_THRESHOLD = 0.7
-const LIVE_STRENGTH_THRESHOLD = 0.05
 
 const DEFAULT_IDENTITY_TAGS = new Set([
   "identity", "profile", "persona", "preference", "family", "user-profile", "core-memory"
@@ -229,7 +226,7 @@ export function discoverCrossConnections(
 ): ReadonlyArray<string> {
   const discoveries: string[] = []
   const sample = Array.from(records.values())
-    .filter((record) => Object.keys(record.connections).length > 0 && isAlive(record))
+    .filter((record) => Object.keys(record.connections).length > 0 && AuraRecord.isAlive(record))
     .slice(0, 10)
 
   for (const record of sample) {
@@ -342,104 +339,26 @@ function layerChurn(prevKeys: ReadonlySet<string>, currentKeys: ReadonlyArray<st
   return { retained, newCount, dropped, churn }
 }
 
-function levelRank(level: Level): number {
-  switch (level) {
-    case Level.Working:
-      return 1
-    case Level.Decisions:
-      return 2
-    case Level.Domain:
-      return 3
-    case Level.Identity:
-      return 4
-  }
-}
-
-function promoteLevel(level: Level): Level {
-  switch (level) {
-    case Level.Working:
-      return Level.Decisions
-    case Level.Decisions:
-      return Level.Domain
-    case Level.Domain:
-      return Level.Identity
-    case Level.Identity:
-      return Level.Identity
-  }
-}
-
-function decayRate(level: Level): number {
-  switch (level) {
-    case Level.Working:
-      return 0.80
-    case Level.Decisions:
-      return 0.90
-    case Level.Domain:
-      return 0.95
-    case Level.Identity:
-      return 0.99
-  }
-}
-
-function isAlive(record: AuraRecord): boolean {
-  return record.strength >= LIVE_STRENGTH_THRESHOLD
-}
-
-function canPromote(record: AuraRecord): boolean {
-  return (
-    record.activation_count >= PROMOTION_ACTIVATION_THRESHOLD &&
-    record.strength >= PROMOTION_STRENGTH_THRESHOLD &&
-    levelRank(record.level) < levelRank(Level.Identity)
-  )
-}
-
-function applyDecay(record: MutableRecord): void {
-  const baseRate = decayRate(record.level)
-  const ceilingFactor = Math.min(record.activation_count / 10, 1)
-  const activationRate = Math.min(baseRate + (0.999 - baseRate) * ceilingFactor, 0.999)
-  const salience = typeof record.salience === "number" ? Math.max(0, Math.min(1, record.salience)) : 0
-  const salienceBias = 0.03 * salience
-  const effectiveRate = Math.min(activationRate + salienceBias, 0.999)
-  record.strength *= effectiveRate
-}
-
 function updateEpistemicSignals(record: MutableRecord, confirming: number, conflicting: number): boolean {
-  const prevConfidence = record.confidence ?? defaultConfidenceForSource(record.source_type)
   const prevSupport = record.support_mass ?? 0
   const prevConflict = record.conflict_mass ?? 0
   const prevVolatility = record.volatility ?? 0
+  const next = AuraRecord.updateEpistemicSignals(
+    { ...record, confidence: record.confidence ?? AuraRecord.defaultConfidenceForSource(record.source_type) },
+    confirming,
+    conflicting
+  )
 
-  record.confidence = prevConfidence
-  record.support_mass = confirming
-  record.conflict_mass = conflicting
-
-  const supportDen = Math.max(prevSupport, confirming, 1)
-  const conflictDen = Math.max(prevConflict, conflicting, 1)
-  const supportDelta = (Math.abs(confirming - prevSupport) / supportDen) * 0.2
-  const conflictDelta = (Math.abs(conflicting - prevConflict) / conflictDen) * 0.8
-  const instantVolatility = Math.min(supportDelta + conflictDelta, 1)
-  record.volatility = 0.3 * instantVolatility + 0.7 * prevVolatility
+  record.confidence = next.confidence
+  record.support_mass = next.support_mass
+  record.conflict_mass = next.conflict_mass
+  record.volatility = next.volatility
 
   return (
     prevSupport !== confirming ||
     prevConflict !== conflicting ||
     Math.abs(prevVolatility - record.volatility) > Number.EPSILON
   )
-}
-
-function defaultConfidenceForSource(sourceType: string): number {
-  switch (sourceType) {
-    case "recorded":
-      return 0.90
-    case "retrieved":
-      return 0.75
-    case "inferred":
-      return 0.60
-    case "generated":
-      return 0.50
-    default:
-      return 0.50
-  }
 }
 
 function sharedTagCount(a: AuraRecord, b: AuraRecord): number {
@@ -452,7 +371,7 @@ function sharedTagCount(a: AuraRecord, b: AuraRecord): number {
 }
 
 function connectionType(a: AuraRecord, b: AuraRecord): string | undefined {
-  return a.connection_types[b.id] ?? b.connection_types[a.id]
+  return AuraRecord.connectionType(a, b.id) ?? AuraRecord.connectionType(b, a.id)
 }
 
 function connectionWeight(a: AuraRecord, b: AuraRecord): number {
@@ -465,7 +384,7 @@ function detectInsights(records: ReadonlyMap<string, AuraRecord>, taxonomy: TagT
   let contradictionRecords = 0
 
   for (const record of records.values()) {
-    if (!isAlive(record)) continue
+    if (!AuraRecord.isAlive(record)) continue
     namespaceCounts.set(record.namespace, (namespaceCounts.get(record.namespace) ?? 0) + 1)
     const classification = taxonomy.classify(record)
     if (classification.contradictionCue) contradictionRecords += 1
@@ -523,11 +442,11 @@ function guardedReflect(records: Map<string, AuraRecord>, _taxonomy: TagTaxonomy
 
   let promoted = 0
   for (const record of records.values()) {
-    if (canPromote(record)) {
+    if (AuraRecord.canPromote(record)) {
       const mutable = record as MutableRecord
-      const next = promoteLevel(record.level)
-      if (next !== record.level) {
-        mutable.level = next
+      const promotion = AuraRecord.promote(record)
+      if (promotion.promoted) {
+        mutable.level = promotion.record.level
         promoted += 1
       }
     }
@@ -535,7 +454,7 @@ function guardedReflect(records: Map<string, AuraRecord>, _taxonomy: TagTaxonomy
 
   const dead: string[] = []
   for (const [id, record] of records) {
-    if (!isAlive(record)) dead.push(id)
+    if (!AuraRecord.isAlive(record)) dead.push(id)
   }
   for (const id of dead) {
     records.delete(id)
@@ -561,7 +480,7 @@ function guardedReflect(records: Map<string, AuraRecord>, _taxonomy: TagTaxonomy
 function updateEpistemicState(records: Map<string, AuraRecord>, taxonomy: TagTaxonomy): EpistemicPhaseReport {
   const tagGroups = new Map<string, string[]>()
   for (const record of records.values()) {
-    if (!isAlive(record)) continue
+    if (!AuraRecord.isAlive(record)) continue
     for (const tag of normalizedTags(record)) {
       const group = tagGroups.get(tag) ?? []
       group.push(record.id)
@@ -574,7 +493,7 @@ function updateEpistemicState(records: Map<string, AuraRecord>, taxonomy: TagTax
   let totalConflictLinks = 0
 
   for (const record of records.values()) {
-    if (!isAlive(record)) continue
+    if (!AuraRecord.isAlive(record)) continue
     const neighbors = new Set(Object.keys(record.connections))
     for (const tag of normalizedTags(record)) {
       for (const id of tagGroups.get(tag) ?? []) {
@@ -588,7 +507,7 @@ function updateEpistemicState(records: Map<string, AuraRecord>, taxonomy: TagTax
 
     for (const neighborId of neighbors) {
       const other = records.get(neighborId)
-      if (!other || !isAlive(other) || other.namespace !== record.namespace) continue
+      if (!other || !AuraRecord.isAlive(other) || other.namespace !== record.namespace) continue
       const sharedTags = sharedTagCount(record, other)
       const relation = connectionType(record, other)
       const connected = connectionWeight(record, other) >= 0.10 || relation !== undefined
@@ -996,9 +915,10 @@ export function runInitialPhases(
       let decayed = 0
       const toArchive: string[] = []
       for (const record of records.values()) {
-        applyDecay(record as MutableRecord)
+        const decayedRecord = AuraRecord.applyDecay(record)
+        Object.assign(record as MutableRecord, decayedRecord)
         decayed += 1
-        if (!isAlive(record)) toArchive.push(record.id)
+        if (!AuraRecord.isAlive(record)) toArchive.push(record.id)
       }
 
       for (const record of records.values()) {

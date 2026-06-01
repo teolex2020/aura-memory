@@ -96,7 +96,7 @@ function formatRecallContext(
     const records = byLevel.get(level)
     if (records === undefined) continue
 
-    output += `[${levelName(level)}]\n`
+    output += `[${Level.displayName(level)}]\n`
     const budget = level === Level.Identity ? identityBudget : Math.trunc(remainingBudget / 3)
     let levelTokens = 0
 
@@ -124,19 +124,6 @@ function normalizeLevel(level: Level | string | undefined): Level {
       return Level.Decisions
     default:
       return Level.Working
-  }
-}
-
-function levelName(level: Level): string {
-  switch (level) {
-    case Level.Identity:
-      return "IDENTITY"
-    case Level.Domain:
-      return "DOMAIN"
-    case Level.Decisions:
-      return "DECISIONS"
-    case Level.Working:
-      return "WORKING"
   }
 }
 

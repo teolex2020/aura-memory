@@ -26,11 +26,8 @@ import {
   DEFAULT_SOURCE_TYPE,
   DEFAULT_SEMANTIC_TYPE,
   defaultCrossNamespaceDigestOptions,
-  defaultConfidenceForSource,
   finalizeStartupValidationReport,
   startupValidationEvent,
-  validateRecordNamespace,
-  validateRecordSourceType,
   validateRecordStoreInput,
   type StartupValidationEvent,
   type StartupValidationReport,
@@ -70,7 +67,7 @@ import * as RecallFinalizer from "./RecallFinalizer"
 import * as Consolidation from "./Consolidation"
 import { id12, nowSecs } from "@aura/utils";
 
-const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
+const DEFAULT_CONFIDENCE = AuraRecord.defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
 const RECORD_SALIENCE_REASON_KEY = "salience_reason"
 const RECORD_SALIENCE_MARKED_AT_KEY = "salience_marked_at"
 const startupJsonDecoder = new TextDecoder()
@@ -199,7 +196,7 @@ function recallHitsFromScored(
 }
 
 function migrateLegacyConfidence(record: AuraRecord): AuraRecord | undefined {
-  const expected = defaultConfidenceForSource(record.source_type)
+  const expected = AuraRecord.defaultConfidenceForSource(record.source_type)
   if (Math.abs(record.confidence - DEFAULT_CONFIDENCE) < 0.001 && Math.abs(expected - DEFAULT_CONFIDENCE) > 0.001) {
     return { ...record, confidence: expected }
   }
@@ -857,13 +854,10 @@ export class Aura {
       const existing = records.get(record_id)
       if (existing === undefined) return null
 
-      const nextLevel = promoteLevel(existing.level)
-      if (nextLevel === null) return null
+      const promotion = AuraRecord.promote(existing)
+      if (!promotion.promoted) return null
 
-      const updated: AuraRecord = {
-        ...existing,
-        level: nextLevel,
-      }
+      const updated = promotion.record
       const store = yield* CognitiveStoreFile.open(dir)
       yield* store.appendUpdate(updated)
       yield* store.flush()
@@ -871,7 +865,7 @@ export class Aura {
       // 非对齐点：TS core 暂无 recall cache surface；当前仅替换 in-memory read model。
       // Rust reference: `Aura::promote_record` (`../src/aura.rs`).
       self.replaceSearchRecord(updated)
-      return nextLevel
+      return updated.level
     })
   }
 
@@ -941,7 +935,7 @@ export class Aura {
     record_id: string,
     new_namespace: string,
   ): Effect.Effect<AuraRecord | null, FileReadError | FileWriteError, FileRead | FileWrite> {
-    const validationError = validateRecordNamespace(new_namespace)
+    const validationError = AuraRecord.validateNamespace(new_namespace)
     if (validationError !== undefined) {
       return Effect.succeed(null)
     }
@@ -1196,7 +1190,7 @@ export class Aura {
         salience: 0,
         metadata: { ...(options?.metadata ?? {}), timestamp: nowIso },
         caused_by_id: options?.caused_by_id ?? null,
-        confidence: defaultConfidenceForSource(sourceType),
+        confidence: AuraRecord.defaultConfidenceForSource(sourceType),
         support_mass: 0,
         conflict_mass: 0,
         volatility: 0,
@@ -1233,7 +1227,7 @@ export class Aura {
     const self = this;
     return Effect.gen(function* () {
       if (patch?.source_type !== undefined) {
-        const validationError = validateRecordSourceType(patch.source_type)
+        const validationError = AuraRecord.validateSourceType(patch.source_type)
         if (validationError !== undefined) {
           return yield* Effect.fail(validationError)
         }
@@ -1954,9 +1948,9 @@ export class Aura {
       const toArchive: string[] = []
 
       for (const [id, record] of records) {
-        const decayedRecord = decayRecordConnections(applyRecordDecay(record))
+        const decayedRecord = decayRecordConnections(AuraRecord.applyDecay(record))
         decayed += 1
-        if (isRecordAlive(decayedRecord)) {
+        if (AuraRecord.isAlive(decayedRecord)) {
           records.set(id, decayedRecord)
           yield* store.appendUpdate(decayedRecord)
         } else {
@@ -1992,10 +1986,10 @@ export class Aura {
       let promoted = 0
 
       for (const [id, record] of records) {
-        if (!canPromoteRecord(record)) continue
-        const nextLevel = promoteLevel(record.level)
-        if (nextLevel === null) continue
-        const promotedRecord: AuraRecord = { ...record, level: nextLevel }
+        if (!AuraRecord.canPromote(record)) continue
+        const promotion = AuraRecord.promote(record)
+        if (!promotion.promoted) continue
+        const promotedRecord = promotion.record
         records.set(id, promotedRecord)
         promoted += 1
         yield* store.appendUpdate(promotedRecord)
@@ -2009,9 +2003,9 @@ export class Aura {
       for (const id of semanticPromotable) {
         const record = records.get(id)
         if (record === undefined) continue
-        const nextLevel = promoteLevel(record.level)
-        if (nextLevel === null) continue
-        const promotedRecord: AuraRecord = { ...record, level: nextLevel }
+        const promotion = AuraRecord.promote(record)
+        if (!promotion.promoted) continue
+        const promotedRecord = promotion.record
         records.set(id, promotedRecord)
         promoted += 1
         yield* store.appendUpdate(promotedRecord)
@@ -2025,9 +2019,9 @@ export class Aura {
       for (const id of hubPromotable) {
         const record = records.get(id)
         if (record === undefined) continue
-        const nextLevel = promoteLevel(record.level)
-        if (nextLevel === null) continue
-        const promotedRecord: AuraRecord = { ...record, level: nextLevel }
+        const promotion = AuraRecord.promote(record)
+        if (!promotion.promoted) continue
+        const promotedRecord = promotion.record
         records.set(id, promotedRecord)
         promoted += 1
         yield* store.appendUpdate(promotedRecord)
@@ -2035,7 +2029,7 @@ export class Aura {
 
       const dead: string[] = []
       for (const [id, record] of records) {
-        if (!isRecordAlive(record)) dead.push(id)
+        if (!AuraRecord.isAlive(record)) dead.push(id)
       }
 
       for (const id of dead) {
@@ -4425,16 +4419,7 @@ function namespaceFromBeliefKey(key: string): string {
  * Rust reference: `Level::name` (`../src/levels.rs`).
  */
 function levelDisplayName(level: Level): string {
-  switch (level) {
-    case Level.Working:
-      return "WORKING"
-    case Level.Decisions:
-      return "DECISIONS"
-    case Level.Domain:
-      return "DOMAIN"
-    case Level.Identity:
-      return "IDENTITY"
-  }
+  return Level.displayName(level)
 }
 
 /**
@@ -4443,7 +4428,7 @@ function levelDisplayName(level: Level): string {
  * Rust reference: `Level::is_cognitive` (`../src/levels.rs`).
  */
 function isCognitiveLevel(level: Level): boolean {
-  return level === Level.Working || level === Level.Decisions
+  return Level.isCognitive(level)
 }
 
 /**
@@ -4452,7 +4437,7 @@ function isCognitiveLevel(level: Level): boolean {
  * Rust reference: `Level::is_core` (`../src/levels.rs`).
  */
 function isCoreLevel(level: Level): boolean {
-  return level === Level.Domain || level === Level.Identity
+  return Level.isCore(level)
 }
 
 function isLevelInTier(level: Level, tier: MemoryTierKind): boolean {
@@ -4477,55 +4462,6 @@ function tierRecords(
  * 晋升到下一个 level。
  * Rust reference: `Record::promote` (`../src/record.rs`).
  */
-function promoteLevel(level: Level): Level | null {
-  switch (level) {
-    case Level.Working:
-      return Level.Decisions
-    case Level.Decisions:
-      return Level.Domain
-    case Level.Domain:
-      return Level.Identity
-    case Level.Identity:
-      return null
-  }
-}
-
-/**
- * Daily decay rate for this level.
- * 当前 level 的每日衰减率。
- * Rust reference: `Level::decay_rate` (`../src/levels.rs`).
- */
-function levelDecayRate(level: Level): number {
-  switch (level) {
-    case Level.Working:
-      return 0.80
-    case Level.Decisions:
-      return 0.90
-    case Level.Domain:
-      return 0.95
-    case Level.Identity:
-      return 0.99
-  }
-}
-
-/**
- * Whether this record is still alive (not archived).
- * 判断 record 是否仍存活（未归档）。
- * Rust reference: `Record::is_alive` (`../src/record.rs`).
- */
-function isRecordAlive(record: AuraRecord): boolean {
-  return record.strength >= 0.05
-}
-
-/**
- * Whether this record is eligible for promotion.
- * 判断 record 是否符合晋升条件。
- * Rust reference: `Record::can_promote` (`../src/record.rs`).
- */
-function canPromoteRecord(record: AuraRecord): boolean {
-  return record.activation_count >= 5 && record.strength >= 0.7 && record.level !== Level.Identity
-}
-
 /**
  * Contextual hub promotion (10+ connections, avg weight >= 0.4).
  * 上下文 hub 提升：至少 10 条连接，平均权重不低于 0.4。
@@ -4535,30 +4471,9 @@ function canPromoteContextualHub(record: AuraRecord): boolean {
   const weights = Object.values(record.connections)
   if (weights.length < 10) return false
   if (record.strength < 0.5) return false
-  if (record.level === Level.Identity) return false
+  if (Level.promote(record.level) === null) return false
   const averageWeight = weights.reduce((sum, weight) => sum + weight, 0) / weights.length
   return averageWeight + Number.EPSILON >= 0.4
-}
-
-/**
- * Apply daily decay based on level and semantic type.
- *
- * Uses adaptive decay: rate interpolates from base toward 0.999
- * as activation_count grows (ceiling effect for frequently used records).
- * Retention is driven by Level (Identity=0.99 .. Working=0.80) and activation frequency.
- * semantic_type does not influence decay — Level already encodes information importance.
- * Salience adds only a bounded retention bias.
- *
- * 基于 level 与 activation frequency 应用自适应衰减；semantic_type 不参与衰减。
- * Rust reference: `Record::apply_decay` (`../src/record.rs`).
- */
-function applyRecordDecay(record: AuraRecord): AuraRecord {
-  const baseRate = levelDecayRate(record.level)
-  const ceilingFactor = Math.min(record.activation_count / 10, 1)
-  const activationRate = Math.min(baseRate + (0.999 - baseRate) * ceilingFactor, 0.999)
-  const salienceBias = 0.03 * clamp01(record.salience ?? 0)
-  const effectiveRate = Math.min(activationRate + salienceBias, 0.999)
-  return { ...record, strength: record.strength * effectiveRate }
 }
 
 /**
@@ -4653,7 +4568,7 @@ function toRecordLike(rec: AuraRecord, nowSecs: number): AuraRecord {
     metadata,
     aura_id: typeof o.aura_id === "string" ? o.aura_id : null,
     caused_by_id: typeof o.caused_by_id === "string" ? o.caused_by_id : null,
-    confidence: numberOr(o.confidence, defaultConfidenceForSource(source_type)),
+    confidence: numberOr(o.confidence, AuraRecord.defaultConfidenceForSource(source_type)),
     support_mass: numberOr(o.support_mass, 0),
     conflict_mass: numberOr(o.conflict_mass, 0),
     volatility: numberOr(o.volatility, 0),

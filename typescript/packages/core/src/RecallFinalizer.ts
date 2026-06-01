@@ -9,36 +9,16 @@ import {
   FinalizeError,
   RecallFinalizer,
   type RecallScored,
-  type Record as AuraRecord,
+  Record as AuraRecord,
 } from "@aura/contract"
 import { CognitiveStoreFile, loadCognitiveRecords } from "@aura/storage"
 import * as Graph from "./Graph"
 
 const MAX_FINALIZED_RECORDS = 10
-const ACTIVATION_VELOCITY_ALPHA = 0.3
 
 export type RecallSessionTracker = Graph.SessionTracker
 
 // ── Activation & Co-recall strengthening ──
-
-/**
- * Activate a recalled record and update activation velocity.
- * 激活被召回的 record，并更新 activation velocity。
- * Rust reference: `Record::activate` / `activate_and_strengthen` (`../src/record.rs`, `../src/recall.rs`).
- */
-function activateRecord(record: AuraRecord, nowSeconds: number): AuraRecord {
-  const gapDays = Math.max((nowSeconds - record.last_activated) / 86_400, 0.001)
-  const instantRate = Math.min(1 / gapDays, 100)
-  return {
-    ...record,
-    strength: Math.min(record.strength + 0.2, 1),
-    activation_count: record.activation_count + 1,
-    last_activated: nowSeconds,
-    activation_velocity:
-      ACTIVATION_VELOCITY_ALPHA * instantRate +
-      (1 - ACTIVATION_VELOCITY_ALPHA) * record.activation_velocity,
-  }
-}
 
 /**
  * Strengthen a co-recalled pair with diminishing returns.
@@ -143,7 +123,7 @@ export function finalizeRecallRecords(
     for (const id of topIds) {
       const base = updates.get(id) ?? records.get(id)
       if (base !== undefined) {
-        updates.set(id, activateRecord(base, nowSeconds))
+        updates.set(id, AuraRecord.activate(base, nowSeconds))
       }
     }
 

@@ -34,6 +34,8 @@ Last updated: 2026-06-01
 - [x] Core `Graph.autoConnect` signature now accepts Rust-shaped `tag_index` and leaves new-record insertion to `Aura.store`, matching `graph::auto_connect` / `Aura::store_with_channel` boundaries — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Contract `Record` namespace now carries Rust `Record::importance`, and core consolidation reuses it through the merged `AuraRecord` import — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `Consolidation.ts` now owns Rust `consolidation::consolidate` hard-merge semantics and wires `Aura.consolidate` / MaintenanceService / MCP inventory to the implemented surface — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Contract `Record` namespace now carries the remaining Rust `Record` impl helpers, with core activation/decay/promotion/epistemic callers reusing `AuraRecord.*` — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Contract `Level` namespace now carries Rust `Level` impl helpers including `displayName`, so level helper logic can be imported with the enum — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
@@ -41,8 +43,6 @@ Last updated: 2026-06-01
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
 - [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test.
-- [ ] Contract namespace methods: migrate remaining Rust `Record` impl helpers onto `Record` namespace through a single merged import (`Record as AuraRecord`) instead of separate type/function aliases; include `new`, `generate_id`, `activate`, `apply_decay`, `is_alive`, `can_promote`, `promote`, connection helpers, age helpers, validation/default confidence helpers, and epistemic health/signal helpers as parity surfaces.
-- [ ] Contract namespace methods: migrate `levelDisplayName`-style helpers onto `Level` namespace, starting with `Level.displayName`, so callers can use enum/type namespace methods directly.
 - [ ] Core recall output shape: replace simplified `recall_structured` / `recall_full` surfaces with Rust-rich recall item semantics.
 - [ ] Recall cache invalidation: implement Rust `runtime.clear_recall_caches()` behavior after write-affecting operations.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.

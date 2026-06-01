@@ -1,4 +1,5 @@
 import { Effect, Layer, Ref } from "effect"
+import { xxh3_64 } from "@aura/utils"
 import {
   EpistemicRuntime,
   BeliefEngine,
@@ -268,10 +269,12 @@ export class EpistemicRuntimeImpl implements EpistemicRuntime.Interface {
         const totalCM = cBeliefs.reduce((s, b) => s + b.conflict_mass, 0)
         const maxCM = Math.max(...cBeliefs.map((b) => b.conflict_mass))
         const sharedTags = computeSharedTags(cBeliefs, records, beliefRecords)
+        const beliefIds = [...comp.ids].sort()
+        const clusterKey = `${comp.namespace}\0${beliefIds.join("\0")}`
         results.push({
-          id: comp.ids[0]!,
+          id: xxh3_64(clusterKey).toString(16).padStart(12, "0"),
           namespace: comp.namespace,
-          beliefIds: comp.ids,
+          beliefIds,
           beliefKeys: cBeliefs.map((b) => b.key),
           recordIds: comp.recordIds,
           sharedTags,

@@ -21,9 +21,15 @@
     },
     "packages/belief": {
       "name": "@aura/belief",
+      "dependencies": {
+        "@aura/utils": "workspace:*",
+      },
     },
     "packages/causal": {
       "name": "@aura/causal",
+      "dependencies": {
+        "@aura/utils": "workspace:*",
+      },
     },
     "packages/code-extraction": {
       "name": "@aura/code-extraction",
@@ -53,6 +59,7 @@
       "dependencies": {
         "@aura/concept": "workspace:*",
         "@aura/policy": "workspace:*",
+        "@aura/utils": "workspace:*",
       },
     },
     "packages/indexing": {
@@ -78,6 +85,9 @@
     },
     "packages/policy": {
       "name": "@aura/policy",
+      "dependencies": {
+        "@aura/utils": "workspace:*",
+      },
     },
     "packages/recall": {
       "name": "@aura/recall",

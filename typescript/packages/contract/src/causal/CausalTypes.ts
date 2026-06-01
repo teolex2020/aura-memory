@@ -91,7 +91,7 @@ export type CausalPattern = {
   readonly cause_belief_id: string
   /** Belief ID of the effect side. 结果侧的 Belief ID。 */
   readonly effect_belief_id: string
-  /** Composite key: namespace:cause_belief_key:effect_belief_key:edge_hash. */
+  /** Rust stable pattern key: namespace:cause_belief_key→effect_belief_key. */
   readonly cause_key: string
   /** Effect-side composite key. */
   readonly effect_key: string

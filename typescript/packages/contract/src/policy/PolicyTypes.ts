@@ -80,7 +80,7 @@ export type PolicyHint = {
   readonly recommendation: string
   /** Utility score — expected benefit if hint is followed. 效用分数（遵循提示的预期收益）。 */
   readonly utilityScore: number
-  /** Composite key for the cause side (namespace:cause_belief_key:effect_belief_key:edge_hash). */
+  /** Rust stable policy key: namespace:action_kind:causal_pattern_key. */
   readonly cause_key: string
   /** Record IDs on the effect side — used for polarity signal extraction. 效果侧record ID列表。 */
   readonly effect_keys: ReadonlyArray<string>

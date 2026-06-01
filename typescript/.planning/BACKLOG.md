@@ -26,6 +26,7 @@ Last updated: 2026-06-01
 - [x] Maintenance BackgroundBrain cross-connection and scheduled task semantics aligned — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] NGramIndex random coefficient distribution aligned to Rust `gen_range` semantics — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] ConceptEngine and NGramIndex now share Rust-compatible `xxh3_64` from `@aura/utils` — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Maintenance engine stable IDs and causal fingerprints now use Rust-compatible `xxh3_64` — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 

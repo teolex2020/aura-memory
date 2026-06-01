@@ -1,6 +1,7 @@
 import { it, describe } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
+import { xxh3_64Hex } from "@aura/utils"
 import { EpistemicTrace, CausalEngine, BeliefEngine, ConceptEngine, type FeedbackAuditReport } from "@aura/contract"
 import { CausalState, CausalDiscoveryMode, TemporalBudgetMode, EvidenceMode, Polarity } from "@aura/contract"
 import { ConceptSeedMode, ConceptSimilarityMode, ConceptPartitionMode, ConceptUnionMode } from "@aura/contract"
@@ -572,6 +573,8 @@ describe("PolicyEngine P2 — Scoring + Recommendations", () => {
     const hintIds = Object.keys(state.hints)
     assert.strictEqual(hintIds.length, 1)
     const hint = state.hints[hintIds[0]!]!
+    assert.strictEqual(hint.id, `p-${xxh3_64Hex("ns-p2:prefer:test:cause:effect:hash")}`)
+    assert.strictEqual(hint.cause_key, "ns-p2:prefer:test:cause:effect:hash")
     assert.strictEqual(typeof hint.recommendation, "string")
     assert.ok(hint.recommendation.length > 0)
     assert.ok(hint.utilityScore !== undefined)

@@ -1,5 +1,6 @@
 import { it, describe, expect } from "vitest"
 import { Effect, Layer, Ref } from "effect"
+import { xxh3_64Hex } from "@aura/utils"
 import {
   BeliefEngine,
   ConceptEngine,
@@ -1025,6 +1026,7 @@ describe("EpistemicRuntime (refactored)", () => {
       const clusterABC = result.find((c) => c.beliefIds.includes("b1"))
       expect(clusterABC).toBeDefined()
       expect([...clusterABC!.beliefIds].sort()).toEqual(["b1", "b2", "b3"])
+      expect(clusterABC!.id).toBe(xxh3_64Hex("default\0b1\0b2\0b3"))
       expect(clusterABC!.unresolvedBeliefCount).toBe(2) // b1, b3
       expect(clusterABC!.highVolatilityBeliefCount).toBe(2) // b1(0.5), b3(0.6)
       expect(clusterABC!.totalConflictMass).toBeCloseTo(0.8 + 0.2 + 0.9, 5)

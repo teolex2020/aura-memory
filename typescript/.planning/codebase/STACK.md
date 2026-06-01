@@ -37,7 +37,7 @@
 **构建/开发:**
 - TypeScript Compiler (tsc) — 类型检查 (`tsc -p tsconfig.json --noEmit`)
 - Vitest 内置 — 开发和测试运行 (无 bundler，直接导入 TS 源码)
-- `roaring-wasm` 和 `xxhash-wasm` 为预编译 WASM 运行时
+- `roaring-wasm` 为预编译 WASM 运行时；Rust 兼容 `xxh3_64` 由 `@aura/utils` 纯 TS 实现提供
 
 ## 关键依赖 (Key Dependencies)
 
@@ -52,7 +52,8 @@
 
 **数据结构与索引:**
 - `roaring-wasm` (^1.1.0) — WASM 版 Roaring Bitmap，用于高效稀疏位图操作 (`packages/indexing/src/Roaring.ts`)
-- `xxhash-wasm` (^1.1.0) — WASM 版 xxHash，用于快速哈希计算 (`packages/causal`, `packages/belief`, `packages/concept`, `packages/recall`)
+- `xxhash-wasm` (^1.1.0) — WASM 版 xxHash，目前仅保留在 `packages/recall/src/SDRInterpreter.ts` 的剩余 SDR gap 中
+- `@aura/utils` `xxh3_64` — Rust `xxhash_rust::xxh3::xxh3_64` 纯 TS 投影，用于核心维护 ID、fingerprint 与 NGram hash parity
 
 **代码提取:**
 - `web-tree-sitter` (0.25.10) — WASM 版 Tree-sitter，多语言语法解析

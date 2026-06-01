@@ -173,3 +173,18 @@
   - `bun run typecheck` 通过。
   - `bun run test packages/utils/src/Xxh3.test.ts packages/indexing/src/NGramIndex.test.ts packages/concept/src/ConceptEngine.test.ts` 通过，3 files / 89 tests。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，55 files / 541 tests。
+
+## 2026-06-01 - 维护引擎稳定 ID / fingerprint xxh3_64 对齐
+
+- 范围：`packages/belief/src/BeliefEngine.ts`、`packages/causal/src/CausalEngine.ts`、`packages/policy/src/PolicyEngine.ts`、`packages/epistemic-runtime/src/EpistemicRuntime.ts`、相关 contract 注释、package metadata 与测试。
+- 实现：`BeliefEngine.deterministicHypothesisId` 移除 `xxhash-wasm` lazy hasher 与 xxh64 bridge，直接按 Rust `Hypothesis::deterministic_id` 对 `belief_id\0sorted_record_ids` 做 `xxh3_64`。
+- 实现：`CausalEngine.computeCorpusFingerprint` 移除 simple-hash / lazy `xxhash-wasm` 分支，按 Rust `corpus_fingerprint` 生成包含尾随换行和 causal connection 尾随逗号的 byte string，再用 `xxh3_64` 生成 16-char hex fingerprint。
+- 实现：`CausalEngine` 的 pattern key/ID 改为 Rust `pattern_key(namespace, cause, effect)` 的 `namespace:cause→effect` 与 `ca-{:012x}`；TS-only `edge_hash` 仅作为 provenance 字段保留，不再参与 pattern ID。
+- 实现：`PolicyEngine` 的 hint ID 改为 Rust `deterministic_id(namespace:action_kind:pattern_key)` 的 `p-{:012x}`，并用 Rust `action_kind_str` 的 `verify` key 而不是 TS enum 值 `verify_first`。
+- 实现：`EpistemicRuntime.getContradictionClusters` 的 cluster ID 改为 Rust `xxh3_64(namespace\0sorted_belief_ids)`，并按 Rust 输出排序后的 belief IDs。
+- Rust reference：`Hypothesis::deterministic_id`（`../src/belief.rs`），`corpus_fingerprint` / `pattern_key` / `deterministic_id`（`../src/causal.rs`），`action_kind_str` / `deterministic_id`（`../src/policy.rs`），`get_contradiction_clusters` cluster ID 逻辑（`../src/epistemic_runtime.rs`）。
+- 验证：
+  - `bun install --lockfile-only` 仅更新新增 `@aura/utils` workspace 依赖。
+  - `bun run typecheck` 通过。
+  - `bun run test packages/belief/src/BeliefEngine.test.ts packages/causal/src/CausalEngine.test.ts packages/policy/src/PolicyEngine.test.ts packages/epistemic-runtime/src/EpistemicRuntime.test.ts` 通过，4 files / 236 tests。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，55 files / 541 tests。

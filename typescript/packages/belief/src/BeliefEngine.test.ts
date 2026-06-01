@@ -18,7 +18,7 @@ import {
   type CausalPattern,
   type PolicyHint
 } from "@aura/contract"
-import { nowSecs } from "@aura/utils"
+import { nowSecs, xxh3_64 } from "@aura/utils"
 import {
   BeliefEngineImpl,
   splitByContradiction,
@@ -134,24 +134,12 @@ describe("splitByContradiction", () => {
 })
 
 describe("deterministicHypothesisId", () => {
-  // Simple hasher mock that returns a predictable bigint from input length
-  const mockHasher = {
-    h64: (input: string): bigint => {
-      // Deterministic hash: sum char codes for deterministic but not collision-free behavior
-      let sum = 0n
-      for (let i = 0; i < input.length; i++) {
-        sum += BigInt(input.charCodeAt(i))
-      }
-      return sum & ((1n << 64n) - 1n)
-    }
-  }
-
   it("produces same ID for same belief_id + same records in same order", () => {
     const r1 = makeRecord("rec-a", "content A", ["tag1"], "fact")
     const r2 = makeRecord("rec-b", "content B", ["tag1"], "fact")
 
-    const id1 = deterministicHypothesisId(mockHasher, "belief-1", [r1, r2])
-    const id2 = deterministicHypothesisId(mockHasher, "belief-1", [r1, r2])
+    const id1 = deterministicHypothesisId("belief-1", [r1, r2])
+    const id2 = deterministicHypothesisId("belief-1", [r1, r2])
     expect(id1).toBe(id2)
   })
 
@@ -159,16 +147,16 @@ describe("deterministicHypothesisId", () => {
     const r1 = makeRecord("rec-a", "content A", ["tag1"], "fact")
     const r2 = makeRecord("rec-b", "content B", ["tag1"], "fact")
 
-    const id1 = deterministicHypothesisId(mockHasher, "belief-1", [r1, r2])
-    const id2 = deterministicHypothesisId(mockHasher, "belief-1", [r2, r1])
+    const id1 = deterministicHypothesisId("belief-1", [r1, r2])
+    const id2 = deterministicHypothesisId("belief-1", [r2, r1])
     expect(id1).toBe(id2)
   })
 
   it("produces different IDs for different belief_ids", () => {
     const r1 = makeRecord("rec-a", "content A", ["tag1"], "fact")
 
-    const id1 = deterministicHypothesisId(mockHasher, "belief-1", [r1])
-    const id2 = deterministicHypothesisId(mockHasher, "belief-2", [r1])
+    const id1 = deterministicHypothesisId("belief-1", [r1])
+    const id2 = deterministicHypothesisId("belief-2", [r1])
     expect(id1).not.toBe(id2)
   })
 
@@ -176,16 +164,18 @@ describe("deterministicHypothesisId", () => {
     const r1 = makeRecord("rec-a", "content A", ["tag1"], "fact")
     const r2 = makeRecord("rec-b", "content B", ["tag1"], "fact")
 
-    const id1 = deterministicHypothesisId(mockHasher, "belief-1", [r1])
-    const id2 = deterministicHypothesisId(mockHasher, "belief-1", [r1, r2])
+    const id1 = deterministicHypothesisId("belief-1", [r1])
+    const id2 = deterministicHypothesisId("belief-1", [r1, r2])
     expect(id1).not.toBe(id2)
   })
 
-  it("returns 12-character lowercase hex string", () => {
+  it("returns Rust xxh3 lowercase hex with minimum width 12", () => {
     const r1 = makeRecord("rec-a", "content A", ["tag1"], "fact")
 
-    const id = deterministicHypothesisId(mockHasher, "belief-1", [r1])
-    expect(id).toMatch(/^[0-9a-f]{12}$/)
+    const id = deterministicHypothesisId("belief-1", [r1])
+    const expected = xxh3_64("belief-1\0rec-a").toString(16).padStart(12, "0")
+    expect(id).toBe(expected)
+    expect(id).toMatch(/^[0-9a-f]{12,16}$/)
   })
 
   it("returned ID does not change for same input", () => {
@@ -195,7 +185,7 @@ describe("deterministicHypothesisId", () => {
     // Run 10 times, all must return the same ID
     const ids = new Set<string>()
     for (let i = 0; i < 10; i++) {
-      ids.add(deterministicHypothesisId(mockHasher, "belief-1", [r1, r2]))
+      ids.add(deterministicHypothesisId("belief-1", [r1, r2]))
     }
     expect(ids.size).toBe(1)
   })

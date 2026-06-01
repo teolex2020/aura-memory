@@ -1,6 +1,7 @@
 import { it, describe } from "vitest"
 import { assert } from "@effect/vitest"
 import { Effect } from "effect"
+import { xxh3_64Hex } from "@aura/utils"
 import { EpistemicTrace, BeliefEngine, Level, TemporalBudgetMode, EvidenceMode, type FeedbackAuditReport } from "@aura/contract"
 import { CausalState, CausalDiscoveryMode, CausalEdgeKind } from "@aura/contract"
 import type { BeliefEngineState, BeliefReport } from "@aura/contract"
@@ -428,7 +429,7 @@ describe("aggregateToPatterns", () => {
     assert.strictEqual(p.support_count, 1)
     assert.strictEqual(p.explicit_support_count, 1)
     assert.strictEqual(p.state, "Candidate" as any)
-    assert.ok(typeof p.id === "string" && p.id.length > 0, "should have non-empty id")
+    assert.strictEqual(p.id, `ca-${xxh3_64Hex("ns:b-c→b-e")}`, "should use Rust xxh3 pattern ID")
     assert.ok(typeof p.cause_key === "string", "should have cause_key")
     assert.ok(typeof p.effect_key === "string", "should have effect_key")
     assert.ok(typeof p.edge_hash === "string", "should have edge_hash")
@@ -454,14 +455,11 @@ describe("aggregateToPatterns", () => {
     const p1 = await runWithClock(aggregateToPatterns(edges1, records1, beliefState1, Date.now()))
     const p2 = await runWithClock(aggregateToPatterns(edges2, records2, beliefState2, Date.now()))
 
-    // Different cause/effect record IDs but same belief IDs → different IDs
-    // If both pairs resolve to the same belief IDs but with different edges, the pattern ID should differ
-    // because edge_hash is part of the pattern key
+    // Different cause/effect record IDs but same belief IDs → same Rust stable pattern ID.
+    // TS still keeps edge_hash as provenance, but Rust deterministic_id only hashes the pattern key.
     assert.ok(p1.length > 0, "should produce pattern 1")
     assert.ok(p2.length > 0, "should produce pattern 2")
-    // Note: with different edges, IDs should differ. Test that both are non-empty strings.
-    assert.ok(typeof p1[0]!.id === "string" && p1[0]!.id.length > 0)
-    assert.ok(typeof p2[0]!.id === "string" && p2[0]!.id.length > 0)
+    assert.strictEqual(p1[0]!.id, p2[0]!.id)
   })
 
   it("6. Explicit support counts separated from temporal", async () => {
@@ -989,7 +987,11 @@ describe("corpus fingerprint", () => {
     const fp2 = computeCorpusFingerprint(records2)
 
     assert.strictEqual(fp1, fp2, "identical records should produce same fingerprint")
-    assert.ok(typeof fp1 === "string" && fp1.length > 0, "fingerprint should be non-empty string")
+    assert.strictEqual(
+      fp1,
+      xxh3_64Hex("r1|ns1|4652007308841189376||\nr2|ns1|4652016104934211584||\n"),
+      "fingerprint should hash the Rust corpus_fingerprint byte string"
+    )
   })
 
   it("2. Different record IDs → different fingerprint", () => {

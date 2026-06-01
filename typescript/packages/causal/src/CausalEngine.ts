@@ -1,5 +1,5 @@
-import xxhash from "xxhash-wasm"
 import { Effect, Layer, Option } from "effect"
+import { xxh3_64, xxh3_64Hex } from "@aura/utils"
 import {
   CausalEngine,
   CausalDiscoveryMode,
@@ -411,7 +411,7 @@ export function aggregateToPatterns(
         key.causeBeliefId,
         key.effectBeliefId
       )
-      const id = deterministicPatternIdFromKey(patternKeyStr, edgeHash)
+      const id = deterministicPatternIdFromKey(patternKeyStr)
 
       patterns.push({
         id,
@@ -814,10 +814,10 @@ function buildCorpusFingerprintInput(records: ReadonlyMap<string, AuraRecord>): 
   const parts: string[] = []
   for (const rid of keys) {
     const rec = records.get(rid)!
-    // TS: use IEEE 754 double bits representation via Float64Array/BigInt64Array
+    // TS: use IEEE 754 double bits representation via Float64Array/BigUint64Array
     const buf = new ArrayBuffer(8)
     new Float64Array(buf)[0] = rec.created_at
-    const bits = new BigInt64Array(buf)[0]!
+    const bits = new BigUint64Array(buf)[0]!
     const created_at_bits = bits.toString()
 
     const caused_by_id = rec.caused_by_id ?? ""
@@ -827,30 +827,11 @@ function buildCorpusFingerprintInput(records: ReadonlyMap<string, AuraRecord>): 
       .filter(([, type]) => type === "causal")
       .map(([id]) => id)
       .sort()
-    const causalConnsStr = causalConns.join(",")
+    const causalConnsStr = causalConns.map((id) => `${id},`).join("")
 
     parts.push(`${rid}|${rec.namespace}|${created_at_bits}|${caused_by_id}|${causalConnsStr}`)
   }
-  return parts.join("\n")
-}
-
-/**
- * Simple deterministic 64-bit hash for corpus fingerprint (synchronous).
- * Used as a fallback when xxhash-wasm is not yet initialized.
- * Produces a 16-char hex string.
- */
-function simpleHash64(input: string): string {
-  let h1 = 0xdeadbeef
-  let h2 = 0x41c6ce57
-  for (let i = 0; i < input.length; i++) {
-    const ch = input.charCodeAt(i)
-    h1 = Math.imul(h1 ^ ch, 2654435761)
-    h2 = Math.imul(h2 ^ ch, 1597334677)
-    h1 = (h1 << 13) | (h1 >>> 19)
-    h2 = (h2 << 17) | (h2 >>> 15)
-  }
-  const combined = (BigInt(h1 >>> 0) << 32n) | BigInt(h2 >>> 0)
-  return combined.toString(16).padStart(16, "0")
+  return parts.map((part) => `${part}\n`).join("")
 }
 
 /**
@@ -858,24 +839,27 @@ function simpleHash64(input: string): string {
  *
  * Matches Rust corpus_fingerprint (lines 375-409): hashes sorted record IDs
  * with namespace, created_at (as IEEE 754 bits), caused_by_id, and causal
- * connections. Uses xxhash-wasm if available, otherwise a simple 64-bit hash.
+ * connections using `xxhash_rust::xxh3::xxh3_64`.
  */
 export function computeCorpusFingerprint(records: ReadonlyMap<string, AuraRecord>): string {
   const input = buildCorpusFingerprintInput(records)
-  if (_hasher) {
-    return _hasher.h64(input).toString(16).padStart(16, "0")
-  }
-  return simpleHash64(input)
+  return xxh3_64Hex(input)
 }
 
 // ── Pattern key and ID helpers ──
 
-/** Build pattern key: namespace:cause_belief:effect_belief */
+/**
+ * Build pattern key: `namespace:cause_belief→effect_belief`.
+ * Rust reference: `pattern_key` (`../src/causal.rs`).
+ */
 function patternKey(namespace: string, causeBid: string, effectBid: string): string {
-  return `${namespace}:${causeBid}:${effectBid}`
+  return `${namespace}:${causeBid}→${effectBid}`
 }
 
-/** Build a deterministic edge hash from edge data. */
+/**
+ * Build a deterministic edge hash from edge data.
+ * 中文说明：TS contract 仍保留 edge_hash provenance 字段；Rust pattern ID 不再依赖此字段。
+ */
 function deterministicEdgeHash(
   namespace: string,
   causeBid: string,
@@ -884,50 +868,15 @@ function deterministicEdgeHash(
 ): string {
   const sortedGaps = [...timeGaps].sort((a, b) => a - b)
   const raw = `${namespace}:${causeBid}:${effectBid}:${sortedGaps.join(",")}`
-  // Simple hash — full xxhash in Plan 08 scoring
-  let h = 0
-  for (let i = 0; i < raw.length; i++) {
-    h = ((h << 5) - h + raw.charCodeAt(i)) | 0
-  }
-  return `h${(h >>> 0).toString(16).padStart(8, "0")}`
+  return `h${xxh3_64(raw).toString(16).padStart(16, "0")}`
 }
-
-/** Generate deterministic pattern ID from pattern key and edge hash. */
-function deterministicPatternIdFromKey(patternKeyStr: string, edgeHash: string): string {
-  const raw = `${patternKeyStr}|${edgeHash}`
-  let h = 0
-  for (let i = 0; i < raw.length; i++) {
-    h = ((h << 5) - h + raw.charCodeAt(i)) | 0
-  }
-  const hex = (h >>> 0).toString(16).padStart(8, "0")
-  return `cp-${hex.slice(-8)}`
-}
-
-/** xxhash-wasm hasher — lazily initialized; NON-PARITY risk tracked below. */
-let _hasher: { h64: (input: string) => bigint } | null = null
 
 /**
- * Get or initialize the xxhash hasher.
- *
- * NON-PARITY: Lazy async initialization can produce hash drift — the same corpus
- * may yield different fingerprints depending on whether getHasher() has resolved.
- * Tracked: migrate to eager module-level initialization (top-level await or
- * synchronous hasher) to guarantee deterministic fingerprints across all calls.
+ * Generate deterministic pattern ID from the stable pattern key.
+ * Rust reference: `deterministic_id` (`../src/causal.rs`).
  */
-async function getHasher(): Promise<{ h64: (input: string) => bigint }> {
-  if (!_hasher) _hasher = await xxhash()
-  return _hasher
-}
-
-async function deterministicPatternId(
-  hasher: { h64: (input: string) => bigint },
-  a: string,
-  b: string
-): Promise<string> {
-  const [first, second] = a < b ? [a, b] : [b, a]
-  const h = hasher.h64(`${first}|${second}`) & ((1n << 64n) - 1n)
-  const hex = h.toString(16).padStart(16, "0")
-  return `cp-${hex.slice(-12)}`
+function deterministicPatternIdFromKey(patternKeyStr: string): string {
+  return `ca-${xxh3_64(patternKeyStr).toString(16).padStart(12, "0")}`
 }
 
 export class CausalEngineImpl implements CausalEngine.Interface {
@@ -953,12 +902,6 @@ export class CausalEngineImpl implements CausalEngine.Interface {
       if (trace) yield* trace.event("causal.discover.start", { records: _records.size })
 
       // Phase 0: Corpus fingerprint check — skip if unchanged.
-      // Eager-initialize hasher to prevent hash drift between first and
-      // subsequent cycles (NON-PARITY: lazy init causes different hash
-      // algorithms on first vs later calls). See WR-05.
-      if (!_hasher) {
-        _hasher = yield* Effect.promise(() => xxhash())
-      }
       const fingerprint = computeCorpusFingerprint(_records)
       if (fingerprint !== "" && fingerprint === self.state.last_corpus_fingerprint
           && Object.keys(self.state.patterns).length > 0) {

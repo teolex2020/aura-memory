@@ -1,4 +1,5 @@
 import { Effect, Layer, Option } from "effect"
+import { xxh3_64 } from "@aura/utils"
 import {
   PolicyEngine,
   PolicyActionKind,
@@ -469,6 +470,25 @@ export function mapActionKind(
   }
 }
 
+/**
+ * Rust policy action kind string used in stable policy hint keys.
+ * Rust reference: `action_kind_str` (`../src/policy.rs`).
+ */
+function actionKindKey(kind: PolicyActionKind): string {
+  switch (kind) {
+    case PolicyActionKind.Avoid:
+      return "avoid"
+    case PolicyActionKind.VerifyFirst:
+      return "verify"
+    case PolicyActionKind.Prefer:
+      return "prefer"
+    case PolicyActionKind.Recommend:
+      return "recommend"
+    case PolicyActionKind.Warn:
+      return "warn"
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Policy strength scoring (Rust-aligned policy.rs lines 33-37, 589-604)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -685,8 +705,8 @@ function buildHints(
     const recommendation = generateRecommendation(actionKind, causeSummary, domain)
 
     // ── Deterministic ID from key ──
-    const key = `${pattern.namespace}:${pattern.cause_belief_id ?? "nil"}:${pattern.effect_belief_id ?? "nil"}:${pattern.edge_hash}`
-    const id = `ph-${pattern.id}`
+    const key = `${pattern.namespace}:${actionKindKey(actionKind)}:${pattern.cause_key}`
+    const id = `p-${xxh3_64(key).toString(16).padStart(12, "0")}`
 
     // ── Build PolicyHint ──
     const hint: PolicyHint = {

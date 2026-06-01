@@ -1,5 +1,5 @@
-import xxhash from "xxhash-wasm"
 import { Effect, Layer, Option } from "effect"
+import { xxh3_64 } from "@aura/utils"
 import {
   BeliefEngine,
   BeliefState,
@@ -794,35 +794,17 @@ export function splitByContradiction(
 /**
  * Compute a deterministic hypothesis ID from belief_id + sorted record IDs.
  *
- * NON-PARITY: uses xxh64 (bridge) not xxh3_64 (Rust) — IDs are deterministic
- * (same input → same output across TS runs) but do NOT match Rust values
- * byte-for-byte. This is a tracked non-parity marker until `xxh3-wasm` is available.
- *
  * Mirrors Rust Hypothesis::deterministic_id at belief.rs:179-189.
  *
- * 确定性假设 ID：基于 belief_id + 排序后的 record IDs 通过 xxh64 哈希生成。
- * 注意：使用 xxh64 而非 Rust 的 xxh3_64，输出值不同但保持确定性。
+ * 确定性假设 ID：基于 belief_id + 排序后的 record IDs 通过 Rust `xxh3_64` 哈希生成。
  */
 export function deterministicHypothesisId(
-  hasher: { h64: (input: string) => bigint },
   beliefId: string,
   records: ReadonlyArray<AuraRecord>
 ): string {
   const ids = records.map((r) => r.id).sort()
   const buf = [beliefId, ...ids].join("\0")
-  const hash = hasher.h64(buf) & ((1n << 64n) - 1n)
-  return hash.toString(16).padStart(12, "0")
-}
-
-// Lazy-initialized xxhash hasher instance (shared across engine impls)
-let _xxhashHasher: { h64: (input: string) => bigint } | null = null
-
-async function getXxhashHasher(): Promise<{ h64: (input: string) => bigint }> {
-  if (!_xxhashHasher) {
-    const hasher = await xxhash()
-    _xxhashHasher = { h64: (input: string) => hasher.h64(input) }
-  }
-  return _xxhashHasher!
+  return xxh3_64(buf).toString(16).padStart(12, "0")
 }
 
 /**
@@ -832,14 +814,12 @@ async function getXxhashHasher(): Promise<{ h64: (input: string) => bigint }> {
  *
  * Mirrors Rust Hypothesis::from_records at belief.rs:193-245.
  */
-async function hypothesisFromRecords(
+function hypothesisFromRecords(
   beliefId: string,
   records: ReadonlyArray<AuraRecord>,
   now: number
-): Promise<Hypothesis> {
-  const hasher = await getXxhashHasher()
-  const id = deterministicHypothesisId(hasher, beliefId, records)
-
+): Hypothesis {
+  const id = deterministicHypothesisId(beliefId, records)
   const confidences = records.map(confidenceOf)
   const confidence = confidences.reduce((a, b) => a + b, 0) / Math.max(1, records.length)
   const supportMass = records.map(supportMassOf).reduce((a, b) => a + b, 0)
@@ -1171,7 +1151,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
           beliefId = existingBid
         } else {
           // New belief — create
-          beliefId = yield* Effect.promise(() => getXxhashHasher().then((h) => deterministicHypothesisId(h, key, groupRecords)))
+          beliefId = deterministicHypothesisId(key, groupRecords)
           beliefsCreated++
         }
         newKeyIndex.set(key, beliefId)
@@ -1183,7 +1163,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
 
         // Build supporting hypothesis
         if (supporting.length > 0) {
-          const h = yield* Effect.promise(() => hypothesisFromRecords(beliefId, supporting, now))
+          const h = hypothesisFromRecords(beliefId, supporting, now)
           for (const rid of h.prototype_record_ids) {
             newRecordIndex.set(rid, h.id)
           }
@@ -1196,7 +1176,7 @@ export class BeliefEngineImpl implements BeliefEngine.Interface {
 
         // Build opposing hypothesis (if any contradictions)
         if (opposing.length > 0) {
-          const h = yield* Effect.promise(() => hypothesisFromRecords(beliefId, opposing, now))
+          const h = hypothesisFromRecords(beliefId, opposing, now)
           for (const rid of h.prototype_record_ids) {
             newRecordIndex.set(rid, h.id)
           }

@@ -65,18 +65,17 @@
 - **影响:** 无法使用加密存储，与 Rust 版本行为不兼容。
 - **修复方向:** 实现基于 `Crypto` Service 的加密 AuraStorage 管线。
 
-### xxhash 哈希算法差异
+### xxh3 哈希对齐状态
 
-- **问题:** TypeScript 端使用 `xxhash-wasm` 的 `h64`（xxh64），而 Rust 端使用 `xxh3_64`。虽然两者都是 64-bit 哈希，但算法不同导致相同输入产生不同哈希值。这直接影响 belief ID 和 causal pattern ID 的确定性生成。
+- **状态:** 已完成核心维护链路的稳定 ID / fingerprint 对齐。`@aura/utils` 提供纯 TS `xxh3_64`，并被 `BeliefEngine`、`ConceptEngine`、`CausalEngine`、`PolicyEngine`、`EpistemicRuntime`、`NGramIndex` 复用。
 - **文件:**
-  - `packages/belief/src/BeliefEngine.ts:797`（注释说明差异）
-  - `packages/concept/src/ConceptEngine.ts:967`
-  - `packages/causal/src/CausalEngine.ts:906-920`（详细描述了 lazy async init 导致的哈希漂移风险）
-- **影响:** 相同的记录集在 TS 和 Rust 端产生不同的 ID，导致：
-  - belief/concept/causal 状态的跨平台不可移植
-  - MCP parity 验证需要额外的 normalization 步骤
-  - 确定性测试难以在 TS/Rust 间共享 golden data
-- **修复方向:** 当 xxh3 在 WASM 环境可用时迁移到 `xxh3_64`；或统一使用 Rust 端算法。
+  - `packages/utils/src/Xxh3.ts`
+  - `packages/belief/src/BeliefEngine.ts`
+  - `packages/concept/src/ConceptEngine.ts`
+  - `packages/causal/src/CausalEngine.ts`
+  - `packages/policy/src/PolicyEngine.ts`
+  - `packages/epistemic-runtime/src/EpistemicRuntime.ts`
+- **剩余注意:** `packages/recall/src/SDRInterpreter.ts` 仍直接使用 `xxhash-wasm`，该项单独由 BACKLOG 的 SDRInterpreter gap 跟踪。
 
 ### recall 分数差异
 

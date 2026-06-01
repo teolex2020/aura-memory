@@ -72,7 +72,6 @@ import { id12, nowSecs } from "@aura/utils";
 const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
 const RECORD_SALIENCE_REASON_KEY = "salience_reason"
 const RECORD_SALIENCE_MARKED_AT_KEY = "salience_marked_at"
-const MAX_AUTO_CONNECTIONS = 50
 const startupJsonDecoder = new TextDecoder()
 
 function numberOr(raw: unknown, fallback: number): number {
@@ -1202,11 +1201,12 @@ export class Aura {
         volatility: 0,
       };
 
-      record = self.autoConnectRecord(record)
+      const autoConnect = Graph.autoConnect(record, self.searchRecords)
+      record = autoConnect.record
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendStore(record);
       yield* store.flush();
-      self.replaceSearchRecord(record)
+      self.searchRecords = autoConnect.records
       return record;
     });
   }
@@ -3884,48 +3884,6 @@ export class Aura {
   }
 
   /**
-   * Rust auto_connect mutates the in-memory records map before append_store.
-   * TS mirrors that visibility without appending synthetic Update records.
-   * Rust reference: `graph::auto_connect` (`../src/graph.rs`), `Aura::store` (`../src/aura.rs`).
-   */
-  private autoConnectRecord(record: AuraRecord): AuraRecord {
-    if (record.tags.length === 0) return record
-
-    const connections: { [recordId: string]: number } = { ...record.connections }
-    const connectionTypes: { [recordId: string]: string } = { ...record.connection_types }
-
-    for (const candidate of [...this.searchRecords.values()]) {
-      if (Object.keys(connections).length >= MAX_AUTO_CONNECTIONS) break
-      if (candidate.id === record.id) continue
-      if (candidate.namespace !== record.namespace) continue
-
-      const sharedCount = sharedTagCount(record.tags, candidate.tags)
-      if (sharedCount === 0) continue
-
-      const weight = Math.min(0.2 + 0.15 * sharedCount, 0.8)
-      connections[candidate.id] = weight
-      connectionTypes[candidate.id] = "associative"
-
-      if (Object.keys(candidate.connections).length < MAX_AUTO_CONNECTIONS) {
-        this.replaceSearchRecord({
-          ...candidate,
-          connections: { ...candidate.connections, [record.id]: weight },
-          connection_types: {
-            ...candidate.connection_types,
-            [record.id]: "associative",
-          },
-        })
-      }
-    }
-
-    return {
-      ...record,
-      connections,
-      connection_types: connectionTypes,
-    }
-  }
-
-  /**
    * UNIMPLEMENTED: relation/entity graph APIs are recoverably unsupported for now.
    * Reason: TS does not have the relation graph store/index yet; returning dummy values would hide missing capability.
    * Rust reference: `Aura::get_entity_digest` (`../src/aura.rs`).
@@ -4712,18 +4670,6 @@ function toRecordLike(rec: AuraRecord, nowSecs: number): AuraRecord {
     conflict_mass: numberOr(o.conflict_mass, 0),
     volatility: numberOr(o.volatility, 0),
   };
-}
-
-function sharedTagCount(
-  left: ReadonlyArray<string>,
-  right: ReadonlyArray<string>,
-): number {
-  const rightTags = new Set(right)
-  let count = 0
-  for (const tag of left) {
-    if (rightTags.has(tag)) count += 1
-  }
-  return count
 }
 
 function toMcpMaintenanceTrendSnapshot(snapshot: MaintenanceTrendSnapshot): McpMaintenanceTrendSnapshot {

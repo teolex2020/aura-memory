@@ -29,6 +29,7 @@ Last updated: 2026-06-01
 - [x] Maintenance engine stable IDs and causal fingerprints now use Rust-compatible `xxh3_64` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] SDRInterpreter seed hashing now reuses Rust-compatible `@aura/utils` `xxh3_64`; `xxhash-wasm` dependency removed — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `Graph.ts` skeleton extracted for Rust `graph.rs` parity and reused by `Aura.delete` graph cleanup — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Core `Graph.ts` now owns Rust `graph::auto_connect` and pure `graph::merge_records` semantics; `Aura.store` reuses Graph instead of inlining graph logic — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
@@ -36,7 +37,7 @@ Last updated: 2026-06-01
 - [ ] Core recall output shape: replace simplified `recall_structured` / `recall_full` surfaces with Rust-rich recall item semantics.
 - [ ] Recall cache invalidation: implement Rust `runtime.clear_recall_caches()` behavior after write-affecting operations.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.
-- [ ] Consolidation: replace typed unsupported `consolidate` surface with a real Rust-parity merge algorithm and coherent index mutation path.
+- [ ] Consolidation: wire core `Graph.mergeRecords` into a real Rust-parity facade with coherent storage/index/embedding mutation path.
 - [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces.
 - [ ] Maintenance history/reflection persistence decision: either match Rust in-memory behavior exactly or keep documented TS persistence as explicit parity exception.
 - [ ] RecallView startup/load gap: audit `SIMPLE IMPLEMENTATION:` in `packages/storage/src/RecallView.ts` against Rust read model construction.

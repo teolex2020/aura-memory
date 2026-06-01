@@ -1,5 +1,21 @@
 # Implementation Log
 
+## 2026-06-01 - Core Graph auto_connect / merge_records skeleton
+
+- 范围：`packages/core/src/Graph.ts`、`packages/core/src/Graph.test.ts`、`packages/core/src/Aura.ts`。
+- 实现：将原本内联在 `Aura.ts` 的 auto-connect 写入逻辑迁移到 core 内部 `Graph.autoConnect`，`Aura.store_with_channel` 只负责调用 Graph、写入 `brain.cog` 和替换 search read model。
+- 实现：`Graph.autoConnect` 对齐 Rust `graph::auto_connect` 的共享 tag candidate 计数、`MAX_CONNECTIONS = 50`、namespace guard、`0.2 + 0.15 * shared_count` capped at `0.8`、双向 `associative` connection 更新；candidate 应用顺序保留当前 records map 顺序以维持 MCP parity 排序基线，且仍保持 TS 现有不追加 synthetic neighbor update 的内存可见性策略。
+- 实现：新增纯内存 `Graph.mergeRecords`，对齐 Rust `graph::merge_records` 的 level upgrade、tag merge、connection/type transfer、strength/activation/source_type 合并和最终 `removeRecord` 调用；暂不接入 `Aura.consolidate`，因为 storage/index/embedding coherent mutation path 仍在 backlog。
+- 实现：移除 `Aura.ts` 中的 `MAX_AUTO_CONNECTIONS` 和 `sharedTagCount`，避免 Rust `graph.rs` 语义继续散落在 facade 内。
+- 测试：`Graph.test.ts` 新增 auto-connect 同 namespace / cross namespace / no tags 覆盖，以及 merge-record 字段合并与 remove cleanup 覆盖；`Aura.test.ts` 既有 store auto-connect 行为保持通过。
+- Rust reference：`MAX_CONNECTIONS`、`graph::auto_connect`、`graph::merge_records`（`../src/graph.rs`），`Aura::store` / `Aura::store_with_channel`（`../src/aura.rs`）。
+- 验证：
+  - `bun run test packages/core/src/Graph.test.ts packages/core/src/Aura.test.ts` 通过，2 files / 38 tests。
+  - `bun run test packages/core/src/Graph.test.ts packages/core/src/Aura.test.ts packages/mcp/src/Parity.test.ts` 通过，3 files / 40 tests。
+  - `bun run typecheck` 通过。
+  - `git diff --check` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，56 files / 548 tests。
+
 ## 2026-06-01 - Core Graph remove_record skeleton and Aura.delete cleanup
 
 - 范围：`packages/core/src/Graph.ts`、`packages/core/src/Graph.test.ts`、`packages/core/src/Aura.ts`、`packages/core/src/Aura.test.ts`、`packages/core/src/index.ts`。

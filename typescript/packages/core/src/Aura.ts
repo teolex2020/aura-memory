@@ -182,6 +182,10 @@ function recallReportOptions(
 
 type AuraRecallHit = readonly [score: number, record: AuraRecord]
 type MemoryTierKind = "cognitive" | "core"
+type RecallFullOptions = Partial<RecallPipelineOptions> & {
+  readonly includeFailures?: boolean
+  readonly include_failures?: boolean
+}
 
 function recallHitsFromScored(
   scored: RecallScored,
@@ -193,6 +197,27 @@ function recallHitsFromScored(
     if (record !== undefined) out.push([score, record])
   }
   return out
+}
+
+function auraRecallOptions(options?: Partial<RecallPipelineOptions>): Partial<RecallPipelineOptions> {
+  return {
+    topK: rustOptionalTopK(options?.topK),
+    minStrength: rustOptionalMinStrength(options?.minStrength),
+    expandConnections: options?.expandConnections ?? true,
+    namespaces: options?.namespaces ?? [DEFAULT_NAMESPACE],
+    ...(options?.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+    ...(options?.boundedRerankModes === undefined ? {} : { boundedRerankModes: options.boundedRerankModes }),
+  }
+}
+
+function recallFullPipelineOptions(options?: RecallFullOptions): Partial<RecallPipelineOptions> {
+  if (options === undefined) return auraRecallOptions()
+  const { includeFailures: _includeFailures, include_failures: _includeFailuresSnake, ...pipeline } = options
+  return auraRecallOptions(pipeline)
+}
+
+function recallFullIncludeFailures(options?: RecallFullOptions): boolean {
+  return options?.includeFailures ?? options?.include_failures ?? true
 }
 
 function migrateLegacyConfidence(record: AuraRecord): AuraRecord | undefined {
@@ -1406,7 +1431,7 @@ export class Aura {
 
   private recallOptionsWithRuntimeModes(options?: Partial<RecallPipelineOptions>): Partial<RecallPipelineOptions> {
     return {
-      ...(options ?? {}),
+      ...auraRecallOptions(options),
       boundedRerankModes: this.currentBoundedRerankModes(),
     }
   }
@@ -1509,12 +1534,71 @@ export class Aura {
   }
 
   /**
-   * NON-PARITY IMPLEMENTATION: same as recall_structured for now.
-   * Reason: TS does not yet model the full explainability DTO surface from Rust.
+   * Unified recall: recall_core (RRF) + substring fallback + failure records.
+   * @zh 统一召回：先执行 recall_core/RRF，再合并 substring fallback 与 failure records。
+   *
+   * Combines what Python previously did in 3 separate calls:
+   * 1. recall_structured (RRF semantic)
+   * 2. search (substring fallback)
+   * 3. search with tags=["outcome-failure"]
+   *
+   * @zh 合并 Python 侧原本分三次执行的逻辑：
+   * @zh 1. recall_structured（RRF 语义）
+   * @zh 2. search（substring fallback）
+   * @zh 3. search tags=["outcome-failure"]
+   *
    * Rust reference: `Aura::recall_full` (`../src/aura.rs`).
    */
-  recall_full(query: string, options?: Partial<RecallPipelineOptions>) {
-    return this.recall_structured(query, options);
+  recall_full(query: string, options?: RecallFullOptions) {
+    const self = this
+    const includeFailures = recallFullIncludeFailures(options)
+    const pipelineOptions = recallFullPipelineOptions(options)
+    const topK = pipelineOptions.topK ?? 20
+    const minStrength = pipelineOptions.minStrength ?? 0.1
+    const namespaces = pipelineOptions.namespaces ?? [DEFAULT_NAMESPACE]
+
+    return Effect.gen(function* () {
+      const scored = Array.from(yield* recallRecordsEffect<AuraRecord>(
+        self.brainDir,
+        query,
+        self.recallOptionsWithRuntimeModes(pipelineOptions),
+        undefined,
+        self.currentTrustConfig(),
+        self.sessionTracker,
+      ))
+      const records = yield* loadCognitiveRecords(self.brainDir)
+      self.searchRecords = records
+
+      const seenIds = new Set(scored.map(([, record]) => record.id))
+      const queryLower = query.toLowerCase()
+      const queryWords = queryLower.split(/\s+/).filter((word) => word.length > 3)
+
+      for (const record of records.values()) {
+        if (seenIds.has(record.id)) continue
+        if (!namespaces.includes(record.namespace)) continue
+        if (record.strength < minStrength) continue
+
+        const contentLower = record.content.toLowerCase()
+        const matchesQuery = contentLower.includes(queryLower)
+        if (matchesQuery) {
+          const isFailure = record.tags.includes("outcome-failure")
+          scored.push([isFailure ? 0.8 : 0.6, record])
+          seenIds.add(record.id)
+          continue
+        }
+
+        if (includeFailures && record.tags.includes("outcome-failure")) {
+          if (queryWords.some((word) => contentLower.includes(word))) {
+            scored.push([0.8, record])
+            seenIds.add(record.id)
+          }
+        }
+      }
+
+      scored.sort((a, b) => b[0] - a[0])
+      if (scored.length > topK + 15) scored.length = topK + 15
+      return scored
+    })
   }
 
   /**

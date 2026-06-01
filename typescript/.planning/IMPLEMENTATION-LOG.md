@@ -1,5 +1,19 @@
 # Implementation Log
 
+## 2026-06-01 - Aura recall_full Rust fallback alignment
+
+- 范围：`packages/core/src/Aura.ts`、`packages/core/src/Aura.test.ts`、`.planning/BACKLOG.md`。
+- 实现：`Aura.recall_full` 不再直接复用 `recall_structured`，改为按 Rust 三阶段执行：先运行 recall_core/RRF pipeline，再从当前 records read model 合并 substring fallback，最后按 `outcome-failure` + query word fallback 补充 failure records。
+- 实现：`recall_full` 支持 `includeFailures` / `include_failures` 选项，默认 true；namespace、strength、`top_k + 15` 截断、substring score `0.6` 与 failure score `0.8` 均按 Rust `Aura::recall_full` 对齐。
+- 实现：Aura 层 recall options 默认值收敛为 Rust `top_k = 20`、`min_strength = 0.1`、`expand_connections = true`、默认 namespace，而不是继续依赖 recall package 的通用 pipeline fallback。
+- 测试：新增 `recall_full` fallback 测试，使用 `topK=0` 稳定绕开 Stage 1 命中，验证 substring/failure fallback、`includeFailures=false` 与 namespace filter。
+- Rust reference：`Aura::recall_full`、`Aura::recall_structured` / `Aura::recall_core` defaults（`../src/aura.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Aura.test.ts packages/core/src/Recall.test.ts packages/recall/src/Pipeline.test.ts` 通过，3 files / 47 tests。
+  - `git diff --check` 通过（仅 CRLF warning）。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 559 passed / 7 skipped。
+
 ## 2026-06-01 - EpistemicRuntime / PolicyEngine Rust behavior alignment
 
 - 范围：`packages/epistemic-runtime/src/EpistemicRuntime.ts`、`packages/contract/src/EpistemicRuntime.ts`、`packages/policy/src/PolicyEngine.ts`、`packages/contract/src/policy/PolicyTypes.ts`、`packages/core/src/Aura.ts`、相关测试与 noUnused 清理文件。

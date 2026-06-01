@@ -927,6 +927,38 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(updatedSecond.connections[first.id], 0.05)
   })
 
+  it("recall_full merges substring and failure fallbacks after the RRF stage", async () => {
+    const aura = await openWritableAura()
+    const direct = await Effect.runPromise(provideNode(aura.store("deploy recovery direct phrase", {
+      namespace: "default",
+      tags: ["note"],
+    })))
+    const failure = await Effect.runPromise(provideNode(aura.store("deploy outage root cause", {
+      namespace: "default",
+      tags: ["outcome-failure"],
+    })))
+    const otherNamespace = await Effect.runPromise(provideNode(aura.store("deploy recovery hidden namespace", {
+      namespace: "sandbox",
+      tags: ["note"],
+    })))
+
+    const withFailures = await Effect.runPromise(provideNode(aura.recall_full("deploy recovery", {
+      topK: 0,
+      includeFailures: true,
+      expandConnections: false,
+    })))
+    const withoutFailures = await Effect.runPromise(provideNode(aura.recall_full("deploy recovery", {
+      topK: 0,
+      includeFailures: false,
+      expandConnections: false,
+    })))
+
+    assert.deepStrictEqual(withFailures.map(([, record]) => record.id), [failure.id, direct.id])
+    assert.deepStrictEqual(withFailures.map(([score]) => score), [0.8, 0.6])
+    assert.deepStrictEqual(withoutFailures.map(([, record]) => record.id), [direct.id])
+    assert.ok(!withFailures.some(([, record]) => record.id === otherNamespace.id))
+  })
+
   it("store/update/delete/connect follow Rust record validation boundaries", async () => {
     const aura = await openWritableAura()
 

@@ -37,6 +37,7 @@ Last updated: 2026-06-01
 - [x] Contract `Record` namespace now carries the remaining Rust `Record` impl helpers, with core activation/decay/promotion/epistemic callers reusing `AuraRecord.*` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Contract `Level` namespace now carries Rust `Level` impl helpers including `displayName`, so level helper logic can be imported with the enum — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] EpistemicRuntime and PolicyEngine now follow Rust inspection, telemetry, policy rebuild, provenance, suppression, and advisory-pressure semantics at typecheck level — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Core `Aura.recall_full` now follows Rust's recall_core + substring fallback + outcome-failure fallback algorithm — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
@@ -45,7 +46,7 @@ Last updated: 2026-06-01
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
 - [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test.
-- [ ] Core recall output shape: replace simplified `recall_structured` / `recall_full` surfaces with Rust-rich recall item semantics.
+- [ ] Core recall output shape: replace simplified `recall_structured` and formatted `recall` surfaces with Rust-rich recall item / LLM context semantics.
 - [ ] Recall cache invalidation: implement Rust `runtime.clear_recall_caches()` behavior after write-affecting operations.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.
 - [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces.

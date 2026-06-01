@@ -8,13 +8,13 @@ import type { TrustConfig } from "@aura/contract"
  * Rust reference: `TagTaxonomy` (`../src/trust.rs`).
  */
 export type TagTaxonomy = {
-  readonly identityTags: ReadonlySet<string>
-  readonly stableTags: ReadonlySet<string>
-  readonly volatileTags: ReadonlySet<string>
-  readonly nonIdentityTags: ReadonlySet<string>
-  readonly consolidationSkipTags: ReadonlySet<string>
-  readonly archiveProtectedTags: ReadonlySet<string>
-  readonly sensitiveTags: ReadonlySet<string>
+  readonly identity_tags: ReadonlySet<string>
+  readonly stable_tags: ReadonlySet<string>
+  readonly volatile_tags: ReadonlySet<string>
+  readonly non_identity_tags: ReadonlySet<string>
+  readonly consolidation_skip_tags: ReadonlySet<string>
+  readonly archive_protected_tags: ReadonlySet<string>
+  readonly sensitive_tags: ReadonlySet<string>
 }
 
 /**
@@ -27,7 +27,7 @@ export type TagTaxonomy = {
 export type Provenance = {
   readonly source: string
   readonly verified: boolean
-  readonly trustScore: number
+  readonly trust_score: number
   readonly volatility: string
   readonly timestamp: string
 }
@@ -41,10 +41,10 @@ export type Provenance = {
  */
 export function createDefaultTagTaxonomy(): TagTaxonomy {
   return {
-    identityTags: new Set(["user-profile", "identity"]),
-    stableTags: new Set(["identity", "contact", "credential", "financial", "person"]),
-    volatileTags: new Set(["cache", "scheduled-task", "todo-item", "web-search-cache"]),
-    nonIdentityTags: new Set([
+    identity_tags: new Set(["user-profile", "identity"]),
+    stable_tags: new Set(["identity", "contact", "credential", "financial", "person"]),
+    volatile_tags: new Set(["cache", "scheduled-task", "todo-item", "web-search-cache"]),
+    non_identity_tags: new Set([
       "session-summary",
       "cache",
       "outcome",
@@ -61,7 +61,7 @@ export function createDefaultTagTaxonomy(): TagTaxonomy {
       "autonomous-outcome",
       "autonomous-goal",
     ]),
-    consolidationSkipTags: new Set([
+    consolidation_skip_tags: new Set([
       "identity",
       "contact",
       "credential",
@@ -74,7 +74,7 @@ export function createDefaultTagTaxonomy(): TagTaxonomy {
       "extracted-fact",
       "todo-item",
     ]),
-    archiveProtectedTags: new Set([
+    archive_protected_tags: new Set([
       "identity",
       "contact",
       "person",
@@ -82,7 +82,26 @@ export function createDefaultTagTaxonomy(): TagTaxonomy {
       "extracted-fact",
       "relationship",
     ]),
-    sensitiveTags: new Set(["financial", "credential", "wallet"]),
+    sensitive_tags: new Set(["financial", "credential", "wallet"]),
+  }
+}
+
+/**
+ * Clone a tag taxonomy.
+ *
+ * @zh 克隆 tag taxonomy，避免 set/get API 暴露内部可变 `HashSet` 状态。
+ *
+ * Rust reference: `TagTaxonomy: Clone` and `Aura::get_taxonomy` (`../src/trust.rs`, `../src/aura.rs`).
+ */
+export function cloneTagTaxonomy(taxonomy: TagTaxonomy): TagTaxonomy {
+  return {
+    identity_tags: new Set(taxonomy.identity_tags),
+    stable_tags: new Set(taxonomy.stable_tags),
+    volatile_tags: new Set(taxonomy.volatile_tags),
+    non_identity_tags: new Set(taxonomy.non_identity_tags),
+    consolidation_skip_tags: new Set(taxonomy.consolidation_skip_tags),
+    archive_protected_tags: new Set(taxonomy.archive_protected_tags),
+    sensitive_tags: new Set(taxonomy.sensitive_tags),
   }
 }
 
@@ -95,10 +114,10 @@ export function createDefaultTagTaxonomy(): TagTaxonomy {
  */
 export function inferVolatility(tags: ReadonlyArray<string>, taxonomy: TagTaxonomy): string {
   const tagSet = new Set(tags)
-  for (const tag of taxonomy.stableTags) {
+  for (const tag of taxonomy.stable_tags) {
     if (tagSet.has(tag)) return "stable"
   }
-  for (const tag of taxonomy.volatileTags) {
+  for (const tag of taxonomy.volatile_tags) {
     if (tagSet.has(tag)) return "volatile"
   }
   return "moderate"
@@ -120,11 +139,11 @@ export function getProvenance(
     channel === "telegram" || channel === "desktop" || channel === "voice"
       ? `user-${channel}`
       : channel ?? "agent"
-  const trustScore = trustConfig.source_trust[source] ?? 0.5
+  const trust_score = trustConfig.source_trust[source] ?? 0.5
   return {
     source,
     verified: source.startsWith("user-"),
-    trustScore,
+    trust_score,
     volatility: "moderate",
     timestamp: timestampIso,
   }
@@ -150,7 +169,7 @@ export function stampProvenance(
   return {
     source: provenance.source,
     verified: String(provenance.verified),
-    trust_score: provenance.trustScore.toFixed(2),
+    trust_score: provenance.trust_score.toFixed(2),
     volatility: inferVolatility(tags, taxonomy),
     timestamp: provenance.timestamp,
     ...metadata,

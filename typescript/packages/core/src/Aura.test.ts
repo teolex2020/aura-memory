@@ -5,6 +5,7 @@ import * as path from "node:path"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import { Aura } from "./index"
+import * as StoreTrust from "./Trust"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import {
   BeliefStoreFile,
@@ -210,6 +211,49 @@ describe("Aura MCP-facing operational surfaces", () => {
     const item = explanation.items.find((candidate) => candidate.record_id === record.id)
     if (item === undefined) throw new Error("trust-config recall item missing")
     assert.ok(Math.abs(item.trace.trust_multiplier - 0.1) < 0.0001)
+  })
+
+  it("set_taxonomy mirrors Rust clone semantics and feeds store guards", async () => {
+    const aura = await openWritableAura()
+    const taxonomy = StoreTrust.createDefaultTagTaxonomy()
+    const identity_tags = new Set(taxonomy.identity_tags)
+    const stable_tags = new Set(taxonomy.stable_tags)
+    const sensitive_tags = new Set(taxonomy.sensitive_tags)
+    identity_tags.add("medical-id")
+    stable_tags.add("stable-custom")
+    sensitive_tags.add("needs-review")
+
+    aura.set_taxonomy({
+      ...taxonomy,
+      identity_tags,
+      stable_tags,
+      sensitive_tags,
+    })
+    identity_tags.add("mutated-after-set")
+    stable_tags.delete("stable-custom")
+    sensitive_tags.delete("needs-review")
+
+    const configured = aura.get_taxonomy()
+    assert.strictEqual(configured.identity_tags.has("medical-id"), true)
+    assert.strictEqual(configured.identity_tags.has("mutated-after-set"), false)
+    assert.strictEqual(configured.stable_tags.has("stable-custom"), true)
+    assert.strictEqual(configured.sensitive_tags.has("needs-review"), true)
+
+    const exposedIdentityTags = configured.identity_tags as Set<string>
+    exposedIdentityTags.add("mutated-after-get")
+    assert.strictEqual(aura.get_taxonomy().identity_tags.has("mutated-after-get"), false)
+
+    const record = await Effect.runPromise(provideNode(aura.store_with_channel(
+      "custom taxonomy record without automatic sensitive content",
+      {
+        tags: ["needs-review", "stable-custom"],
+        channel: "agent",
+        auto_promote: false,
+        deduplicate: false,
+      },
+    )))
+    assert.strictEqual(record.metadata.actionable, "false")
+    assert.strictEqual(record.metadata.volatility, "stable")
   })
 
   it("recall_at runs temporal recall over records created at or before the timestamp", async () => {

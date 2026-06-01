@@ -565,6 +565,7 @@ export class Aura {
     private causalTemporalBudgetMode: TemporalBudgetMode = TemporalBudgetMode.NearbySuccessors,
     private causalEvidenceMode: EvidenceMode = EvidenceMode.StrictRepeatedWindows,
     private maintenanceConfig: MaintenanceConfig = defaultMaintenanceConfig,
+    private taxonomy: StoreTrust.TagTaxonomy = StoreTrust.createDefaultTagTaxonomy(),
     private trustConfig: TrustConfig = defaultTrustConfig(),
     private readonly sessionTracker: Graph.SessionTracker = Graph.createSessionTracker(),
     private ngramIndex: NGramIndex = NGramIndex.random(),
@@ -709,6 +710,7 @@ export class Aura {
         TemporalBudgetMode.NearbySuccessors,
         EvidenceMode.StrictRepeatedWindows,
         defaultMaintenanceConfig,
+        StoreTrust.createDefaultTagTaxonomy(),
         defaultTrustConfig(),
         Graph.createSessionTracker(),
         runtimeNgramIndex,
@@ -1226,11 +1228,11 @@ export class Aura {
    * `auto_promote`: if Some(false), disables surprise-based level promotion.
    * `auto_promote` 为 false 时关闭基于“surprise”的 level 晋升。
    *
-   * NON-PARITY IMPLEMENTATION: audit/embedding/cortex side branches, configurable taxonomy,
-   * and runtime SDR cache are still not fully wired; guard/dedup/surprise/provenance/causal-link
-   * plus the primary Rust write storage/index closure are maintained.
-   * @zh 非完全对齐：audit/embedding/cortex 分支、可配置 taxonomy 与 runtime SDR cache 尚未全部接入；
-   * 当前已维护 guard/dedup/surprise/provenance/causal-link，以及 brain.aura、index/、
+   * NON-PARITY IMPLEMENTATION: audit/embedding/cortex side branches and runtime SDR cache
+   * are still not fully wired; guard/dedup/surprise/provenance/taxonomy/causal-link plus the
+   * primary Rust write storage/index closure are maintained.
+   * @zh 非完全对齐：audit/embedding/cortex 分支与 runtime SDR cache 尚未全部接入；
+   * 当前已维护 guard/dedup/surprise/provenance/taxonomy/causal-link，以及 brain.aura、index/、
    * aura_id 与 cognitive store 主写入链路。
    * Rust reference: `Aura::store` / `Aura::store_with_channel` (`../src/aura.rs`).
    */
@@ -1271,7 +1273,7 @@ export class Aura {
         return yield* Effect.fail(validationError)
       }
       tags = StoreGuards.autoProtectTags(content, tags)
-      const taxonomy = StoreTrust.createDefaultTagTaxonomy()
+      const taxonomy = self.currentTaxonomy()
       const guardResult = StoreGuards.applyStoreGuard(content, tags, options?.channel, taxonomy)
 
       if ((options?.deduplicate ?? true) && (options?.content_type ?? "text") === "text" && utf8ByteLength(content) >= 20) {
@@ -1306,10 +1308,10 @@ export class Aura {
         self.trustConfig,
         nowIso,
       )
-      for (const [key, value] of guardResult.extraMetadata) {
+      for (const [key, value] of guardResult.extra_metadata) {
         if (metadata[key] === undefined) metadata = { ...metadata, [key]: value }
       }
-      for (const extraTag of guardResult.extraTags) {
+      for (const extraTag of guardResult.extra_tags) {
         if (!tags.includes(extraTag)) tags.push(extraTag)
       }
 
@@ -1601,6 +1603,10 @@ export class Aura {
 
   private currentTrustConfig(): TrustConfig {
     return cloneTrustConfig(this.trustConfig)
+  }
+
+  private currentTaxonomy(): StoreTrust.TagTaxonomy {
+    return StoreTrust.cloneTagTaxonomy(this.taxonomy)
   }
 
   private recallOptionsWithRuntimeModes(options?: Partial<RecallPipelineOptions>): Partial<RecallPipelineOptions> {
@@ -2103,6 +2109,28 @@ export class Aura {
    */
   get_trust_config(): TrustConfig {
     return this.currentTrustConfig()
+  }
+
+  /**
+   * Set tag taxonomy (configurable tag classification).
+   *
+   * @zh 设置写入期 tag taxonomy；传入对象会被 clone，避免调用方后续修改 Set 影响 Aura 内部状态。
+   *
+   * Rust reference: `Aura::set_taxonomy` and `py_set_taxonomy` in `../src/aura.rs`.
+   */
+  set_taxonomy(taxonomy: StoreTrust.TagTaxonomy): void {
+    this.taxonomy = StoreTrust.cloneTagTaxonomy(taxonomy)
+  }
+
+  /**
+   * Get current tag taxonomy.
+   *
+   * @zh 获取当前写入期 tag taxonomy；返回 clone，对齐 Rust `TagTaxonomy: Clone`。
+   *
+   * Rust reference: `Aura::get_taxonomy` and `py_get_taxonomy` in `../src/aura.rs`.
+   */
+  get_taxonomy(): StoreTrust.TagTaxonomy {
+    return this.currentTaxonomy()
   }
 
   /**

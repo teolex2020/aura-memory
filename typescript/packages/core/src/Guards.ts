@@ -14,9 +14,9 @@ const PASSWORD_RE = /(?:password|passwd|пароль)[:\s=]+\S+/i
  * Rust reference: `GuardResult` (`../src/guards.rs`).
  */
 export type GuardResult = {
-  readonly extraTags: ReadonlyArray<string>
-  readonly extraMetadata: ReadonlyArray<readonly [string, string]>
-  readonly needsApproval: boolean
+  readonly extra_tags: ReadonlyArray<string>
+  readonly extra_metadata: ReadonlyArray<readonly [string, string]>
+  readonly needs_approval: boolean
 }
 
 /**
@@ -53,22 +53,22 @@ export function applyStoreGuard(
 ): GuardResult {
   const isInteractive = channel === "desktop" || channel === "telegram" || channel === "voice"
   const tagSet = new Set(tags)
-  const hasSensitiveTags = [...taxonomy.sensitiveTags].some((tag) => tagSet.has(tag))
+  const hasSensitiveTags = [...taxonomy.sensitive_tags].some((tag) => tagSet.has(tag))
   const hasSensitiveContent =
     EMAIL_RE.test(content) || WALLET_RE.test(content) || API_KEY_RE.test(content) || PASSWORD_RE.test(content)
 
   if (!hasSensitiveTags && !hasSensitiveContent) {
-    return { extraTags: [], extraMetadata: [], needsApproval: false }
+    return { extra_tags: [], extra_metadata: [], needs_approval: false }
   }
 
   if (isInteractive) {
-    return { extraTags: [], extraMetadata: [["actionable", "true"]], needsApproval: false }
+    return { extra_tags: [], extra_metadata: [["actionable", "true"]], needs_approval: false }
   }
 
   return {
-    extraTags: [],
-    extraMetadata: [["actionable", "false"]],
-    needsApproval: hasSensitiveTags,
+    extra_tags: [],
+    extra_metadata: [["actionable", "false"]],
+    needs_approval: hasSensitiveTags,
   }
 }
 
@@ -81,7 +81,7 @@ export function applyStoreGuard(
  */
 export function shouldSkipConsolidation(tags: ReadonlyArray<string>, taxonomy: TagTaxonomy): boolean {
   const tagSet = new Set(tags)
-  return [...taxonomy.consolidationSkipTags].some((tag) => tagSet.has(tag))
+  return [...taxonomy.consolidation_skip_tags].some((tag) => tagSet.has(tag))
 }
 
 /**
@@ -93,5 +93,5 @@ export function shouldSkipConsolidation(tags: ReadonlyArray<string>, taxonomy: T
  */
 export function isArchiveProtected(tags: ReadonlyArray<string>, taxonomy: TagTaxonomy): boolean {
   const tagSet = new Set(tags)
-  return [...taxonomy.archiveProtectedTags].some((tag) => tagSet.has(tag))
+  return [...taxonomy.archive_protected_tags].some((tag) => tagSet.has(tag))
 }

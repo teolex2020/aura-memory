@@ -264,3 +264,12 @@
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 首次因 `packages/indexing/src/NGramIndex.test.ts` 随机系数测试未命中 `r1` 失败；未修改实现。
   - `bun run test packages/indexing/src/NGramIndex.test.ts` 复跑通过，1 file / 6 tests。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 复跑通过，56 files / 551 tests。
+
+## 2026-06-01 - NGramIndex random smoke test flake 标注
+
+- 范围：`packages/indexing/src/NGramIndex.test.ts`、`.planning/BACKLOG.md`、`.planning/IMPLEMENTATION-LOG.md`。
+- 实现：在 `NGramIndex.random()` 随机系数 smoke test 旁增加 `TODO(randomness)`，标注小样本 LSH query 可能因随机系数偶发漏掉目标；当前需后续确认是真实算法概率还是测试样本过脆。
+- 实现：在 `BACKLOG.md` 记录随机性调查项，并明确 `it.flakyTest` 只包装 Effect tests，当前非 Effect 测试不能直接使用该 helper。
+- 验证：
+  - `bun run test packages/indexing/src/NGramIndex.test.ts` 通过，1 file / 6 tests。
+  - `git diff --check` 通过。

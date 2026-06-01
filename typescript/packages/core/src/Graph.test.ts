@@ -73,7 +73,7 @@ describe("graph autoConnect", () => {
     assert.strictEqual(result.records.has("a"), false)
   }))
 
-  it.effect("returns the new record without inserting it when it has no tags", () => Effect.gen(function* () {
+  it.effect("adds the new record without connections when it has no tags", () => Effect.gen(function* () {
     const result = yield* autoConnect(record("a"), new Map(), new Map())
 
     assert.strictEqual(result.connected, 0)

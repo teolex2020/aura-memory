@@ -62,6 +62,9 @@ describe("NGramIndex Rust parity", () => {
       throw new Error("Math.random should not be used for NGramIndex.random")
     })
     try {
+      // TODO(randomness): 随机 LSH 系数可能让小样本 query 偶发漏掉 r1；2026-06-01
+      // 全量测试曾失败后单跑/复跑通过，后续需确认是真实算法概率还是测试样本过脆。
+      // `it.flakyTest` only wraps Effect tests, so this non-Effect test cannot use it directly.
       const idx = NGramIndex.random(8)
       idx.add("r1", "deploy staging safety checklist")
       idx.add("r2", "unrelated banana note")

@@ -39,6 +39,7 @@ Last updated: 2026-06-01
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): integrate `Graph.mergeRecords` with consolidation plus persistent index/store mutation path, including `CognitiveStore.append_update(keep)`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
+- [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test.
 - [ ] Core recall output shape: replace simplified `recall_structured` / `recall_full` surfaces with Rust-rich recall item semantics.
 - [ ] Recall cache invalidation: implement Rust `runtime.clear_recall_caches()` behavior after write-affecting operations.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.

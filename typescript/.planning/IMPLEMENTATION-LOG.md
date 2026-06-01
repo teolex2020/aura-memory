@@ -248,3 +248,19 @@
   - `bun run typecheck` 通过。
   - `bun run test packages/core/src/Graph.test.ts packages/core/src/RecallFinalizer.test.ts packages/core/src/Aura.test.ts` 通过，3 files / 43 tests。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，56 files / 550 tests。
+
+## 2026-06-01 - Core Graph 导出 Effect 化与 auto_connect 签名修正
+
+- 范围：`packages/core/src/Graph.ts`、`packages/core/src/Aura.ts`、`packages/core/src/RecallFinalizer.ts`、`packages/core/src/Graph.test.ts`、`.planning/BACKLOG.md`、`.planning/IMPLEMENTATION-LOG.md`。
+- 子代理审计：Hume 只读核对 `Graph.ts` / `../src/graph.rs`，确认 SessionTracker 主体对齐；指出 `autoConnect` 的 tag index 参数/候选来源和新 record 插入边界偏离 Rust，并将 remove/merge/index-store 持久化与 stale cleanup lifecycle 归为 TODO。
+- 实现：将 `Graph.autoConnect`、`Graph.removeRecord`、`Graph.mergeRecords`、`Graph.endSession` 这些非平凡导出操作改为返回 `Effect`；`Aura.store`、`Aura.delete` 与 `RecallFinalizer.endRecallSession` 调用 Graph 导出时改为 `yield*`。
+- 实现：`Graph.autoConnect` 改为接收 Rust-shaped `tagIndex`，候选集合从 tag index 构建；返回的 `records` 只包含既有 records 及其 neighbor 更新，不再把新 record 插入 graph helper 结果，`Aura.store` 在 appendStore 后负责插入实例视图。
+- 实现：补齐 `Graph.ts` exported interfaces / types 的块级 JSDoc；在 `removeRecord` / `mergeRecords` 上添加可搜索 `NON-PARITY IMPLEMENTATION:` 注释，并把对应 TODO 记录到 `BACKLOG.md`。
+- Rust reference：`auto_connect`、`remove_record`、`merge_records`、`SessionTracker::end_session`（`../src/graph.rs`），`Aura::store_with_channel` / `Aura::delete` / `Aura::end_session`（`../src/aura.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Graph.test.ts packages/core/src/RecallFinalizer.test.ts packages/core/src/Aura.test.ts` 通过，3 files / 44 tests。
+  - `bun run test packages/mcp/src/Parity.test.ts` 通过，1 file / 2 tests。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 首次因 `packages/indexing/src/NGramIndex.test.ts` 随机系数测试未命中 `r1` 失败；未修改实现。
+  - `bun run test packages/indexing/src/NGramIndex.test.ts` 复跑通过，1 file / 6 tests。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 复跑通过，56 files / 551 tests。

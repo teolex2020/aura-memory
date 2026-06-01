@@ -1,12 +1,12 @@
-import { describe, it } from "vitest"
-import { assert } from "@effect/vitest"
-import { Effect } from "effect"
+import { assert, describe, it } from "@effect/vitest"
+import { Effect, Layer } from "effect"
 import { Clock, Level, type Record as AuraRecord } from "@aura/contract"
 import {
   SESSION_TIMEOUT,
   autoConnect,
   cleanupStaleSessions,
   createSessionTracker,
+  createTagIndex,
   endSession,
   mergeRecords,
   removeRecord,
@@ -50,16 +50,8 @@ function record(
   }
 }
 
-function runWithClock<A>(program: () => Effect.Effect<A, never, Clock>, nowSeconds: number): Promise<A> {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      return yield* program()
-    }).pipe(Effect.provideService(Clock, Clock.fixed(nowSeconds))) as Effect.Effect<A, never, never>
-  )
-}
-
 describe("graph autoConnect", () => {
-  it("connects same-namespace records by shared tag count", () => {
+  it.effect("connects same-namespace records by shared tag count", () => Effect.gen(function* () {
     const records = new Map<string, AuraRecord>([
       ["b", record("b", {}, {}, ["rust"])],
       ["c", record("c", {}, {}, ["rust", "memory"])],
@@ -67,7 +59,8 @@ describe("graph autoConnect", () => {
     ])
     const next = record("a", {}, {}, ["rust", "memory"])
 
-    const result = autoConnect(next, records)
+    const tagIndex = createTagIndex(records, [next])
+    const result = yield* autoConnect(next, tagIndex, records)
 
     assert.strictEqual(result.connected, 2)
     assert.strictEqual(result.record.connections.b, 0.35)
@@ -77,26 +70,40 @@ describe("graph autoConnect", () => {
     assert.strictEqual(result.records.get("b")?.connections.a, 0.35)
     assert.strictEqual(result.records.get("c")?.connections.a, 0.5)
     assert.strictEqual(result.records.get("other")?.connections.a, undefined)
-  })
+    assert.strictEqual(result.records.has("a"), false)
+  }))
 
-  it("adds the new record without connections when it has no tags", () => {
-    const result = autoConnect(record("a"), new Map())
+  it.effect("returns the new record without inserting it when it has no tags", () => Effect.gen(function* () {
+    const result = yield* autoConnect(record("a"), new Map(), new Map())
 
     assert.strictEqual(result.connected, 0)
-    assert.strictEqual(result.records.get("a")?.id, "a")
+    assert.strictEqual(result.records.has("a"), false)
     assert.deepStrictEqual(result.record.connections, {})
-  })
+  }))
+
+  it.effect("uses the Rust-shaped tag index as the candidate source", () => Effect.gen(function* () {
+    const records = new Map<string, AuraRecord>([
+      ["b", record("b", {}, {}, ["rust"])],
+    ])
+    const next = record("a", {}, {}, ["rust"])
+
+    const result = yield* autoConnect(next, new Map(), records)
+
+    assert.strictEqual(result.connected, 0)
+    assert.strictEqual(result.record.connections.b, undefined)
+    assert.strictEqual(result.records.get("b")?.connections.a, undefined)
+  }))
 })
 
 describe("graph removeRecord", () => {
-  it("removes the target and cleans reverse edges on known neighbors", () => {
+  it.effect("removes the target and cleans reverse edges on known neighbors", () => Effect.gen(function* () {
     const records = new Map<string, AuraRecord>([
       ["a", record("a", { b: 0.7, c: 0.4 }, { b: "causal", c: "associative" })],
       ["b", record("b", { a: 0.7 }, { a: "causal" })],
       ["c", record("c", { a: 0.4 }, { a: "associative" })],
     ])
 
-    const result = removeRecord("a", records)
+    const result = yield* removeRecord("a", records)
 
     assert.strictEqual(result.removed?.id, "a")
     assert.strictEqual(result.records.has("a"), false)
@@ -105,25 +112,25 @@ describe("graph removeRecord", () => {
     assert.strictEqual(result.records.get("c")?.connections.a, undefined)
     assert.strictEqual(result.records.get("c")?.connection_types.a, undefined)
     assert.deepStrictEqual(result.updatedNeighbors.map((neighbor) => neighbor.id), ["b", "c"])
-  })
+  }))
 
-  it("matches Rust remove_record by only visiting the target's connection keys", () => {
+  it.effect("matches Rust remove_record by only visiting the target's connection keys", () => Effect.gen(function* () {
     const records = new Map<string, AuraRecord>([
       ["a", record("a")],
       ["orphan", record("orphan", { a: 0.9 }, { a: "associative" })],
     ])
 
-    const result = removeRecord("a", records)
+    const result = yield* removeRecord("a", records)
 
     assert.strictEqual(result.records.has("a"), false)
     assert.strictEqual(result.records.get("orphan")?.connections.a, 0.9)
     assert.strictEqual(result.records.get("orphan")?.connection_types.a, "associative")
     assert.strictEqual(result.updatedNeighbors.length, 0)
-  })
+  }))
 })
 
 describe("graph mergeRecords", () => {
-  it("merges record fields then removes the merged record", () => {
+  it.effect("merges record fields then removes the merged record", () => Effect.gen(function* () {
     const records = new Map<string, AuraRecord>([
       [
         "keep",
@@ -157,7 +164,7 @@ describe("graph mergeRecords", () => {
       ["extra", record("extra", { remove: 0.5 }, { remove: "reflective" })],
     ])
 
-    const result = mergeRecords("keep", "remove", records)
+    const result = yield* mergeRecords("keep", "remove", records)
     const keep = result.keep!
 
     assert.strictEqual(result.records.has("remove"), false)
@@ -173,56 +180,56 @@ describe("graph mergeRecords", () => {
     assert.strictEqual(keep.source_type, "recorded")
     assert.strictEqual(result.records.get("shared")?.connections.remove, undefined)
     assert.strictEqual(result.records.get("extra")?.connections.remove, undefined)
-  })
+  }))
 })
 
 describe("graph SessionTracker", () => {
-  it("tracks activation and consolidates same-namespace session records", async () => {
-    const tracker = createSessionTracker()
-    const records = new Map<string, AuraRecord>([
-      ["a", record("a")],
-      ["b", record("b")],
-      ["ops", record("ops", {}, {}, [], "ops")],
-    ])
+  let nowSeconds = 0
+  const TestClockLayer = Layer.succeed(Clock)({ nowSeconds: () => nowSeconds }) as Layer.Layer<Clock, never, never>
 
-    await runWithClock(function () {
-      return trackActivation(tracker, "s1", ["a", "b", "ops"])
-    }, 100)
-    const result = endSession(tracker, "s1", records)
+  it.layer(TestClockLayer)("with injectable Clock", (it) => {
+    it.effect("tracks activation and consolidates same-namespace session records", () => Effect.gen(function* () {
+      nowSeconds = 100
+      const tracker = createSessionTracker()
+      const records = new Map<string, AuraRecord>([
+        ["a", record("a")],
+        ["b", record("b")],
+        ["ops", record("ops", {}, {}, [], "ops")],
+      ])
 
-    assert.strictEqual(tracker.has("s1"), false)
-    assert.deepStrictEqual(result.stats, { pairs_strengthened: 1, session_records: 3 })
-    assert.strictEqual(result.records.get("a")?.connections.b, 0.05)
-    assert.strictEqual(result.records.get("b")?.connections.a, 0.05)
-    assert.strictEqual(result.records.get("a")?.connections.ops, undefined)
-    assert.strictEqual(result.records.get("a")?.connection_types.b, "coactivation")
-    assert.strictEqual(result.records.get("b")?.connection_types.a, "coactivation")
-  })
+      yield* trackActivation(tracker, "s1", ["a", "b", "ops"])
+      const result = yield* endSession(tracker, "s1", records)
 
-  it("cleans stale sessions after timeout and leaves active sessions buffered", async () => {
-    const tracker = createSessionTracker()
-    const records = new Map<string, AuraRecord>([
-      ["a", record("a")],
-      ["b", record("b")],
-      ["c", record("c")],
-    ])
+      assert.strictEqual(tracker.has("s1"), false)
+      assert.deepStrictEqual(result.stats, { pairs_strengthened: 1, session_records: 3 })
+      assert.strictEqual(result.records.get("a")?.connections.b, 0.05)
+      assert.strictEqual(result.records.get("b")?.connections.a, 0.05)
+      assert.strictEqual(result.records.get("a")?.connections.ops, undefined)
+      assert.strictEqual(result.records.get("a")?.connection_types.b, "coactivation")
+      assert.strictEqual(result.records.get("b")?.connection_types.a, "coactivation")
+    }))
 
-    await runWithClock(function () {
-      return trackActivation(tracker, "stale", ["a", "b"])
-    }, 100)
-    await runWithClock(function () {
-      return trackActivation(tracker, "active", ["b", "c"])
-    }, 100 + SESSION_TIMEOUT)
+    it.effect("cleans stale sessions after timeout and leaves active sessions buffered", () => Effect.gen(function* () {
+      const tracker = createSessionTracker()
+      const records = new Map<string, AuraRecord>([
+        ["a", record("a")],
+        ["b", record("b")],
+        ["c", record("c")],
+      ])
 
-    const result = await runWithClock(function () {
-      return cleanupStaleSessions(tracker, records)
-    }, 101 + SESSION_TIMEOUT)
+      nowSeconds = 100
+      yield* trackActivation(tracker, "stale", ["a", "b"])
+      nowSeconds = 100 + SESSION_TIMEOUT
+      yield* trackActivation(tracker, "active", ["b", "c"])
+      nowSeconds = 101 + SESSION_TIMEOUT
+      const result = yield* cleanupStaleSessions(tracker, records)
 
-    assert.deepStrictEqual(result.consolidatedSessions, ["stale"])
-    assert.strictEqual(tracker.has("stale"), false)
-    assert.strictEqual(tracker.has("active"), true)
-    assert.strictEqual(result.records.get("a")?.connections.b, 0.05)
-    assert.strictEqual(result.records.get("b")?.connections.a, 0.05)
-    assert.strictEqual(result.records.get("b")?.connections.c, undefined)
+      assert.deepStrictEqual(result.consolidatedSessions, ["stale"])
+      assert.strictEqual(tracker.has("stale"), false)
+      assert.strictEqual(tracker.has("active"), true)
+      assert.strictEqual(result.records.get("a")?.connections.b, 0.05)
+      assert.strictEqual(result.records.get("b")?.connections.a, 0.05)
+      assert.strictEqual(result.records.get("b")?.connections.c, undefined)
+    }))
   })
 })

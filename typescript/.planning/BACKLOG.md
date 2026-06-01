@@ -31,10 +31,14 @@ Last updated: 2026-06-01
 - [x] Core `Graph.ts` skeleton extracted for Rust `graph.rs` parity and reused by `Aura.delete` graph cleanup — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `Graph.ts` now owns Rust `graph::auto_connect` and pure `graph::merge_records` semantics; `Aura.store` reuses Graph instead of inlining graph logic — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `Graph.ts` now owns Rust `SessionBuffer` / `SessionTracker` session co-activation semantics; `RecallFinalizer` reuses Graph instead of keeping tracker logic inline — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Core `Graph.autoConnect` signature now accepts Rust-shaped `tag_index` and leaves new-record insertion to `Aura.store`, matching `graph::auto_connect` / `Aura::store_with_channel` boundaries — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
 - [ ] Core facade store/update/connect and remaining delete storage/index/cache semantics: close remaining `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
+- [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
+- [ ] TODO(graph): integrate `Graph.mergeRecords` with consolidation plus persistent index/store mutation path, including `CognitiveStore.append_update(keep)`.
+- [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
 - [ ] Core recall output shape: replace simplified `recall_structured` / `recall_full` surfaces with Rust-rich recall item semantics.
 - [ ] Recall cache invalidation: implement Rust `runtime.clear_recall_caches()` behavior after write-affecting operations.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.

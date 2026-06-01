@@ -85,7 +85,7 @@ export function trackRecallSession(
   sessionTracker: RecallSessionTracker | undefined,
   sessionId: string | undefined,
   recordIds: ReadonlyArray<string>
-): Effect.Effect<void, never, Clock> {
+): Effect.Effect<void> {
   if (sessionTracker === undefined || sessionId === undefined) return Effect.void
   return Graph.trackActivation(sessionTracker, sessionId, recordIds)
 }
@@ -102,7 +102,7 @@ export function endRecallSession(
 ): Effect.Effect<Record<string, number>, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
   return Effect.gen(function* () {
     const records = yield* loadCognitiveRecords(brainDir)
-    const result = Graph.endSession(sessionTracker, sessionId, records)
+    const result = yield* Graph.endSession(sessionTracker, sessionId, records)
 
     if (result.updatedRecords.length > 0) {
       const store = yield* CognitiveStoreFile.open(brainDir)
@@ -128,7 +128,7 @@ export function finalizeRecallRecords(
   scored: RecallScored,
   sessionId?: string,
   sessionTracker?: RecallSessionTracker
-): Effect.Effect<void, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite | Clock> {
+): Effect.Effect<void, FileReadError | FileWriteError | FileFormatError, FileRead | FileWrite> {
   const topIds = topRecordIds(scored)
 
   return Effect.gen(function* () {

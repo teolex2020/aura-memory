@@ -19,6 +19,13 @@ export const MAX_CONNECTIONS = 50
  */
 export const SESSION_TIMEOUT = 1800
 
+/**
+ * Ephemeral session buffer for co-activation tracking.
+ *
+ * @zh 用于共同激活追踪的短生命周期 session buffer。
+ *
+ * Rust reference: `SessionBuffer` (`../src/graph.rs`).
+ */
 export interface SessionBuffer {
   readonly record_ids: Set<string>
   readonly started_at: number
@@ -34,6 +41,22 @@ export interface SessionBuffer {
  */
 export type SessionTracker = Map<string, SessionBuffer>
 
+/**
+ * Tag-to-record index used by graph auto-connect.
+ *
+ * @zh graph 自动连接使用的 tag 到 record ID 索引。
+ *
+ * Rust reference: `tag_index: HashMap<String, HashSet<String>>` in `graph::auto_connect` (`../src/graph.rs`).
+ */
+export type TagIndex = ReadonlyMap<string, ReadonlySet<string>>
+
+/**
+ * Result of graph auto-connect.
+ *
+ * @zh graph 自动连接结果；`records` 仅包含 Rust 中传入的既有 records 及其更新，不插入新 record。
+ *
+ * Rust reference: `graph::auto_connect` (`../src/graph.rs`).
+ */
 export interface AutoConnectResult {
   readonly connected: number
   readonly record: AuraRecord
@@ -41,12 +64,26 @@ export interface AutoConnectResult {
   readonly updatedNeighbors: ReadonlyArray<AuraRecord>
 }
 
+/**
+ * Result of graph record removal.
+ *
+ * @zh graph record 删除结果。
+ *
+ * Rust reference: `graph::remove_record` (`../src/graph.rs`).
+ */
 export interface RemoveRecordResult {
   readonly removed: AuraRecord | null
   readonly records: Map<string, AuraRecord>
   readonly updatedNeighbors: ReadonlyArray<AuraRecord>
 }
 
+/**
+ * Result of graph record merge.
+ *
+ * @zh graph record 合并结果。
+ *
+ * Rust reference: `graph::merge_records` (`../src/graph.rs`).
+ */
 export interface MergeRecordsResult {
   readonly keep: AuraRecord | null
   readonly removed: AuraRecord | null
@@ -54,12 +91,26 @@ export interface MergeRecordsResult {
   readonly updatedNeighbors: ReadonlyArray<AuraRecord>
 }
 
+/**
+ * Result of ending one recall session.
+ *
+ * @zh 结束一个 recall session 的结果。
+ *
+ * Rust reference: `SessionTracker::end_session` (`../src/graph.rs`).
+ */
 export interface SessionResult {
   readonly stats: Record<string, number>
   readonly records: Map<string, AuraRecord>
   readonly updatedRecords: ReadonlyArray<AuraRecord>
 }
 
+/**
+ * Result of stale session cleanup.
+ *
+ * @zh 清理超时 session 的结果。
+ *
+ * Rust reference: `SessionTracker::cleanup_stale_sessions` (`../src/graph.rs`).
+ */
 export interface CleanupStaleSessionsResult {
   readonly consolidatedSessions: ReadonlyArray<string>
   readonly records: Map<string, AuraRecord>
@@ -81,7 +132,7 @@ function sessionBufferAt(nowSeconds: number): SessionBuffer {
  *
  * Rust reference: `SessionBuffer::new` (`../src/graph.rs`).
  */
-export function createSessionBuffer(): Effect.Effect<SessionBuffer, never, Clock> {
+export function createSessionBuffer(): Effect.Effect<SessionBuffer> {
   return Effect.gen(function* () {
     const clock = yield* Clock
     return sessionBufferAt(clock.nowSeconds())
@@ -100,6 +151,33 @@ export function createSessionTracker(): SessionTracker {
 }
 
 /**
+ * Build a Rust-shaped tag index from records.
+ *
+ * @zh 从 records 构建 Rust 形状的 tag index。
+ *
+ * Rust reference: `tag_index: HashMap<String, HashSet<String>>` (`../src/aura.rs`, `../src/graph.rs`).
+ */
+export function createTagIndex(
+  records: ReadonlyMap<string, AuraRecord>,
+  extraRecords: ReadonlyArray<AuraRecord> = [],
+): Map<string, Set<string>> {
+  const tagIndex = new Map<string, Set<string>>()
+  const addRecord = (record: AuraRecord): void => {
+    for (const tag of record.tags) {
+      let ids = tagIndex.get(tag)
+      if (ids === undefined) {
+        ids = new Set<string>()
+        tagIndex.set(tag, ids)
+      }
+      ids.add(record.id)
+    }
+  }
+  for (const record of records.values()) addRecord(record)
+  for (const record of extraRecords) addRecord(record)
+  return tagIndex
+}
+
+/**
  * Track that these record IDs were activated in a session.
  *
  * @zh 记录这些 record IDs 在同一个 session 中被激活。
@@ -110,7 +188,7 @@ export function trackActivation(
   sessionTracker: SessionTracker,
   sessionId: string,
   recordIds: ReadonlyArray<string>,
-): Effect.Effect<void, never, Clock> {
+): Effect.Effect<void> {
   return Effect.gen(function* () {
     const clock = yield* Clock
     const nowSeconds = clock.nowSeconds()
@@ -135,14 +213,16 @@ export function endSession(
   sessionTracker: SessionTracker,
   sessionId: string,
   records: ReadonlyMap<string, AuraRecord>,
-): SessionResult {
-  const buffer = sessionTracker.get(sessionId)
-  const next = new Map(records)
-  if (buffer === undefined) {
-    return { stats: {}, records: next, updatedRecords: [] }
-  }
-  sessionTracker.delete(sessionId)
-  return consolidateSession(buffer, next)
+): Effect.Effect<SessionResult> {
+  return Effect.sync(() => {
+    const buffer = sessionTracker.get(sessionId)
+    const next = new Map(records)
+    if (buffer === undefined) {
+      return { stats: {}, records: next, updatedRecords: [] }
+    }
+    sessionTracker.delete(sessionId)
+    return consolidateSession(buffer, next)
+  })
 }
 
 /**
@@ -155,7 +235,7 @@ export function endSession(
 export function cleanupStaleSessions(
   sessionTracker: SessionTracker,
   records: ReadonlyMap<string, AuraRecord>,
-): Effect.Effect<CleanupStaleSessionsResult, never, Clock> {
+): Effect.Effect<CleanupStaleSessionsResult> {
   return Effect.gen(function* () {
     const clock = yield* Clock
     const nowSeconds = clock.nowSeconds()
@@ -266,6 +346,15 @@ function strengthenSessionPair(record: AuraRecord, otherId: string, boosted: num
  */
 export function autoConnect(
   newRecord: AuraRecord,
+  tagIndex: TagIndex,
+  records: ReadonlyMap<string, AuraRecord>,
+): Effect.Effect<AutoConnectResult> {
+  return Effect.sync(() => autoConnectSync(newRecord, tagIndex, records))
+}
+
+function autoConnectSync(
+  newRecord: AuraRecord,
+  tagIndex: TagIndex,
   records: ReadonlyMap<string, AuraRecord>,
 ): AutoConnectResult {
   const next = new Map(records)
@@ -275,15 +364,15 @@ export function autoConnect(
       connections: { ...newRecord.connections },
       connection_types: { ...newRecord.connection_types },
     }
-    next.set(record.id, record)
     return { connected: 0, record, records: next, updatedNeighbors: [] }
   }
 
   const candidates = new Map<string, number>()
   for (const tag of newRecord.tags) {
-    for (const [id, record] of records) {
+    const ids = tagIndex.get(tag)
+    if (ids === undefined) continue
+    for (const id of ids) {
       if (id === newRecord.id) continue
-      if (!record.tags.includes(tag)) continue
       candidates.set(id, (candidates.get(id) ?? 0) + 1)
     }
   }
@@ -293,18 +382,17 @@ export function autoConnect(
   const connectionTypes: { [recordId: string]: string } = { ...newRecord.connection_types }
   const updatedNeighbors: AuraRecord[] = []
 
-  for (const [candidateId, candidate] of records) {
-    const sharedCount = candidates.get(candidateId)
-    if (sharedCount === undefined) continue
+  for (const [candidateId, sharedCount] of candidates) {
     if (Object.keys(connections).length >= MAX_CONNECTIONS) break
 
-    if (candidate.namespace !== newRecord.namespace) continue
+    const candidate = records.get(candidateId)
+    if (candidate !== undefined && candidate.namespace !== newRecord.namespace) continue
 
     const weight = Math.min(0.2 + 0.15 * sharedCount, 0.8)
     connections[candidateId] = weight
     connectionTypes[candidateId] = "associative"
 
-    if (Object.keys(candidate.connections).length < MAX_CONNECTIONS) {
+    if (candidate !== undefined && Object.keys(candidate.connections).length < MAX_CONNECTIONS) {
       const updated: AuraRecord = {
         ...candidate,
         connections: { ...candidate.connections, [newRecord.id]: weight },
@@ -322,7 +410,6 @@ export function autoConnect(
     connections,
     connection_types: connectionTypes,
   }
-  next.set(record.id, record)
   return { connected, record, records: next, updatedNeighbors }
 }
 
@@ -331,9 +418,21 @@ export function autoConnect(
  *
  * @zh 从内存 graph 中移除 record，并清理目标 record 已知邻居上的反向连接。
  *
+ * NON-PARITY IMPLEMENTATION: this pure helper does not update `NGramIndex`,
+ * `tag_index`, `aura_index`, or call `CognitiveStore.append_delete`; callers
+ * must provide those persistent/index mutations at the facade layer.
+ * @zh 非完全对齐：该纯 helper 不更新 `NGramIndex`、`tag_index`、`aura_index`，
+ * 也不调用 `CognitiveStore.append_delete`；调用方必须在 facade 层补齐持久化/索引变更。
  * Rust reference: `graph::remove_record` (`../src/graph.rs`).
  */
 export function removeRecord(
+  recordId: string,
+  records: ReadonlyMap<string, AuraRecord>,
+): Effect.Effect<RemoveRecordResult> {
+  return Effect.sync(() => removeRecordSync(recordId, records))
+}
+
+function removeRecordSync(
   recordId: string,
   records: ReadonlyMap<string, AuraRecord>,
 ): RemoveRecordResult {
@@ -375,9 +474,22 @@ export function removeRecord(
  *
  * @zh 将 `remove` record 合并进 `keep` record，然后删除被合并 record。
  *
+ * NON-PARITY IMPLEMENTATION: this pure helper does not update `NGramIndex`,
+ * `tag_index`, `aura_index`, or call `CognitiveStore.append_update(keep)`;
+ * callers must provide those persistent/index mutations at the facade layer.
+ * @zh 非完全对齐：该纯 helper 不更新 `NGramIndex`、`tag_index`、`aura_index`，
+ * 也不调用 `CognitiveStore.append_update(keep)`；调用方必须在 facade 层补齐持久化/索引变更。
  * Rust reference: `graph::merge_records` (`../src/graph.rs`).
  */
 export function mergeRecords(
+  keepId: string,
+  removeId: string,
+  records: ReadonlyMap<string, AuraRecord>,
+): Effect.Effect<MergeRecordsResult> {
+  return Effect.sync(() => mergeRecordsSync(keepId, removeId, records))
+}
+
+function mergeRecordsSync(
   keepId: string,
   removeId: string,
   records: ReadonlyMap<string, AuraRecord>,
@@ -429,7 +541,7 @@ export function mergeRecords(
     next.set(keepId, updatedKeep)
   }
 
-  const removal = removeRecord(removeId, next)
+  const removal = removeRecordSync(removeId, next)
   return {
     keep: removal.records.get(keepId) ?? null,
     removed: remove,

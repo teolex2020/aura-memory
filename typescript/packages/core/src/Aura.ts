@@ -1201,12 +1201,13 @@ export class Aura {
         volatility: 0,
       };
 
-      const autoConnect = Graph.autoConnect(record, self.searchRecords)
+      const tagIndex = Graph.createTagIndex(self.searchRecords, [record])
+      const autoConnect = yield* Graph.autoConnect(record, tagIndex, self.searchRecords)
       record = autoConnect.record
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendStore(record);
       yield* store.flush();
-      self.searchRecords = autoConnect.records
+      self.searchRecords = new Map(autoConnect.records).set(record.id, record)
       return record;
     });
   }
@@ -1302,7 +1303,7 @@ export class Aura {
     const self = this;
     return Effect.gen(function* () {
       const records = yield* loadCognitiveRecords(dir);
-      const removal = Graph.removeRecord(record_id, records)
+      const removal = yield* Graph.removeRecord(record_id, records)
       if (removal.removed === null) {
         return false
       }

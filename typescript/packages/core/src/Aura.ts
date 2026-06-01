@@ -9,10 +9,12 @@ import {
   FinalizeError,
   JsonParseError,
   Level,
+  type RelationEdge,
   RecordNotFoundError,
   RecordValidationError,
   RerankError,
   type RecallScored,
+  type RecallView,
   Record as AuraRecord,
   type SalienceSummary,
   type StoreOptions,
@@ -55,11 +57,13 @@ import {
 } from "@aura/recall";
 import {
   finalizeRecallScored as finalizeRecallScoredEffect,
-  recallRawScored as recallRawScoredEffect,
+  recallRawScoredWithView as recallRawScoredWithRuntimeViewEffect,
   recallRecords as recallRecordsEffect,
+  recallRecordsWithView as recallRecordsWithRuntimeViewEffect,
   recallScored as recallScoredEffect,
-  recallTemporalRecords as recallTemporalRecordsEffect,
-  recallWithTrace as recallWithTraceEffect,
+  recallScoredWithView as recallScoredWithRuntimeViewEffect,
+  recallTemporalRecordsWithView as recallTemporalRecordsWithRuntimeViewEffect,
+  recallWithTraceWithView as recallWithTraceWithRuntimeViewEffect,
 } from "./Recall";
 import * as Graph from "./Graph"
 import * as RecallFinalizer from "./RecallFinalizer"
@@ -266,6 +270,16 @@ function createRuntimeTagIndex(records: ReadonlyMap<string, AuraRecord>): Map<st
   return Graph.createTagIndex(records)
 }
 
+function createRuntimeAuraIndex(records: ReadonlyMap<string, AuraRecord>): Map<string, string> {
+  const auraIndex = new Map<string, string>()
+  for (const record of records.values()) {
+    if (typeof record.aura_id === "string" && record.aura_id.length > 0) {
+      auraIndex.set(record.aura_id, record.id)
+    }
+  }
+  return auraIndex
+}
+
 function addRecordToRuntimeTagIndex(tagIndex: Map<string, Set<string>>, record: AuraRecord): void {
   for (const tag of record.tags) {
     let ids = tagIndex.get(tag)
@@ -280,6 +294,21 @@ function addRecordToRuntimeTagIndex(tagIndex: Map<string, Set<string>>, record: 
 function removeRecordFromRuntimeTagIndex(tagIndex: Map<string, Set<string>>, record: AuraRecord): void {
   for (const tag of record.tags) {
     tagIndex.get(tag)?.delete(record.id)
+  }
+}
+
+function mergeRuntimeConnections(fresh: AuraRecord, current: AuraRecord): AuraRecord {
+  const connections: { [recordId: string]: number } = { ...fresh.connections }
+  for (const [recordId, weight] of Object.entries(current.connections)) {
+    connections[recordId] = Math.max(connections[recordId] ?? 0, weight)
+  }
+  return {
+    ...fresh,
+    connections,
+    connection_types: {
+      ...fresh.connection_types,
+      ...current.connection_types,
+    },
   }
 }
 
@@ -1538,8 +1567,10 @@ export class Aura {
    * - `"coactivation"`: A and B were recalled together in a session
    * - Any custom string
    *
-   * SIMPLE IMPLEMENTATION: load records, mutate connections, appendUpdate full records.
-   * 简化实现：加载记录、更新 connections、追加写入完整 record。
+   * Rust `connect` mutates the in-memory record graph only; persistent explicit typed
+   * relations use `link_records`.
+   * @zh Rust `connect` 只修改内存 record graph；需要持久化的显式 typed relation 走 `link_records`。
+   *
    * Rust reference: `Aura::connect` (`../src/aura.rs`).
    */
   connect(
@@ -1549,19 +1580,15 @@ export class Aura {
     relationship?: string,
   ): Effect.Effect<
     void,
-    FileReadError | FileWriteError | FileFormatError | RecordValidationError,
-    FileRead | FileWrite
+    RecordValidationError
   > {
-    const dir = this.brainDir;
     const self = this;
     const w =
       typeof weight === "number" && Number.isFinite(weight) ? clamp01(weight) : 0.5;
     return Effect.gen(function* () {
-      const clock = yield* Clock
-      const nowSec = clock.nowSeconds();
-      const records = yield* loadCognitiveRecords(dir);
-      const fromBase = records.get(from_id) !== undefined ? toRecordLike(records.get(from_id)!, nowSec) : undefined;
-      const toBase = records.get(to_id) !== undefined ? toRecordLike(records.get(to_id)!, nowSec) : undefined;
+      const records = self.searchRecords
+      const fromBase = records.get(from_id)
+      const toBase = records.get(to_id)
       if (fromBase === undefined) {
         return yield* Effect.fail(recordValidationError("from_id", `Record ${from_id} not found`, "Aura::connect (aura.rs)"))
       }
@@ -1576,37 +1603,116 @@ export class Aura {
         ))
       }
 
-      const fromConnections: { [k: string]: number } = { ...fromBase.connections };
-      fromConnections[to_id] = w;
-      const toConnections: { [k: string]: number } = { ...toBase.connections };
-      toConnections[from_id] = w;
-      const fromConnectionTypes: { [k: string]: string } = { ...fromBase.connection_types }
-      const toConnectionTypes: { [k: string]: string } = { ...toBase.connection_types }
-      if (relationship !== undefined) {
-        fromConnectionTypes[to_id] = relationship
-        toConnectionTypes[from_id] = relationship
-      }
-
-      const fromNext: AuraRecord = {
-        ...fromBase,
-        id: from_id,
-        connections: fromConnections,
-        connection_types: fromConnectionTypes,
-      };
-      const toNext: AuraRecord = {
-        ...toBase,
-        id: to_id,
-        connections: toConnections,
-        connection_types: toConnectionTypes,
-      };
-
-      const store = yield* CognitiveStoreFile.open(dir);
-      yield* store.appendUpdate(fromNext);
-      yield* store.appendUpdate(toNext);
-      yield* store.flush();
-      self.replaceSearchRecord(fromNext)
-      self.replaceSearchRecord(toNext)
+      const fromNext = relationship !== undefined
+        ? AuraRecord.addTypedConnection(fromBase, to_id, w, relationship)
+        : AuraRecord.addConnection(fromBase, to_id, w)
+      const toNext = relationship !== undefined
+        ? AuraRecord.addTypedConnection(toBase, from_id, w, relationship)
+        : AuraRecord.addConnection(toBase, from_id, w)
+      self.searchRecords = new Map(records).set(from_id, fromNext).set(to_id, toNext)
     });
+  }
+
+  /**
+   * Create a deterministic explicit typed relation between two existing records.
+   *
+   * @zh 在两条已存在 records 之间创建确定性的显式 typed relation，并持久化到 cognitive store。
+   *
+   * Rust reference: `Aura::link_records` (`../src/aura.rs`).
+   */
+  link_records(
+    source_id: string,
+    target_id: string,
+    relation_type: string,
+    weight?: number,
+  ): Effect.Effect<
+    RelationEdge,
+    FileReadError | FileWriteError | RecordValidationError,
+    FileRead | FileWrite
+  > {
+    const dir = this.brainDir
+    const self = this
+    return Effect.gen(function* () {
+      const linked = yield* Relation.linkRecords(
+        self.searchRecords,
+        source_id,
+        target_id,
+        relation_type,
+        weight,
+      )
+      if (linked.changed_records.length > 0) {
+        const store = yield* CognitiveStoreFile.open(dir)
+        for (const record of linked.changed_records) {
+          yield* store.appendUpdate(record)
+        }
+        yield* store.flush()
+        self.searchRecords = linked.records
+        self.clearRecallCaches()
+      }
+      return linked.edge
+    })
+  }
+
+  /**
+   * Build a recall read model from the Aura instance runtime state.
+   *
+   * @zh 从 Aura 实例当前 runtime state 构建召回 read model。
+   *
+   * Rust reference: `Aura::recall_core` reads instance `records`, `ngram_index`,
+   * `tag_index`, `aura_index`, and the SDR inverted index (`../src/aura.rs`).
+   */
+  private runtimeRecallView(): Effect.Effect<
+    RecallView,
+    FileReadError | JsonParseError | IndexFormatError,
+    FileRead
+  > {
+    const self = this
+    return Effect.gen(function* () {
+      const idx = yield* InvertedIndex.load(`${self.brainDir}/index`)
+      const records = new Map<string, AuraRecord>(self.searchRecords)
+      const auraHeaders = new Map<string, { sdr_indices: ReadonlyArray<number> }>()
+      for (const record of self.records) {
+        auraHeaders.set(record.id, { sdr_indices: record.sdr_indices })
+      }
+      return {
+        records,
+        auraIndex: createRuntimeAuraIndex(records),
+        auraHeaders,
+        invertedIndex: {
+          search: (bits: ReadonlyArray<number>, topK: number, minOverlap: number) =>
+            idx.searchScored(Array.from(bits), topK, minOverlap),
+        },
+        ngramIndex: self.ngramIndex,
+        tagIndex: self.runtimeTagIndex,
+      }
+    })
+  }
+
+  /**
+   * Merge file-backed recall finalizer updates back into the Aura runtime state.
+   *
+   * @zh 将文件持久化 RecallFinalizer 的更新合并回 Aura runtime state，同时保留 Rust
+   * `connect` 这类内存态 graph mutation。
+   *
+   * Rust reference: `Aura::recall_finalize` mutates the same in-memory records map (`../src/aura.rs`).
+   */
+  private reloadSearchRecordsAfterRecall(): Effect.Effect<
+    void,
+    FileReadError | FileFormatError,
+    FileRead
+  > {
+    const self = this
+    return Effect.gen(function* () {
+      const persisted = yield* loadCognitiveRecords(self.brainDir)
+      const merged = new Map<string, AuraRecord>(persisted)
+      for (const [id, current] of self.searchRecords) {
+        const fresh = merged.get(id)
+        if (fresh !== undefined) {
+          merged.set(id, mergeRuntimeConnections(fresh, current))
+        }
+      }
+      self.searchRecords = merged
+    })
   }
 
   private currentBoundedRerankModes(): BoundedRerankModes {
@@ -1649,7 +1755,9 @@ export class Aura {
          */
         const pipelineLimit = max * 3
         const hitsOrNull = yield* Effect.gen(function* () {
-          const hits = yield* recallRecordsEffect<AuraRecord>(
+          const view = yield* self.runtimeRecallView()
+          const hits = yield* recallRecordsWithRuntimeViewEffect<AuraRecord>(
+            view,
             self.brainDir,
             query,
             self.recallOptionsWithRuntimeModes({
@@ -1661,7 +1769,7 @@ export class Aura {
             undefined,
             self.currentTrustConfig(),
           )
-          self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+          yield* self.reloadSearchRecordsAfterRecall()
           return hits as ReadonlyArray<readonly [number, AuraRecord]>
         }).pipe(
           Effect.catch(() => Effect.succeed(null as ReadonlyArray<readonly [number, AuraRecord]> | null)),
@@ -1703,7 +1811,9 @@ export class Aura {
       tokenBudget,
       pipelineOptions.namespaces,
       () => Effect.gen(function* () {
-        const records = yield* recallRecordsEffect<AuraRecord>(
+        const view = yield* self.runtimeRecallView()
+        const records = yield* recallRecordsWithRuntimeViewEffect<AuraRecord>(
+          view,
           self.brainDir,
           query,
           pipelineOptions,
@@ -1711,7 +1821,7 @@ export class Aura {
           self.currentTrustConfig(),
           self.sessionTracker,
         )
-        self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+        yield* self.reloadSearchRecordsAfterRecall()
         return records
       }),
       (scored) => RecallService.formatPreamble(scored, tokenBudget, self.searchRecords),
@@ -1737,7 +1847,9 @@ export class Aura {
       minStrength,
       pipelineOptions.namespaces,
       () => Effect.gen(function* () {
-        const records = yield* recallRecordsEffect<AuraRecord>(
+        const view = yield* self.runtimeRecallView()
+        const records = yield* recallRecordsWithRuntimeViewEffect<AuraRecord>(
+          view,
           self.brainDir,
           query,
           pipelineOptions,
@@ -1745,7 +1857,7 @@ export class Aura {
           self.currentTrustConfig(),
           self.sessionTracker,
         )
-        self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+        yield* self.reloadSearchRecordsAfterRecall()
         return records
       }),
     )
@@ -1760,7 +1872,9 @@ export class Aura {
   recall_scored(query: string, options?: Partial<RecallPipelineOptions>) {
     const self = this
     return Effect.gen(function* () {
-      const scored = yield* recallScoredEffect(
+      const view = yield* self.runtimeRecallView()
+      const scored = yield* recallScoredWithRuntimeViewEffect(
+        view,
         self.brainDir,
         query,
         self.recallOptionsWithRuntimeModes(options),
@@ -1768,7 +1882,7 @@ export class Aura {
         self.currentTrustConfig(),
         self.sessionTracker,
       )
-      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      yield* self.reloadSearchRecordsAfterRecall()
       return scored
     })
   }
@@ -1798,7 +1912,9 @@ export class Aura {
     const namespaces = pipelineOptions.namespaces ?? [DEFAULT_NAMESPACE]
 
     return Effect.gen(function* () {
-      const scored = Array.from(yield* recallRecordsEffect<AuraRecord>(
+      const view = yield* self.runtimeRecallView()
+      const scored = Array.from(yield* recallRecordsWithRuntimeViewEffect<AuraRecord>(
+        view,
         self.brainDir,
         query,
         self.recallOptionsWithRuntimeModes(pipelineOptions),
@@ -1806,8 +1922,8 @@ export class Aura {
         self.currentTrustConfig(),
         self.sessionTracker,
       ))
-      const records = yield* loadCognitiveRecords(self.brainDir)
-      self.searchRecords = records
+      yield* self.reloadSearchRecordsAfterRecall()
+      const records = self.searchRecords
 
       const seenIds = new Set(scored.map(([, record]) => record.id))
       const queryLower = query.toLowerCase()
@@ -1865,7 +1981,9 @@ export class Aura {
     const self = this
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     return Effect.gen(function* () {
-      const records = yield* recallTemporalRecordsEffect<AuraRecord>(
+      const view = yield* self.runtimeRecallView()
+      const records = yield* recallTemporalRecordsWithRuntimeViewEffect<AuraRecord>(
+        view,
         self.brainDir,
         query,
         timestamp,
@@ -1873,7 +1991,7 @@ export class Aura {
         self.currentTrustConfig(),
         self.sessionTracker,
       )
-      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      yield* self.reloadSearchRecordsAfterRecall()
       return records
     })
   }
@@ -1898,13 +2016,14 @@ export class Aura {
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     const top = options.topK ?? 20
     return Effect.gen(function* () {
-      const scored = yield* recallRawScoredEffect(self.brainDir, query, options, self.currentTrustConfig())
-      const records = yield* loadCognitiveRecords(self.brainDir)
+      const view = yield* self.runtimeRecallView()
+      const scored = yield* recallRawScoredWithRuntimeViewEffect(view, query, options, self.currentTrustConfig())
+      const records = self.searchRecords
       const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
       const shadowReport = RecallService.shadowReport(scored, beliefState, top)
       const hits = recallHitsFromScored(scored, records)
       yield* finalizeRecallScoredEffect(self.brainDir, scored, sessionId, self.sessionTracker)
-      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      yield* self.reloadSearchRecordsAfterRecall()
       return [hits, shadowReport] as readonly [ReadonlyArray<AuraRecallHit>, ShadowRecallReport]
     })
   }
@@ -1929,14 +2048,15 @@ export class Aura {
     const options = recallReportOptions(topK, minStrength, expandConnections, sessionId, namespaces)
     const top = options.topK ?? 20
     return Effect.gen(function* () {
-      const scored = yield* recallRawScoredEffect(self.brainDir, query, options, self.currentTrustConfig())
+      const view = yield* self.runtimeRecallView()
+      const scored = yield* recallRawScoredWithRuntimeViewEffect(view, query, options, self.currentTrustConfig())
       const matched = Array.from(scored)
       const beliefState = yield* BeliefStoreFile.new(self.brainDir).load()
       const report = RecallService.rerankReport(matched, beliefState, top)
-      const records = yield* loadCognitiveRecords(self.brainDir)
+      const records = self.searchRecords
       const hits = recallHitsFromScored(matched, records)
       yield* finalizeRecallScoredEffect(self.brainDir, matched, sessionId, self.sessionTracker)
-      self.searchRecords = yield* loadCognitiveRecords(self.brainDir)
+      yield* self.reloadSearchRecordsAfterRecall()
       return [hits, report] as readonly [ReadonlyArray<AuraRecallHit>, LimitedRerankReport]
     })
   }
@@ -3271,7 +3391,9 @@ export class Aura {
       boundedRerankModes: self.currentBoundedRerankModes(),
     }
     return Effect.gen(function* () {
-      const traced = yield* recallWithTraceEffect(
+      const view = yield* self.runtimeRecallView()
+      const traced = yield* recallWithTraceWithRuntimeViewEffect(
+        view,
         self.brainDir,
         query,
         options,

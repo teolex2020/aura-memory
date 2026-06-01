@@ -434,3 +434,19 @@
   - `bun run test packages/mcp/src/Parity.test.ts` 复跑通过，1 file / 2 tests。
   - `git diff --check` 通过。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 569 tests，7 skipped。
+
+## 2026-06-02 - connect/link_records 与 runtime RecallView 对齐
+
+- 范围：`packages/core/src/Aura.ts`、`packages/core/src/Recall.ts`、`packages/core/src/Relation.ts`、`packages/contract/src/relation/Relation.ts`、`packages/core/src/Aura.test.ts`、`.planning/BACKLOG.md`。
+- 子代理审计：McClintock 只读审计 open → write/connect → recall 全流程，确认 P0 为 `Aura::connect` / `Aura::link_records` 语义未拆清以及 Aura 实例 recall 仍从磁盘 `RecallViewLive` 重建 read model，导致内存态 graph mutation 无法参与 recall expansion；同时记录剩余 P1/P2 为 open_with_password、audit/embedding/cortex/runtime SDR cache、recall retrieve audit、relation/entity/project/family graph APIs 和随机性/tie-order 风险。
+- 实现：`Aura.connect` 改为对齐 Rust `Aura::connect` 的内存态 graph mutation，不再向 `brain.cog` append update，也不清 recall cache；测试覆盖 connect 后当前实例可见、reopen 后不可见。
+- 实现：新增 `Relation.linkRecords` 与 `Aura.link_records`，对齐 Rust `Aura::link_records`：校验 self-link / 空 relation type / 缺失 source-target / 跨 namespace，默认权重 0.8 并 clamp，持久化双向 typed relation，返回 Rust-shaped `RelationEdge`。
+- 实现：`Relation.linkRecords` 补齐 Rust `promote_record_link_to_entity_anchors`：权重 ≥ 0.8 且两端具备不同 `entity_id` 时，按 research-project tag、profile tag、level、created_at、id 排序选择 entity anchor 并持久化 anchor relation。
+- 实现：`@aura/contract` 的 `RelationEdge` DTO 改为 Rust `relation.rs` 字段形状（`source_record_id` / `target_record_id` / `relation_type` / `namespace` / `structural`），为后续 relation graph API 对齐打底。
+- 实现：新增 Aura-owned runtime recall view：实例 recall 使用当前 `searchRecords`、runtime `NGramIndex`、runtime tag/aura index 与持久化 SDR inverted index，而不是重新从磁盘加载 records；召回 finalize 后通过合并持久化更新保留 `connect` 这类 Rust 内存态 graph 边。
+- 随机性记录：实例 recall 现在更接近 Rust production，使用 runtime `NGramIndex.random()`；静态 `Aura.recallScored` / storage `RecallViewLive` 仍保留 `withSeed0()` verifier 路径。后续 exact score/tie-order 排查需区分 production runtime 与 deterministic verifier。
+- Rust reference：`Aura::connect`、`Aura::link_records`、`upsert_structural_connection`、`promote_record_link_to_entity_anchors`、`select_entity_anchor_record`、`Aura::recall_core` / `Aura::recall_finalize`（`../src/aura.rs`），`RelationEdge`（`../src/relation.rs`），`Record::add_connection` / `Record::add_typed_connection`（`../src/record.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Aura.test.ts packages/core/src/Graph.test.ts packages/storage/src/RecallView.test.ts packages/core/src/Recall.parity.test.ts packages/mcp/src/Parity.test.ts` 通过，5 files / 55 tests。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 571 tests，7 skipped。

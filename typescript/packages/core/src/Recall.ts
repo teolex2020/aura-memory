@@ -93,6 +93,32 @@ export function recallScored(
 }
 
 /**
+ * Run recallPipeline against an Aura-owned runtime RecallView.
+ * 使用 Aura 实例持有的 runtime RecallView 运行 recallPipeline。
+ *
+ * Rust reference: `Aura::recall_core` uses instance `records` / `ngram_index`
+ * / `tag_index` / `aura_index` (`../src/aura.rs`).
+ */
+export function recallScoredWithView(
+  view: RecallView,
+  dir: string,
+  query: string,
+  options?: Partial<RecallPipelineOptions>,
+  modes?: Partial<BoundedRerankModes>,
+  trustConfig?: TrustConfig,
+  sessionTracker?: RecallSessionTracker
+): Effect.Effect<
+  RecallScored,
+  SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
+  FileRead | FileWrite
+> {
+  const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
+  return withTrustConfig(RecallService.raw(query, pipelineOptions), trustConfig).pipe(
+    Effect.provide(recallCoreLayerWithView(view, dir, sessionTracker))
+  )
+}
+
+/**
  * Run raw recall without bounded rerank/finalize services.
  * 运行 raw recall，不装配 bounded rerank/finalize 服务。
  * Rust reference: `Aura::recall_raw` used by
@@ -116,6 +142,26 @@ export function recallRawScored(
   FileRead
 > {
   return withTrustConfig(RecallService.raw(query, options), trustConfig).pipe(Effect.provide(RecallViewLive(dir)))
+}
+
+/**
+ * Run raw recall against an Aura-owned runtime RecallView.
+ * 使用 Aura 实例持有的 runtime RecallView 运行 raw recall。
+ *
+ * Rust reference: `Aura::recall_raw` (`../src/aura.rs`).
+ */
+export function recallRawScoredWithView(
+  view: RecallView,
+  query: string,
+  options?: Partial<RecallPipelineOptions>,
+  trustConfig?: TrustConfig
+): Effect.Effect<
+  RecallScored,
+  SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError
+> {
+  return withTrustConfig(RecallService.raw(query, options), trustConfig).pipe(
+    Effect.provideService(RecallViewTag, view)
+  )
 }
 
 /**
@@ -159,6 +205,42 @@ export function recallRecords<TRecord = unknown>(
   })
 
   return program.pipe(Effect.provide(recallCoreLayer(dir, sessionTracker)))
+}
+
+/**
+ * Resolve runtime RecallView recall IDs to records from that same runtime snapshot.
+ * 使用同一个 runtime RecallView snapshot 将 recall ID 映射回 records。
+ *
+ * Rust reference: `Aura::recall_structured` / `Aura::recall_core` (`../src/aura.rs`).
+ */
+export function recallRecordsWithView<TRecord = unknown>(
+  view: RecallView,
+  dir: string,
+  query: string,
+  options?: Partial<RecallPipelineOptions>,
+  modes?: Partial<BoundedRerankModes>,
+  trustConfig?: TrustConfig,
+  sessionTracker?: RecallSessionTracker
+): Effect.Effect<
+  ReadonlyArray<RecallHit<TRecord>>,
+  SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
+  FileRead | FileWrite
+> {
+  const program = Effect.gen(function* () {
+    const runtimeView = yield* Effect.service(RecallViewTag)
+    const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
+    const scored = yield* withTrustConfig(RecallService.raw(query, pipelineOptions), trustConfig)
+
+    const out: Array<RecallHit<TRecord>> = []
+    for (const [score, id] of scored) {
+      const rec = runtimeView.records.get(id)
+      if (rec === undefined) continue
+      out.push([score, rec as TRecord])
+    }
+    return out
+  })
+
+  return program.pipe(Effect.provide(recallCoreLayerWithView(view, dir, sessionTracker)))
 }
 
 /**
@@ -213,6 +295,45 @@ export function recallTemporalRecords<TRecord = unknown>(
 }
 
 /**
+ * Temporal recall against an Aura-owned runtime RecallView.
+ * 基于 Aura 实例持有的 runtime RecallView 执行时间召回。
+ *
+ * Rust reference: `Aura::recall_at` / `RecallService::recall_temporal` (`../src/aura.rs`).
+ */
+export function recallTemporalRecordsWithView<TRecord = unknown>(
+  view: RecallView,
+  dir: string,
+  query: string,
+  timestamp: number,
+  options?: Partial<RecallPipelineOptions>,
+  trustConfig?: TrustConfig,
+  sessionTracker?: RecallSessionTracker
+): Effect.Effect<
+  ReadonlyArray<RecallHit<TRecord>>,
+  SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
+  FileRead | FileWrite
+> {
+  const program = Effect.gen(function* () {
+    const runtimeView = yield* Effect.service(RecallViewTag)
+    const temporalView = temporalRecallView(runtimeView, timestamp)
+    const scored = yield* withTrustConfig(
+      RecallService.raw(query, options).pipe(Effect.provideService(RecallViewTag, temporalView)),
+      trustConfig
+    )
+
+    const out: Array<RecallHit<TRecord>> = []
+    for (const [score, id] of scored) {
+      const rec = temporalView.records.get(id)
+      if (rec === undefined) continue
+      out.push([score, rec as TRecord])
+    }
+    return out
+  })
+
+  return program.pipe(Effect.provide(recallTemporalLayerWithView(view, dir, sessionTracker)))
+}
+
+/**
  * Apply file-backed recall finalization after report-specific raw/reranked recall.
  * 在 report 专用 raw/reranked recall 后执行文件持久化 finalize。
  * Rust reference: `Aura::recall_finalize` after shadow/rerank-report recall (`../src/aura.rs`).
@@ -256,14 +377,54 @@ export function recallWithTrace(
   return withTrustConfig(RecallService.rawWithTrace(query, pipelineOptions), trustConfig).pipe(Effect.provide(recallTraceLayer(dir)))
 }
 
+/**
+ * Trace/explain recall against an Aura-owned runtime RecallView.
+ * 基于 Aura 实例持有的 runtime RecallView 生成 trace/explain recall。
+ *
+ * Rust reference: `Aura::explain_recall` / `RecallTraceScore` (`../src/aura.rs`).
+ */
+export function recallWithTraceWithView(
+  view: RecallView,
+  dir: string,
+  query: string,
+  options?: Partial<RecallPipelineOptions>,
+  modes?: Partial<BoundedRerankModes>,
+  trustConfig?: TrustConfig
+): Effect.Effect<
+  RecallTraceResult,
+  SdrInterpreterError | EmbeddingQueryError | RerankError | FinalizeError,
+  FileRead
+> {
+  const pipelineOptions = modes === undefined ? options : { ...options, boundedRerankModes: modes }
+  return withTrustConfig(RecallService.rawWithTrace(query, pipelineOptions), trustConfig).pipe(
+    Effect.provide(recallTraceLayerWithView(view, dir))
+  )
+}
+
 function recallCoreLayer(dir: string, sessionTracker?: RecallSessionTracker) {
   return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir), RecallFinalizerFileLive(dir, sessionTracker))
+}
+
+function recallCoreLayerWithView(view: RecallView, dir: string, sessionTracker?: RecallSessionTracker) {
+  return Layer.mergeAll(
+    Layer.succeed(RecallViewTag, view),
+    BoundedRerankerFileLive(dir),
+    RecallFinalizerFileLive(dir, sessionTracker)
+  )
 }
 
 function recallTemporalLayer(dir: string, sessionTracker?: RecallSessionTracker) {
   return Layer.mergeAll(RecallViewLive(dir), RecallFinalizerFileLive(dir, sessionTracker))
 }
 
+function recallTemporalLayerWithView(view: RecallView, dir: string, sessionTracker?: RecallSessionTracker) {
+  return Layer.mergeAll(Layer.succeed(RecallViewTag, view), RecallFinalizerFileLive(dir, sessionTracker))
+}
+
 function recallTraceLayer(dir: string) {
   return Layer.mergeAll(RecallViewLive(dir), BoundedRerankerFileLive(dir))
+}
+
+function recallTraceLayerWithView(view: RecallView, dir: string) {
+  return Layer.mergeAll(Layer.succeed(RecallViewTag, view), BoundedRerankerFileLive(dir))
 }

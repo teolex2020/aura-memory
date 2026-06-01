@@ -46,16 +46,17 @@ Last updated: 2026-06-02
 - [x] Aura `store_with_channel` now aligns Rust guard/dedup/surprise/provenance/causal-link branches and maintains runtime `NGramIndex` / tag index state loaded from cognitive records — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Aura store-time `TagTaxonomy` is now configurable through Rust-shaped `set_taxonomy` / `get_taxonomy`, and `store_with_channel` uses the current taxonomy for guard/provenance metadata — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Aura store/update now refresh deterministic family/project structural relations through core `Relation.ts` / `Identity.ts` helpers and persists changed cognitive records — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Aura `connect` / `link_records` split now matches Rust: `connect` is in-memory, `link_records` persists explicit typed relations, strong entity links promote to anchors, and Aura instance recall uses runtime `RecallView` state — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
 - [ ] Rewrite the 7 skipped legacy `EpistemicRuntime.test.ts` assertions against Rust behavior instead of old TS expectations.
-- [ ] Core facade remaining audit/embedding/cortex branches, runtime SDR cache, connect persistence semantics, and delete embedding/SDR-cache services: close remaining `NON-PARITY IMPLEMENTATION:` / `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
+- [ ] Core facade remaining audit/embedding/cortex branches, runtime SDR cache, delete embedding/SDR-cache services, and recall retrieve audit (`log_retrieve`) hook: close remaining `NON-PARITY IMPLEMENTATION:` markers in `packages/core/src/Aura.ts` and `RecallFinalizer` contract gaps.
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
-- [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test.
+- [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test. Runtime Aura recall now intentionally uses random NGram coefficients like Rust production, while verifier/static `RecallViewLive` still uses `withSeed0()`.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.
-- [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces.
+- [ ] Relation/entity/project/family graph APIs: implement currently typed unsupported Python/API surfaces and finish Rust-shaped DTOs beyond the now-aligned `RelationEdge`.
 - [ ] Maintenance history/reflection persistence decision: either match Rust in-memory behavior exactly or keep documented TS persistence as explicit parity exception.
 - [ ] MCP parity exact scores: close the remaining test-level NON-PARITY note in `packages/mcp/src/Parity.test.ts`; 2026-06-01 live exact-score check still failed only on `recall_structured` score values, so do not remove normalization until scorer/finalize parity is fixed.
 - [ ] Python exported API parity: continue regex/surface audit for remaining PyO3-exported Rust APIs and add TS facades where in scope.

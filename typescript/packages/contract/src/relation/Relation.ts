@@ -1,9 +1,17 @@
-export type RelationEdge = {
-  id: string
-  from: string
-  to: string
-  weight: number
-  kind: string
+/**
+ * Public inspect shape for any explicit typed relation edge.
+ *
+ * @zh 显式 typed relation edge 的公开检查结构。
+ *
+ * Rust reference: `RelationEdge` (`../src/relation.rs`).
+ */
+export interface RelationEdge {
+  readonly source_record_id: string
+  readonly target_record_id: string
+  readonly relation_type: string
+  readonly weight: number
+  readonly namespace: string
+  readonly structural: boolean
 }
 
 export type EntityDigest = {
@@ -23,4 +31,3 @@ export type FamilyGraphSnapshot = {
   namespace: string
   members: ReadonlyArray<string>
 }
-

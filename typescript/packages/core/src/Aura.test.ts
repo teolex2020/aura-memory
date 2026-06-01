@@ -1332,6 +1332,114 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(await Effect.runPromise(provideNode(aura.delete("missing-record"))), false)
   })
 
+  it("connect remains in-memory while link_records persists explicit typed relations", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-link-records-"))
+    const aura = await openWritableAuraIn(brainPath)
+
+    const first = await Effect.runPromise(provideNode(aura.store("zirconium source alpha unique", {
+      namespace: "alpha",
+      deduplicate: false,
+    })))
+    const second = await Effect.runPromise(provideNode(aura.store("borealis target beta unique", {
+      namespace: "alpha",
+      deduplicate: false,
+    })))
+    const otherNs = await Effect.runPromise(provideNode(aura.store("other namespace relation target", {
+      namespace: "beta",
+      deduplicate: false,
+    })))
+
+    await Effect.runPromise(provideNode(aura.connect(first.id, second.id, 0.7, "causal")))
+    assert.strictEqual(aura.get(first.id)?.connection_types[second.id], "causal")
+
+    let persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get(first.id)?.connections[second.id], undefined)
+    const reopenedBeforeLink = await Effect.runPromise(provideNode(Aura.open(brainPath)))
+    assert.strictEqual(reopenedBeforeLink.get(first.id)?.connections[second.id], undefined)
+
+    const directOnly = await Effect.runPromise(provideNode(aura.recall_scored("zirconium", {
+      topK: 5,
+      minStrength: 0.05,
+      expandConnections: false,
+      namespaces: ["alpha"],
+    })))
+    assert.ok(directOnly.some(([, id]) => id === first.id))
+    assert.ok(!directOnly.some(([, id]) => id === second.id))
+    const expanded = await Effect.runPromise(provideNode(aura.recall_scored("zirconium", {
+      topK: 5,
+      minStrength: 0.05,
+      expandConnections: true,
+      namespaces: ["alpha"],
+    })))
+    assert.ok(expanded.some(([, id]) => id === second.id))
+    assert.strictEqual(aura.get(first.id)?.connection_types[second.id], "causal")
+
+    const edge = await Effect.runPromise(provideNode(aura.link_records(first.id, second.id, "supports.task", 0.88)))
+    assert.strictEqual(edge.source_record_id, first.id)
+    assert.strictEqual(edge.target_record_id, second.id)
+    assert.strictEqual(edge.relation_type, "supports.task")
+    assert.strictEqual(edge.weight, 0.88)
+    assert.strictEqual(edge.namespace, "alpha")
+    assert.strictEqual(edge.structural, false)
+
+    persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get(first.id)?.connection_types[second.id], "supports.task")
+    assert.strictEqual(persisted.get(second.id)?.connection_types[first.id], "supports.task")
+    assert.strictEqual(persisted.get(first.id)?.connections[second.id], 0.88)
+    assert.strictEqual(persisted.get(second.id)?.connections[first.id], 0.88)
+
+    const crossNamespace = await Effect.runPromise(Effect.flip(provideNode(
+      aura.link_records(first.id, otherNs.id, "related.topic", 0.7)
+    )))
+    assert.instanceOf(crossNamespace, RecordValidationError)
+    assert.strictEqual((crossNamespace as RecordValidationError).field, "namespace")
+
+    const emptyRelation = await Effect.runPromise(Effect.flip(provideNode(
+      aura.link_records(first.id, second.id, " ")
+    )))
+    assert.instanceOf(emptyRelation, RecordValidationError)
+    assert.strictEqual((emptyRelation as RecordValidationError).field, "relation_type")
+  })
+
+  it("link_records promotes strong cross-entity links to deterministic anchors", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-link-anchors-"))
+    const aura = await openWritableAuraIn(brainPath)
+
+    const project = await Effect.runPromise(provideNode(aura.store("Project Alpha anchor record", {
+      namespace: "alpha",
+      tags: ["research-project"],
+      level: Level.Domain,
+      metadata: { entity_id: "project:alpha" },
+      deduplicate: false,
+    })))
+    const task = await Effect.runPromise(provideNode(aura.store("Task record carrying the same project entity", {
+      namespace: "alpha",
+      tags: ["task"],
+      level: Level.Working,
+      metadata: { entity_id: "project:alpha" },
+      deduplicate: false,
+    })))
+    const person = await Effect.runPromise(provideNode(aura.store("Andriy owns deployment checklist knowledge", {
+      namespace: "alpha",
+      tags: ["person"],
+      level: Level.Identity,
+      metadata: { entity_id: "person:andriy" },
+      deduplicate: false,
+    })))
+
+    await Effect.runPromise(provideNode(aura.link_records(task.id, person.id, "supports.person", 0.91)))
+
+    assert.strictEqual(aura.get(task.id)?.connection_types[person.id], "supports.person")
+    assert.strictEqual(aura.get(person.id)?.connection_types[task.id], "supports.person")
+    assert.strictEqual(aura.get(project.id)?.connection_types[person.id], "supports.person")
+    assert.strictEqual(aura.get(person.id)?.connection_types[project.id], "supports.person")
+    assert.strictEqual(aura.get(project.id)?.connections[person.id], 0.91)
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get(project.id)?.connection_types[person.id], "supports.person")
+    assert.strictEqual(persisted.get(person.id)?.connection_types[project.id], "supports.person")
+  })
+
   it("consolidate hard-merges same-namespace duplicate records", async () => {
     const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-consolidate-"))
     const aura = await openWritableAuraIn(brainPath)

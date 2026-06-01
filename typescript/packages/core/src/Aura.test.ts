@@ -936,9 +936,12 @@ describe("Aura MCP-facing operational surfaces", () => {
     await Effect.runPromise(provideNode(aura.connect(alpha.id, beta.id, 0.7, "causal")))
     await Effect.runPromise(provideNode(aura.connect(alpha.id, gamma.id, 0.4, "associative")))
 
+    const alphaStored = readBrainAuraFile(fs.readFileSync(path.join(brainPath, "brain.aura")))
+      .records.find((stored) => stored.id === alpha.id)!
     assert.strictEqual(await Effect.runPromise(provideNode(aura.delete(alpha.id))), true)
 
     const view = new Map(aura.listCognitiveRecords().map((record) => [record.id, record]))
+    assert.strictEqual(aura.listRecords().some((record) => record.id === alpha.id), false)
     assert.strictEqual(view.has(alpha.id), false)
     assert.strictEqual(view.get(beta.id)?.connections[alpha.id], undefined)
     assert.strictEqual(view.get(beta.id)?.connection_types[alpha.id], undefined)
@@ -953,6 +956,12 @@ describe("Aura MCP-facing operational surfaces", () => {
     assert.strictEqual(persisted.get(beta.id)?.connection_types[alpha.id], undefined)
     assert.strictEqual(persisted.get(gamma.id)?.connections[alpha.id], undefined)
     assert.strictEqual(persisted.get(gamma.id)?.connection_types[alpha.id], undefined)
+
+    const index = await Effect.runPromise(InvertedIndex.load(path.join(brainPath, "index")).pipe(
+      Effect.provide(NodeFileReadLive)
+    ))
+    const sdrHits = index.searchScored(alphaStored.sdr_indices, 10, 1)
+    assert.strictEqual(sdrHits.some(([id]) => id === alpha.id), false)
   })
 
   it("recall persists activation side effects and refreshes the open Aura view", async () => {

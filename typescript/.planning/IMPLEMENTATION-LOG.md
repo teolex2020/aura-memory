@@ -1,5 +1,17 @@
 # Implementation Log
 
+## 2026-06-01 - Aura delete / InvertedIndex remove 写入链补齐
+
+- 范围：`packages/indexing/src/InvertedIndex.ts`、`packages/indexing/src/InvertedIndex.roundtrip.test.ts`、`packages/core/src/Aura.ts`、`packages/core/src/Aura.test.ts`、`.planning/BACKLOG.md`。
+- 实现：`InvertedIndex.remove` 改为对齐 Rust `InvertedIndex::remove(external_id)`：从 `id_map` / `reverse_map` 删除 external id，并从所有 bitmaps 移除 doc id；不再要求调用方传入旧 SDR bits。
+- 实现：`Aura.delete` 改为基于当前实例 read model 执行 graph cleanup，并在删除成功后加载/更新/保存 `index/`，同时从实例级 `brain.aura` header view (`listRecords`) 移除该 record。
+- 实现：`Aura.delete` 的 marker 从过期 `SIMPLE IMPLEMENTATION` 收窄为 `NON-PARITY IMPLEMENTATION`，剩余差异明确为 embedding store 与 runtime SDR cache service 尚未接入。
+- 备注：`connect` 当前仍按 TS 旧行为持久化 connection updates，但 Rust `Aura::connect` 是运行时内存态 mutation；这一语义差异保留在 backlog，后续需单独处理以避免把 index 删除 slice 和 connect 持久化决策混在一起。
+- Rust reference：`Aura::delete`（`../src/aura.rs`），`graph::remove_record`（`../src/graph.rs`），`AuraStorage::delete`（`../src/storage.rs`），`InvertedIndex::remove`（`../src/index.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/indexing/src/InvertedIndex.roundtrip.test.ts packages/indexing/src/InvertedIndex.searchScored.test.ts packages/core/src/Aura.test.ts packages/storage/src/RecallView.test.ts packages/core/src/Recall.parity.test.ts packages/mcp/src/Parity.test.ts` 通过，6 files / 50 tests。
+
 ## 2026-06-01 - Aura open/store storage-index 写入闭环对齐
 
 - 子代理审计：Epicurus / Wegener 只读核对 open→write→recall 全流程，均将 `Aura.store_with_channel` 未维护 `brain.aura` / SDR index / `aura_id` 判为 P0；同时指出 `InvertedIndex.empty()` 从 doc id 1 起步会在开始写 index 后产生磁盘格式偏差。

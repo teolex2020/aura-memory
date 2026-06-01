@@ -111,15 +111,15 @@ export class InvertedIndex {
     }
   }
 
-  remove(externalId: string, bits: number[]): void {
+  remove(externalId: string): boolean {
     const docId = this.idMap.get(externalId)
-    if (docId === undefined) return
-    for (const b of bits) {
-      const bit = b & 0xffff
-      const bm = this.bitToDocs.get(bit)
-      if (!bm) continue
+    if (docId === undefined) return false
+    this.idMap.delete(externalId)
+    this.reverseMap.delete(docId)
+    for (const bm of this.bitToDocs.values()) {
       bm.remove(docId)
     }
+    return true
   }
 
   search(bits: number[]): string[] {

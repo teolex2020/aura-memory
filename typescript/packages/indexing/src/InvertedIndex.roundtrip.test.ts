@@ -26,3 +26,24 @@ it("InvertedIndex save/load roundtrip", async () => {
   }).pipe(Effect.provide(NodeFileReadLive), Effect.provide(NodeFileWriteLive))
   await Effect.runPromise(program)
 })
+
+it("InvertedIndex remove deletes id maps and all bitmap memberships", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aura-index-remove-"))
+  const program = Effect.gen(function* () {
+    const idx = InvertedIndex.empty()
+    idx.add("r1", [1, 2, 3])
+    idx.add("r2", [2, 3])
+    assert.strictEqual(idx.remove("missing"), false)
+    assert.strictEqual(idx.remove("r1"), true)
+    yield* idx.save(dir)
+
+    const loaded = yield* InvertedIndex.load(dir)
+    assert.deepStrictEqual(loaded.search([2, 3]), ["r2"])
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, "index_manifest.json"), "utf8")) as {
+      id_map: Record<string, number>
+    }
+    assert.strictEqual(manifest.id_map.r1, undefined)
+    assert.strictEqual(manifest.id_map.r2, 1)
+  }).pipe(Effect.provide(NodeFileReadLive), Effect.provide(NodeFileWriteLive))
+  await Effect.runPromise(program)
+})

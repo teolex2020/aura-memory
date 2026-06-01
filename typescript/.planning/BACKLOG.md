@@ -42,11 +42,12 @@ Last updated: 2026-06-01
 - [x] Core recall cache invalidation now clears formatted and structured caches after write-affecting Aura operations and maintenance refreshes — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] RecallView startup/load gap audited: storage read model now documents Rust `Aura::open` construction, uses parity-aligned `InvertedIndex.load/search`, and preserves Rust tag-index key casing — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Aura open/store primary storage closure now bootstraps `brain.aura`/`brain.cog`, persists store writes to `brain.aura`, updates `index/`, and sets `aura_id == record.id`; `InvertedIndex.empty()` now starts at Rust doc id 0 — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Aura delete now removes persisted `index/` membership through Rust-shaped `InvertedIndex.remove(external_id)` and updates the instance `brain.aura` header view — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
 - [ ] Rewrite the 7 skipped legacy `EpistemicRuntime.test.ts` assertions against Rust behavior instead of old TS expectations.
-- [ ] Core facade remaining store guard/dedup/surprise/audit/embedding/cortex branches plus update/delete/connect storage/index/cache semantics: close remaining `NON-PARITY IMPLEMENTATION:` / `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
+- [ ] Core facade remaining store guard/dedup/surprise/audit/embedding/cortex branches plus update/connect semantics and delete embedding/SDR-cache services: close remaining `NON-PARITY IMPLEMENTATION:` / `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
 - [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test.

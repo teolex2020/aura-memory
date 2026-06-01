@@ -510,7 +510,7 @@ export class Aura {
 
   private constructor(
     private readonly brainDir: string,
-    private readonly records: BrainAuraRecord[],
+    private records: BrainAuraRecord[],
     private searchRecords: Map<string, AuraRecord> = new Map(),
     private readonly persistenceManifest: PersistenceManifest,
     private readonly startupValidationReport: StartupValidationReport,
@@ -1354,35 +1354,40 @@ export class Aura {
    *
    * @zh 删除一条 record。
    *
-   * SIMPLE IMPLEMENTATION: limited to cognitive store/search read model; it mirrors
-   * `graph::remove_record` bidirectional cleanup for the target's known neighbors,
-   * but still does not mutate brain.aura/index/embedding/sdr caches.
-   * @zh 当前仍限于 cognitive store/search read model；已对齐 `graph::remove_record`
-   * 中按目标 record 已知邻居清理反向连接的行为，但尚未更新 brain.aura/index/embedding/sdr caches。
+   * NON-PARITY IMPLEMENTATION: embedding store and runtime SDR cache services are not wired yet.
+   * @zh 非完全对齐：embedding store 与 runtime SDR cache service 尚未接入。
+   * 当前已对齐 cognitive delete、运行时 graph cleanup、`index/` doc removal 与实例级
+   * `brain.aura` header view removal。
    * Rust reference: `Aura::delete` (`../src/aura.rs`) and `graph::remove_record` (`../src/graph.rs`).
    */
   delete(
     record_id: string,
   ): Effect.Effect<
     boolean,
-    FileReadError | FileWriteError | FileFormatError,
+    FileReadError | FileWriteError | FileFormatError | JsonParseError | IndexFormatError,
     FileRead | FileWrite
   > {
     const dir = this.brainDir;
     const self = this;
     return Effect.gen(function* () {
-      const records = yield* loadCognitiveRecords(dir);
+      const records = new Map(self.searchRecords);
       const removal = yield* Graph.removeRecord(record_id, records)
       if (removal.removed === null) {
         return false
       }
 
+      const index = yield* InvertedIndex.load(`${dir}/index`)
+      const removedFromIndex = index.remove(record_id)
+      if (removedFromIndex) {
+        yield* index.save(`${dir}/index`)
+      }
       const store = yield* CognitiveStoreFile.open(dir);
       for (const peer of removal.updatedNeighbors) {
         yield* store.appendUpdate(peer)
       }
       yield* store.appendDelete(record_id);
       yield* store.flush();
+      self.records = self.records.filter((record) => record.id !== record_id)
       self.searchRecords = removal.records
       self.clearRecallCaches()
       return true;

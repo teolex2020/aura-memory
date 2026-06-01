@@ -391,7 +391,7 @@
 ## 2026-06-01 - Aura store_with_channel guard/dedup 分支对齐
 
 - 范围：`packages/core/src/Aura.ts`、`packages/core/src/Guards.ts`、`packages/core/src/Trust.ts`、`packages/core/src/Aura.test.ts`、`.planning/BACKLOG.md`。
-- 子代理审计：前置只读审计从 open/write/recall 全链路定位下一处 P0 为 `Aura::store_with_channel` 写入侧 guard、dedup、surprise、provenance、causal-link 缺口；audit / embedding / cortex / runtime SDR cache、update deterministic relation refresh、connect persistence decision 继续保留为后续项。
+- 子代理审计：前置只读审计从 open/write/recall 全链路定位下一处 P0 为 `Aura::store_with_channel` 写入侧 guard、dedup、surprise、provenance、causal-link 缺口；audit / embedding / cortex / runtime SDR cache、connect persistence decision 继续保留为后续项。
 - 实现：新增 core `Guards.ts` 投影 Rust `guards.rs` 的 `GuardResult`、`auto_protect_tags`、`apply_store_guard`、`should_skip_consolidation`、`is_archive_protected`，保留 Rust regex 语义和可搜索 Rust reference。
 - 实现：新增 core `Trust.ts` 投影 Rust store-time `trust.rs` 的 `TagTaxonomy`、`Provenance`、`infer_volatility`、`get_provenance`、`stamp_provenance`；timestamp 由 `Clock` 调用方注入，避免在 core 写入侧直接读取系统时间。
 - 实现：`Aura.open` 从 cognitive records 构建实例级 runtime `NGramIndex` 与 tag index；`store_with_channel` 复用该索引执行同 namespace 强匹配 dedup，命中时激活既有 record、合并 tags、追加 cognitive update，并不追加 `brain.aura`。
@@ -399,7 +399,7 @@
 - 实现：`store_with_channel` 对齐 Rust surprise promotion 阈值 `0.2`、auto-protect tags、store guard metadata、provenance metadata、causal parent typed connection；新增写入、update、delete、consolidation / post-discovery consolidation 对 runtime `NGramIndex` / tag index 的维护。
 - 测试：新增 store dedup、UTF-8 byte length dedup gate、dedup tag index 生命周期与 guard/provenance/surprise/causal parent 覆盖；既有 recall finalizer、rerank report、consolidation fixture 在需要多条相似 records 的场景显式 `deduplicate: false`，防止 Rust-aligned store-time dedup 改变测试意图。
 - Rust reference：`Aura::store_with_channel` / `Aura::update`（`../src/aura.rs`），`guards.rs`，`trust.rs`，`NGramIndex`（`../src/ngram.rs`），`graph::auto_connect` causal-link 调用边界（`../src/graph.rs`）。
-- 剩余 caveat：`Aura.ts` 仍保留 audit / embedding / cortex / runtime SDR cache、update deterministic relation refresh、delete embedding/SDR-cache 与 connect persistence 相关 marker；生产 `NGramIndex` 与 Rust 一样保留随机系数，因此近阈值 dedup/surprise 仍应优先用确定性 verifier/fixture 排查。
+- 剩余 caveat：`Aura.ts` 仍保留 audit / embedding / cortex / runtime SDR cache、delete embedding/SDR-cache 与 connect persistence 相关 marker；生产 `NGramIndex` 与 Rust 一样保留随机系数，因此近阈值 dedup/surprise 仍应优先用确定性 verifier/fixture 排查。
 - 验证：
   - `bun run typecheck` 通过。
   - `bun run test packages/core/src/Aura.test.ts packages/core/src/Graph.test.ts packages/storage/src/RecallView.test.ts packages/core/src/Recall.parity.test.ts packages/mcp/src/Parity.test.ts` 通过，5 files / 51 tests。
@@ -419,3 +419,18 @@
   - `bun run test packages/core/src/Aura.test.ts packages/core/src/Graph.test.ts packages/storage/src/RecallView.test.ts packages/core/src/Recall.parity.test.ts packages/mcp/src/Parity.test.ts` 通过，5 files / 52 tests。
   - `git diff --check` 通过。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 568 tests，7 skipped。
+
+## 2026-06-02 - Store/update deterministic relation refresh 对齐
+
+- 范围：`packages/core/src/Aura.ts`、`packages/core/src/Relation.ts`、`packages/core/src/Identity.ts`、`packages/core/src/Aura.test.ts`、`.planning/BACKLOG.md`。
+- 实现：新增 core `Identity.ts`，提取 Rust `identity.rs` 的 `PROFILE_TAG` / `PERSONA_TAG` 常量，避免在 Aura 写入路径继续硬编码 identity tag。
+- 实现：新增 core `Relation.ts`，投影 Rust `relation.rs` 的 structural relation constants、family phrase detection、relation type predicates，并实现 Rust `refresh_family_relations_for_namespace` / `refresh_project_membership_relations_for_namespace` / `refresh_deterministic_relations_for_namespace` 的纯记录图刷新逻辑。
+- 实现：`Aura.store_with_channel` 在 append store 后、cache invalidation 前刷新 deterministic family/project structural relations，并将 changed records 追加写入 `brain.cog`；`Aura.update` 同样在 cognitive update 后刷新 relations，移除原 `deterministic relation refresh` 的 `NON-PARITY IMPLEMENTATION` marker。
+- 测试：新增 `Aura.test.ts` 覆盖 `update` 后根据 `My brother ...` content 自动补 `family.brother` 双向结构关系，以及 `store` 后根据 shared `project_id` 自动补 `belongs_to_project` 双向结构关系，并断言 cognitive 持久化同步更新。
+- Rust reference：`PROFILE_TAG` / `PERSONA_TAG`（`../src/identity.rs`），`STRUCTURAL_FAMILY_WEIGHT` / `STRUCTURAL_PROJECT_WEIGHT` / `PROJECT_MEMBERSHIP_RELATION` / `detect_family_relation` / `is_structural_relation_type`（`../src/relation.rs`），`Aura::store_with_channel` / `Aura::update` / `refresh_deterministic_relations_for_namespace` / `refresh_family_relations_for_namespace` / `refresh_project_membership_relations_for_namespace`（`../src/aura.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Aura.test.ts packages/core/src/Graph.test.ts packages/storage/src/RecallView.test.ts packages/core/src/Recall.parity.test.ts packages/mcp/src/Parity.test.ts` 曾暴露一次 live Rust `recall_structured` 同分结果 tie-order 波动；未修改实现。
+  - `bun run test packages/mcp/src/Parity.test.ts` 复跑通过，1 file / 2 tests。
+  - `git diff --check` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，58 files / 569 tests，7 skipped。

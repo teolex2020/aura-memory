@@ -45,11 +45,12 @@ Last updated: 2026-06-02
 - [x] Aura delete now removes persisted `index/` membership through Rust-shaped `InvertedIndex.remove(external_id)` and updates the instance `brain.aura` header view — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Aura `store_with_channel` now aligns Rust guard/dedup/surprise/provenance/causal-link branches and maintains runtime `NGramIndex` / tag index state loaded from cognitive records — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Aura store-time `TagTaxonomy` is now configurable through Rust-shaped `set_taxonomy` / `get_taxonomy`, and `store_with_channel` uses the current taxonomy for guard/provenance metadata — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Aura store/update now refresh deterministic family/project structural relations through core `Relation.ts` / `Identity.ts` helpers and persists changed cognitive records — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
 - [ ] Rewrite the 7 skipped legacy `EpistemicRuntime.test.ts` assertions against Rust behavior instead of old TS expectations.
-- [ ] Core facade remaining audit/embedding/cortex branches, runtime SDR cache, update deterministic relation refresh, connect persistence semantics, and delete embedding/SDR-cache services: close remaining `NON-PARITY IMPLEMENTATION:` / `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
+- [ ] Core facade remaining audit/embedding/cortex branches, runtime SDR cache, connect persistence semantics, and delete embedding/SDR-cache services: close remaining `NON-PARITY IMPLEMENTATION:` / `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
 - [ ] TODO(graph): wire `Graph.removeRecord` through ngram/tag/aura indexes and cognitive delete persistence to match `graph::remove_record`.
 - [ ] TODO(graph): decide lifecycle hook for `cleanupStaleSessions` or document it as an exposed-only parity surface.
 - [ ] TODO(randomness): investigate whether `NGramIndex.random()` smoke test flake is a real LSH probability issue or an overly brittle tiny-corpus assertion; `it.flakyTest` only wraps Effect tests and cannot be used for the current non-Effect test.

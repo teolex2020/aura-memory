@@ -67,6 +67,7 @@ import * as Consolidation from "./Consolidation"
 import * as RecallService from "./RecallService"
 import * as StoreGuards from "./Guards"
 import * as StoreTrust from "./Trust"
+import * as Relation from "./Relation"
 import { nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = AuraRecord.defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
@@ -1374,7 +1375,6 @@ export class Aura {
       record = autoConnect.record
       const store = yield* CognitiveStoreFile.open(dir);
       yield* store.appendStore(record);
-      yield* store.flush();
       self.records.push({
         id: record.id,
         dna: Level.toDna(effectiveLevel),
@@ -1389,6 +1389,12 @@ export class Aura {
         encrypted_flag: 0,
       })
       self.searchRecords = new Map(autoConnect.records).set(record.id, record)
+      const relationRefresh = yield* Relation.refreshDeterministicRelationsForNamespace(self.searchRecords, record.namespace)
+      for (const changed of relationRefresh.changed_records) {
+        yield* store.appendUpdate(changed)
+      }
+      yield* store.flush();
+      self.searchRecords = relationRefresh.records
       self.clearRecallCaches()
       return record;
     });
@@ -1398,10 +1404,10 @@ export class Aura {
    * Update a record.
    * 更新一条 record。
    *
-   * NON-PARITY IMPLEMENTATION: deterministic relation refresh is not wired yet.
-   * @zh 非完全对齐：`refresh_deterministic_relations_for_namespace` 尚未接入。
-   * 当前对齐 Rust 的 cognitive update 持久化、content runtime ngram re-index 与 cache invalidation；
-   * 不额外改写 brain.aura 或 SDR inverted index。
+   * Updates cognitive storage, refreshes deterministic relations, re-indexes runtime ngram content,
+   * and invalidates recall caches. It intentionally does not rewrite `brain.aura` or SDR inverted index.
+   * @zh 更新 cognitive storage、刷新 deterministic relations、重建运行时 ngram 内容索引并清理 recall cache；
+   * 按 Rust 当前行为不额外改写 `brain.aura` 或 SDR inverted index。
    * Rust reference: `Aura::update` (`../src/aura.rs`).
    */
   update(
@@ -1456,14 +1462,20 @@ export class Aura {
         volatility: base.volatility,
       };
 
-      const store = yield* CognitiveStoreFile.open(dir);
-      yield* store.appendUpdate(next);
-      yield* store.flush();
       if (patch?.content !== undefined) {
         self.ngramIndex.remove(record_id)
         self.ngramIndex.add(record_id, next.content)
       }
+      const store = yield* CognitiveStoreFile.open(dir);
+      yield* store.appendUpdate(next);
       self.replaceSearchRecord(next)
+      const relationRefresh = yield* Relation.refreshDeterministicRelationsForNamespace(self.searchRecords, next.namespace)
+      for (const changed of relationRefresh.changed_records) {
+        yield* store.appendUpdate(changed)
+      }
+      yield* store.flush();
+      self.searchRecords = relationRefresh.records
+      self.clearRecallCaches()
       return next;
     });
   }
@@ -2924,7 +2936,7 @@ export class Aura {
           : []
         const structuralRelationTypes = options.include_structural && !options.compact_summary
           ? sortedUnique(namespaceRecords.flatMap((record) =>
-              Object.values(record.connection_types).filter(isStructuralRelationType)
+              Object.values(record.connection_types).filter(Relation.isStructuralRelationType)
             ))
           : []
 
@@ -4607,10 +4619,6 @@ function normalizeAnalyticsTerm(term: string): string {
     }
   }
   return normalized.trim()
-}
-
-function isStructuralRelationType(relationType: string): boolean {
-  return relationType.startsWith("family.") || relationType === "belongs_to_project"
 }
 
 function jaccardSimilarity(left: ReadonlyArray<string>, right: ReadonlyArray<string>): number {

@@ -6,6 +6,8 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import { Aura } from "./index"
 import * as StoreTrust from "./Trust"
+import * as Relation from "./Relation"
+import * as Identity from "./Identity"
 import { NodeClockLive, NodeCryptoLive, NodeFileReadLive, NodeFileWriteLive } from "@aura/platform-node"
 import {
   BeliefStoreFile,
@@ -861,6 +863,65 @@ describe("Aura MCP-facing operational surfaces", () => {
     const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
     assert.strictEqual(persisted.get(child.id)?.connections[parent.id], 0.7)
     assert.strictEqual(persisted.get(parent.id)?.connections[child.id], undefined)
+  })
+
+  it("store and update refresh deterministic family and project relations", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-deterministic-relations-"))
+    const aura = await openWritableAuraIn(brainPath)
+
+    const profile = await Effect.runPromise(provideNode(aura.store("User Profile:\n  name: Teo", {
+      namespace: "family-alpha",
+      tags: [Identity.PROFILE_TAG],
+      level: Level.Identity,
+      pin: true,
+      deduplicate: false,
+    })))
+    const sibling = await Effect.runPromise(provideNode(aura.store("Andriy works as a doctor.", {
+      namespace: "family-alpha",
+      tags: ["family"],
+      level: Level.Identity,
+      deduplicate: false,
+    })))
+    assert.strictEqual(aura.get(profile.id)?.connection_types[sibling.id], undefined)
+
+    const updatedSibling = await Effect.runPromise(provideNode(aura.update(sibling.id, {
+      content: "My brother Andriy works as a doctor.",
+    })))
+    assert.strictEqual(updatedSibling?.id, sibling.id)
+
+    const profileAfterUpdate = aura.get(profile.id)!
+    const siblingAfterUpdate = aura.get(sibling.id)!
+    assert.strictEqual(profileAfterUpdate.connection_types[sibling.id], "family.brother")
+    assert.strictEqual(siblingAfterUpdate.connection_types[profile.id], "family.brother")
+    assert.strictEqual(profileAfterUpdate.connections[sibling.id], Relation.STRUCTURAL_FAMILY_WEIGHT)
+    assert.strictEqual(siblingAfterUpdate.connections[profile.id], Relation.STRUCTURAL_FAMILY_WEIGHT)
+
+    const project = await Effect.runPromise(provideNode(aura.store("Research Project: Alpha", {
+      namespace: "project-alpha",
+      tags: ["research-project"],
+      metadata: { project_id: "project-alpha" },
+      level: Level.Domain,
+      deduplicate: false,
+    })))
+    const report = await Effect.runPromise(provideNode(aura.store("Alpha status report", {
+      namespace: "project-alpha",
+      tags: ["report"],
+      metadata: { project_id: "project-alpha" },
+      deduplicate: false,
+    })))
+
+    const projectAfterStore = aura.get(project.id)!
+    const reportAfterStore = aura.get(report.id)!
+    assert.strictEqual(projectAfterStore.connection_types[report.id], Relation.PROJECT_MEMBERSHIP_RELATION)
+    assert.strictEqual(reportAfterStore.connection_types[project.id], Relation.PROJECT_MEMBERSHIP_RELATION)
+    assert.strictEqual(projectAfterStore.connections[report.id], Relation.STRUCTURAL_PROJECT_WEIGHT)
+    assert.strictEqual(reportAfterStore.connections[project.id], Relation.STRUCTURAL_PROJECT_WEIGHT)
+
+    const persisted = await Effect.runPromise(loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive)))
+    assert.strictEqual(persisted.get(profile.id)?.connection_types[sibling.id], "family.brother")
+    assert.strictEqual(persisted.get(sibling.id)?.connection_types[profile.id], "family.brother")
+    assert.strictEqual(persisted.get(project.id)?.connection_types[report.id], Relation.PROJECT_MEMBERSHIP_RELATION)
+    assert.strictEqual(persisted.get(report.id)?.connection_types[project.id], Relation.PROJECT_MEMBERSHIP_RELATION)
   })
 
   it("basic read facades mirror Rust PyO3 get/count/namespace/history semantics", async () => {

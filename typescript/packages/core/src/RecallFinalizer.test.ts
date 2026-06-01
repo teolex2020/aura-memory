@@ -127,6 +127,6 @@ describe("RecallFinalizerFileLive", () => {
       )
     )
 
-    assert.deepStrictEqual(Array.from(tracker.get("session-1") ?? []), ["rec_a", "rec_b"])
+    assert.deepStrictEqual(Array.from(tracker.get("session-1")?.record_ids ?? []), ["rec_a", "rec_b"])
   })
 })

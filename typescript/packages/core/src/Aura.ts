@@ -66,7 +66,7 @@ import {
   recallWithTrace as recallWithTraceEffect,
 } from "./Recall";
 import * as Graph from "./Graph"
-import { createRecallSessionTracker, endRecallSession, type RecallSessionTracker } from "./RecallFinalizer"
+import * as RecallFinalizer from "./RecallFinalizer"
 import { id12, nowSecs } from "@aura/utils";
 
 const DEFAULT_CONFIDENCE = defaultConfidenceForSource(DEFAULT_SOURCE_TYPE)
@@ -478,7 +478,7 @@ export class Aura {
     private causalEvidenceMode: EvidenceMode = EvidenceMode.StrictRepeatedWindows,
     private maintenanceConfig: MaintenanceConfig = defaultMaintenanceConfig,
     private trustConfig: TrustConfig = defaultTrustConfig(),
-    private readonly sessionTracker: RecallSessionTracker = createRecallSessionTracker(),
+    private readonly sessionTracker: Graph.SessionTracker = Graph.createSessionTracker(),
   ) {}
 
   /**
@@ -2056,7 +2056,7 @@ export class Aura {
     const dir = this.brainDir
     const self = this
     return Effect.gen(function* () {
-      const stats = yield* endRecallSession(dir, self.sessionTracker, session_id)
+      const stats = yield* RecallFinalizer.endRecallSession(dir, self.sessionTracker, session_id)
       self.searchRecords = yield* loadCognitiveRecords(dir)
       return stats
     })

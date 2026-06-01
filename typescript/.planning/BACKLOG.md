@@ -30,6 +30,7 @@ Last updated: 2026-06-01
 - [x] SDRInterpreter seed hashing now reuses Rust-compatible `@aura/utils` `xxh3_64`; `xxhash-wasm` dependency removed — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `Graph.ts` skeleton extracted for Rust `graph.rs` parity and reused by `Aura.delete` graph cleanup — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Core `Graph.ts` now owns Rust `graph::auto_connect` and pure `graph::merge_records` semantics; `Aura.store` reuses Graph instead of inlining graph logic — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Core `Graph.ts` now owns Rust `SessionBuffer` / `SessionTracker` session co-activation semantics; `RecallFinalizer` reuses Graph instead of keeping tracker logic inline — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 

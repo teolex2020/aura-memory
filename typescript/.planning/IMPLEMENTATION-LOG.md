@@ -236,3 +236,15 @@
   - `bun run typecheck` 通过。
   - `bun run test packages/belief/src/BeliefEngine.test.ts packages/causal/src/CausalEngine.test.ts packages/policy/src/PolicyEngine.test.ts packages/epistemic-runtime/src/EpistemicRuntime.test.ts` 通过，4 files / 236 tests。
   - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，55 files / 541 tests。
+
+## 2026-06-01 - Core Graph SessionTracker 归位对齐
+
+- 范围：`packages/core/src/Graph.ts`、`packages/core/src/RecallFinalizer.ts`、`packages/core/src/Aura.ts`、`packages/core/src/Graph.test.ts`、`packages/core/src/RecallFinalizer.test.ts`、`.planning/BACKLOG.md`。
+- 实现：将 Rust `graph.rs` 的 `SessionBuffer` / `SessionTracker` / `SESSION_TIMEOUT` / `track_activation` / `end_session` / `cleanup_stale_sessions` 语义归位到 core `Graph.ts`，补齐 stale session consolidation 的纯 graph 骨架。
+- 实现：`RecallFinalizer` 不再内联 session pair strengthening 与 tracker buffer 结构，而是通过 `Graph.trackActivation` / `Graph.endSession` 复用 graph module；`Aura` 持有 `Graph.SessionTracker` 并通过 `Graph.createSessionTracker()` 初始化。
+- 实现：session 时间读取改为 Effect + `Clock` contract 注入，不从 `@aura/utils` 直接导入时间 helper，也不向 Rust-shaped graph 方法显式追加 clock 参数。
+- Rust reference：`SessionBuffer::new`、`SessionTracker::new`、`track_activation`、`end_session`、`consolidate_session`、`cleanup_stale_sessions`（`../src/graph.rs`），`Aura::end_session`（`../src/aura.rs`），`activate_and_strengthen` session tracking（`../src/recall.rs`）。
+- 验证：
+  - `bun run typecheck` 通过。
+  - `bun run test packages/core/src/Graph.test.ts packages/core/src/RecallFinalizer.test.ts packages/core/src/Aura.test.ts` 通过，3 files / 43 tests。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，56 files / 550 tests。

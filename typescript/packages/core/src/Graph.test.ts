@@ -1,7 +1,17 @@
 import { describe, it } from "vitest"
 import { assert } from "@effect/vitest"
-import { Level, type Record as AuraRecord } from "@aura/contract"
-import { autoConnect, mergeRecords, removeRecord } from "./Graph"
+import { Effect } from "effect"
+import { Clock, Level, type Record as AuraRecord } from "@aura/contract"
+import {
+  SESSION_TIMEOUT,
+  autoConnect,
+  cleanupStaleSessions,
+  createSessionTracker,
+  endSession,
+  mergeRecords,
+  removeRecord,
+  trackActivation,
+} from "./Graph"
 
 function record(
   id: string,
@@ -38,6 +48,14 @@ function record(
     conflict_mass: 0,
     volatility: 0,
   }
+}
+
+function runWithClock<A>(program: () => Effect.Effect<A, never, Clock>, nowSeconds: number): Promise<A> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      return yield* program()
+    }).pipe(Effect.provideService(Clock, Clock.fixed(nowSeconds))) as Effect.Effect<A, never, never>
+  )
 }
 
 describe("graph autoConnect", () => {
@@ -155,5 +173,56 @@ describe("graph mergeRecords", () => {
     assert.strictEqual(keep.source_type, "recorded")
     assert.strictEqual(result.records.get("shared")?.connections.remove, undefined)
     assert.strictEqual(result.records.get("extra")?.connections.remove, undefined)
+  })
+})
+
+describe("graph SessionTracker", () => {
+  it("tracks activation and consolidates same-namespace session records", async () => {
+    const tracker = createSessionTracker()
+    const records = new Map<string, AuraRecord>([
+      ["a", record("a")],
+      ["b", record("b")],
+      ["ops", record("ops", {}, {}, [], "ops")],
+    ])
+
+    await runWithClock(function () {
+      return trackActivation(tracker, "s1", ["a", "b", "ops"])
+    }, 100)
+    const result = endSession(tracker, "s1", records)
+
+    assert.strictEqual(tracker.has("s1"), false)
+    assert.deepStrictEqual(result.stats, { pairs_strengthened: 1, session_records: 3 })
+    assert.strictEqual(result.records.get("a")?.connections.b, 0.05)
+    assert.strictEqual(result.records.get("b")?.connections.a, 0.05)
+    assert.strictEqual(result.records.get("a")?.connections.ops, undefined)
+    assert.strictEqual(result.records.get("a")?.connection_types.b, "coactivation")
+    assert.strictEqual(result.records.get("b")?.connection_types.a, "coactivation")
+  })
+
+  it("cleans stale sessions after timeout and leaves active sessions buffered", async () => {
+    const tracker = createSessionTracker()
+    const records = new Map<string, AuraRecord>([
+      ["a", record("a")],
+      ["b", record("b")],
+      ["c", record("c")],
+    ])
+
+    await runWithClock(function () {
+      return trackActivation(tracker, "stale", ["a", "b"])
+    }, 100)
+    await runWithClock(function () {
+      return trackActivation(tracker, "active", ["b", "c"])
+    }, 100 + SESSION_TIMEOUT)
+
+    const result = await runWithClock(function () {
+      return cleanupStaleSessions(tracker, records)
+    }, 101 + SESSION_TIMEOUT)
+
+    assert.deepStrictEqual(result.consolidatedSessions, ["stale"])
+    assert.strictEqual(tracker.has("stale"), false)
+    assert.strictEqual(tracker.has("active"), true)
+    assert.strictEqual(result.records.get("a")?.connections.b, 0.05)
+    assert.strictEqual(result.records.get("b")?.connections.a, 0.05)
+    assert.strictEqual(result.records.get("b")?.connections.c, undefined)
   })
 })

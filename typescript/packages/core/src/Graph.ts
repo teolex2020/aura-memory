@@ -1,4 +1,5 @@
-import { Level, type Record as AuraRecord } from "@aura/contract"
+import { Effect } from "effect"
+import { Clock, Level, type Record as AuraRecord } from "@aura/contract"
 
 /**
  * Knowledge graph and connection helpers.
@@ -8,6 +9,30 @@ import { Level, type Record as AuraRecord } from "@aura/contract"
  * Rust reference: module `graph` (`../src/graph.rs`).
  */
 export const MAX_CONNECTIONS = 50
+
+/**
+ * Session timeout in seconds (30 minutes).
+ *
+ * @zh session 空闲超时时间，单位秒。
+ *
+ * Rust reference: `SESSION_TIMEOUT` (`../src/graph.rs`).
+ */
+export const SESSION_TIMEOUT = 1800
+
+export interface SessionBuffer {
+  readonly record_ids: Set<string>
+  readonly started_at: number
+  last_activity: number
+}
+
+/**
+ * Manages session-scoped co-activation tracking.
+ *
+ * @zh 管理 session 范围的共同激活追踪。
+ *
+ * Rust reference: `SessionTracker` (`../src/graph.rs`).
+ */
+export type SessionTracker = Map<string, SessionBuffer>
 
 export interface AutoConnectResult {
   readonly connected: number
@@ -27,6 +52,209 @@ export interface MergeRecordsResult {
   readonly removed: AuraRecord | null
   readonly records: Map<string, AuraRecord>
   readonly updatedNeighbors: ReadonlyArray<AuraRecord>
+}
+
+export interface SessionResult {
+  readonly stats: Record<string, number>
+  readonly records: Map<string, AuraRecord>
+  readonly updatedRecords: ReadonlyArray<AuraRecord>
+}
+
+export interface CleanupStaleSessionsResult {
+  readonly consolidatedSessions: ReadonlyArray<string>
+  readonly records: Map<string, AuraRecord>
+  readonly updatedRecords: ReadonlyArray<AuraRecord>
+}
+
+function sessionBufferAt(nowSeconds: number): SessionBuffer {
+  return {
+    record_ids: new Set<string>(),
+    started_at: nowSeconds,
+    last_activity: nowSeconds,
+  }
+}
+
+/**
+ * Ephemeral session buffer for co-activation tracking.
+ *
+ * @zh 创建用于共同激活追踪的短生命周期 session buffer。
+ *
+ * Rust reference: `SessionBuffer::new` (`../src/graph.rs`).
+ */
+export function createSessionBuffer(): Effect.Effect<SessionBuffer, never, Clock> {
+  return Effect.gen(function* () {
+    const clock = yield* Clock
+    return sessionBufferAt(clock.nowSeconds())
+  })
+}
+
+/**
+ * Manages session-scoped co-activation tracking.
+ *
+ * @zh 创建 session 范围共同激活追踪器。
+ *
+ * Rust reference: `SessionTracker::new` (`../src/graph.rs`).
+ */
+export function createSessionTracker(): SessionTracker {
+  return new Map<string, SessionBuffer>()
+}
+
+/**
+ * Track that these record IDs were activated in a session.
+ *
+ * @zh 记录这些 record IDs 在同一个 session 中被激活。
+ *
+ * Rust reference: `SessionTracker::track_activation` (`../src/graph.rs`).
+ */
+export function trackActivation(
+  sessionTracker: SessionTracker,
+  sessionId: string,
+  recordIds: ReadonlyArray<string>,
+): Effect.Effect<void, never, Clock> {
+  return Effect.gen(function* () {
+    const clock = yield* Clock
+    const nowSeconds = clock.nowSeconds()
+    let buffer = sessionTracker.get(sessionId)
+    if (buffer === undefined) {
+      buffer = sessionBufferAt(nowSeconds)
+      sessionTracker.set(sessionId, buffer)
+    }
+    for (const recordId of recordIds) buffer.record_ids.add(recordId)
+    buffer.last_activity = nowSeconds
+  })
+}
+
+/**
+ * End a session and return co-activation strengthening stats.
+ *
+ * @zh 结束 session 并返回共同激活增强统计。
+ *
+ * Rust reference: `SessionTracker::end_session` (`../src/graph.rs`).
+ */
+export function endSession(
+  sessionTracker: SessionTracker,
+  sessionId: string,
+  records: ReadonlyMap<string, AuraRecord>,
+): SessionResult {
+  const buffer = sessionTracker.get(sessionId)
+  const next = new Map(records)
+  if (buffer === undefined) {
+    return { stats: {}, records: next, updatedRecords: [] }
+  }
+  sessionTracker.delete(sessionId)
+  return consolidateSession(buffer, next)
+}
+
+/**
+ * Remove stale sessions (inactive for > SESSION_TIMEOUT).
+ *
+ * @zh 清理超时 session，并在清理前按 Rust 语义执行共同激活 consolidation。
+ *
+ * Rust reference: `SessionTracker::cleanup_stale_sessions` (`../src/graph.rs`).
+ */
+export function cleanupStaleSessions(
+  sessionTracker: SessionTracker,
+  records: ReadonlyMap<string, AuraRecord>,
+): Effect.Effect<CleanupStaleSessionsResult, never, Clock> {
+  return Effect.gen(function* () {
+    const clock = yield* Clock
+    const nowSeconds = clock.nowSeconds()
+    let next = new Map(records)
+    const consolidatedSessions: string[] = []
+    const updatedById = new Map<string, AuraRecord>()
+    const staleSessionIds: string[] = []
+
+    for (const [sessionId, buffer] of sessionTracker) {
+      if (nowSeconds - buffer.last_activity > SESSION_TIMEOUT) {
+        staleSessionIds.push(sessionId)
+      }
+    }
+
+    for (const sessionId of staleSessionIds) {
+      const buffer = sessionTracker.get(sessionId)
+      if (buffer === undefined) continue
+      sessionTracker.delete(sessionId)
+      const result = consolidateSession(buffer, next)
+      next = result.records
+      consolidatedSessions.push(sessionId)
+      for (const record of result.updatedRecords) updatedById.set(record.id, record)
+    }
+
+    return {
+      consolidatedSessions,
+      records: next,
+      updatedRecords: Array.from(updatedById.values()),
+    }
+  })
+}
+
+/**
+ * Strengthen connections between all records in a session.
+ *
+ * @zh 增强同一 session 内所有 records 两两之间的连接。
+ *
+ * Rust reference: `SessionTracker::consolidate_session` (`../src/graph.rs`).
+ */
+function consolidateSession(
+  buffer: SessionBuffer,
+  records: ReadonlyMap<string, AuraRecord>,
+): SessionResult {
+  const ids = Array.from(buffer.record_ids)
+  const next = new Map(records)
+  const updatedById = new Map<string, AuraRecord>()
+  let pairsStrengthened = 0
+
+  for (let i = 0; i < ids.length; i++) {
+    const idA = ids[i]!
+    for (let j = i + 1; j < ids.length; j++) {
+      const idB = ids[j]!
+      const recA = updatedById.get(idA) ?? next.get(idA)
+      const recB = updatedById.get(idB) ?? next.get(idB)
+      if (recA === undefined || recB === undefined) continue
+      if (recA.namespace !== recB.namespace) continue
+
+      const current = recA.connections[idB] ?? 0
+      const delta = 0.05 * (1 - current)
+      const boosted = Math.min(current + delta, 1)
+      const updatedA = strengthenSessionPair(recA, idB, boosted)
+      const updatedB = strengthenSessionPair(recB, idA, boosted)
+      next.set(idA, updatedA)
+      next.set(idB, updatedB)
+      updatedById.set(idA, updatedA)
+      updatedById.set(idB, updatedB)
+      pairsStrengthened += 1
+    }
+  }
+
+  return {
+    stats: {
+      pairs_strengthened: pairsStrengthened,
+      session_records: ids.length,
+    },
+    records: next,
+    updatedRecords: Array.from(updatedById.values()),
+  }
+}
+
+/**
+ * Set a session pair connection while preserving any existing relation type.
+ *
+ * @zh 写入 session pair 连接，并在关系类型缺失时补 `coactivation`。
+ *
+ * Rust reference: `SessionTracker::consolidate_session` (`../src/graph.rs`).
+ */
+function strengthenSessionPair(record: AuraRecord, otherId: string, boosted: number): AuraRecord {
+  return {
+    ...record,
+    connections: {
+      ...record.connections,
+      [otherId]: boosted,
+    },
+    connection_types: {
+      ...record.connection_types,
+      ...(record.connection_types[otherId] === undefined ? { [otherId]: "coactivation" } : {}),
+    },
+  }
 }
 
 /**

@@ -862,6 +862,46 @@ describe("Aura MCP-facing operational surfaces", () => {
 
     await Effect.runPromise(provideNode(aura.delete(alpha.id)))
     assert.strictEqual(aura.search({ query: "alpha", namespace: "default" }).length, 0)
+    const betaAfterDelete = aura.listCognitiveRecords().find((record) => record.id === beta.id)!
+    assert.strictEqual(betaAfterDelete.connections[alpha.id], undefined)
+    assert.strictEqual(betaAfterDelete.connection_types[alpha.id], undefined)
+    assert.strictEqual(aura.stats().total_connections, 0)
+  })
+
+  it("delete persists Rust graph cleanup for target neighbors", async () => {
+    const brainPath = fs.mkdtempSync(path.join(os.tmpdir(), "aura-delete-graph-"))
+    const aura = await openWritableAuraIn(brainPath)
+
+    const alpha = await Effect.runPromise(provideNode(aura.store("alpha delete graph target", {
+      namespace: "default",
+    })))
+    const beta = await Effect.runPromise(provideNode(aura.store("beta delete graph neighbor", {
+      namespace: "default",
+    })))
+    const gamma = await Effect.runPromise(provideNode(aura.store("gamma delete graph neighbor", {
+      namespace: "default",
+    })))
+
+    await Effect.runPromise(provideNode(aura.connect(alpha.id, beta.id, 0.7, "causal")))
+    await Effect.runPromise(provideNode(aura.connect(alpha.id, gamma.id, 0.4, "associative")))
+
+    assert.strictEqual(await Effect.runPromise(provideNode(aura.delete(alpha.id))), true)
+
+    const view = new Map(aura.listCognitiveRecords().map((record) => [record.id, record]))
+    assert.strictEqual(view.has(alpha.id), false)
+    assert.strictEqual(view.get(beta.id)?.connections[alpha.id], undefined)
+    assert.strictEqual(view.get(beta.id)?.connection_types[alpha.id], undefined)
+    assert.strictEqual(view.get(gamma.id)?.connections[alpha.id], undefined)
+    assert.strictEqual(view.get(gamma.id)?.connection_types[alpha.id], undefined)
+
+    const persisted = await Effect.runPromise(
+      loadCognitiveRecords(brainPath).pipe(Effect.provide(NodeFileReadLive))
+    )
+    assert.strictEqual(persisted.has(alpha.id), false)
+    assert.strictEqual(persisted.get(beta.id)?.connections[alpha.id], undefined)
+    assert.strictEqual(persisted.get(beta.id)?.connection_types[alpha.id], undefined)
+    assert.strictEqual(persisted.get(gamma.id)?.connections[alpha.id], undefined)
+    assert.strictEqual(persisted.get(gamma.id)?.connection_types[alpha.id], undefined)
   })
 
   it("recall persists activation side effects and refreshes the open Aura view", async () => {

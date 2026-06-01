@@ -28,10 +28,11 @@ Last updated: 2026-06-01
 - [x] ConceptEngine and NGramIndex now share Rust-compatible `xxh3_64` from `@aura/utils` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] Maintenance engine stable IDs and causal fingerprints now use Rust-compatible `xxh3_64` — recorded in `IMPLEMENTATION-LOG.md`.
 - [x] SDRInterpreter seed hashing now reuses Rust-compatible `@aura/utils` `xxh3_64`; `xxhash-wasm` dependency removed — recorded in `IMPLEMENTATION-LOG.md`.
+- [x] Core `Graph.ts` skeleton extracted for Rust `graph.rs` parity and reused by `Aura.delete` graph cleanup — recorded in `IMPLEMENTATION-LOG.md`.
 
 ## Open Parity Backlog
 
-- [ ] Core facade write/delete/connect persistence semantics: close remaining `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
+- [ ] Core facade store/update/connect and remaining delete storage/index/cache semantics: close remaining `SIMPLE IMPLEMENTATION:` markers in `packages/core/src/Aura.ts`.
 - [ ] Core recall output shape: replace simplified `recall_structured` / `recall_full` surfaces with Rust-rich recall item semantics.
 - [ ] Recall cache invalidation: implement Rust `runtime.clear_recall_caches()` behavior after write-affecting operations.
 - [ ] Encryption/password wiring: close `Aura.open_with_password` password/encryption NON-PARITY gap.

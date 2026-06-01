@@ -1,5 +1,20 @@
 # Implementation Log
 
+## 2026-06-01 - Core Graph remove_record skeleton and Aura.delete cleanup
+
+- 范围：`packages/core/src/Graph.ts`、`packages/core/src/Graph.test.ts`、`packages/core/src/Aura.ts`、`packages/core/src/Aura.test.ts`、`packages/core/src/index.ts`。
+- 实现：在 core 包内新增 `Graph.ts` 骨架，承载 Rust `graph.rs` 对应的纯内存 graph 逻辑；未新建 workspace package，保持 core facade 内部模块结构与 Rust 包结构可对照。
+- 实现：新增 `removeRecord(recordId, records)`，按 Rust `graph::remove_record` 只访问目标 record 的 `connections` keys，移除目标 record，并清理这些已知邻居上的反向 `connections` 与 `connection_types`。
+- 实现：`Aura.delete` 改为复用 `removeRecord`，并将受影响邻居追加为 `Update` 后再写 delete tombstone；这是 TS 当前逐操作 replay `brain.cog` 架构下保持后续操作不重新读回已删边所必需的持久化收敛。
+- 实现：`Aura.delete` 的 search read model 直接替换为 graph helper 返回的 records map；删除旧的 facade-local `removeSearchRecord` 私有方法，避免把 Rust `graph.rs` 逻辑继续内联在 `Aura.ts`。
+- 测试：新增 `Graph.test.ts` 覆盖 target-known neighbor cleanup 与“不全表扫描 incoming-only 脏边”的 Rust 语义；扩展 `Aura.test.ts` 覆盖 delete 后 open Aura view 与 `brain.cog` replay 均不再保留已知邻居反向边。
+- Rust reference：`graph::remove_record`（`../src/graph.rs`），`Aura::delete`（`../src/aura.rs`）。
+- 验证：
+  - `bun run test packages/core/src/Graph.test.ts packages/core/src/Aura.test.ts` 通过，2 files / 35 tests。
+  - `bun run typecheck` 通过。
+  - `git diff --check` 通过。
+  - `bun run test -- --pool=threads --poolOptions.threads.singleThread` 通过，56 files / 545 tests。
+
 ## 2026-06-01 - SDRInterpreter xxh3 seed parity
 
 - 范围：`packages/recall/src/SDRInterpreter.ts`、`packages/recall/src/SDRInterpreter.test.ts`、`packages/recall/package.json`、根 `package.json` 与 `bun.lock`。

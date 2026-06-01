@@ -65,6 +65,7 @@ import {
   recallTemporalRecords as recallTemporalRecordsEffect,
   recallWithTrace as recallWithTraceEffect,
 } from "./Recall";
+import * as Graph from "./Graph"
 import { createRecallSessionTracker, endRecallSession, type RecallSessionTracker } from "./RecallFinalizer"
 import { id12, nowSecs } from "@aura/utils";
 
@@ -1280,11 +1281,15 @@ export class Aura {
 
   /**
    * Delete a record.
-   * 删除一条 record。
    *
-   * SIMPLE IMPLEMENTATION: append delete op to brain.cog and return true.
-   * 简化实现：追加写入 delete 操作并返回 true（后续 parity 可返回 existed?）。
-   * Rust reference: `Aura::delete` (`../src/aura.rs`).
+   * @zh 删除一条 record。
+   *
+   * SIMPLE IMPLEMENTATION: limited to cognitive store/search read model; it mirrors
+   * `graph::remove_record` bidirectional cleanup for the target's known neighbors,
+   * but still does not mutate brain.aura/index/embedding/sdr caches.
+   * @zh 当前仍限于 cognitive store/search read model；已对齐 `graph::remove_record`
+   * 中按目标 record 已知邻居清理反向连接的行为，但尚未更新 brain.aura/index/embedding/sdr caches。
+   * Rust reference: `Aura::delete` (`../src/aura.rs`) and `graph::remove_record` (`../src/graph.rs`).
    */
   delete(
     record_id: string,
@@ -1297,13 +1302,18 @@ export class Aura {
     const self = this;
     return Effect.gen(function* () {
       const records = yield* loadCognitiveRecords(dir);
-      if (!records.has(record_id)) {
+      const removal = Graph.removeRecord(record_id, records)
+      if (removal.removed === null) {
         return false
       }
+
       const store = yield* CognitiveStoreFile.open(dir);
+      for (const peer of removal.updatedNeighbors) {
+        yield* store.appendUpdate(peer)
+      }
       yield* store.appendDelete(record_id);
       yield* store.flush();
-      self.removeSearchRecord(record_id)
+      self.searchRecords = removal.records
       return true;
     });
   }
@@ -3913,12 +3923,6 @@ export class Aura {
       connections,
       connection_types: connectionTypes,
     }
-  }
-
-  private removeSearchRecord(recordId: string): void {
-    const next = new Map(this.searchRecords)
-    next.delete(recordId)
-    this.searchRecords = next
   }
 
   /**

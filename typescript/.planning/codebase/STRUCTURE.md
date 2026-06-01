@@ -84,7 +84,7 @@ aura-ts/
 
 **`packages/core/src/`:**
 - 用途: AuraSDK 主入口和编排逻辑
-- 包含: `Aura.ts` (主外观类, ~600+ 行), `DefaultLayer.ts` (Layer 装配), `Recall.ts` (召回编排), `RecallFinalizer.ts`, `RecallReranker.ts`, `MaintenanceService.ts` (~900+ 行)
+- 包含: `Aura.ts` (主外观类), `Graph.ts` (Rust `graph.rs` 对齐骨架), `DefaultLayer.ts` (Layer 装配), `Recall.ts` (召回编排), `RecallFinalizer.ts`, `RecallReranker.ts`, `MaintenanceService.ts` (~900+ 行)
 - 关键文件: `Aura.ts`, `DefaultLayer.ts`
 
 **`packages/mcp/src/`:**

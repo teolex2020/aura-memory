@@ -79,6 +79,23 @@ const RECORD_SALIENCE_REASON_KEY: &str = "salience_reason";
 const RECORD_SALIENCE_MARKED_AT_KEY: &str = "salience_marked_at";
 const CONTRADICTION_REVIEW_PRIORITY_MAX: f32 = 10.0;
 
+/// Minimum content length before attempting n-gram deduplication.
+const MIN_CONTENT_LEN_FOR_DEDUP: usize = 20;
+/// N-gram similarity at or above which a new record is treated as a duplicate.
+const STRONG_SIMILARITY_THRESHOLD_DEDUP: f32 = 0.85;
+/// Stability assigned to pinned records (immortal core; never decays).
+const PINNED_RECORD_STABILITY: f32 = 100.0;
+/// Default connection weight for a causal parent → child link.
+const CAUSAL_LINK_DEFAULT_WEIGHT: f32 = 0.7;
+/// Salience at or above which a record is counted in the high band.
+const SALIENCE_HIGH_THRESHOLD: f32 = 0.70;
+/// Salience at or above which a record is counted in the medium band.
+const SALIENCE_MEDIUM_THRESHOLD: f32 = 0.30;
+/// Connection weight below which a link is pruned (forgotten).
+const WEAK_CONNECTION_PRUNE_THRESHOLD: f32 = 0.05;
+/// Per-cycle temporal decay multiplier applied to connection weights.
+const CONNECTION_WEIGHT_DECAY_FACTOR: f32 = 0.99;
+
 /// Unified cognitive memory for AI agents.
 #[cfg_attr(feature = "python", pyclass)]
 pub struct Aura {
@@ -811,11 +828,11 @@ impl Aura {
         let guard_result = guards::apply_store_guard(content, &tags, channel, &taxonomy);
 
         // Deduplication check
-        if deduplicate && content_type == "text" && content.len() >= 20 {
+        if deduplicate && content_type == "text" && content.len() >= MIN_CONTENT_LEN_FOR_DEDUP {
             let ngram = self.ngram_index.read();
             let matches = ngram.query(content, 1);
             if let Some((sim, existing_id)) = matches.first() {
-                if *sim >= 0.85 {
+                if *sim >= STRONG_SIMILARITY_THRESHOLD_DEDUP {
                     // Strong match — activate existing record instead (only within same namespace)
                     let mut records = self.records.write();
                     if let Some(existing) = records.get_mut(existing_id) {
@@ -909,7 +926,7 @@ impl Aura {
             dna: effective_level.to_dna().to_string(),
             timestamp: rec.created_at,
             intensity: rec.strength,
-            stability: if pin { 100.0 } else { 1.0 },
+            stability: if pin { PINNED_RECORD_STABILITY } else { 1.0 },
             decay_velocity: 0.0,
             entropy: 0.0,
             sdr_indices: sdr_indices.clone(),
@@ -946,9 +963,9 @@ impl Aura {
         if let Some(parent_id) = caused_by_id {
             let mut records = self.records.write();
             if let Some(parent) = records.get_mut(parent_id) {
-                parent.add_typed_connection(&rec.id, 0.7, "causal");
+                parent.add_typed_connection(&rec.id, CAUSAL_LINK_DEFAULT_WEIGHT, "causal");
             }
-            rec.add_typed_connection(parent_id, 0.7, "causal");
+            rec.add_typed_connection(parent_id, CAUSAL_LINK_DEFAULT_WEIGHT, "causal");
         }
 
         // Auto-connect by tags
@@ -2205,10 +2222,10 @@ impl Aura {
             summary.avg_salience += rec.salience;
             summary.max_salience = summary.max_salience.max(rec.salience);
 
-            if rec.salience >= 0.70 {
+            if rec.salience >= SALIENCE_HIGH_THRESHOLD {
                 summary.high_salience_count += 1;
                 summary.bands.high += 1;
-            } else if rec.salience >= 0.30 {
+            } else if rec.salience >= SALIENCE_MEDIUM_THRESHOLD {
                 summary.bands.medium += 1;
             } else {
                 summary.bands.low += 1;
@@ -2420,7 +2437,7 @@ impl Aura {
             let weak_conns: Vec<String> = rec
                 .connections
                 .iter()
-                .filter(|(_, w)| **w < 0.05)
+                .filter(|(_, w)| **w < WEAK_CONNECTION_PRUNE_THRESHOLD)
                 .map(|(id, _)| id.clone())
                 .collect();
 
@@ -2430,7 +2447,7 @@ impl Aura {
             }
 
             for w in rec.connections.values_mut() {
-                *w *= 0.99;
+                *w *= CONNECTION_WEIGHT_DECAY_FACTOR;
             }
         }
 

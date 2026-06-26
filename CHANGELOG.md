@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.5.4
+
+Autonomous plasticity, cognitive guidance, and production integrity.
+
+### Added
+
+- **Autonomous cognitive plasticity (v5)**
+  - Agents learn from their own inference without fine-tuning or LLM calls
+  - `capture_experience()` / `ingest_experience_batch()` APIs
+  - `PlasticityMode` with anti-hallucination guards, risk scoring, and purge/freeze controls
+- **Cognitive guidance (v6)**
+  - Salience weighting, maintenance-time reflection synthesis, contradiction governance, honest-answer support
+- **Production integrity (v7)**
+  - Concept persistence across restarts; belief reranking active by default
+  - Concept partition cap; internal refactor into dedicated service layers
+- **Operator surfaces**
+  - Startup validation, persistence contract, namespace governance, correction review queues, suggested corrections
+
+## 1.5.1
+
+### Fixed
+
+- MCP stdio transport rewritten to eliminate per-byte read latency
+- MCP `_read_message` supports both `Content-Length` framing and bare JSON lines
+- `Level` serialized to `str` in the `tool_search` response
+
+### Added
+
+- HTTP + SSE MCP server for Make.com, n8n, and other remote clients
+- MCP registry files plus Cursor / Zed install docs; MCP tools table expanded to 11 tools
+
+## 1.5.0
+
+Full cognitive pipeline with activation-based decay.
+
+### Added
+
+- Activation-based decay across the cognitive pipeline (Phase 4 complete)
+- Gemini demo: a cheap model with AuraSDK vs. an expensive model alone
+
+### Fixed
+
+- `ExplicitTrusted` pipeline — 5 gate bugs that blocked policy-hint formation
+- Restored the `relation` module required by the `aura.rs` public API
+
 ## 1.4.1
 
 This release completes the full 5-layer cognitive recall pipeline and ships a convenience API for enabling it in one call.

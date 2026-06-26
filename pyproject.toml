@@ -23,7 +23,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://aurasdk.dev"
 Repository = "https://github.com/teolex2020/AuraSDK"
-Documentation = "https://github.com/teolex2020/AuraSDK/blob/main/docs/API.md"
+Documentation = "https://github.com/teolex2020/AuraSDK/blob/main/README.md"
 
 [tool.maturin]
 features = ["pyo3/extension-module", "encryption"]

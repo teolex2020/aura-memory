@@ -145,6 +145,45 @@ pub enum BeliefState {
     Empty,
 }
 
+// ── World Verdict (consequence axis) ──
+
+/// Consequence verdict for a belief — **orthogonal** to [`BeliefState`].
+///
+/// `BeliefState` answers an *epistemic* question: how many hypotheses compete
+/// and whether one dominates by aggregated record weight (support/conflict/
+/// recency). That is a *consensus* signal — "how many sources agree" — and a
+/// frozen model is built to follow exactly that majority.
+///
+/// `WorldVerdict` answers a different, *consequence* question: did the world
+/// actually confirm or refute this belief when an action was taken? A belief
+/// can be `Resolved` (one hypothesis dominates by mass) yet `Refuted` (the
+/// world contradicted it), or `Resolved` yet still `EvidenceDebt` (never
+/// checked against any convergent world). These two axes must not be collapsed
+/// into one scalar score.
+///
+/// Ported from the Aura research line (`route_state_memory_store.rs`), where
+/// this three-state route memory is the proven core. The key invariant is
+/// **scar protection**: a `Refuted` verdict is NOT erased by later reinforcing
+/// evidence (frequency), only by an explicit new contradiction. This prevents a
+/// frozen model from "gaslighting" the memory back into a refuted error simply
+/// because that error is common in its training distribution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum WorldVerdict {
+    /// A convergent world (tool call, fetch, test run, execution) confirmed
+    /// this belief by an actual consequence.
+    Confirmed,
+    /// A convergent world contradicted this belief. This is a **scar**: it is
+    /// not erased by later supporting frequency, only by an explicit new
+    /// contradiction. See [`Belief::confirm_by_world`] / [`Belief::refute_by_world`].
+    Refuted,
+    /// No convergent world has checked this belief yet. It is *open*, NOT false.
+    /// This is the honest abstain state: the agent has support mass but no
+    /// lived consequence, so it should say "I have sources but haven't verified"
+    /// rather than assert.
+    #[default]
+    EvidenceDebt,
+}
+
 // ── Hypothesis ──
 
 /// A single hypothesis within a belief — one possible "truth" for a claim.
@@ -297,6 +336,11 @@ pub struct Belief {
     /// Epistemic instability caused by contradictory top-down pressure.
     #[serde(default)]
     pub volatility: f32,
+    /// Consequence axis — did a convergent world confirm/refute this belief?
+    /// Orthogonal to `state` (which is the epistemic/consensus axis).
+    /// Defaults to `EvidenceDebt` (open, not checked, NOT false).
+    #[serde(default)]
+    pub world_verdict: WorldVerdict,
     /// Unix timestamp of last update.
     pub last_updated: f64,
 }
@@ -316,8 +360,69 @@ impl Belief {
             conflict_mass: 0.0,
             stability: 0.0,
             volatility: 0.0,
+            world_verdict: WorldVerdict::EvidenceDebt,
             last_updated: now_secs(),
         }
+    }
+
+    /// Record that a convergent world **confirmed** this belief.
+    ///
+    /// Scar-protected: if the belief is already `Refuted` (a scar), a mere
+    /// confirmation does NOT rehabilitate it — a refuted belief stays refuted
+    /// until an explicit new contradiction clears it (see
+    /// [`Belief::clear_refutation`]). This is the gaslight guard: supporting
+    /// frequency can never silently overwrite a lived refutation.
+    ///
+    /// Returns `true` if the verdict changed, `false` if it was suppressed by
+    /// the scar guard or already `Confirmed`.
+    pub fn confirm_by_world(&mut self) -> bool {
+        match self.world_verdict {
+            WorldVerdict::Refuted => false, // scar protection — do not rehabilitate by support
+            WorldVerdict::Confirmed => false,
+            WorldVerdict::EvidenceDebt => {
+                self.world_verdict = WorldVerdict::Confirmed;
+                self.last_updated = now_secs();
+                true
+            }
+        }
+    }
+
+    /// Record that a convergent world **refuted** this belief.
+    ///
+    /// A refutation always wins over confirmation/open: a lived contradiction is
+    /// stronger evidence than any amount of supporting frequency. The resulting
+    /// `Refuted` state is a scar (see [`Belief::confirm_by_world`]).
+    ///
+    /// Returns `true` if the verdict changed.
+    pub fn refute_by_world(&mut self) -> bool {
+        if self.world_verdict == WorldVerdict::Refuted {
+            return false;
+        }
+        self.world_verdict = WorldVerdict::Refuted;
+        self.last_updated = now_secs();
+        true
+    }
+
+    /// Explicitly clear a refutation scar — the ONLY sanctioned path back from
+    /// `Refuted`. Use this when a *new explicit contradiction of the refutation
+    /// itself* arrives (the world now says the earlier refutation was wrong),
+    /// not for ordinary supporting evidence. Resets to `EvidenceDebt` (open),
+    /// not directly to `Confirmed`, so the belief must be re-verified.
+    pub fn clear_refutation(&mut self) -> bool {
+        if self.world_verdict == WorldVerdict::Refuted {
+            self.world_verdict = WorldVerdict::EvidenceDebt;
+            self.last_updated = now_secs();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Should the agent abstain on this belief? True while no convergent world
+    /// has checked it (`EvidenceDebt`). Lets the agent honestly say "I have
+    /// sources but haven't verified" instead of asserting by consensus alone.
+    pub fn should_abstain(&self) -> bool {
+        self.world_verdict == WorldVerdict::EvidenceDebt
     }
 
     /// Resolve winner from a set of hypotheses.
@@ -1402,9 +1507,7 @@ impl BeliefEngine {
             let old_stability = belief.stability;
             let new_stability = old_stability;
 
-            if applied_delta.abs() < f32::EPSILON
-                && applied_volatility_delta.abs() < f32::EPSILON
-            {
+            if applied_delta.abs() < f32::EPSILON && applied_volatility_delta.abs() < f32::EPSILON {
                 continue;
             }
 
@@ -2629,6 +2732,87 @@ mod tests {
         assert!(feedback.entries[0].reason.contains("rejected_pattern"));
         assert!(feedback.entries[0].volatility_after > feedback.entries[0].volatility_before);
         // stability_after == stability_before because feedback no longer modifies stability.
-        assert_eq!(feedback.entries[0].stability_after, feedback.entries[0].stability_before);
+        assert_eq!(
+            feedback.entries[0].stability_after,
+            feedback.entries[0].stability_before
+        );
+    }
+
+    // ── World verdict (consequence axis) — ported scar-protection invariants ──
+
+    #[test]
+    fn world_verdict_defaults_to_evidence_debt_not_false() {
+        // A fresh belief is OPEN, not refuted. Consensus-by-default would assert;
+        // the consequence axis abstains until a world checks it.
+        let b = Belief::new("k".to_string());
+        assert_eq!(b.world_verdict, WorldVerdict::EvidenceDebt);
+        assert!(b.should_abstain());
+    }
+
+    #[test]
+    fn world_confirms_open_belief() {
+        let mut b = Belief::new("k".to_string());
+        assert!(b.confirm_by_world());
+        assert_eq!(b.world_verdict, WorldVerdict::Confirmed);
+        assert!(!b.should_abstain());
+    }
+
+    #[test]
+    fn scar_protection_refuted_not_rehabilitated_by_confirmation() {
+        // THE GASLIGHT GUARD: once the world refuted a belief, later supporting
+        // frequency (a frozen model repeating a common-but-wrong answer) must NOT
+        // silently flip it back to Confirmed. This is the proven Aura invariant
+        // (reinforce never erases a Refuted route).
+        let mut b = Belief::new("k".to_string());
+        assert!(b.refute_by_world());
+        assert_eq!(b.world_verdict, WorldVerdict::Refuted);
+
+        // Reinforce many times — must stay refuted.
+        for _ in 0..100 {
+            let changed = b.confirm_by_world();
+            assert!(!changed, "confirmation must be suppressed on a scar");
+        }
+        assert_eq!(
+            b.world_verdict,
+            WorldVerdict::Refuted,
+            "scar survived repeated supporting evidence"
+        );
+    }
+
+    #[test]
+    fn refutation_overrides_open_and_confirmed() {
+        // A lived contradiction is stronger than support frequency.
+        let mut b = Belief::new("k".to_string());
+        b.confirm_by_world();
+        assert_eq!(b.world_verdict, WorldVerdict::Confirmed);
+        assert!(b.refute_by_world());
+        assert_eq!(b.world_verdict, WorldVerdict::Refuted);
+    }
+
+    #[test]
+    fn refutation_clears_only_via_explicit_contradiction_to_open_not_confirmed() {
+        // The ONLY sanctioned exit from a scar is an explicit clear, and it
+        // returns to EvidenceDebt (must be re-verified), never straight to Confirmed.
+        let mut b = Belief::new("k".to_string());
+        b.refute_by_world();
+        assert!(b.clear_refutation());
+        assert_eq!(b.world_verdict, WorldVerdict::EvidenceDebt);
+        assert!(b.should_abstain());
+        // clearing a non-scar is a no-op
+        assert!(!b.clear_refutation());
+    }
+
+    #[test]
+    fn world_verdict_is_orthogonal_to_belief_state() {
+        // A belief can be epistemically Resolved (one hypothesis dominates by
+        // mass) yet still be EvidenceDebt on the consequence axis: many agreeing
+        // sources is NOT a world check. The two axes are independent.
+        let mut b = Belief::new("k".to_string());
+        b.state = BeliefState::Resolved;
+        assert_eq!(b.world_verdict, WorldVerdict::EvidenceDebt);
+        assert!(
+            b.should_abstain(),
+            "resolved-by-consensus must still abstain until verified"
+        );
     }
 }

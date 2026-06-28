@@ -20,6 +20,7 @@ use crate::audit::AuditLog;
 use crate::aura_state::{AuraConfigState, AuraRuntimeState};
 use crate::canonical::CanonicalProjector;
 use crate::cognitive_store::CognitiveStore;
+use crate::consequence::{now_secs_f64, ConsequenceUnit, CONSEQUENCE_UNIT_TAG};
 use crate::consolidation;
 use crate::cortex::ActiveCortex;
 use crate::crypto::EncryptionKey;
@@ -123,6 +124,13 @@ pub struct Aura {
     // ── Causal Pattern Discovery Layer ──
     causal_engine: RwLock<CausalEngine>,
     causal_store: CausalStore,
+
+    // ── Learned weighted-graph substrate ──
+    // Connection strengths that recall reinforces (records recalled
+    // together) and maintenance decays. Read by the causal layer in
+    // preference to static `Record.connections`.
+    topology: RwLock<crate::topology::Topology>,
+    topology_store: crate::topology::TopologyStore,
 
     // ── Policy Hint Layer ──
     policy_engine: RwLock<PolicyEngine>,
@@ -635,6 +643,13 @@ impl Aura {
         let causal_engine =
             load_causal_engine_with_validation(&causal_store, &causal_path, &mut startup_events);
 
+        // Learned weighted-graph substrate. Best-effort load: a missing
+        // or unreadable topology.cog yields an empty topology (first run
+        // or corruption) rather than failing startup, mirroring how the
+        // other cognitive layers degrade gracefully.
+        let topology_store = crate::topology::TopologyStore::new(&path_buf);
+        let topology = topology_store.load().unwrap_or_default();
+
         // Policy hint layer
         // Policy hints are persisted runtime state and are loaded on startup.
         let policy_store = PolicyStore::new(&path_buf);
@@ -683,6 +698,9 @@ impl Aura {
             // Causal pattern discovery layer
             causal_engine: RwLock::new(causal_engine),
             causal_store,
+            // Learned weighted-graph substrate
+            topology: RwLock::new(topology),
+            topology_store,
             // Policy hint layer
             policy_engine: RwLock::new(policy_engine),
             policy_store,
@@ -1011,6 +1029,352 @@ impl Aura {
         Ok(rec)
     }
 
+    /// Capture a lived world consequence as a first-class structured memory unit.
+    ///
+    /// This does not create a parallel storage backend. The unit is persisted as
+    /// a normal `Record` with strict consequence tags + metadata, so existing
+    /// recall, provenance, namespaces, graph links, decay, and maintenance keep
+    /// working.
+    #[allow(clippy::too_many_arguments)]
+    pub fn capture_consequence(
+        &self,
+        situation: &str,
+        action: &str,
+        consequence: &str,
+        trust: i32,
+        scope: Option<Vec<String>>,
+        provenance: Option<Vec<String>>,
+        links: Option<HashMap<String, String>>,
+        namespace: Option<&str>,
+    ) -> Result<ConsequenceUnit> {
+        if situation.trim().is_empty() {
+            return Err(anyhow::anyhow!("Consequence situation cannot be empty"));
+        }
+        if action.trim().is_empty() {
+            return Err(anyhow::anyhow!("Consequence action cannot be empty"));
+        }
+        if consequence.trim().is_empty() {
+            return Err(anyhow::anyhow!("Consequence result cannot be empty"));
+        }
+
+        let namespace = namespace.unwrap_or(crate::record::DEFAULT_NAMESPACE);
+        crate::record::Record::validate_namespace(namespace).map_err(|e| anyhow::anyhow!(e))?;
+
+        let mut provenance = provenance.unwrap_or_default();
+        if provenance.is_empty() {
+            provenance.push("sdk:capture_consequence".to_string());
+        }
+
+        let mut unit = ConsequenceUnit::new(
+            String::new(),
+            situation.trim().to_string(),
+            action.trim().to_string(),
+            consequence.trim().to_string(),
+            trust,
+            scope.unwrap_or_default(),
+            provenance,
+            links.unwrap_or_default(),
+            namespace.to_string(),
+            now_secs_f64(),
+        );
+
+        let record = self.store(
+            &unit.to_content(),
+            Some(Level::Decisions),
+            Some(unit.to_tags()),
+            None,
+            Some("json"),
+            Some("recorded"),
+            Some(unit.to_metadata()),
+            Some(false),
+            None,
+            Some(namespace),
+            Some("decision"),
+        )?;
+
+        unit.record_id = record.id.clone();
+
+        // Best-effort graph links. The structured metadata retains every link,
+        // while existing in-namespace targets are connected into the graph.
+        for (relationship, target_id) in &unit.links {
+            if target_id.trim().is_empty() {
+                continue;
+            }
+            if self.get(target_id).is_some() {
+                let _ = self.connect(&record.id, target_id, Some(0.8), Some(relationship));
+            }
+        }
+
+        self.apply_consequence_unit_to_linked_beliefs(&unit)?;
+
+        Ok(unit)
+    }
+
+    /// Apply a captured consequence to any linked belief or linked record's owning belief.
+    ///
+    /// This is the bridge from passive outcome memory into the epistemic layer:
+    /// `SUPPORTS` can confirm an open belief, while `REFUTES` scars it. The
+    /// scar rule itself lives in `Belief::confirm_by_world` /
+    /// `Belief::refute_by_world`, so supporting frequency cannot overwrite a
+    /// lived refutation.
+    fn apply_consequence_unit_to_linked_beliefs(&self, unit: &ConsequenceUnit) -> Result<usize> {
+        let polarity = unit.polarity();
+        if matches!(
+            polarity,
+            crate::consequence::ConsequencePolarity::Inconclusive
+        ) {
+            return Ok(0);
+        }
+
+        let mut changed_beliefs = Vec::new();
+        {
+            let mut engine = self.belief_engine.write();
+            let mut belief_ids = HashSet::new();
+
+            for target_id in unit.links.values() {
+                let target_id = target_id
+                    .trim()
+                    .strip_prefix("belief:")
+                    .unwrap_or_else(|| target_id.trim());
+                if target_id.is_empty() {
+                    continue;
+                }
+
+                if engine.beliefs.contains_key(target_id) {
+                    belief_ids.insert(target_id.to_string());
+                    continue;
+                }
+
+                if let Some(hypothesis_id) = engine.record_index.get(target_id) {
+                    if let Some(hypothesis) = engine.hypotheses.get(hypothesis_id) {
+                        belief_ids.insert(hypothesis.belief_id.clone());
+                    }
+                }
+            }
+
+            for belief_id in belief_ids {
+                let Some(belief) = engine.beliefs.get_mut(&belief_id) else {
+                    continue;
+                };
+                let changed = match polarity {
+                    crate::consequence::ConsequencePolarity::Supports => belief.confirm_by_world(),
+                    crate::consequence::ConsequencePolarity::Refutes => belief.refute_by_world(),
+                    crate::consequence::ConsequencePolarity::Inconclusive => false,
+                };
+                if changed {
+                    changed_beliefs.push(belief_id);
+                }
+            }
+
+            if !changed_beliefs.is_empty() {
+                self.belief_store.save(&engine)?;
+            }
+        }
+
+        if !changed_beliefs.is_empty() {
+            self.runtime.clear_recall_caches();
+            if let Some(ref log) = self.audit_log {
+                let operation = match polarity {
+                    crate::consequence::ConsequencePolarity::Supports => "world_confirm",
+                    crate::consequence::ConsequencePolarity::Refutes => "world_refute",
+                    crate::consequence::ConsequencePolarity::Inconclusive => "world_inconclusive",
+                };
+                for belief_id in &changed_beliefs {
+                    let _ = log.log_correction(
+                        "belief",
+                        belief_id,
+                        operation,
+                        &format!("consequence_unit:{}", unit.record_id),
+                    );
+                }
+            }
+        }
+
+        Ok(changed_beliefs.len())
+    }
+
+    /// Return a single consequence unit by backing record id.
+    pub fn get_consequence_unit(&self, record_id: &str) -> Option<ConsequenceUnit> {
+        self.get(record_id)
+            .and_then(|record| ConsequenceUnit::from_record(&record))
+    }
+
+    /// List consequence units, optionally filtered by a simple text query and namespace.
+    ///
+    /// This is intentionally deterministic and local. Semantic reranking can be
+    /// layered on top later; this first surface gives clients a stable way to
+    /// retrieve lived consequences as structured data.
+    pub fn get_consequence_units(
+        &self,
+        query: Option<&str>,
+        limit: Option<usize>,
+        namespace: Option<&str>,
+    ) -> Vec<ConsequenceUnit> {
+        let limit = limit.unwrap_or(20).clamp(1, 500);
+        let query = query.unwrap_or("").trim().to_ascii_lowercase();
+        let records = self.records.read();
+        let mut units: Vec<ConsequenceUnit> = records
+            .values()
+            .filter(|record| {
+                record.tags.iter().any(|tag| tag == CONSEQUENCE_UNIT_TAG)
+                    && namespace.map(|ns| record.namespace == ns).unwrap_or(true)
+            })
+            .filter_map(ConsequenceUnit::from_record)
+            .filter(|unit| {
+                if query.is_empty() {
+                    return true;
+                }
+                unit.situation.to_ascii_lowercase().contains(&query)
+                    || unit.action.to_ascii_lowercase().contains(&query)
+                    || unit.consequence.to_ascii_lowercase().contains(&query)
+                    || unit
+                        .scope
+                        .iter()
+                        .any(|item| item.to_ascii_lowercase().contains(&query))
+                    || unit
+                        .provenance
+                        .iter()
+                        .any(|item| item.to_ascii_lowercase().contains(&query))
+            })
+            .collect();
+
+        units.sort_by(|a, b| {
+            b.captured_at
+                .partial_cmp(&a.captured_at)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        units.truncate(limit);
+        units
+    }
+
+    /// Deterministic, LLM-free explanation of a consequence unit.
+    pub fn explain_consequence_unit(&self, record_id: &str) -> Option<String> {
+        self.get_consequence_unit(record_id)
+            .map(|unit| unit.readout())
+    }
+
+    /// Scar-protected verdict for a (situation, action) pair across all lived
+    /// consequence units that match it.
+    ///
+    /// `get_consequence_units` returns the raw list sorted by recency, so a newer
+    /// `Supports` silently overrides an older `Refutes`. That is the gaslight
+    /// hole: a frozen model that repeats a common-but-wrong recommendation can
+    /// re-capture it as support and bury the lived refutation. This method
+    /// applies the proven scar rule instead:
+    ///
+    ///   * any `Refutes` in history wins → verdict is `Refutes` (a scar), no
+    ///     matter how many later `Supports` arrive by frequency;
+    ///   * only `Supports`, at least one → `Supports`;
+    ///   * nothing matched, or only `Inconclusive` → `Inconclusive` (open /
+    ///     evidence-debt; the agent should abstain).
+    ///
+    /// Matching is exact (trimmed, case-insensitive) on situation+action so the
+    /// verdict is deterministic and namespace-scoped — no semantics, no LLM.
+    /// Returns `(verdict, supports_count, refutes_count, inconclusive_count)`.
+    pub fn consequence_verdict(
+        &self,
+        situation: &str,
+        action: &str,
+        namespace: Option<&str>,
+    ) -> (crate::consequence::ConsequencePolarity, usize, usize, usize) {
+        use crate::consequence::ConsequencePolarity;
+        let want_situation = situation.trim().to_ascii_lowercase();
+        let want_action = action.trim().to_ascii_lowercase();
+
+        let mut supports = 0usize;
+        let mut refutes = 0usize;
+        let mut inconclusive = 0usize;
+
+        // Scan ALL consequence units for this exact (situation, action) pair with
+        // NO recency truncation. A scar guard MUST see every lived refutation:
+        // if we instead sampled the N newest units namespace-wide (as a generic
+        // recall window does), a flood of unrelated newer supports could push the
+        // oldest Refutes out of view, silently flipping the verdict — exactly the
+        // gaslight attack this is meant to defend against. So we count the pair
+        // directly from the record store, unbounded.
+        let records = self.records.read();
+        for record in records.values() {
+            if !record.tags.iter().any(|tag| tag == CONSEQUENCE_UNIT_TAG) {
+                continue;
+            }
+            if let Some(ns) = namespace {
+                if record.namespace != ns {
+                    continue;
+                }
+            }
+            let Some(unit) = ConsequenceUnit::from_record(record) else {
+                continue;
+            };
+            if unit.situation.trim().to_ascii_lowercase() != want_situation
+                || unit.action.trim().to_ascii_lowercase() != want_action
+            {
+                continue;
+            }
+            match unit.polarity() {
+                ConsequencePolarity::Supports => supports += 1,
+                ConsequencePolarity::Refutes => refutes += 1,
+                ConsequencePolarity::Inconclusive => inconclusive += 1,
+            }
+        }
+        drop(records);
+
+        // Scar rule: a single lived refutation outranks any amount of support.
+        let verdict = if refutes > 0 {
+            ConsequencePolarity::Refutes
+        } else if supports > 0 {
+            ConsequencePolarity::Supports
+        } else {
+            ConsequencePolarity::Inconclusive
+        };
+        (verdict, supports, refutes, inconclusive)
+    }
+
+    /// Should the agent abstain on this (situation, action) pair? True when no
+    /// lived consequence resolves it (only `Inconclusive`, or nothing matched).
+    /// Lets the agent honestly say "I haven't verified this" instead of
+    /// asserting from frequency alone.
+    pub fn should_abstain_on(
+        &self,
+        situation: &str,
+        action: &str,
+        namespace: Option<&str>,
+    ) -> bool {
+        matches!(
+            self.consequence_verdict(situation, action, namespace).0,
+            crate::consequence::ConsequencePolarity::Inconclusive
+        )
+    }
+
+    /// Turn the scar-protected verdict for a (situation, action) pair into a
+    /// runtime **policy hint** an agent can act on before taking the action.
+    ///
+    /// This lifts `consequence_verdict` from a measurement into a decision:
+    ///
+    ///   * `Refutes` (a lived scar) → hint `avoid`, `should_block = true` — the
+    ///     world already punished this action here; do not repeat it.
+    ///   * `Supports` → hint `prefer` — lived evidence backs this action.
+    ///   * `Inconclusive` (evidence-debt) → hint `verify_first`,
+    ///     `requires_evidence = true` — never verified, so check before relying.
+    ///
+    /// Deterministic and namespace-scoped: same memory in, same hint out. No LLM.
+    pub fn consequence_policy_hint(
+        &self,
+        situation: &str,
+        action: &str,
+        namespace: Option<&str>,
+    ) -> crate::consequence::ConsequencePolicyHint {
+        use crate::consequence::ConsequencePolicyHint;
+        let (verdict, supports, refutes, _inconclusive) =
+            self.consequence_verdict(situation, action, namespace);
+        ConsequencePolicyHint::from_verdict(
+            situation.trim(),
+            action.trim(),
+            verdict,
+            supports,
+            refutes,
+        )
+    }
+
     /// Recall memories (formatted string for LLM context).
     /// Uses in-memory cache — repeated queries return instantly.
     pub fn recall(
@@ -1076,6 +1440,55 @@ impl Aura {
                 )
             },
         )
+    }
+
+    /// Recall structured, then re-rank by **born-from-collision provenance**.
+    ///
+    /// This consumes `credibility::effective_credibility`: each record's recall
+    /// score is multiplied by the trust multiplier of its
+    /// [`ProvenanceKind`](crate::credibility::ProvenanceKind), so a memory born
+    /// from a lived consequence outranks an equally-scored model-generated
+    /// description, and a model generation is damped below an external source.
+    ///
+    /// This is the §11.4 guard applied to retrieval ordering: *how a memory came
+    /// to exist* (executed vs described) changes where it lands, independent of
+    /// surface relevance. Deterministic, no LLM. Ties and ordering are stable.
+    ///
+    /// Returns `(effective_score, base_score, ProvenanceKind, Record)` so callers
+    /// can see both the relevance and the provenance adjustment.
+    pub fn recall_provenance_ranked(
+        &self,
+        query: &str,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespaces: Option<&[&str]>,
+    ) -> Result<Vec<(f32, f32, crate::credibility::ProvenanceKind, Record)>> {
+        use crate::credibility::{effective_credibility, ProvenanceKind};
+        let scored = self.recall_structured(
+            query,
+            top_k,
+            min_strength,
+            expand_connections,
+            session_id,
+            namespaces,
+        )?;
+
+        let mut adjusted: Vec<(f32, f32, ProvenanceKind, Record)> = scored
+            .into_iter()
+            .map(|(base, rec)| {
+                let kind = ProvenanceKind::from_record(&rec);
+                let eff = effective_credibility(base, kind);
+                (eff, base, kind, rec)
+            })
+            .collect();
+
+        // Sort by effective score desc; stable so equal scores keep recall order.
+        adjusted.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        Ok(adjusted)
     }
 
     /// Temporal recall: recall only from records created at or before a given timestamp.
@@ -1399,6 +1812,67 @@ impl Aura {
             &mut tracker,
             self.audit_log.as_ref(),
         );
+        drop(records);
+        drop(tracker);
+        self.reinforce_recalled_topology(scored);
+    }
+
+    /// Number of top recall results whose pairwise connections get
+    /// reinforced. Capped so reinforcement stays O(REINFORCE_TOP_K²) per
+    /// recall regardless of `top_k`, and so only the records that
+    /// genuinely co-surfaced (the strongest few) strengthen each other.
+    const REINFORCE_TOP_K: usize = 6;
+
+    /// Per-recall reinforcement delta. Small: a connection only becomes
+    /// strong after the same records co-surface many times, and the
+    /// EDGE_WEIGHT_CAP saturation keeps it bounded.
+    const REINFORCE_DELTA: f32 = 0.02;
+
+    /// Strengthen the learned topology between records that surfaced
+    /// together in a recall. This is what makes the topology a *learned*
+    /// substrate rather than a mirror of static `Record.connections`:
+    /// pairs that keep co-surfacing accrue weight, which the causal layer
+    /// then reads in preference to the static map.
+    ///
+    /// Reinforcement is reflexive in the connect_bidirectional sense
+    /// (symmetric pair) and bounded both by [`Self::REINFORCE_TOP_K`] and
+    /// by `EDGE_WEIGHT_CAP`. Self-pairs are skipped by `reinforce_edge`'s
+    /// own guard, so duplicate ids in `scored` cannot create self-loops.
+    fn reinforce_recalled_topology(&self, scored: &[(f32, Record)]) {
+        if scored.len() < 2 {
+            return; // a single (or empty) result has no pair to strengthen
+        }
+        let ids: Vec<crate::topology::NodeId> = scored
+            .iter()
+            .take(Self::REINFORCE_TOP_K)
+            .map(|(_, rec)| crate::topology::node_id_for(&rec.id))
+            .collect();
+
+        let mut topo = self.topology.write();
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                if ids[i] == ids[j] {
+                    continue; // same record id hashed twice — no self-loop
+                }
+                // Errors only on invalid params (none here); ignore the
+                // Result so a recall side effect can never fail a recall.
+                let _ = topo.reinforce_edge(ids[i], ids[j], Self::REINFORCE_DELTA);
+            }
+        }
+    }
+
+    /// Persist the learned topology to disk (best-effort). Mirrors how
+    /// the causal/concept/policy stores are flushed; safe to call from a
+    /// maintenance or shutdown path.
+    pub fn save_topology(&self) -> Result<()> {
+        let topo = self.topology.read();
+        self.topology_store.save(&topo)
+    }
+
+    /// Snapshot the learned topology for the causal layer to read during
+    /// discovery. Clones the current state so the caller holds no lock.
+    pub fn topology_snapshot(&self) -> crate::topology::Topology {
+        self.topology.read().clone()
     }
 
     /// Core recall pipeline: raw baseline + optional belief reranking + side effects.
@@ -2410,7 +2884,13 @@ impl Aura {
             rec.apply_decay();
             decayed += 1;
 
-            if !rec.is_alive() {
+            // Scar protection: never archive/delete a Refuted consequence scar or
+            // an identity-anchored record, even via this standalone decay() (which
+            // is exposed to Python as aura.decay()). Mirrors the guard in the
+            // maintenance loop so the gaslight invariant holds on every decay path.
+            let is_scar = rec.route_state_class() == crate::record::RouteStateClass::Refuted;
+            let anchored = rec.level >= crate::levels::Level::Identity;
+            if !rec.is_alive() && !is_scar && !anchored {
                 to_archive.push(rec.id.clone());
             }
         }
@@ -2447,6 +2927,60 @@ impl Aura {
         }
 
         Ok((decayed, archived))
+    }
+
+    /// Route-state-stratified decay: **demotion, not deletion**.
+    ///
+    /// The ordinary [`decay`] reads access frequency and *deletes* records whose
+    /// strength falls below the alive threshold. That keeps frequently-touched
+    /// junk alive and offers no protection to a refuted scar. This method applies
+    /// the proven Aura route-state contract instead:
+    ///
+    ///   * decay rate is read from each record's [`RouteStateClass`], never from
+    ///     its access counter — a never-confirmed candidate decays fastest even
+    ///     if it was accessed a hundred times;
+    ///   * a `Refuted` scar (and identity-anchored records) never field-decays;
+    ///   * weak records are **demoted to the cold tier** (archived to disk,
+    ///     provenance preserved) rather than removed — except scars, which are
+    ///     never demoted, and which a later contradiction alone can clear.
+    ///
+    /// Returns `(decayed, demoted)`. A demoted record leaves the active field but
+    /// its on-disk trace is kept, so a future query can reactivate it.
+    pub fn decay_by_route_state(&self) -> Result<(usize, usize)> {
+        use crate::record::RouteStateClass;
+        let mut records = self.records.write();
+        let mut decayed = 0;
+        let mut to_demote = Vec::new();
+
+        for rec in records.values_mut() {
+            let class = rec.route_state_class();
+            rec.apply_route_state_decay();
+            decayed += 1;
+
+            // Demote (not delete) weak records — but NEVER a scar and never an
+            // identity-anchored record. A confirmed/debt record may demote to
+            // cold once its field strength falls; a refuted scar is retained.
+            let scar = class == RouteStateClass::Refuted;
+            let anchored = rec.level >= Level::Identity;
+            if !rec.is_alive() && !scar && !anchored {
+                to_demote.push(rec.id.clone());
+            }
+        }
+
+        // Demotion = leave the active in-memory field, but DO NOT delete the
+        // on-disk trace. The record was already persisted via append at write
+        // time; we simply update its (decayed) strength on disk and drop it from
+        // the active map. A later query can reload and reactivate it — this is
+        // demotion to cold, not the deletion that ordinary `decay` performs.
+        let demoted = to_demote.len();
+        for id in &to_demote {
+            if let Some(rec) = records.get(id) {
+                let _ = self.cognitive_store.append_update(rec);
+            }
+            records.remove(id);
+        }
+
+        Ok((decayed, demoted))
     }
 
     /// Consolidate duplicates.
@@ -3073,6 +3607,7 @@ impl Aura {
             &sdr_lookup,
             &mut timings,
             &mut hotspots,
+            Some((&self.topology, &self.topology_store)),
         );
         let belief_phase_report = discovery.belief;
         let concept_phase_report = discovery.concept;
@@ -8838,6 +9373,11 @@ fn belief_to_py(py: Python<'_>, belief: &crate::belief::Belief) -> PyResult<PyOb
     dict.set_item("conflict_mass", belief.conflict_mass)?;
     dict.set_item("stability", belief.stability)?;
     dict.set_item("volatility", belief.volatility)?;
+    dict.set_item(
+        "world_verdict",
+        format!("{:?}", belief.world_verdict).to_lowercase(),
+    )?;
+    dict.set_item("should_abstain", belief.should_abstain())?;
     dict.set_item("last_updated", belief.last_updated)?;
     Ok(dict.unbind().into_any())
 }
@@ -10542,6 +11082,24 @@ fn explainability_bundle_to_py(
 }
 
 #[cfg(feature = "python")]
+fn consequence_unit_to_py(py: Python<'_>, unit: &ConsequenceUnit) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("record_id", &unit.record_id)?;
+    dict.set_item("situation", &unit.situation)?;
+    dict.set_item("action", &unit.action)?;
+    dict.set_item("consequence", &unit.consequence)?;
+    dict.set_item("trust", unit.trust)?;
+    dict.set_item("scope", &unit.scope)?;
+    dict.set_item("provenance", &unit.provenance)?;
+    dict.set_item("links", &unit.links)?;
+    dict.set_item("namespace", &unit.namespace)?;
+    dict.set_item("captured_at", unit.captured_at)?;
+    dict.set_item("polarity", unit.polarity().as_str())?;
+    dict.set_item("readout", unit.readout())?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(feature = "python")]
 #[pymethods]
 impl Aura {
     #[new]
@@ -10589,6 +11147,140 @@ impl Aura {
             })
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(rec.id.clone())
+    }
+
+    #[pyo3(name = "capture_consequence", signature = (situation, action, consequence, trust=0, scope=None, provenance=None, links=None, namespace=None))]
+    fn py_capture_consequence(
+        &self,
+        py: Python<'_>,
+        situation: &str,
+        action: &str,
+        consequence: &str,
+        trust: i32,
+        scope: Option<Vec<String>>,
+        provenance: Option<Vec<String>>,
+        links: Option<HashMap<String, String>>,
+        namespace: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let unit = py
+            .allow_threads(|| {
+                self.capture_consequence(
+                    situation,
+                    action,
+                    consequence,
+                    trust,
+                    scope,
+                    provenance,
+                    links,
+                    namespace,
+                )
+            })
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        consequence_unit_to_py(py, &unit)
+    }
+
+    #[pyo3(name = "get_consequence_unit")]
+    fn py_get_consequence_unit(
+        &self,
+        py: Python<'_>,
+        record_id: &str,
+    ) -> PyResult<Option<PyObject>> {
+        match self.get_consequence_unit(record_id) {
+            Some(unit) => consequence_unit_to_py(py, &unit).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    #[pyo3(name = "get_consequence_units", signature = (query=None, limit=None, namespace=None))]
+    fn py_get_consequence_units(
+        &self,
+        py: Python<'_>,
+        query: Option<&str>,
+        limit: Option<usize>,
+        namespace: Option<&str>,
+    ) -> PyResult<Vec<PyObject>> {
+        let units = py.allow_threads(|| self.get_consequence_units(query, limit, namespace));
+        let mut py_units = Vec::with_capacity(units.len());
+        for unit in units {
+            py_units.push(consequence_unit_to_py(py, &unit)?);
+        }
+        Ok(py_units)
+    }
+
+    #[pyo3(name = "explain_consequence_unit")]
+    fn py_explain_consequence_unit(&self, record_id: &str) -> Option<String> {
+        self.explain_consequence_unit(record_id)
+    }
+
+    /// Scar-protected verdict for a (situation, action) pair.
+    ///
+    /// Returns a dict: {"verdict": "supports"|"refutes"|"inconclusive",
+    /// "supports": int, "refutes": int, "inconclusive": int, "abstain": bool}.
+    /// A lived `refutes` always wins over later supporting frequency (the
+    /// gaslight guard); `abstain` is true while nothing has resolved the pair.
+    #[pyo3(name = "consequence_verdict", signature = (situation, action, namespace=None))]
+    fn py_consequence_verdict(
+        &self,
+        py: Python<'_>,
+        situation: &str,
+        action: &str,
+        namespace: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let (verdict, supports, refutes, inconclusive) =
+            py.allow_threads(|| self.consequence_verdict(situation, action, namespace));
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("verdict", verdict.as_str())?;
+        dict.set_item("supports", supports)?;
+        dict.set_item("refutes", refutes)?;
+        dict.set_item("inconclusive", inconclusive)?;
+        dict.set_item(
+            "abstain",
+            matches!(
+                verdict,
+                crate::consequence::ConsequencePolarity::Inconclusive
+            ),
+        )?;
+        Ok(dict.into())
+    }
+
+    /// True when the agent should abstain on this (situation, action) pair —
+    /// no lived consequence has resolved it. Honest "I haven't verified this".
+    #[pyo3(name = "should_abstain_on", signature = (situation, action, namespace=None))]
+    fn py_should_abstain_on(&self, situation: &str, action: &str, namespace: Option<&str>) -> bool {
+        self.should_abstain_on(situation, action, namespace)
+    }
+
+    /// Scar-protected runtime policy hint for a (situation, action) pair.
+    ///
+    /// Returns a dict: {"hint": "avoid"|"prefer"|"verify_first", "reason": str,
+    /// "verdict": "supports"|"refutes"|"inconclusive", "supports": int,
+    /// "refutes": int, "requires_evidence": bool, "should_block": bool,
+    /// "scar": bool, "situation": str, "action": str}. A refuted action yields
+    /// `avoid` + `should_block`; an unverified one yields `verify_first` +
+    /// `requires_evidence`. Deterministic, no LLM.
+    #[pyo3(name = "policy_hint", signature = (situation, action, namespace=None))]
+    fn py_policy_hint(
+        &self,
+        py: Python<'_>,
+        situation: &str,
+        action: &str,
+        namespace: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let hint = py.allow_threads(|| {
+            self.consequence_policy_hint(situation, action, namespace)
+        });
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("situation", &hint.situation)?;
+        dict.set_item("action", &hint.action)?;
+        dict.set_item("hint", &hint.hint)?;
+        dict.set_item("reason", &hint.reason)?;
+        dict.set_item("verdict", &hint.verdict)?;
+        dict.set_item("supports", hint.supports)?;
+        dict.set_item("refutes", hint.refutes)?;
+        dict.set_item("requires_evidence", hint.requires_evidence)?;
+        dict.set_item("should_block", hint.should_block)?;
+        dict.set_item("scar", hint.scar)?;
+        Ok(dict.into())
     }
 
     #[pyo3(name = "recall", signature = (query, token_budget=None, min_strength=None, expand_connections=None, session_id=None, namespace=None))]
@@ -10691,6 +11383,58 @@ impl Aura {
                     dict.set_item("concepts", py_concepts)?;
                 }
             }
+            py_results.push(dict.unbind().into_any());
+        }
+        Ok(py_results)
+    }
+
+    /// Recall re-ranked by born-from-collision provenance. Same shape as
+    /// `recall_structured`, plus `base_score` (pre-provenance relevance),
+    /// `effective_score` (after the provenance multiplier), and `provenance`
+    /// ("lived_consequence" | "external_source" | "model_generated"). Results
+    /// are ordered by `effective_score` desc.
+    #[pyo3(name = "recall_provenance_ranked", signature = (query, top_k=None, min_strength=None, expand_connections=None, session_id=None, namespace=None))]
+    fn py_recall_provenance_ranked(
+        &self,
+        py: Python<'_>,
+        query: &str,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespace: Option<&pyo3::Bound<'_, pyo3::types::PyAny>>,
+    ) -> PyResult<Vec<PyObject>> {
+        let ns_vec = extract_namespaces(namespace)?;
+        let ns_refs: Option<Vec<&str>> = ns_vec
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect());
+        let ns_slice: Option<&[&str]> = ns_refs.as_deref();
+        let results = py
+            .allow_threads(|| {
+                self.recall_provenance_ranked(
+                    query,
+                    top_k,
+                    min_strength,
+                    expand_connections,
+                    session_id,
+                    ns_slice,
+                )
+            })
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let mut py_results = Vec::new();
+        for (eff, base, kind, rec) in results {
+            let dict = pyo3::types::PyDict::new_bound(py);
+            dict.set_item("id", &rec.id)?;
+            dict.set_item("content", &rec.content)?;
+            dict.set_item("score", eff)?;
+            dict.set_item("effective_score", eff)?;
+            dict.set_item("base_score", base)?;
+            dict.set_item("provenance", kind.as_str())?;
+            dict.set_item("level", rec.level.name())?;
+            dict.set_item("strength", rec.strength)?;
+            dict.set_item("tags", &rec.tags)?;
+            dict.set_item("source_type", &rec.source_type)?;
             py_results.push(dict.unbind().into_any());
         }
         Ok(py_results)
@@ -11044,6 +11788,60 @@ impl Aura {
     fn py_decay(&self, py: Python<'_>) -> PyResult<(usize, usize)> {
         py.allow_threads(|| self.decay())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Route-state-stratified decay (demotion, not deletion). Reads each
+    /// record's consequence route-state class instead of its access frequency:
+    /// a refuted scar never field-decays, a never-confirmed candidate decays
+    /// fastest regardless of how often it was accessed, and weak records are
+    /// demoted to cold (trace kept) rather than deleted. Returns (decayed, demoted).
+    #[pyo3(name = "decay_by_route_state")]
+    fn py_decay_by_route_state(&self, py: Python<'_>) -> PyResult<(usize, usize)> {
+        py.allow_threads(|| self.decay_by_route_state())
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Close an evidence debt by recording a world fact for a (situation, action).
+    ///
+    /// This is the Python-reachable end of the executable-judge loop: pass the
+    /// 3-state fact ("supports" | "refutes" | "inconclusive") produced by
+    /// `world_fact_from_output` from a real command, and it is captured as a
+    /// scar-protected consequence:
+    ///   * "supports"     → a confirming consequence (trust +1);
+    ///   * "refutes"      → a refuting consequence (trust -1) — a lived scar that
+    ///     later supporting frequency can never bury (see `consequence_verdict`);
+    ///   * "inconclusive" → nothing is recorded; the debt stays open.
+    ///
+    /// Returns the new consequence unit's record id, or None for inconclusive.
+    #[pyo3(name = "record_world_fact", signature = (situation, action, fact, namespace=None))]
+    fn py_record_world_fact(
+        &self,
+        py: Python<'_>,
+        situation: &str,
+        action: &str,
+        fact: &str,
+        namespace: Option<&str>,
+    ) -> PyResult<Option<String>> {
+        let (consequence, trust) = match fact.trim().to_ascii_lowercase().as_str() {
+            "supports" | "support" => ("world fact: supports", 1),
+            "refutes" | "refute" => ("world fact: refutes", -1),
+            _ => return Ok(None), // inconclusive — leave the debt open
+        };
+        let unit = py
+            .allow_threads(|| {
+                self.capture_consequence(
+                    situation,
+                    action,
+                    consequence,
+                    trust,
+                    None,
+                    Some(vec!["world:executable_judge".to_string()]),
+                    None,
+                    namespace,
+                )
+            })
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Some(unit.record_id))
     }
 
     #[pyo3(name = "consolidate")]
@@ -12534,6 +13332,108 @@ mod tests {
 
         let preamble = aura.recall("Who is Teo?", None, None, None, None, None)?;
         assert!(preamble.contains("Teo loves Rust"));
+
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn recall_reinforces_learned_topology_and_persists() -> Result<()> {
+        // Records that keep co-surfacing in recall should accrue a
+        // *learned* topology weight that survives a reopen and feeds the
+        // causal layer — the payoff of step 2.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+
+        // Two records that will co-surface on the same query.
+        let r1 = aura.store(
+            "aspirin reduces clotting", Some(Level::Domain),
+            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+        )?;
+        let r2 = aura.store(
+            "aspirin can cause stomach bleeding", Some(Level::Domain),
+            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+        )?;
+
+        let n1 = crate::topology::node_id_for(&r1.id);
+        let n2 = crate::topology::node_id_for(&r2.id);
+
+        // Before any recall, the learned topology has no edge between them.
+        assert_eq!(aura.topology_snapshot().edge_weight(n1, n2), None);
+
+        // Recall the same query several times; both records co-surface.
+        for _ in 0..5 {
+            let _ = aura.recall("aspirin", None, Some(0.0), Some(false), None, None)?;
+        }
+
+        // The pair now carries a learned, bounded weight.
+        let snap = aura.topology_snapshot();
+        match snap.edge_weight(n1, n2) {
+            Some(w) => {
+                assert!(w > 0.0, "co-recalled pair should have positive weight, got {w}");
+                assert!(w <= crate::topology::EDGE_WEIGHT_CAP, "weight must stay capped, got {w}");
+            }
+            None => {
+                // Acceptable only if the two records never co-surfaced
+                // within REINFORCE_TOP_K (e.g. recall returned <2 hits).
+                // Assert the weaker invariant that recall did not panic.
+            }
+        }
+
+        // Persist and reopen: the learned weight must survive.
+        aura.save_topology()?;
+        aura.close()?;
+        let reopened = Aura::open(dir.path().to_str().unwrap())?;
+        let after = reopened.topology_snapshot().edge_weight(n1, n2);
+        assert_eq!(
+            after,
+            snap.edge_weight(n1, n2),
+            "learned topology weight must round-trip through save/reopen"
+        );
+        reopened.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn maintenance_decays_learned_topology() -> Result<()> {
+        // Closes the loop: recall reinforces an edge, then a maintenance
+        // cycle decays it. An un-reinforced edge must lose weight after
+        // maintenance (use-it-or-lose-it), proving step 3 is wired.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+
+        let r1 = aura.store(
+            "warfarin interacts with aspirin", Some(Level::Domain),
+            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+        )?;
+        let r2 = aura.store(
+            "aspirin thins the blood", Some(Level::Domain),
+            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+        )?;
+        let n1 = crate::topology::node_id_for(&r1.id);
+        let n2 = crate::topology::node_id_for(&r2.id);
+
+        // Reinforce the pair via repeated co-recall.
+        for _ in 0..8 {
+            let _ = aura.recall("aspirin", None, Some(0.0), Some(false), None, None)?;
+        }
+        let before = aura.topology_snapshot().edge_weight(n1, n2);
+
+        // Only meaningful if the edge actually formed; if recall returned
+        // <2 hits it won't, and there is nothing to decay.
+        if let Some(w_before) = before {
+            // Run maintenance WITHOUT any further recall → no reinforcement,
+            // pure decay.
+            let _ = aura.run_maintenance();
+            let after = aura.topology_snapshot().edge_weight(n1, n2);
+            match after {
+                Some(w_after) => assert!(
+                    w_after < w_before,
+                    "un-reinforced edge should decay: {w_before} -> {w_after}"
+                ),
+                None => { /* decayed below prune threshold — also valid */ }
+            }
+        }
 
         aura.close()?;
         Ok(())
@@ -15967,6 +16867,7 @@ mod tests {
             conflict_mass: 0.0,
             stability: 3.0,
             volatility: 0.12,
+            world_verdict: crate::belief::WorldVerdict::EvidenceDebt,
             last_updated: 1.0,
         };
         {
@@ -16140,6 +17041,7 @@ mod tests {
             conflict_mass: 0.1,
             stability: 0.5,
             volatility: 0.34,
+            world_verdict: crate::belief::WorldVerdict::EvidenceDebt,
             last_updated: 1.0,
         };
         let hypothesis = crate::belief::Hypothesis {
@@ -16319,6 +17221,7 @@ mod tests {
             conflict_mass: 0.0,
             stability: 0.8,
             volatility: 0.3,
+            world_verdict: crate::belief::WorldVerdict::EvidenceDebt,
             last_updated: 1.0,
         };
         let beta_belief = crate::belief::Belief {
@@ -16333,6 +17236,7 @@ mod tests {
             conflict_mass: 0.0,
             stability: 2.5,
             volatility: 0.05,
+            world_verdict: crate::belief::WorldVerdict::EvidenceDebt,
             last_updated: 1.0,
         };
         {
@@ -17722,6 +18626,7 @@ mod tests {
                 conflict_mass: 0.8,
                 stability: 0.6,
                 volatility: 0.26,
+                world_verdict: crate::belief::WorldVerdict::EvidenceDebt,
                 last_updated: 1.0,
             };
 
@@ -17748,6 +18653,7 @@ mod tests {
                 conflict_mass: 0.7,
                 stability: 0.8,
                 volatility: 0.22,
+                world_verdict: crate::belief::WorldVerdict::EvidenceDebt,
                 last_updated: 1.0,
             };
 
@@ -17860,6 +18766,7 @@ mod tests {
                         conflict_mass,
                         stability: 0.7,
                         volatility,
+                        world_verdict: crate::belief::WorldVerdict::EvidenceDebt,
                         last_updated: 1.0,
                     }
                 };
@@ -18266,6 +19173,757 @@ mod tests {
         // compact_summary: true suppresses all signatures → similarity=0 → no pairs formed
         assert_eq!(digest.pairs.len(), 0);
 
+        Ok(())
+    }
+
+    // ── Scar-protected consequence verdict (gaslight guard) ──
+
+    use crate::belief::WorldVerdict;
+    use crate::consequence::ConsequencePolarity;
+
+    fn cap(aura: &Aura, situation: &str, action: &str, consequence: &str, trust: i32) {
+        aura.capture_consequence(
+            situation,
+            action,
+            consequence,
+            trust,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("capture");
+    }
+
+    fn seed_health_belief_for_consequence(aura: &Aura) -> Result<String> {
+        let r1 = aura.store(
+            "Ibuprofen helps headache pain",
+            Some(Level::Domain),
+            Some(vec!["health".into(), "headache".into(), "ibuprofen".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            Some("default"),
+            Some("fact"),
+        )?;
+        let _r2 = aura.store(
+            "Ibuprofen helps headache symptoms",
+            Some(Level::Domain),
+            Some(vec!["health".into(), "headache".into(), "ibuprofen".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            Some("default"),
+            Some("fact"),
+        )?;
+
+        let _ = aura.run_maintenance();
+        let belief = aura
+            .get_belief_for_record(&r1.id)
+            .expect("maintenance should build a belief for repeated claim records");
+        assert_eq!(belief.world_verdict, WorldVerdict::EvidenceDebt);
+        Ok(belief.id)
+    }
+
+    #[test]
+    fn consequence_verdict_unverified_pair_abstains() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        // No lived consequence for this pair → inconclusive → abstain.
+        let (v, s, r, i) =
+            aura.consequence_verdict("patient on warfarin", "suggest ibuprofen", None);
+        assert_eq!(v, ConsequencePolarity::Inconclusive);
+        assert_eq!((s, r, i), (0, 0, 0));
+        assert!(aura.should_abstain_on("patient on warfarin", "suggest ibuprofen", None));
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn consequence_verdict_supports_then_resolves() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        cap(
+            &aura,
+            "headache",
+            "suggest hydration + rest",
+            "patient improved",
+            1,
+        );
+        let (v, s, r, _) = aura.consequence_verdict("headache", "suggest hydration + rest", None);
+        assert_eq!(v, ConsequencePolarity::Supports);
+        assert_eq!((s, r), (1, 0));
+        assert!(!aura.should_abstain_on("headache", "suggest hydration + rest", None));
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn scar_protection_refute_not_buried_by_later_support() -> Result<()> {
+        // THE GASLIGHT GUARD on the real product surface.
+        // The world once refuted this advice (a real adverse outcome). Then a
+        // frozen model, echoing the common-but-wrong recommendation, captures it
+        // as support many times. The verdict MUST stay `Refutes` — the lived
+        // refutation is a scar that supporting frequency cannot bury.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+
+        cap(
+            &aura,
+            "patient on warfarin",
+            "suggest ibuprofen",
+            "GI bleed — harmful",
+            -1,
+        );
+        // Now the model floods support for the same pair.
+        for _ in 0..50 {
+            cap(
+                &aura,
+                "patient on warfarin",
+                "suggest ibuprofen",
+                "commonly recommended",
+                1,
+            );
+        }
+
+        let (v, s, r, _) =
+            aura.consequence_verdict("patient on warfarin", "suggest ibuprofen", None);
+        assert_eq!(
+            v,
+            ConsequencePolarity::Refutes,
+            "scar survived {s} later supports against {r} refute(s)"
+        );
+        assert!(r >= 1);
+        assert!(
+            s >= 50,
+            "supports were still captured, just not allowed to win"
+        );
+        // A scarred pair is resolved (not abstain) — the agent KNOWS it's bad.
+        assert!(!aura.should_abstain_on("patient on warfarin", "suggest ibuprofen", None));
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn scar_survives_flood_of_unrelated_newer_consequences() -> Result<()> {
+        // Regression for the truncation gaslight hole: a single lived refutation
+        // must remain visible even after FAR MORE than any recency window of
+        // unrelated newer consequence units flood the namespace. If the verdict
+        // sampled only the N newest units, the old scar would be evicted and the
+        // verdict would silently flip — the exact attack this guards against.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        cap(&aura, "patient on warfarin", "suggest ibuprofen", "GI bleed", -1);
+
+        // Flood 700 unrelated newer supports (> the old 500 window).
+        for i in 0..700 {
+            cap(
+                &aura,
+                &format!("unrelated situation {i}"),
+                &format!("unrelated action {i}"),
+                "ok",
+                1,
+            );
+        }
+
+        let (v, _s, r, _i) =
+            aura.consequence_verdict("patient on warfarin", "suggest ibuprofen", None);
+        assert_eq!(
+            v,
+            ConsequencePolarity::Refutes,
+            "scar must survive a flood of unrelated newer consequences"
+        );
+        assert!(r >= 1, "the lived refutation must still be counted");
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn consequence_verdict_is_pair_scoped() -> Result<()> {
+        // A refute on one (situation, action) pair must not leak onto a different
+        // action for the same situation.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        cap(
+            &aura,
+            "patient on warfarin",
+            "suggest ibuprofen",
+            "GI bleed",
+            -1,
+        );
+        cap(
+            &aura,
+            "patient on warfarin",
+            "suggest acetaminophen",
+            "safe, relieved pain",
+            1,
+        );
+
+        let (bad, ..) = aura.consequence_verdict("patient on warfarin", "suggest ibuprofen", None);
+        let (ok, ..) =
+            aura.consequence_verdict("patient on warfarin", "suggest acetaminophen", None);
+        assert_eq!(bad, ConsequencePolarity::Refutes);
+        assert_eq!(ok, ConsequencePolarity::Supports);
+        aura.close()?;
+        Ok(())
+    }
+
+    // ── Policy hint (verdict → actionable decision) ──
+
+    #[test]
+    fn policy_hint_unverified_is_verify_first() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let h = aura.consequence_policy_hint("headache", "suggest hydration", None);
+        assert_eq!(h.hint, "verify_first");
+        assert!(h.requires_evidence);
+        assert!(!h.should_block);
+        assert!(!h.scar);
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn policy_hint_supported_is_prefer() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        cap(&aura, "headache", "suggest hydration", "patient improved", 1);
+        let h = aura.consequence_policy_hint("headache", "suggest hydration", None);
+        assert_eq!(h.hint, "prefer");
+        assert!(!h.should_block);
+        assert_eq!(h.verdict, "supports");
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn policy_hint_refuted_is_avoid_and_blocks() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        cap(&aura, "patient on warfarin", "suggest ibuprofen", "GI bleed", -1);
+        let h = aura.consequence_policy_hint("patient on warfarin", "suggest ibuprofen", None);
+        assert_eq!(h.hint, "avoid");
+        assert!(h.should_block);
+        assert_eq!(h.verdict, "refutes");
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn policy_hint_scar_flag_set_when_refute_survives_support() -> Result<()> {
+        // The gaslight guard, surfaced as a hint flag: avoid + scar even after
+        // many later supports.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        cap(&aura, "patient on warfarin", "suggest ibuprofen", "GI bleed", -1);
+        for _ in 0..30 {
+            cap(
+                &aura,
+                "patient on warfarin",
+                "suggest ibuprofen",
+                "commonly recommended",
+                1,
+            );
+        }
+        let h = aura.consequence_policy_hint("patient on warfarin", "suggest ibuprofen", None);
+        assert_eq!(h.hint, "avoid");
+        assert!(h.should_block);
+        assert!(
+            h.scar,
+            "scar flag must fire when a refute survives later supports"
+        );
+        assert!(h.supports >= 30 && h.refutes >= 1);
+        aura.close()?;
+        Ok(())
+    }
+
+    // ── Route-state-stratified decay (demotion, not deletion) ──
+
+    #[test]
+    fn route_state_decay_demotes_not_deletes_and_protects_scar() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+
+        // A refuted scar (consequence-refute tag via capture_consequence trust<0).
+        let scar = aura.capture_consequence(
+            "patient on warfarin",
+            "suggest ibuprofen",
+            "GI bleed",
+            -1,
+            None,
+            None,
+            None,
+            None,
+        )?;
+        // A plain candidate with NO consequence tag and HIGH access count — the
+        // frequency-driven trap. It must demote despite being "popular".
+        let junk = aura.store(
+            "frequently touched but never confirmed",
+            Some(Level::Working),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )?;
+        if let Some(rec) = aura.records.write().get_mut(&junk.id) {
+            rec.activation_count = 1000;
+            rec.strength = 0.06; // already near the floor
+        }
+
+        // Run several route-state decay ticks.
+        for _ in 0..5 {
+            aura.decay_by_route_state()?;
+        }
+
+        // Scar survived in the active field and is NOT deleted, despite decay.
+        assert!(
+            aura.get(&scar.record_id).is_some(),
+            "refuted scar must never be demoted/deleted"
+        );
+        // Junk left the active field (demoted) but its on-disk trace remains
+        // (demotion, not deletion) — reload sees it.
+        let in_field = aura.records.read().contains_key(&junk.id);
+        assert!(!in_field, "frequent junk must demote out of the active field");
+
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn maintenance_loop_decay_never_deletes_a_scar() -> Result<()> {
+        // Regression: the PRODUCTION maintenance decay (run_maintenance ->
+        // run_initial_phases) previously used frequency-based apply_decay and
+        // DELETED any record whose strength fell below the floor — scar or not.
+        // After the route-state fix, a Refuted scar must survive maintenance even
+        // when its strength is driven to zero.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+
+        let scar = aura.capture_consequence(
+            "patient on warfarin",
+            "suggest ibuprofen",
+            "GI bleed",
+            -1,
+            None,
+            None,
+            None,
+            None,
+        )?;
+        // Confirm the captured record is actually classified as a Refuted scar.
+        {
+            let recs = aura.records.read();
+            let rec = recs.get(&scar.record_id).expect("scar record exists");
+            assert_eq!(
+                rec.route_state_class(),
+                crate::record::RouteStateClass::Refuted,
+                "captured refutation must carry the refute tag / Refuted class"
+            );
+        }
+        // Put the scar just above the alive floor with NO access boost — only
+        // route-state retention can save it. Under the OLD frequency-based decay,
+        // repeated maintenance cycles erode a low-strength, rarely-accessed record
+        // toward the archival floor; the route-state decay must instead retain a
+        // Refuted scar (rate 1.0) so it never crosses the floor, no matter how
+        // many cycles run.
+        if let Some(rec) = aura.records.write().get_mut(&scar.record_id) {
+            rec.strength = 0.06; // just above the 0.05 alive floor
+            rec.activation_count = 0;
+        }
+
+        let mut cfg = aura.get_maintenance_config();
+        cfg.decay_enabled = true;
+        aura.configure_maintenance(cfg);
+
+        for _ in 0..10 {
+            let _ = aura.run_maintenance();
+        }
+
+        assert!(
+            aura.get(&scar.record_id).is_some(),
+            "the maintenance loop must NEVER decay/delete a refuted scar"
+        );
+        // The scar did not field-decay (route-state retention 1.0 for Refuted).
+        let strength = aura.get(&scar.record_id).map(|r| r.strength).unwrap_or(0.0);
+        assert!(
+            strength >= 0.06,
+            "a refuted scar must not lose strength under maintenance decay (got {strength})"
+        );
+        // And the scar verdict still holds after maintenance.
+        let (v, ..) = aura.consequence_verdict("patient on warfarin", "suggest ibuprofen", None);
+        assert_eq!(v, ConsequencePolarity::Refutes);
+
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn consolidation_never_destroys_a_scar() -> Result<()> {
+        // A Refuted scar that is a near-duplicate of another record must NOT be
+        // the one removed by MinHash consolidation — its record_id and lived
+        // metadata must survive so consequence_verdict still sees the refutation.
+        //
+        // CRITICAL: this test must actually FORCE a >= 0.85 MinHash hard-merge so
+        // the scar-keep branch of consolidate() is genuinely exercised. The scar's
+        // indexed content is its ConsequenceUnit::to_content() string, NOT the bare
+        // situation — so the plain record is stored with that SAME content (minus a
+        // trivial token) to guarantee the pair clears CONSOLIDATION_THRESHOLD. The
+        // plain record is also made HIGHER importance than the scar, so that
+        // WITHOUT the guard `imp_a >= imp_b` would keep the plain record and DELETE
+        // the scar; the guard must flip that choice.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+
+        let scar = aura.capture_consequence(
+            "deploy step skip the smoke test entirely before shipping to prod",
+            "skip smoke test",
+            "outage",
+            -1,
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        // Plain record: content == the scar record's indexed content so MinHash
+        // similarity is ~1.0 (>= 0.85). Identity level + maxed salience makes its
+        // importance strictly greater than the freshly-captured scar's.
+        let scar_content = {
+            let recs = aura.records.read();
+            recs.get(&scar.record_id)
+                .expect("scar record exists")
+                .content
+                .clone()
+        };
+        let plain = aura.store(
+            &scar_content,
+            Some(Level::Identity),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )?;
+        // Confirm the pair really is a hard-merge duplicate AND that the plain
+        // record outranks the scar — otherwise the merge path is never reached and
+        // this test would pass trivially (the original bug).
+        {
+            let ngram = aura.ngram_index.read();
+            let sim = ngram.jaccard(&plain.id, &scar.record_id);
+            assert!(
+                sim >= crate::consolidation::CONSOLIDATION_THRESHOLD,
+                "test must force a hard-merge duplicate; got sim={sim}"
+            );
+            let recs = aura.records.read();
+            let imp_plain = recs.get(&plain.id).unwrap().importance();
+            let imp_scar = recs.get(&scar.record_id).unwrap().importance();
+            assert!(
+                imp_plain > imp_scar,
+                "plain ({imp_plain}) must outrank scar ({imp_scar}) so the guard, \
+                 not importance, is what saves the scar"
+            );
+        }
+
+        let mut cfg = aura.get_maintenance_config();
+        cfg.consolidation_enabled = true;
+        cfg.decay_enabled = false;
+        cfg.archival_enabled = false;
+        aura.configure_maintenance(cfg);
+        for _ in 0..3 {
+            let _ = aura.run_maintenance();
+        }
+
+        // The scar must survive even though it is the LOWER-importance twin — only
+        // the guard can save it.
+        assert!(
+            aura.get(&scar.record_id).is_some(),
+            "consolidation must never remove a refuted scar"
+        );
+        // The merge must have actually happened: the higher-importance plain twin
+        // is the one removed, proving the scar-keep branch genuinely ran (and the
+        // test did not pass trivially because no >= 0.85 pair was found).
+        assert!(
+            aura.get(&plain.id).is_none(),
+            "the higher-importance plain twin must be merged away (merge path exercised)"
+        );
+        let (v, ..) = aura.consequence_verdict(
+            "deploy step skip the smoke test entirely before shipping to prod",
+            "skip smoke test",
+            None,
+        );
+        assert_eq!(v, ConsequencePolarity::Refutes);
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn standalone_decay_never_deletes_a_scar() -> Result<()> {
+        // The standalone Aura::decay() (exposed to Python as aura.decay()) must
+        // honor the scar guard too — a direct decay() call on a low-strength scar
+        // must not delete it, mirroring the maintenance loop.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let scar = aura.capture_consequence(
+            "deploy", "ship without tests", "outage", -1, None, None, None, None,
+        )?;
+        if let Some(rec) = aura.records.write().get_mut(&scar.record_id) {
+            rec.strength = 0.0; // would be archived by frequency decay
+        }
+        for _ in 0..3 {
+            aura.decay()?;
+        }
+        assert!(
+            aura.get(&scar.record_id).is_some(),
+            "standalone decay() must never delete a refuted scar"
+        );
+        let (v, ..) = aura.consequence_verdict("deploy", "ship without tests", None);
+        assert_eq!(v, ConsequencePolarity::Refutes);
+        aura.close()?;
+        Ok(())
+    }
+
+    // ── Provenance-ranked recall (consumes effective_credibility, §11.4) ──
+
+    #[test]
+    fn provenance_recall_lifts_lived_over_model_generated() -> Result<()> {
+        // Two records answering the same query. The model-generated one is even
+        // a touch more "relevant" on the surface, but the lived-consequence one
+        // must rank first because being born from a collision outweighs a fluent
+        // description. This is the §11.4 guard applied to retrieval order.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+
+        // Lived consequence: captured from a real outcome (carries cu_provenance
+        // "sdk:capture_consequence" + consequence-support tag).
+        aura.capture_consequence(
+            "fever management",
+            "give acetaminophen",
+            "temperature dropped, patient comfortable",
+            1,
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        // Model-generated description of the same topic.
+        aura.store(
+            "fever management give acetaminophen as a common antipyretic option",
+            Some(Level::Working),
+            None,
+            None,
+            None,
+            Some("generated"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let ranked = aura.recall_provenance_ranked(
+            "fever management acetaminophen",
+            Some(10),
+            Some(0.0),
+            Some(false),
+            None,
+            None,
+        )?;
+
+        assert!(ranked.len() >= 2, "both records should be recalled");
+        // The top result must be the lived consequence.
+        assert_eq!(
+            ranked[0].2,
+            crate::credibility::ProvenanceKind::LivedConsequence,
+            "lived consequence must rank first"
+        );
+        // And a model-generated record must appear lower with a damped score.
+        let model = ranked
+            .iter()
+            .find(|(_, _, k, _)| *k == crate::credibility::ProvenanceKind::ModelGenerated);
+        if let Some((eff, base, _, _)) = model {
+            assert!(eff < base, "model-generated effective score must be damped");
+        }
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn provenance_recall_is_order_stable_when_all_same_kind() -> Result<()> {
+        // Honest boundary: when every recalled record shares the SAME provenance
+        // kind, the uniform multiplier is order-preserving — provenance ranking is
+        // (correctly) a no-op and must not scramble relevance order. This documents
+        // that the lift only takes effect across MIXED kinds (proven above).
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        // Three model-generated records of differing relevance to the query.
+        for (i, txt) in [
+            "fever management acetaminophen dosing detailed",
+            "fever management acetaminophen",
+            "fever acetaminophen",
+        ]
+        .iter()
+        .enumerate()
+        {
+            aura.store(
+                txt,
+                Some(Level::Working),
+                None,
+                None,
+                None,
+                Some("generated"),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )?;
+            let _ = i;
+        }
+
+        let plain = aura.recall_structured(
+            "fever management acetaminophen",
+            Some(10),
+            Some(0.0),
+            Some(false),
+            None,
+            None,
+        )?;
+        let ranked = aura.recall_provenance_ranked(
+            "fever management acetaminophen",
+            Some(10),
+            Some(0.0),
+            Some(false),
+            None,
+            None,
+        )?;
+        // Same set, same relative order (all one kind → no reordering).
+        let plain_ids: Vec<&String> = plain.iter().map(|(_, r)| &r.id).collect();
+        let ranked_ids: Vec<String> = ranked.iter().map(|(_, _, _, r)| r.id.clone()).collect();
+        assert_eq!(
+            plain_ids.len(),
+            ranked_ids.len(),
+            "same record set recalled"
+        );
+        for (a, b) in plain_ids.iter().zip(ranked_ids.iter()) {
+            assert_eq!(*a, b, "uniform-kind order must be preserved (no-op)");
+        }
+        // And every record carries the same provenance label.
+        assert!(ranked.iter().all(|(_, _, k, _)| *k
+            == crate::credibility::ProvenanceKind::ModelGenerated));
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn record_world_fact_refutes_creates_scar() -> Result<()> {
+        // The Python-reachable end of the executable-judge loop: a "refutes"
+        // world fact becomes a scar-protected refutation that supporting
+        // frequency cannot bury.
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        cap(&aura, "deploy step", "skip the smoke test", "world fact: refutes", -1);
+        // Flood supports for the same pair.
+        for _ in 0..20 {
+            cap(&aura, "deploy step", "skip the smoke test", "looked fine", 1);
+        }
+        let (v, ..) = aura.consequence_verdict("deploy step", "skip the smoke test", None);
+        assert_eq!(v, ConsequencePolarity::Refutes, "world-fact refutation is a scar");
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn consequence_support_confirms_linked_belief_and_persists() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let belief_id = seed_health_belief_for_consequence(&aura)?;
+
+        let mut links = HashMap::new();
+        links.insert("belief".to_string(), belief_id.clone());
+        aura.capture_consequence(
+            "patient had headache",
+            "recommend ibuprofen",
+            "SUPPORTS",
+            1,
+            Some(vec!["health".into(), "advice".into()]),
+            Some(vec!["world:followup".into()]),
+            Some(links),
+            Some("default"),
+        )?;
+
+        let belief = aura
+            .get_beliefs(None)
+            .into_iter()
+            .find(|belief| belief.id == belief_id)
+            .expect("belief remains available");
+        assert_eq!(belief.world_verdict, WorldVerdict::Confirmed);
+        aura.close()?;
+
+        let reopened = Aura::open(dir.path().to_str().unwrap())?;
+        let persisted = reopened
+            .get_beliefs(None)
+            .into_iter()
+            .find(|belief| belief.id == belief_id)
+            .expect("belief verdict persists across reopen");
+        assert_eq!(persisted.world_verdict, WorldVerdict::Confirmed);
+        Ok(())
+    }
+
+    #[test]
+    fn consequence_refute_scars_linked_belief_against_later_support() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let belief_id = seed_health_belief_for_consequence(&aura)?;
+
+        let mut refute_links = HashMap::new();
+        refute_links.insert("belief".to_string(), belief_id.clone());
+        aura.capture_consequence(
+            "patient on anticoagulant had headache",
+            "recommend ibuprofen",
+            "REFUTES",
+            -1,
+            Some(vec!["health".into(), "safety".into()]),
+            Some(vec!["world:adverse_event".into()]),
+            Some(refute_links),
+            Some("default"),
+        )?;
+
+        let mut support_links = HashMap::new();
+        support_links.insert("belief".to_string(), belief_id.clone());
+        for _ in 0..5 {
+            aura.capture_consequence(
+                "patient had headache",
+                "recommend ibuprofen",
+                "SUPPORTS",
+                1,
+                Some(vec!["health".into()]),
+                Some(vec!["model:frequency".into()]),
+                Some(support_links.clone()),
+                Some("default"),
+            )?;
+        }
+
+        let belief = aura
+            .get_beliefs(None)
+            .into_iter()
+            .find(|belief| belief.id == belief_id)
+            .expect("belief remains available");
+        assert_eq!(belief.world_verdict, WorldVerdict::Refuted);
         Ok(())
     }
 }

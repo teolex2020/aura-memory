@@ -22,6 +22,17 @@ use crate::record::Record;
 use crate::sdr::SDRInterpreter;
 use crate::trust::TagTaxonomy;
 
+/// Per-cycle decay applied to the learned topology during maintenance.
+/// Multiplicative: each edge weight is scaled by this factor each cycle,
+/// so an un-reinforced edge halves roughly every ~14 cycles. Recall
+/// reinforcement (`+REINFORCE_DELTA` per co-recall) must outpace this for
+/// an edge to survive — exactly the "use it or lose it" property.
+const TOPOLOGY_DECAY_RATE: f32 = 0.95;
+
+/// Edges whose weight falls below this after decay are pruned, so the
+/// topology does not accumulate vanishing dead edges across cycles.
+const TOPOLOGY_PRUNE_BELOW: f32 = 0.01;
+
 pub(crate) struct InitialMaintenancePhaseResult {
     pub(crate) total_records: usize,
     pub(crate) decay: background_brain::DecayReport,
@@ -86,9 +97,22 @@ impl MaintenanceService {
             let mut to_archive = Vec::new();
 
             for rec in records.values_mut() {
-                rec.apply_decay();
+                // Route-state-stratified decay: the rate is read from the
+                // consequence route-state class, not from access frequency, so a
+                // never-confirmed-but-frequently-touched record still decays and a
+                // confirmed one is retained. A Refuted scar never field-decays.
+                rec.apply_route_state_decay();
                 decayed += 1;
-                if !rec.is_alive() {
+                // Scar protection: a Refuted scar (and identity-anchored records)
+                // must NEVER be archived/deleted by decay — only an explicit
+                // contradiction clears a scar. This is the founding gaslight guard
+                // applied to the live maintenance loop (it previously deleted any
+                // record whose frequency-driven strength fell below the floor,
+                // scar or not).
+                let is_scar = rec.route_state_class()
+                    == crate::record::RouteStateClass::Refuted;
+                let anchored = rec.level >= crate::levels::Level::Identity;
+                if !rec.is_alive() && !is_scar && !anchored {
                     to_archive.push(rec.id.clone());
                 }
             }
@@ -273,7 +297,27 @@ impl MaintenanceService {
         sdr_lookup: &SdrLookup,
         timings: &mut background_brain::PhaseTimings,
         hotspots: &mut background_brain::MaintenanceHotspots,
+        // Learned weighted-graph substrate. When present, this phase
+        // ages it (decay + prune), persists it, and hands a snapshot to
+        // the causal engine so causal discovery reads *learned* edge
+        // weights. `None` keeps the original behaviour exactly.
+        topology: Option<(&RwLock<crate::topology::Topology>, &crate::topology::TopologyStore)>,
     ) -> DiscoveryPhaseResult {
+        // ── Topology aging ───────────────────────────────────────────
+        // Decay the learned topology once per maintenance cycle so stale
+        // co-recall edges fade instead of accumulating forever, then snap
+        // a copy for the causal engine to read. Done before the causal
+        // phase below. Best-effort: failures never abort maintenance.
+        if let Some((topo_lock, topo_store)) = topology {
+            {
+                let mut topo = topo_lock.write();
+                let _ = topo.decay_edges(TOPOLOGY_DECAY_RATE, TOPOLOGY_PRUNE_BELOW);
+            }
+            let snapshot = topo_lock.read().clone();
+            let _ = topo_store.save(&snapshot);
+            causal_engine.write().set_learned_topology(snapshot);
+        }
+
         let t35 = std::time::Instant::now();
         let belief = {
             let mut engine = belief_engine.write();
@@ -351,7 +395,8 @@ impl MaintenanceService {
                     patterns_meeting_repeated_window_gate: cr.patterns_meeting_repeated_window_gate,
                     patterns_meeting_counterfactual_gate: cr.patterns_meeting_counterfactual_gate,
                     patterns_blocked_by_evidence_gates: cr.patterns_blocked_by_evidence_gates,
-                    patterns_blocked_by_counterfactual_gate: cr.patterns_blocked_by_counterfactual_gate,
+                    patterns_blocked_by_counterfactual_gate: cr
+                        .patterns_blocked_by_counterfactual_gate,
                     stable_count: cr.stable_count,
                     rejected_count: cr.rejected_count,
                     avg_causal_strength: cr.avg_causal_strength,

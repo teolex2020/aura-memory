@@ -58,7 +58,27 @@ pub fn consolidate(
         let imp_a = records.get(id_a).map(|r| r.importance()).unwrap_or(0.0);
         let imp_b = records.get(id_b).map(|r| r.importance()).unwrap_or(0.0);
 
-        let (keep_id, remove_id) = if imp_a >= imp_b {
+        let scar_a = records
+            .get(id_a)
+            .map(|r| r.route_state_class() == crate::record::RouteStateClass::Refuted)
+            .unwrap_or(false);
+        let scar_b = records
+            .get(id_b)
+            .map(|r| r.route_state_class() == crate::record::RouteStateClass::Refuted)
+            .unwrap_or(false);
+
+        // Scar protection: a Refuted consequence scar must never be the record
+        // that gets removed in a merge — its record_id and consequence metadata
+        // (situation/action/trust) must survive so consequence_verdict still sees
+        // it. If BOTH sides are scars, leave them both untouched (merging would
+        // destroy one scar's lived record).
+        let (keep_id, remove_id) = if scar_a && scar_b {
+            continue;
+        } else if scar_a {
+            (id_a.clone(), id_b.clone()) // keep the scar
+        } else if scar_b {
+            (id_b.clone(), id_a.clone()) // keep the scar
+        } else if imp_a >= imp_b {
             (id_a.clone(), id_b.clone())
         } else {
             (id_b.clone(), id_a.clone())

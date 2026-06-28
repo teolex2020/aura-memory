@@ -1087,6 +1087,12 @@ pub fn archive_old_records(
                     if rec.salience >= 0.70 {
                         continue;
                     }
+                    // Scar protection: a Refuted consequence scar is never
+                    // archived/deleted — it outranks any archival rule (the
+                    // gaslight guard applies to age-based archival too).
+                    if rec.route_state_class() == crate::record::RouteStateClass::Refuted {
+                        continue;
+                    }
                     if !crate::guards::is_archive_protected(&rec.tags, taxonomy) {
                         records.remove(id);
                         total_archived += 1;
@@ -1120,6 +1126,8 @@ pub fn archive_old_records(
                 completed_at.is_empty() || completed_at < cutoff.as_str()
             })
             .filter(|r| r.salience < 0.70)
+            // Scar protection: never delete a Refuted consequence scar.
+            .filter(|r| r.route_state_class() != crate::record::RouteStateClass::Refuted)
             .map(|r| r.id.clone())
             .collect();
 

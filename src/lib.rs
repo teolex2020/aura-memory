@@ -43,6 +43,7 @@ mod types;
 pub mod versioning;
 
 // ── v5: Autonomous Cognitive Plasticity ──
+pub mod consequence;
 pub mod experience;
 
 #[cfg(feature = "encryption")]
@@ -183,6 +184,11 @@ pub mod concept;
 
 // ── Causal Pattern Discovery Layer ──
 pub mod causal;
+pub mod neighbor_mass;
+pub mod executable_judge;
+
+// ── Shared weighted-graph substrate (ported from Aura research brain) ──
+pub mod topology;
 
 // ── Policy Hint Layer ──
 pub mod epistemic_runtime;
@@ -203,6 +209,7 @@ pub use memory::AuraMemory;
 
 // ── Unified API ──
 pub use aura::Aura;
+pub use consequence::ConsequenceUnit;
 pub use levels::Level;
 pub use record::Record;
 
@@ -218,8 +225,23 @@ fn init_license_check() {
 fn _core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Main API
     m.add_class::<aura::Aura>()?;
+    m.add_class::<consequence::ConsequencePolarity>()?;
+    m.add_class::<consequence::ConsequenceUnit>()?;
+    m.add_class::<consequence::ConsequencePolicyHint>()?;
     m.add_class::<levels::Level>()?;
     m.add_class::<record::Record>()?;
+    m.add_class::<record::RouteStateClass>()?;
+    m.add_class::<neighbor_mass::NeighborMassFootprint>()?;
+    m.add_function(wrap_pyfunction!(
+        neighbor_mass::py_neighbor_mass_role_similarity,
+        m
+    )?)?;
+    m.add_class::<causal::CausalEdgeKind>()?;
+    m.add_function(wrap_pyfunction!(causal::py_classify_causal_edge, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        executable_judge::py_world_fact_from_output,
+        m
+    )?)?;
 
     // Tag & Trust Configuration
     m.add_class::<trust::TagTaxonomy>()?;

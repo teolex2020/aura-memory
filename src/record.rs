@@ -12,6 +12,23 @@ use crate::levels::Level;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+/// Consequence route-state class of a record, used by route-state-stratified
+/// decay. Ordered weakest→strongest by how long the memory should be retained;
+/// `Refuted` is special-cased as an eternal scar (never field-decays) despite
+/// sitting at the top of the ordinal scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
+pub enum RouteStateClass {
+    /// No lived consequence — a plain candidate. Decays fastest.
+    Candidate,
+    /// Open evidence-debt (`consequence-inconclusive`). Decays slowly.
+    EvidenceDebt,
+    /// World-confirmed (`consequence-support`). Retained longest.
+    Confirmed,
+    /// World-refuted (`consequence-refute`) — a scar. Never field-decays.
+    Refuted,
+}
+
 /// A single cognitive memory record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass)]
@@ -235,6 +252,56 @@ impl Record {
     /// Whether this record is still alive (not archived).
     pub fn is_alive(&self) -> bool {
         self.strength >= 0.05
+    }
+
+    /// Consequence route-state class of this record, read from its tags.
+    ///
+    /// This is the axis that route-state-stratified decay reads INSTEAD of
+    /// access frequency. A `consequence-refute` tag is a scar; `consequence-
+    /// support` is confirmed; `consequence-inconclusive` is open evidence-debt;
+    /// anything else is a plain candidate.
+    pub fn route_state_class(&self) -> RouteStateClass {
+        let mut has_support = false;
+        let mut has_debt = false;
+        for tag in &self.tags {
+            match tag.as_str() {
+                crate::consequence::CONSEQUENCE_REFUTE_TAG => return RouteStateClass::Refuted,
+                crate::consequence::CONSEQUENCE_SUPPORT_TAG => has_support = true,
+                crate::consequence::CONSEQUENCE_INCONCLUSIVE_TAG => has_debt = true,
+                _ => {}
+            }
+        }
+        if has_support {
+            RouteStateClass::Confirmed
+        } else if has_debt {
+            RouteStateClass::EvidenceDebt
+        } else {
+            RouteStateClass::Candidate
+        }
+    }
+
+    /// Apply ONE route-state-stratified decay tick to `strength`.
+    ///
+    /// Unlike [`apply_decay`], this reads the record's [`RouteStateClass`], NOT
+    /// its access frequency. The proven contract (Aura-clean decay kill-test):
+    ///
+    ///   * `Refuted` (scar) and identity-anchored: rate 0.0 — never field-decays.
+    ///   * `Confirmed <= EvidenceDebt <= Candidate` — confirmed survives longest,
+    ///     a never-confirmed candidate decays fastest, REGARDLESS of how many
+    ///     times it was accessed.
+    ///
+    /// This is multiplicative on strength so it composes with the existing
+    /// tier/archival machinery; the key change is *what* sets the rate.
+    pub fn apply_route_state_decay(&mut self) {
+        let retention = match self.route_state_class() {
+            // identity is structurally anchored; refuted is an eternal scar.
+            _ if self.level >= Level::Identity => 1.0,
+            RouteStateClass::Refuted => 1.0,
+            RouteStateClass::Confirmed => 0.98,
+            RouteStateClass::EvidenceDebt => 0.90,
+            RouteStateClass::Candidate => 0.80,
+        };
+        self.strength *= retention;
     }
 
     /// Whether this record is eligible for promotion.
@@ -514,6 +581,91 @@ impl Record {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consequence::{
+        CONSEQUENCE_INCONCLUSIVE_TAG, CONSEQUENCE_REFUTE_TAG, CONSEQUENCE_SUPPORT_TAG,
+    };
+
+    fn tagged(level: Level, tag: &str) -> Record {
+        let mut r = Record::new("x".into(), level);
+        r.tags.push(tag.to_string());
+        r
+    }
+
+    #[test]
+    fn route_state_class_reads_consequence_tags() {
+        assert_eq!(
+            tagged(Level::Working, CONSEQUENCE_REFUTE_TAG).route_state_class(),
+            RouteStateClass::Refuted
+        );
+        assert_eq!(
+            tagged(Level::Working, CONSEQUENCE_SUPPORT_TAG).route_state_class(),
+            RouteStateClass::Confirmed
+        );
+        assert_eq!(
+            tagged(Level::Working, CONSEQUENCE_INCONCLUSIVE_TAG).route_state_class(),
+            RouteStateClass::EvidenceDebt
+        );
+        // No consequence tag → plain candidate.
+        assert_eq!(
+            Record::new("x".into(), Level::Working).route_state_class(),
+            RouteStateClass::Candidate
+        );
+    }
+
+    #[test]
+    fn refute_tag_wins_over_support_tag() {
+        let mut r = Record::new("x".into(), Level::Working);
+        r.tags.push(CONSEQUENCE_SUPPORT_TAG.to_string());
+        r.tags.push(CONSEQUENCE_REFUTE_TAG.to_string());
+        assert_eq!(r.route_state_class(), RouteStateClass::Refuted);
+    }
+
+    #[test]
+    fn route_state_decay_never_touches_a_scar() {
+        let mut scar = tagged(Level::Working, CONSEQUENCE_REFUTE_TAG);
+        for _ in 0..100 {
+            scar.apply_route_state_decay();
+        }
+        assert_eq!(scar.strength, 1.0, "a refuted scar must never field-decay");
+        assert!(scar.is_alive());
+    }
+
+    #[test]
+    fn route_state_decay_ignores_frequency_ordering() {
+        // The proven contract: confirmed decays slower than a candidate
+        // REGARDLESS of access frequency. Give the candidate a huge access
+        // count — it must STILL decay faster than the rarely-accessed confirmed.
+        let mut confirmed = tagged(Level::Working, CONSEQUENCE_SUPPORT_TAG);
+        confirmed.activation_count = 1;
+        let mut junk = Record::new("x".into(), Level::Working); // candidate
+        junk.activation_count = 1000;
+
+        for _ in 0..20 {
+            confirmed.apply_route_state_decay();
+            junk.apply_route_state_decay();
+        }
+        assert!(
+            confirmed.strength > junk.strength,
+            "confirmed {} must outlast frequent junk {}",
+            confirmed.strength,
+            junk.strength
+        );
+    }
+
+    #[test]
+    fn route_state_decay_respects_class_ordering() {
+        let mut confirmed = tagged(Level::Working, CONSEQUENCE_SUPPORT_TAG);
+        let mut debt = tagged(Level::Working, CONSEQUENCE_INCONCLUSIVE_TAG);
+        let mut candidate = Record::new("x".into(), Level::Working);
+        for _ in 0..10 {
+            confirmed.apply_route_state_decay();
+            debt.apply_route_state_decay();
+            candidate.apply_route_state_decay();
+        }
+        // confirmed >= debt >= candidate (slower decay = more strength retained)
+        assert!(confirmed.strength >= debt.strength);
+        assert!(debt.strength >= candidate.strength);
+    }
 
     #[test]
     fn test_new_record() {

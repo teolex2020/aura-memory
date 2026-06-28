@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 use crate::belief::{BeliefEngine, BeliefState, SdrLookup};
 use crate::record::Record;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 // ── Constants ──
 
 /// Maximum temporal gap (seconds) between cause and effect records.
@@ -111,6 +114,150 @@ impl Default for CausalState {
         Self::Candidate
     }
 }
+
+// ── Causal edge kind (typed causal grammar) ──
+
+/// The SEMANTIC type of a causal edge, classifying *what kind* of relation a
+/// pattern represents — not just how strong it is.
+///
+/// Ported from the Aura research line's typed causal grammar
+/// (`ConsequenceMicroRegionTypedEdgeKind`). The proven distinction is that a
+/// relation is only `Causes` when it survives a counterfactual test (removing
+/// the cause reliably breaks the effect), versus `Precedes` which is mere
+/// temporal order (correlation). This is exactly the discrimination a frozen
+/// model does NOT make: it follows co-occurrence, calling correlation cause.
+///
+/// The classifier reads a `CausalPattern`'s ALREADY-COMPUTED signals
+/// (counterfactual ratio, transition lift, effect polarity) — no new data, no
+/// LLM. It is the labeling layer the SDK was missing on top of its quantitative
+/// causal engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
+pub enum CausalEdgeKind {
+    /// Temporal order only — cause precedes effect, but the effect occurs about
+    /// as often without it. Correlation, NOT causation.
+    Precedes,
+    /// Survives the counterfactual gate AND lifts the effect AND the effect is
+    /// predominantly positive: removing the cause reliably breaks a good effect.
+    Causes,
+    /// Lifts the effect's probability but is not necessary (effect also occurs
+    /// without it) — a permissive/possibility relation, not strict causation.
+    Enables,
+    /// Survives the counterfactual gate but the effect is predominantly negative
+    /// — a scar: this cause reliably leads to a bad outcome.
+    Refutes,
+}
+
+impl CausalEdgeKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CausalEdgeKind::Precedes => "precedes",
+            CausalEdgeKind::Causes => "causes",
+            CausalEdgeKind::Enables => "enables",
+            CausalEdgeKind::Refutes => "refutes",
+        }
+    }
+}
+
+/// Classify a typed causal-edge kind directly from the raw signals, without a
+/// full `CausalPattern`. Same decision as [`classify_causal_edge`]; exposed for
+/// callers (and Python) that have the signals but not the pattern object.
+pub fn classify_causal_edge_from_signals(
+    support_count: usize,
+    counterevidence: usize,
+    transition_lift: f32,
+    positive_effect_signals: usize,
+    negative_effect_signals: usize,
+) -> CausalEdgeKind {
+    let total = support_count + counterevidence;
+    let ratio = if total == 0 {
+        0.0
+    } else {
+        counterevidence as f32 / total as f32
+    };
+    if ratio > MAX_COUNTERFACTUAL_RATIO {
+        return CausalEdgeKind::Precedes;
+    }
+    if negative_effect_signals > positive_effect_signals {
+        return CausalEdgeKind::Refutes;
+    }
+    if transition_lift > 1.0 {
+        CausalEdgeKind::Causes
+    } else {
+        CausalEdgeKind::Enables
+    }
+}
+
+/// Python: classify a typed causal-edge kind from raw signals. Returns one of
+/// "precedes" | "causes" | "enables" | "refutes". `precedes` means correlation
+/// only (the effect occurs without the cause); `causes` means it survives a
+/// counterfactual test. Deterministic, no LLM.
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(name = "classify_causal_edge", signature = (support_count, counterevidence, transition_lift, positive_effect_signals=0, negative_effect_signals=0))]
+pub fn py_classify_causal_edge(
+    support_count: usize,
+    counterevidence: usize,
+    transition_lift: f32,
+    positive_effect_signals: usize,
+    negative_effect_signals: usize,
+) -> String {
+    classify_causal_edge_from_signals(
+        support_count,
+        counterevidence,
+        transition_lift,
+        positive_effect_signals,
+        negative_effect_signals,
+    )
+    .as_str()
+    .to_string()
+}
+
+/// Classify the typed causal-edge kind of a pattern from its existing signals.
+///
+/// Decision (deterministic, faithful to the proven grammar):
+///   * high counterfactual ratio (effect happens without the cause) ⇒
+///     `Precedes` — temporal order, not causation;
+///   * passes the counterfactual gate AND has positive transition lift:
+///       - effect predominantly negative ⇒ `Refutes` (a scar);
+///       - effect predominantly positive ⇒ `Causes`;
+///   * passes the gate but lift is weak/absent ⇒ `Enables` (permissive, the
+///     cause helps but the effect also occurs without it).
+pub fn classify_causal_edge(pattern: &CausalPattern) -> CausalEdgeKind {
+    // Counterfactual: does the effect occur about as often WITHOUT the cause?
+    // High ratio ⇒ removing the cause does not break the effect ⇒ not causal.
+    if counterfactual_ratio(pattern) > MAX_COUNTERFACTUAL_RATIO {
+        return CausalEdgeKind::Precedes;
+    }
+
+    let negative = pattern.negative_effect_signals;
+    let positive = pattern.positive_effect_signals;
+
+    // A predominantly negative effect that survives the counterfactual gate is
+    // a refutation scar regardless of lift magnitude.
+    if negative > positive {
+        return CausalEdgeKind::Refutes;
+    }
+
+    // `CausalPattern::transition_lift` is stored NORMALIZED to [0, 1] by
+    // `score_pattern` as `raw_lift / 5.0` (raw lift capped at 5.0). A raw lift of
+    // 1.0 — the no-lift baseline where the cause does not raise the effect above
+    // its base rate — maps to a normalized value of 0.2. So "the cause lifts the
+    // effect above base rate" is `transition_lift > 0.2`, NOT `> 1.0`. (The
+    // earlier `> 1.0` threshold was unreachable for real patterns, collapsing
+    // every pattern to Enables.) Strong lift ⇒ Causes; at/below base rate ⇒ Enables.
+    if pattern.transition_lift > NO_LIFT_NORMALIZED {
+        CausalEdgeKind::Causes
+    } else {
+        CausalEdgeKind::Enables
+    }
+}
+
+/// Normalized `transition_lift` value corresponding to a raw lift of exactly
+/// 1.0 (no lift above base rate). `score_pattern` stores `raw_lift / 5.0`, so
+/// raw 1.0 → 0.2. A pattern is "causal" only when its normalized lift exceeds
+/// this baseline.
+const NO_LIFT_NORMALIZED: f32 = 0.2;
 
 /// Budgeting mode for temporal causal edge extraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -326,6 +473,17 @@ pub struct CausalEngine {
     pub last_explicit_edges_found: usize,
     #[serde(default)]
     pub last_temporal_edges_found: usize,
+    /// Optional learned-weight substrate. When present, edge extraction
+    /// reads the *learned* connection strength between two records from
+    /// the topology (a weight that `recall` reinforces and maintenance
+    /// decays over time) in preference to the static `rec.connections`
+    /// map, and only falls back to the `0.5` default when neither source
+    /// has the edge. `None` (the default) preserves the original
+    /// behaviour exactly, so existing callers and persisted state are
+    /// unaffected. Not serialized — the topology owns its own
+    /// persistence via [`crate::topology::TopologyStore`].
+    #[serde(skip)]
+    learned_topology: Option<crate::topology::Topology>,
 }
 
 impl CausalEngine {
@@ -342,7 +500,45 @@ impl CausalEngine {
             last_edges_found: 0,
             last_explicit_edges_found: 0,
             last_temporal_edges_found: 0,
+            learned_topology: None,
         }
+    }
+
+    /// Attach a learned-weight topology used as the preferred source of
+    /// edge weights during discovery. Pass the topology that `recall`
+    /// reinforces and maintenance decays; edge extraction will read
+    /// `topology.edge_weight(node_id_for(cause), node_id_for(effect))`
+    /// before falling back to the static connections map / `0.5`.
+    ///
+    /// Opt-in: with no topology attached, discovery behaves exactly as
+    /// before. The engine borrows nothing — it takes ownership of a
+    /// snapshot, so callers clone the live topology in for a cycle.
+    pub fn set_learned_topology(&mut self, topology: crate::topology::Topology) {
+        self.learned_topology = Some(topology);
+    }
+
+    /// Resolve the weight for a directed cause→effect pair, preferring
+    /// the learned topology, then the static connections map, then the
+    /// historical `0.5` default. `effect_rec` is the record that carries
+    /// the `connections` entry keyed by `cause_id` (the original lookup).
+    fn edge_weight_for(
+        &self,
+        cause_id: &str,
+        effect_id: &str,
+        effect_rec: &Record,
+    ) -> f32 {
+        if let Some(topo) = &self.learned_topology {
+            let a = crate::topology::node_id_for(cause_id);
+            let b = crate::topology::node_id_for(effect_id);
+            if let Some(w) = topo.edge_weight(a, b) {
+                return w;
+            }
+        }
+        effect_rec
+            .connections
+            .get(cause_id)
+            .copied()
+            .unwrap_or(0.5)
     }
 
     /// Remove a single causal pattern from the persisted engine state.
@@ -630,7 +826,7 @@ impl CausalEngine {
                                 effect_id: rid.clone(),
                                 namespace: rec.namespace.clone(),
                                 time_gap: rec.created_at - cause_rec.created_at,
-                                weight: rec.connections.get(cause_id).copied().unwrap_or(0.5),
+                                weight: self.edge_weight_for(cause_id, rid, rec),
                                 explicit: true,
                                 event_time: rec.created_at,
                             });
@@ -663,12 +859,28 @@ impl CausalEngine {
                                 } else {
                                     rec.created_at
                                 };
+                                // Topology weight is symmetric over the
+                                // (cause, effect) pair; the static fallback
+                                // preserves the original lookup exactly —
+                                // `rec`'s connection to the other endpoint
+                                // (`conn_id`), defaulting to 0.5.
+                                let weight = self
+                                    .learned_topology
+                                    .as_ref()
+                                    .and_then(|topo| {
+                                        topo.edge_weight(
+                                            crate::topology::node_id_for(&cause),
+                                            crate::topology::node_id_for(&effect),
+                                        )
+                                    })
+                                    .or_else(|| rec.connections.get(conn_id).copied())
+                                    .unwrap_or(0.5);
                                 edges.push(CausalEdge {
                                     cause_id: cause,
                                     effect_id: effect,
                                     namespace: rec.namespace.clone(),
                                     time_gap: effect_ts - cause_ts,
-                                    weight: rec.connections.get(conn_id).copied().unwrap_or(0.5),
+                                    weight,
                                     explicit: true,
                                     event_time: effect_ts,
                                 });
@@ -1390,6 +1602,78 @@ mod tests {
         records
     }
 
+    // ── 0. Typed causal-edge classification ──
+
+    #[test]
+    fn correlation_without_counterfactual_is_precedes_not_causes() {
+        // The effect happens about as often WITHOUT the cause (high
+        // counterevidence) → mere temporal order, not causation. This is the
+        // discrimination a frozen model fails: it would call this "cause".
+        let mut p = make_pattern_for_scoring(4, 0, 2);
+        p.counterevidence = 8; // ratio 8/(4+8)=0.67 > 0.50 gate
+        p.transition_lift = 2.0; // even with lift, counterfactual fails
+        p.positive_effect_signals = 4;
+        assert_eq!(classify_causal_edge(&p), CausalEdgeKind::Precedes);
+    }
+
+    #[test]
+    fn counterfactual_plus_lift_plus_positive_is_causes() {
+        // Removing the cause reliably breaks a predominantly positive effect.
+        let mut p = make_pattern_for_scoring(10, 4, 3);
+        p.counterevidence = 1; // ratio 1/11 ≈ 0.09 < 0.50
+        p.transition_lift = 2.5; // effect well above base rate
+        p.positive_effect_signals = 9;
+        p.negative_effect_signals = 0;
+        assert_eq!(classify_causal_edge(&p), CausalEdgeKind::Causes);
+    }
+
+    #[test]
+    fn counterfactual_with_negative_effect_is_refutes_scar() {
+        // Survives the counterfactual gate but the effect is predominantly
+        // negative — a scar (this cause reliably leads to a bad outcome).
+        let mut p = make_pattern_for_scoring(8, 3, 3);
+        p.counterevidence = 1;
+        p.transition_lift = 2.0;
+        p.positive_effect_signals = 1;
+        p.negative_effect_signals = 7;
+        assert_eq!(classify_causal_edge(&p), CausalEdgeKind::Refutes);
+    }
+
+    #[test]
+    fn counterfactual_without_lift_is_enables_not_causes() {
+        // Passes the counterfactual gate but does not lift the effect above base
+        // rate → permissive (Enables), not strict causation. Note: the pattern
+        // field is the NORMALIZED lift (raw/5.0); 0.2 == raw 1.0 (no lift).
+        let mut p = make_pattern_for_scoring(6, 2, 2);
+        p.counterevidence = 1;
+        p.transition_lift = 0.2; // normalized: raw lift 1.0, i.e. no lift above base
+        p.positive_effect_signals = 5;
+        p.negative_effect_signals = 0;
+        assert_eq!(classify_causal_edge(&p), CausalEdgeKind::Enables);
+    }
+
+    #[test]
+    fn realistic_normalized_lift_classifies_as_causes() {
+        // Regression: a pattern produced by the real engine stores a NORMALIZED
+        // lift (raw_lift / 5.0). A genuinely causal pattern (raw lift ~2.5 →
+        // normalized 0.5) must classify as Causes — the earlier `> 1.0` threshold
+        // made the Causes branch unreachable for such real patterns.
+        let mut p = make_pattern_for_scoring(10, 4, 3);
+        p.counterevidence = 1;
+        p.transition_lift = 0.5; // normalized: raw lift 2.5
+        p.positive_effect_signals = 9;
+        p.negative_effect_signals = 0;
+        assert_eq!(classify_causal_edge(&p), CausalEdgeKind::Causes);
+    }
+
+    #[test]
+    fn edge_kind_str_roundtrip() {
+        assert_eq!(CausalEdgeKind::Causes.as_str(), "causes");
+        assert_eq!(CausalEdgeKind::Precedes.as_str(), "precedes");
+        assert_eq!(CausalEdgeKind::Enables.as_str(), "enables");
+        assert_eq!(CausalEdgeKind::Refutes.as_str(), "refutes");
+    }
+
     // ── 1. Fresh engine is empty ──
 
     #[test]
@@ -1411,6 +1695,46 @@ mod tests {
         let report = engine.discover(&belief_engine, &records, &sdr);
         assert_eq!(report.edges_found, 0);
         assert_eq!(report.candidates_found, 0);
+    }
+
+    // ── 2b. Learned topology weight overrides static / default ──
+
+    #[test]
+    fn edge_weight_prefers_learned_topology_then_connections_then_default() {
+        use crate::topology::{node_id_for, Topology};
+
+        // effect record carries a static connection to the cause at 0.30
+        let mut effect = make_record("effect", "effect event", "default", 1001.0);
+        effect.connections.insert("cause".to_string(), 0.30);
+
+        // 1. No topology, has static connection → static weight (0.30)
+        let engine = CausalEngine::new();
+        let w = engine.edge_weight_for("cause", "effect", &effect);
+        assert!((w - 0.30).abs() < 1e-6, "static connection expected, got {w}");
+
+        // 2. No topology, no static connection → 0.5 default (unchanged behaviour)
+        let bare = make_record("effect2", "e", "default", 1.0);
+        let w0 = engine.edge_weight_for("nope", "effect2", &bare);
+        assert!((w0 - 0.5).abs() < 1e-6, "0.5 default expected, got {w0}");
+
+        // 3. Learned topology has the edge at 0.90 → overrides the static 0.30
+        let mut topo = Topology::new();
+        topo.connect_bidirectional(node_id_for("cause"), node_id_for("effect"), 0.90)
+            .unwrap();
+        let mut engine_learned = CausalEngine::new();
+        engine_learned.set_learned_topology(topo);
+        let wl = engine_learned.edge_weight_for("cause", "effect", &effect);
+        assert!(
+            (wl - 0.90).abs() < 1e-6,
+            "learned topology weight should win over static 0.30, got {wl}"
+        );
+
+        // 4. Learned topology present but missing this edge → falls back to static
+        let wf = engine_learned.edge_weight_for("other", "effect", &effect);
+        assert!(
+            (wf - 0.5).abs() < 1e-6,
+            "missing-in-topology should fall through to connections/default, got {wf}"
+        );
     }
 
     // ── 3. Explicit caused_by_id creates edge ──

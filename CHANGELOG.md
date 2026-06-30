@@ -2,17 +2,32 @@
 
 ## 1.5.5
 
-Learned weighted-graph substrate — connection strengths that recall reinforces and maintenance decays.
+Learned weighted-graph topology, proven research-line capabilities, and a Colab quickstart.
 
 ### Added
 
-- **Topology substrate** (`topology` module) — a shared, decayable weighted graph (`Topology`, `Edge`, `NodeId`, `node_id_for`) with idempotent connect, saturating reinforcement, edge weakening, aging/prune decay, node removal, max-policy node merge, and set/weighted neighbor-overlap similarity. Serde-backed `TopologyStore` persists to `topology.cog`.
+- **Learned weighted-graph topology** (`topology` module) — a shared, decayable weighted graph that learns from use and fades with neglect ("use it or lose it"):
+  - `Topology`, `Edge`, `NodeId`, and the `node_id_for` record-id bridge
+  - Idempotent `connect_bidirectional`, saturating `reinforce_edge` (cap 1.0), `weaken_edge`, aging `decay_edges` (with prune), `remove_node`, max-policy `merge_nodes`
+  - Two similarity metrics: `tanimoto_neighbors` (set Jaccard) and `weighted_neighbor_overlap`
+  - Serde-backed `TopologyStore` persisting to `topology.cog`
+- **Consequence Unit substrate** (`consequence` module) — `ConsequenceUnit`: a structured, first-class record of what happened after an agent or tool acted in the world (consequence polarity, units, policy hint). Exposed to Python.
+- **Source credibility** (`credibility` module) — domain-reputation scoring for sources (rewritten from `source_credibility.py`).
+- **Executable-judge world fact** (`executable_judge` module) — turns a real command's output into a 3-state world fact that can close an evidence debt (`world_fact_from_output`).
+- **Neighbor-mass role similarity** (`neighbor_mass` module) — role similarity as overlap of external interaction mass (not entity identity); 512-bit bloom Jaccard via `neighbor_mass_role_similarity`.
+- **Colab quickstart** — `examples/colab_quickstart.ipynb`.
 
 ### Changed
 
 - **Recall now learns connections** — records that co-surface in a recall reinforce their topology edge (bounded, top-K capped), so frequently co-recalled records accrue weight over time.
-- **Maintenance ages the topology** — each cycle decays un-reinforced edges (use-it-or-lose-it) and persists the result before causal discovery.
+- **Maintenance ages the topology** — each cycle decays un-reinforced edges and persists the result before causal discovery.
 - **Causal discovery reads learned weights** — the causal layer prefers the learned topology weight over the static `Record.connections` map (and the historical `0.5` default), so causal edges reflect what memory actually learned. Opt-in and fully backward-compatible; the public API is unchanged.
+- **Extended cognitive layers** — substantial additions to `belief`, `record`, `causal`, `consolidation`, `background_brain`, `aura`, and `maintenance_service` to support the substrate and consequence work above.
+- README description updated; fixed broken Colab + Documentation links.
+
+### Fixed
+
+- Repaired a broken module reference: `lib.rs` declared `pub mod topology;` while the file was untracked, so a fresh clone would not compile. The `topology.rs` source is now committed.
 
 ## 1.5.4
 

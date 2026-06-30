@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.5
+
+Learned weighted-graph substrate — connection strengths that recall reinforces and maintenance decays.
+
+### Added
+
+- **Topology substrate** (`topology` module) — a shared, decayable weighted graph (`Topology`, `Edge`, `NodeId`, `node_id_for`) with idempotent connect, saturating reinforcement, edge weakening, aging/prune decay, node removal, max-policy node merge, and set/weighted neighbor-overlap similarity. Serde-backed `TopologyStore` persists to `topology.cog`.
+
+### Changed
+
+- **Recall now learns connections** — records that co-surface in a recall reinforce their topology edge (bounded, top-K capped), so frequently co-recalled records accrue weight over time.
+- **Maintenance ages the topology** — each cycle decays un-reinforced edges (use-it-or-lose-it) and persists the result before causal discovery.
+- **Causal discovery reads learned weights** — the causal layer prefers the learned topology weight over the static `Record.connections` map (and the historical `0.5` default), so causal edges reflect what memory actually learned. Opt-in and fully backward-compatible; the public API is unchanged.
+
 ## 1.5.4
 
 Autonomous plasticity, cognitive guidance, and production integrity.

@@ -446,10 +446,7 @@ impl ConceptEngine {
                 let mut ranked: Vec<(f32, &String)> = partition_seeds_raw
                     .iter()
                     .map(|bid| {
-                        let stability = belief_engine
-                            .beliefs
-                            .get(bid)
-                            .map_or(0.0, |b| b.stability);
+                        let stability = belief_engine.beliefs.get(bid).map_or(0.0, |b| b.stability);
                         (stability, bid)
                     })
                     .collect();

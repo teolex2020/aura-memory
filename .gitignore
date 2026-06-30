@@ -9,6 +9,7 @@ __pycache__/
 *$py.class
 *.pyd
 *.so
+*.pdb
 *.egg-info/
 dist/
 build/

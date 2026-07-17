@@ -13,7 +13,7 @@ Thanks for your interest in contributing! Aura is a solo-developer project built
 ### Setup
 
 ```bash
-git clone https://github.com/teolex2020/AuraSDK.git
+git clone https://github.com/teolex2020/aura-memory.git
 cd AuraSDK
 
 # Rust tests
@@ -38,7 +38,7 @@ pytest tests/ -v
 
 ### Bug Reports
 
-Use the [Bug Report template](https://github.com/teolex2020/AuraSDK/issues/new?template=bug_report.md). Include:
+Use the [Bug Report template](https://github.com/teolex2020/aura-memory/issues/new?template=bug_report.md). Include:
 - Python/Rust version
 - OS
 - Minimal reproduction code
@@ -46,7 +46,7 @@ Use the [Bug Report template](https://github.com/teolex2020/AuraSDK/issues/new?t
 
 ### Feature Requests
 
-Use the [Feature Request template](https://github.com/teolex2020/AuraSDK/issues/new?template=feature_request.md). Describe the use case, not just the solution.
+Use the [Feature Request template](https://github.com/teolex2020/aura-memory/issues/new?template=feature_request.md). Describe the use case, not just the solution.
 
 ### Code Contributions
 

@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug to help us improve AuraSDK
+about: Report a bug to help us improve Aura Memory
 title: "[BUG] "
 labels: bug
 assignees: ''

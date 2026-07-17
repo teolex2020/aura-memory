@@ -165,7 +165,7 @@ def main() -> None:
             f"Records retained: {report.total_records}",
             "",
             "pip install aura-memory",
-            "github.com/teolex2020/AuraSDK",
+            "github.com/teolex2020/aura-memory",
         ]
     )
 

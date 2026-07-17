@@ -1,23 +1,23 @@
 <p align="center">
-  <h1 align="center">AuraSDK</h1>
-  <p align="center"><strong>AuraSDK turns fragile prompt-only agents into auditable, memory-aware, production-ready systems</strong></p>
+  <h1 align="center">Aura Memory</h1>
+  <p align="center"><strong>Aura turns fragile prompt-only agents into auditable, memory-aware, production-ready systems</strong></p>
   <p align="center">
     Deterministic · No fine-tuning · No cloud training · <1ms recall · ~3 MB
   </p>
 </p>
 
 <p align="center">
-  <a href="https://github.com/teolex2020/AuraSDK/actions/workflows/test.yml"><img src="https://github.com/teolex2020/AuraSDK/actions/workflows/test.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/teolex2020/aura-memory/actions/workflows/test.yml"><img src="https://github.com/teolex2020/aura-memory/actions/workflows/test.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/aura-memory/"><img src="https://img.shields.io/pypi/v/aura-memory.svg" alt="PyPI"></a>
   <a href="https://pypi.org/project/aura-memory/"><img src="https://img.shields.io/pypi/dm/aura-memory.svg" alt="Downloads"></a>
-  <a href="https://github.com/teolex2020/AuraSDK/stargazers"><img src="https://img.shields.io/github/stars/teolex2020/AuraSDK?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/teolex2020/aura-memory/stargazers"><img src="https://img.shields.io/github/stars/teolex2020/aura-memory?style=social" alt="GitHub stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://github.com/teolex2020/AuraSDK/actions/workflows/test.yml"><img src="https://img.shields.io/badge/tests-828_passed-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/teolex2020/aura-memory/actions/workflows/test.yml"><img src="https://img.shields.io/badge/tests-828_passed-brightgreen" alt="Tests"></a>
   <a href="https://www.uspto.gov/"><img src="https://img.shields.io/badge/Patent_Pending-US_63%2F969%2C703-blue.svg" alt="Patent Pending"></a>
 </p>
 
 <p align="center">
-  <a href="https://colab.research.google.com/github/teolex2020/AuraSDK/blob/main/examples/colab_quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>&nbsp;&nbsp;
+  <a href="https://colab.research.google.com/github/teolex2020/aura-memory/blob/main/examples/colab_quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>&nbsp;&nbsp;
   <a href="https://www.youtube.com/watch?v=ZyE9P2_uKxg"><img src="https://img.shields.io/badge/YouTube-Demo_30s-red?logo=youtube" alt="Demo Video"></a>&nbsp;&nbsp;
   <a href="https://aurasdk.dev"><img src="https://img.shields.io/badge/Web-aurasdk.dev-blue" alt="Website"></a>
 </p>
@@ -26,7 +26,7 @@
 
 Your AI model is smart. But it forgets everything after every conversation.
 
-AuraSDK is a local cognitive runtime that runs alongside any frozen model. It gives agents durable memory, explainability, governed correction, bounded recall reranking, and bounded self-adaptation through experience — all locally, without fine-tuning or cloud training.
+Aura is a local cognitive runtime that runs alongside any frozen model. It gives agents durable memory, explainability, governed correction, bounded recall reranking, and bounded self-adaptation through experience — all locally, without fine-tuning or cloud training.
 
 ```bash
 pip install aura-memory
@@ -52,7 +52,7 @@ hints = brain.get_surfaced_policy_hints()
 
 No API keys. No embeddings required. No cloud. The model stays the same — the cognitive layer becomes more structured, more inspectable, and more useful over time.
 
-> **⭐ If AuraSDK is useful to you, a [GitHub star](https://github.com/teolex2020/AuraSDK) helps us get funding to continue development from Kyiv.**
+> **⭐ If Aura is useful to you, a [GitHub star](https://github.com/teolex2020/aura-memory) helps us get funding to continue development from Kyiv.**
 
 ---
 
@@ -575,7 +575,7 @@ Then rerun the test command.
 
 ## Dashboard UI
 
-Aura includes a standalone web dashboard for visual memory management. Download from [GitHub Releases](https://github.com/teolex2020/AuraSDK/releases).
+Aura includes a standalone web dashboard for visual memory management. Download from [GitHub Releases](https://github.com/teolex2020/aura-memory/releases).
 
 ```bash
 ./aura-dashboard ./my_brain --port 8000
@@ -594,7 +594,7 @@ Aura includes a standalone web dashboard for visual memory management. Download 
 
 ## Integrations & Examples
 
-**Try now:** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/teolex2020/AuraSDK/blob/main/examples/colab_quickstart.ipynb) — zero install, runs in browser
+**Try now:** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/teolex2020/aura-memory/blob/main/examples/colab_quickstart.ipynb) — zero install, runs in browser
 
 | Integration | Description | Link |
 |-------------|-------------|------|
@@ -642,9 +642,9 @@ The public repository documents the user-facing behavior and integration surface
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and guidelines, or check the [open issues](https://github.com/teolex2020/AuraSDK/issues).
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and guidelines, or check the [open issues](https://github.com/teolex2020/aura-memory/issues).
 
-⭐ **If Aura saves you time, a [GitHub star](https://github.com/teolex2020/AuraSDK) helps others discover it and helps us continue development.**
+⭐ **If Aura saves you time, a [GitHub star](https://github.com/teolex2020/aura-memory) helps others discover it and helps us continue development.**
 
 ---
 

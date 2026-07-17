@@ -4,8 +4,8 @@
   "description": "Cognitive memory layer for AI agents. Gives Claude persistent, self-organizing memory with hierarchical decay, belief formation, and causal reasoning. Zero LLM calls, sub-millisecond recall.",
   "author": "Alexander Tepliuk",
   "license": "MIT",
-  "homepage": "https://github.com/teolex2020/AuraSDK",
-  "repository": "https://github.com/teolex2020/AuraSDK",
+  "homepage": "https://github.com/teolex2020/aura-memory",
+  "repository": "https://github.com/teolex2020/aura-memory",
   "keywords": ["memory", "cognitive", "ai", "agents", "llm", "persistent-memory", "rag"],
   "transport": ["stdio"],
   "install": {

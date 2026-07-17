@@ -182,7 +182,7 @@ def run_demo():
 
   ---------------------------------------------
   pip install aura-memory
-  github.com/teolex2020/AuraSDK
+  github.com/teolex2020/aura-memory
   aurasdk.dev
   ---------------------------------------------
     """)

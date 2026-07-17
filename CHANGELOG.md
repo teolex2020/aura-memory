@@ -17,6 +17,7 @@ Immutable evidence lineage, deterministic context capsules, and observable recal
 - Evidence-aware research reports are composed only from admitted findings. Free-form synthesis is omitted until synthesis can carry claim-level lineage.
 - MCP stdio, MCP HTTP, and health responses now use the package `__version__` instead of stale hard-coded values.
 - PyPI release metadata now links to the correct `aura-memory` project page.
+- Repository metadata and documentation now use the canonical `teolex2020/aura-memory` GitHub URL.
 
 ### Fixed
 

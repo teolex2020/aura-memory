@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a new feature or improvement for AuraSDK
+about: Suggest a new feature or improvement for Aura Memory
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''

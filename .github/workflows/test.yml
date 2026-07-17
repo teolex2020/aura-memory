@@ -12,6 +12,16 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  release-metadata:
+    name: Release metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/check_release_version.py
+
   rust-checks:
     name: Rust Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -109,12 +119,10 @@ jobs:
         run: .venv\Scripts\maturin develop --release --features "pyo3/extension-module,encryption"
         if: runner.os == 'Windows'
       - name: Run Python smoke
-        run: |
-          .venv/bin/python -c "from aura import Aura, Level; b = Aura('./ci_smoke_brain'); b.store('User prefers dark mode', level=Level.Identity, tags=['ui'], semantic_type='preference'); r = b.recall('dark mode'); assert r and 'dark mode' in r.lower()"
+        run: .venv/bin/python scripts/python_release_smoke.py
         if: runner.os != 'Windows'
       - name: Run Python smoke (Windows)
-        run: |
-          .venv\Scripts\python -c "from aura import Aura, Level; b = Aura('./ci_smoke_brain'); b.store('User prefers dark mode', level=Level.Identity, tags=['ui'], semantic_type='preference'); r = b.recall('dark mode'); assert r and 'dark mode' in r.lower()"
+        run: .venv\Scripts\python scripts\python_release_smoke.py
         if: runner.os == 'Windows'
       - name: Cleanup stale Windows test locks (post)
         if: always() && runner.os == 'Windows'

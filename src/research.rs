@@ -7,6 +7,10 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::credibility::SourceCredibility;
+use crate::evidence::{
+    source_admission_decision, verify_lineage, AdmissionDecision, AnswerPermission,
+    IntegrityReport, SourceDocument, SourceSpan, VerificationStatus,
+};
 
 /// Research project status.
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +28,13 @@ pub struct ResearchFinding {
     pub url: Option<String>,
     pub credibility: f32,
     pub timestamp: String,
+    /// Present only for evidence-aware ingestion. Legacy findings remain valid.
+    pub source_document: Option<SourceDocument>,
+    pub source_span: Option<SourceSpan>,
+    pub integrity: Option<IntegrityReport>,
+    pub verification_status: Option<VerificationStatus>,
+    pub answer_permission: Option<AnswerPermission>,
+    pub admission: Option<AdmissionDecision>,
 }
 
 /// A research project — tracks queries, findings, and synthesis.
@@ -106,6 +117,12 @@ impl ResearchEngine {
             url: url.map(|s| s.to_string()),
             credibility: credibility_score,
             timestamp: chrono::Utc::now().to_rfc3339(),
+            source_document: None,
+            source_span: None,
+            integrity: None,
+            verification_status: None,
+            answer_permission: None,
+            admission: None,
         };
 
         let mut projects = self.projects.write();
@@ -119,6 +136,74 @@ impl ResearchEngine {
 
         project.findings.push(finding);
         Ok(())
+    }
+
+    /// Add a finding bound to an exact byte span of an immutable source revision.
+    ///
+    /// The complete source bytes are hashed before the span is accepted. The
+    /// returned admission decision is safe to use for research composition, but
+    /// a final citable Aura claim still needs a cognitive record binding.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_evidence_finding(
+        &self,
+        project_id: &str,
+        query: &str,
+        result: &str,
+        document_id: &str,
+        revision_id: &str,
+        uri: &str,
+        source_bytes: &[u8],
+        byte_start: usize,
+        byte_end: usize,
+        verification_status: VerificationStatus,
+        answer_permission: AnswerPermission,
+        page_start: Option<u32>,
+        page_end: Option<u32>,
+        cell_range: Option<&str>,
+    ) -> Result<ResearchFinding, String> {
+        let document = SourceDocument::from_bytes(document_id, revision_id, uri, source_bytes);
+        let mut span = SourceSpan::from_document(&document, source_bytes, byte_start, byte_end)
+            .map_err(|error| error.to_string())?;
+        match (page_start, page_end) {
+            (Some(start), Some(end)) if start <= end => {
+                span = span.with_pages(start, end);
+            }
+            (None, None) => {}
+            _ => return Err("page_start and page_end must be present together and ordered".into()),
+        }
+        if let Some(range) = cell_range.filter(|value| !value.trim().is_empty()) {
+            span = span.with_cell_range(range);
+        }
+        let integrity = verify_lineage(&document, source_bytes, &span);
+        let admission = source_admission_decision(
+            verification_status,
+            answer_permission,
+            &integrity,
+            &span,
+        );
+        let finding = ResearchFinding {
+            query: query.to_string(),
+            result: result.to_string(),
+            url: Some(uri.to_string()),
+            credibility: self.credibility.read().get_score(uri),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source_document: Some(document),
+            source_span: Some(span),
+            integrity: Some(integrity),
+            verification_status: Some(verification_status),
+            answer_permission: Some(answer_permission),
+            admission: Some(admission),
+        };
+
+        let mut projects = self.projects.write();
+        let project = projects
+            .get_mut(project_id)
+            .ok_or_else(|| format!("Project {} not found", project_id))?;
+        if project.status != ResearchStatus::Active {
+            return Err("Project is not active".to_string());
+        }
+        project.findings.push(finding.clone());
+        Ok(finding)
     }
 
     /// Complete a research project. Returns the project for storage.
@@ -240,5 +325,38 @@ mod tests {
 
         let p = engine.get_project(&project.id).unwrap();
         assert!(p.findings[1].credibility > p.findings[0].credibility);
+    }
+
+    #[test]
+    fn evidence_finding_has_verified_lineage_and_admission() {
+        let engine = ResearchEngine::new();
+        let project = engine.start_research("verified figures", None);
+        let source = b"Table 1\nEnrollment: 420\n";
+        let start = b"Table 1\n".len();
+        let end = start + b"Enrollment: 420".len();
+        let finding = engine
+            .add_evidence_finding(
+                &project.id,
+                "enrollment",
+                "Enrollment is 420",
+                "annual-report",
+                "2026",
+                "file:///annual-report.txt",
+                source,
+                start,
+                end,
+                VerificationStatus::Verified,
+                AnswerPermission::Cite,
+                Some(1),
+                Some(1),
+                Some("B2"),
+            )
+            .unwrap();
+        assert_eq!(finding.admission, Some(AdmissionDecision::Cite));
+        assert!(finding.integrity.unwrap().is_valid());
+        assert_eq!(
+            finding.source_span.unwrap().cell_range.as_deref(),
+            Some("B2")
+        );
     }
 }

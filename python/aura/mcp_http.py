@@ -14,6 +14,8 @@ Usage:
     python -m aura serve [path] [--host 0.0.0.0] [--port 8080]
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
@@ -25,11 +27,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
-from aura import Aura, Level
+from aura import Aura, Level, __version__
 
 # ── App ──
 
-app = FastAPI(title="Aura MCP Server", version="1.5.2")
+app = FastAPI(title="Aura MCP Server", version=__version__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -177,7 +179,7 @@ def _handle_jsonrpc(msg: dict) -> dict | None:
         return result({
             "protocolVersion": params.get("protocolVersion", "2024-11-05"),
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "aura", "version": "1.5.2"},
+            "serverInfo": {"name": "aura", "version": __version__},
             "instructions": "Aura cognitive memory. Use 'recall' before answering. Use 'store' to remember facts.",
         })
 
@@ -294,7 +296,7 @@ def rest_stats():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "1.5.2"}
+    return {"status": "ok", "version": __version__}
 
 
 # ── Entry point ──

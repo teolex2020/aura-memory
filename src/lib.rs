@@ -44,6 +44,7 @@ pub mod versioning;
 
 // ── v5: Autonomous Cognitive Plasticity ──
 pub mod consequence;
+pub mod evidence;
 pub mod experience;
 
 #[cfg(feature = "encryption")]
@@ -146,6 +147,7 @@ pub mod license;
 // ── FROM aura-cognitive (rewritten to Rust) ──
 pub mod cognitive_store;
 pub mod consolidation;
+pub mod context_capsule;
 pub mod graph;
 pub mod insights;
 pub mod levels;
@@ -210,6 +212,14 @@ pub use memory::AuraMemory;
 // ── Unified API ──
 pub use aura::Aura;
 pub use consequence::ConsequenceUnit;
+pub use context_capsule::{
+    build_context_capsule, ContextCapsule, ContextCapsuleEntry, ContextCategory,
+};
+pub use evidence::{
+    admission_decision, lint_claim, source_admission_decision, verify_lineage, AdmissionDecision,
+    AnswerPermission, EvidenceClaim, IntegrityIssue, IntegrityIssueKind, IntegrityReport,
+    SourceDocument, SourceSpan, VerificationStatus,
+};
 pub use levels::Level;
 pub use record::Record;
 

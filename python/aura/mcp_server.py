@@ -7,11 +7,13 @@ Usage:
     python -m aura mcp [path]
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from typing import Any
 
-from aura import Aura, Level
+from aura import Aura, Level, __version__
 
 
 def _parse_level(s: str) -> Level:
@@ -278,7 +280,7 @@ class AuraMcpServer:
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {
                     "name": "aura",
-                    "version": "1.5.2",
+                    "version": __version__,
                 },
                 "instructions": (
                     "Aura is a cognitive memory layer for AI agents. "

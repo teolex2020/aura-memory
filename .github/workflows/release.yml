@@ -8,16 +8,27 @@ permissions:
   contents: read
 
 jobs:
+  verify-version:
+    name: Verify release version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/check_release_version.py --expected "${{ github.event.release.tag_name }}"
+
   build:
+    needs: verify-version
     uses: ./.github/workflows/wheels.yml
 
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: [verify-version, build]
     runs-on: ubuntu-latest
     environment:
       name: release
-      url: https://pypi.org/project/aura/
+      url: https://pypi.org/project/aura-memory/
     permissions:
       id-token: write
     steps:

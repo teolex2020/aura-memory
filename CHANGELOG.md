@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.5.6
+
+Immutable evidence lineage, deterministic context capsules, and observable recall outcomes.
+
+### Added
+
+- **Immutable evidence lineage** — SHA-256 binding between a source revision, its exact byte span, and an Aura claim, with independent verification and answer-permission gates.
+- **Evidence-aware research ingestion** — Rust and Python APIs for findings carrying document revision, source-span integrity, verification status, and citation admission.
+- **Context capsules** — deterministic, namespace-isolated, token-bounded hot context with selection reasons, omission counts, and stable content hashes.
+- **Recall/search outcome telemetry** — counters for total and empty formatted recall, structured recall, tier recall, and exact search operations, with Python bindings and reset support.
+- **Release metadata gate** — CI validation that the GitHub release tag, Rust crate, Python package, runtime version, and changelog agree.
+
+### Changed
+
+- Evidence-aware research reports are composed only from admitted findings. Free-form synthesis is omitted until synthesis can carry claim-level lineage.
+- MCP stdio, MCP HTTP, and health responses now use the package `__version__` instead of stale hard-coded values.
+- PyPI release metadata now links to the correct `aura-memory` project page.
+
+### Fixed
+
+- Prevented a valid integrity report for one source span from authorizing a claim bound to a different span.
+- Prevented blocked evidence from being reintroduced through a generated research synthesis.
+- Normalized blocked and superseded metadata before context-capsule filtering.
+- Included the primary formatted `recall()` path and cache hits in empty-recall telemetry.
+
 ## 1.5.5
 
 Learned weighted-graph topology, proven research-line capabilities, and a Colab quickstart.

@@ -77,6 +77,19 @@ pub(crate) struct AuraRuntimeState {
     /// Custom policy used when PlasticityMode::Full.
     /// Set via set_plasticity_policy(), defaults to PlasticityPolicy::default().
     pub(crate) custom_plasticity_policy: RwLock<PlasticityPolicy>,
+
+    // ── Recall/search hit telemetry (cumulative across calls) ──
+    // Makes "searched and found nothing" a first-class, countable event so
+    // callers can derive an empty-recall rate without wiring their own counter.
+    // Return types are unchanged; an empty result is still an empty Vec.
+    /// Total recall_* calls (structured/cognitive/core-tier) since last reset.
+    pub(crate) recall_total: AtomicU64,
+    /// Recall_* calls that returned zero records.
+    pub(crate) recall_empty: AtomicU64,
+    /// Total search() calls since last reset.
+    pub(crate) search_total: AtomicU64,
+    /// search() calls that returned zero records.
+    pub(crate) search_empty: AtomicU64,
 }
 
 impl AuraRuntimeState {
@@ -108,6 +121,26 @@ impl AuraRuntimeState {
             plasticity_events_total: AtomicU64::new(0),
             frozen_plasticity_namespaces: RwLock::new(HashSet::new()),
             custom_plasticity_policy: RwLock::new(PlasticityPolicy::default()),
+            recall_total: AtomicU64::new(0),
+            recall_empty: AtomicU64::new(0),
+            search_total: AtomicU64::new(0),
+            search_empty: AtomicU64::new(0),
+        }
+    }
+
+    /// Record the outcome of a recall_* call for empty-recall telemetry.
+    pub(crate) fn note_recall(&self, returned: usize) {
+        self.recall_total.fetch_add(1, Ordering::Relaxed);
+        if returned == 0 {
+            self.recall_empty.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Record the outcome of a search() call for empty-search telemetry.
+    pub(crate) fn note_search(&self, returned: usize) {
+        self.search_total.fetch_add(1, Ordering::Relaxed);
+        if returned == 0 {
+            self.search_empty.fetch_add(1, Ordering::Relaxed);
         }
     }
 

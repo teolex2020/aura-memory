@@ -210,6 +210,49 @@ report = brain.run_maintenance()  # background memory maintenance
 
 ## Key Features
 
+### Immutable Evidence Lineage
+
+Aura's cognitive provenance explains how a memory was formed and used. The
+evidence substrate additionally binds an extracted claim to the exact bytes of
+an immutable source revision:
+
+```rust
+use aura::{admission_decision, verify_lineage, AnswerPermission, EvidenceClaim,
+           SourceDocument, SourceSpan, VerificationStatus};
+
+let bytes = b"Verified value: 42";
+let document = SourceDocument::from_bytes("report", "v1", "file:///report.txt", bytes);
+let span = SourceSpan::from_document(&document, bytes, 0, bytes.len())?;
+let integrity = verify_lineage(&document, bytes, &span);
+```
+
+`VerificationStatus` and `AnswerPermission` are independent gates. A high
+confidence score never overrides a changed source hash, a superseded claim, or
+a blocked citation. Existing `Record` serialization remains unchanged.
+
+Evidence-aware research reports are composed only from admitted findings.
+Free-form synthesis is omitted until the synthesis itself can carry claim-level
+lineage, preventing blocked source material from being reintroduced indirectly.
+
+### Context Capsules
+
+Agents can request a deterministic hot-context projection without maintaining a
+separate wiki or mutating memory through recall activation:
+
+```python
+capsule = brain.build_context_capsule(
+    purpose="continue the current institute research",
+    token_budget=2000,
+    namespace="ask-institute",
+)
+```
+
+The bounded capsule prioritizes refutation scars, open evidence debt, active
+goals, contradictions, outcomes, decisions, and durable domain/identity
+records. It returns an estimated token count, omitted-record count, selection
+reasons, and a stable content hash. Records marked blocked or superseded are
+never surfaced.
+
 **Core Cognitive Runtime**
 - **Fast Local Recall** - Multi-signal ranking with optional embedding support
 - **Two-Tier Memory** — Cognitive (ephemeral) + Core (permanent) with decay, promotion, and archival

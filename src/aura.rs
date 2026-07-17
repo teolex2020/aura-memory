@@ -22,10 +22,12 @@ use crate::canonical::CanonicalProjector;
 use crate::cognitive_store::CognitiveStore;
 use crate::consequence::{now_secs_f64, ConsequenceUnit, CONSEQUENCE_UNIT_TAG};
 use crate::consolidation;
+use crate::context_capsule::ContextCapsule;
 use crate::cortex::ActiveCortex;
 use crate::crypto::EncryptionKey;
 use crate::embedding::EmbeddingStore;
 use crate::epistemic_runtime::EpistemicRuntime;
+use crate::evidence::{AdmissionDecision, AnswerPermission, VerificationStatus};
 use crate::graph::SessionTracker;
 use crate::index::InvertedIndex;
 use crate::insights;
@@ -61,7 +63,7 @@ use crate::relation::{
     ProjectStatusSnapshot, ProjectTimelineEntry, ProjectTimelineSnapshot, RelationDigest,
     RelationEdge, StructuralRelation,
 };
-use crate::research::{ResearchEngine, ResearchProject};
+use crate::research::{ResearchEngine, ResearchFinding, ResearchProject};
 use crate::startup_validation::{StartupValidationEvent, StartupValidationReport};
 use crate::storage::StoredRecord;
 use crate::trust::{self, TagTaxonomy, TrustConfig};
@@ -1387,7 +1389,7 @@ impl Aura {
         namespaces: Option<&[&str]>,
     ) -> Result<String> {
         let budget = token_budget.unwrap_or(2048);
-        RecallService::recall_formatted(
+        let result = RecallService::recall_formatted(
             &self.runtime.recall_cache,
             query,
             budget,
@@ -1406,7 +1408,11 @@ impl Aura {
                 let records = self.records.read();
                 recall::format_preamble(scored, budget, &records)
             },
-        )
+        );
+        if let Ok(ref context) = result {
+            self.runtime.note_recall(usize::from(!context.is_empty()));
+        }
+        result
     }
 
     /// Recall structured (raw results with trust scoring).
@@ -1423,7 +1429,7 @@ impl Aura {
         let top = top_k.unwrap_or(20);
         let min_str = min_strength.unwrap_or(0.1);
 
-        RecallService::recall_structured_cached(
+        let result = RecallService::recall_structured_cached(
             &self.runtime.structured_recall_cache,
             query,
             top,
@@ -1439,7 +1445,11 @@ impl Aura {
                     namespaces,
                 )
             },
-        )
+        );
+        if let Ok(ref rows) = result {
+            self.runtime.note_recall(rows.len());
+        }
+        result
     }
 
     /// Recall structured, then re-rank by **born-from-collision provenance**.
@@ -2625,6 +2635,7 @@ impl Aura {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         results.truncate(limit);
+        self.runtime.note_search(results.len());
         results
     }
 
@@ -3143,6 +3154,48 @@ impl Aura {
         stats
     }
 
+    /// Recall/search hit telemetry accumulated since process start (or last
+    /// `reset_recall_hit_stats()`).
+    ///
+    /// Makes "searched and found nothing" a first-class, observable event: an
+    /// empty result is otherwise indistinguishable from a small one at the call
+    /// site. Callers can derive an empty-recall rate directly:
+    /// `recall_empty / recall_total`.
+    ///
+    /// Keys: `recall_total`, `recall_empty`, `search_total`, `search_empty`.
+    /// `recall_*` covers `recall` / `recall_structured` / `recall_cognitive` /
+    /// `recall_core_tier`; `search_*` covers the exact `search()` filter.
+    pub fn recall_hit_stats(&self) -> HashMap<String, u64> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut m = HashMap::new();
+        m.insert(
+            "recall_total".into(),
+            self.runtime.recall_total.load(Relaxed),
+        );
+        m.insert(
+            "recall_empty".into(),
+            self.runtime.recall_empty.load(Relaxed),
+        );
+        m.insert(
+            "search_total".into(),
+            self.runtime.search_total.load(Relaxed),
+        );
+        m.insert(
+            "search_empty".into(),
+            self.runtime.search_empty.load(Relaxed),
+        );
+        m
+    }
+
+    /// Reset recall/search hit telemetry counters to zero.
+    pub fn reset_recall_hit_stats(&self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.runtime.recall_total.store(0, Relaxed);
+        self.runtime.recall_empty.store(0, Relaxed);
+        self.runtime.search_total.store(0, Relaxed);
+        self.runtime.search_empty.store(0, Relaxed);
+    }
+
     /// Count records, optionally filtered by level.
     pub fn count(&self, level: Option<Level>) -> usize {
         let records = self.records.read();
@@ -3182,6 +3235,7 @@ impl Aura {
                     .take(limit)
                     .map(|(_, r)| r)
                     .collect();
+                self.runtime.note_recall(results.len());
                 return results;
             }
         }
@@ -3200,6 +3254,7 @@ impl Aura {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         results.truncate(limit);
+        self.runtime.note_recall(results.len());
         results
     }
 
@@ -3230,6 +3285,7 @@ impl Aura {
                     .take(limit)
                     .map(|(_, r)| r)
                     .collect();
+                self.runtime.note_recall(results.len());
                 return results;
             }
         }
@@ -3248,6 +3304,7 @@ impl Aura {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         results.truncate(limit);
+        self.runtime.note_recall(results.len());
         results
     }
 
@@ -7045,6 +7102,69 @@ impl Aura {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
+    /// Build a deterministic, read-only hot context for one namespace.
+    ///
+    /// This does not activate records and therefore cannot change recall
+    /// frequency, strength, promotion state, or learned topology.
+    pub fn build_context_capsule(
+        &self,
+        namespace: Option<&str>,
+        purpose: &str,
+        token_budget: usize,
+    ) -> Result<ContextCapsule> {
+        let namespace = namespace.unwrap_or(crate::record::DEFAULT_NAMESPACE);
+        Record::validate_namespace(namespace).map_err(|error| anyhow::anyhow!(error))?;
+        if purpose.trim().is_empty() {
+            anyhow::bail!("context capsule purpose must not be empty");
+        }
+        let records = self.records.read();
+        Ok(crate::context_capsule::build_context_capsule(
+            records.values(),
+            namespace,
+            purpose,
+            token_budget,
+        ))
+    }
+
+    /// Add a research finding with immutable source-span lineage.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_research_evidence_finding(
+        &self,
+        project_id: &str,
+        query: &str,
+        result: &str,
+        document_id: &str,
+        revision_id: &str,
+        uri: &str,
+        source_bytes: &[u8],
+        byte_start: usize,
+        byte_end: usize,
+        verification_status: VerificationStatus,
+        answer_permission: AnswerPermission,
+        page_start: Option<u32>,
+        page_end: Option<u32>,
+        cell_range: Option<&str>,
+    ) -> Result<ResearchFinding> {
+        self.research_engine
+            .add_evidence_finding(
+                project_id,
+                query,
+                result,
+                document_id,
+                revision_id,
+                uri,
+                source_bytes,
+                byte_start,
+                byte_end,
+                verification_status,
+                answer_permission,
+                page_start,
+                page_end,
+                cell_range,
+            )
+            .map_err(|error| anyhow::anyhow!(error))
+    }
+
     /// Complete a research project and store as a record.
     pub fn complete_research(&self, project_id: &str, synthesis: Option<String>) -> Result<Record> {
         let project = self
@@ -7053,20 +7173,59 @@ impl Aura {
             .map_err(|e| anyhow::anyhow!(e))?;
         let _project_anchor = self.ensure_research_project_anchor(&project)?;
 
-        // Build content from project
-        let content = if let Some(ref syn) = project.synthesis {
-            format!("Research: {}\n\n{}", project.topic, syn)
-        } else {
-            let findings: Vec<String> = project
-                .findings
-                .iter()
-                .map(|f| format!("- {}: {}", f.query, f.result))
-                .collect();
-            format!(
+        let evidence_aware = project
+            .findings
+            .iter()
+            .any(|finding| finding.admission.is_some());
+        let admitted_count = project
+            .findings
+            .iter()
+            .filter(|finding| finding.admission == Some(AdmissionDecision::Cite))
+            .count();
+        let context_only_count = project
+            .findings
+            .iter()
+            .filter(|finding| finding.admission == Some(AdmissionDecision::ContextOnly))
+            .count();
+        let blocked_count = project
+            .findings
+            .iter()
+            .filter(|finding| finding.admission == Some(AdmissionDecision::Block))
+            .count();
+
+        // Blocked evidence never enters report content. Context-only material is
+        // explicitly marked so downstream agents cannot mistake it for citation.
+        let usable_findings: Vec<String> = project
+            .findings
+            .iter()
+            .filter_map(|finding| match finding.admission {
+                Some(AdmissionDecision::Block) => None,
+                Some(AdmissionDecision::ContextOnly) => Some(format!(
+                    "- [context only] {}: {}",
+                    finding.query, finding.result
+                )),
+                Some(AdmissionDecision::Cite) => {
+                    Some(format!("- [citable] {}: {}", finding.query, finding.result))
+                }
+                None => Some(format!("- {}: {}", finding.query, finding.result)),
+            })
+            .collect();
+        // An arbitrary synthesis may already contain blocked material. Until a
+        // synthesis carries claim-level lineage, evidence-aware reports are
+        // composed only from admitted findings.
+        let synthesis_omitted_for_evidence_safety = evidence_aware && project.synthesis.is_some();
+        let content = match (&project.synthesis, evidence_aware) {
+            (Some(_), true) => format!(
+                "Research: {}\n\nAdmitted findings:\n{}",
+                project.topic,
+                usable_findings.join("\n")
+            ),
+            (Some(synthesis), false) => format!("Research: {}\n\n{}", project.topic, synthesis),
+            (None, _) => format!(
                 "Research: {}\n\nFindings:\n{}",
                 project.topic,
-                findings.join("\n")
-            )
+                usable_findings.join("\n")
+            ),
         };
 
         let report_metadata = HashMap::from([
@@ -7086,6 +7245,23 @@ impl Aura {
             (
                 "finding_count".to_string(),
                 project.findings.len().to_string(),
+            ),
+            ("evidence_aware".to_string(), evidence_aware.to_string()),
+            (
+                "admitted_finding_count".to_string(),
+                admitted_count.to_string(),
+            ),
+            (
+                "context_only_finding_count".to_string(),
+                context_only_count.to_string(),
+            ),
+            (
+                "blocked_finding_count".to_string(),
+                blocked_count.to_string(),
+            ),
+            (
+                "synthesis_omitted_for_evidence_safety".to_string(),
+                synthesis_omitted_for_evidence_safety.to_string(),
             ),
         ]);
 
@@ -10356,6 +10532,7 @@ fn jaccard_similarity(left: &HashSet<&str>, right: &HashSet<&str>) -> f32 {
     left.intersection(right).count() as f32 / union as f32
 }
 
+#[cfg(any(feature = "server", feature = "mcp", feature = "python"))]
 pub(crate) fn apply_cross_namespace_dimension_flags(
     options: &mut CrossNamespaceDigestOptions,
     include_dimensions: Option<&[&str]>,
@@ -11912,6 +12089,16 @@ impl Aura {
         self.stats()
     }
 
+    #[pyo3(name = "recall_hit_stats")]
+    fn py_recall_hit_stats(&self) -> HashMap<String, u64> {
+        self.recall_hit_stats()
+    }
+
+    #[pyo3(name = "reset_recall_hit_stats")]
+    fn py_reset_recall_hit_stats(&self) {
+        self.reset_recall_hit_stats()
+    }
+
     #[pyo3(name = "count", signature = (level=None))]
     fn py_count(&self, level: Option<Level>) -> usize {
         self.count(level)
@@ -12825,6 +13012,51 @@ impl Aura {
         self.is_background_running()
     }
 
+    #[pyo3(
+        name = "build_context_capsule",
+        signature = (purpose, token_budget=2000, namespace=None)
+    )]
+    fn py_build_context_capsule(
+        &self,
+        py: Python<'_>,
+        purpose: &str,
+        token_budget: usize,
+        namespace: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let capsule = self
+            .build_context_capsule(namespace, purpose, token_budget)
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("namespace", &capsule.namespace)?;
+        dict.set_item("purpose", &capsule.purpose)?;
+        dict.set_item("token_budget", capsule.token_budget)?;
+        dict.set_item("estimated_tokens", capsule.estimated_tokens)?;
+        dict.set_item("source_record_count", capsule.source_record_count)?;
+        dict.set_item("omitted_count", capsule.omitted_count)?;
+        dict.set_item("refutation_count", capsule.refutation_count)?;
+        dict.set_item("evidence_debt_count", capsule.evidence_debt_count)?;
+        dict.set_item("contradiction_count", capsule.contradiction_count)?;
+        dict.set_item("capsule_hash", &capsule.capsule_hash)?;
+        let entries = pyo3::types::PyList::empty_bound(py);
+        for entry in capsule.entries {
+            let item = pyo3::types::PyDict::new_bound(py);
+            item.set_item("record_id", entry.record_id)?;
+            item.set_item("category", entry.category.as_str())?;
+            item.set_item("content", entry.content)?;
+            item.set_item("source_type", entry.source_type)?;
+            item.set_item("semantic_type", entry.semantic_type)?;
+            item.set_item("level", entry.level.name())?;
+            item.set_item("confidence", entry.confidence)?;
+            item.set_item("strength", entry.strength)?;
+            item.set_item("salience", entry.salience)?;
+            item.set_item("estimated_tokens", entry.estimated_tokens)?;
+            item.set_item("selection_reasons", entry.selection_reasons)?;
+            entries.append(item)?;
+        }
+        dict.set_item("entries", entries)?;
+        Ok(dict.unbind().into_any())
+    }
+
     #[pyo3(name = "start_research", signature = (topic, depth=None))]
     fn py_start_research(
         &self,
@@ -12851,6 +13083,74 @@ impl Aura {
     ) -> PyResult<()> {
         self.add_research_finding(project_id, query, result, url)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    #[pyo3(
+        name = "add_research_evidence_finding",
+        signature = (
+            project_id, query, result, document_id, revision_id, uri,
+            source_bytes, byte_start, byte_end, verification_status="candidate",
+            answer_permission="context_only", page_start=None, page_end=None,
+            cell_range=None
+        )
+    )]
+    #[allow(clippy::too_many_arguments)]
+    fn py_add_research_evidence_finding(
+        &self,
+        py: Python<'_>,
+        project_id: &str,
+        query: &str,
+        result: &str,
+        document_id: &str,
+        revision_id: &str,
+        uri: &str,
+        source_bytes: Vec<u8>,
+        byte_start: usize,
+        byte_end: usize,
+        verification_status: &str,
+        answer_permission: &str,
+        page_start: Option<u32>,
+        page_end: Option<u32>,
+        cell_range: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let status = VerificationStatus::parse(verification_status).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("invalid verification_status")
+        })?;
+        let permission = AnswerPermission::parse(answer_permission)
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("invalid answer_permission"))?;
+        let finding = self
+            .add_research_evidence_finding(
+                project_id,
+                query,
+                result,
+                document_id,
+                revision_id,
+                uri,
+                &source_bytes,
+                byte_start,
+                byte_end,
+                status,
+                permission,
+                page_start,
+                page_end,
+                cell_range,
+            )
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        let document = finding
+            .source_document
+            .expect("evidence finding has document");
+        let span = finding.source_span.expect("evidence finding has span");
+        let integrity = finding.integrity.expect("evidence finding has integrity");
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("admission", finding.admission.unwrap().as_str())?;
+        dict.set_item("integrity_valid", integrity.is_valid())?;
+        dict.set_item("document_id", document.document_id)?;
+        dict.set_item("revision_id", document.revision_id)?;
+        dict.set_item("content_hash", document.content_hash)?;
+        dict.set_item("span_hash", span.span_hash)?;
+        dict.set_item("byte_start", span.byte_start)?;
+        dict.set_item("byte_end", span.byte_end)?;
+        Ok(dict.unbind().into_any())
     }
 
     #[pyo3(name = "complete_research", signature = (project_id, synthesis=None))]
@@ -13607,6 +13907,48 @@ mod tests {
             None,
         )?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn recall_hit_stats_include_formatted_recall_and_cache_hits() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        aura.reset_recall_hit_stats();
+
+        assert!(aura
+            .recall("missing memory", None, None, None, None, None)?
+            .is_empty());
+        assert!(aura
+            .recall("missing memory", None, None, None, None, None)?
+            .is_empty());
+        let empty_stats = aura.recall_hit_stats();
+        assert_eq!(empty_stats.get("recall_total"), Some(&2));
+        assert_eq!(empty_stats.get("recall_empty"), Some(&2));
+
+        aura.store(
+            "The launch checklist requires a smoke test",
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )?;
+        assert!(!aura
+            .recall("launch smoke test", None, None, None, None, None)?
+            .is_empty());
+        let populated_stats = aura.recall_hit_stats();
+        assert_eq!(populated_stats.get("recall_total"), Some(&3));
+        assert_eq!(populated_stats.get("recall_empty"), Some(&2));
+
+        aura.reset_recall_hit_stats();
+        assert_eq!(aura.recall_hit_stats().get("recall_total"), Some(&0));
+        assert_eq!(aura.recall_hit_stats().get("recall_empty"), Some(&0));
         Ok(())
     }
 
@@ -14378,6 +14720,105 @@ mod tests {
             relation::PROJECT_MEMBERSHIP_RELATION
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn evidence_research_omits_blocked_findings_from_report() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let project = aura.start_research("Institute figures", Some("standard"));
+        let source = b"Enrollment: 420\nUnverified projection: 999\n";
+
+        aura.add_research_evidence_finding(
+            &project.id,
+            "enrollment",
+            "Enrollment is 420",
+            "report",
+            "2026",
+            "file:///report.txt",
+            source,
+            0,
+            b"Enrollment: 420".len(),
+            VerificationStatus::Verified,
+            AnswerPermission::Cite,
+            Some(1),
+            Some(1),
+            None,
+        )?;
+        let blocked_start = b"Enrollment: 420\n".len();
+        aura.add_research_evidence_finding(
+            &project.id,
+            "projection",
+            "Secret blocked value 999",
+            "report",
+            "2026",
+            "file:///report.txt",
+            source,
+            blocked_start,
+            source.len() - 1,
+            VerificationStatus::Contested,
+            AnswerPermission::Blocked,
+            Some(2),
+            Some(2),
+            None,
+        )?;
+
+        let report = aura.complete_research(&project.id, None)?;
+        assert!(report.content.contains("[citable] enrollment"));
+        assert!(!report.content.contains("Secret blocked value"));
+        assert_eq!(
+            report
+                .metadata
+                .get("admitted_finding_count")
+                .map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            report
+                .metadata
+                .get("blocked_finding_count")
+                .map(String::as_str),
+            Some("1")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn evidence_research_does_not_reintroduce_blocked_data_through_synthesis() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let project = aura.start_research("Protected figures", Some("standard"));
+        let source = b"Secret blocked value: 999";
+        aura.add_research_evidence_finding(
+            &project.id,
+            "projection",
+            "Secret blocked value 999",
+            "report",
+            "2026",
+            "file:///report.txt",
+            source,
+            0,
+            source.len(),
+            VerificationStatus::Contested,
+            AnswerPermission::Blocked,
+            None,
+            None,
+            None,
+        )?;
+
+        let report = aura.complete_research(
+            &project.id,
+            Some("The leaked secret blocked value is 999".into()),
+        )?;
+        assert!(!report.content.contains("999"));
+        assert_eq!(
+            report
+                .metadata
+                .get("synthesis_omitted_for_evidence_safety")
+                .map(String::as_str),
+            Some("true")
+        );
         Ok(())
     }
 

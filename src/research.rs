@@ -175,12 +175,8 @@ impl ResearchEngine {
             span = span.with_cell_range(range);
         }
         let integrity = verify_lineage(&document, source_bytes, &span);
-        let admission = source_admission_decision(
-            verification_status,
-            answer_permission,
-            &integrity,
-            &span,
-        );
+        let admission =
+            source_admission_decision(verification_status, answer_permission, &integrity, &span);
         let finding = ResearchFinding {
             query: query.to_string(),
             result: result.to_string(),

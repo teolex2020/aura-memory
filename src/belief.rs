@@ -7,10 +7,11 @@
 //! competing Hypotheses, scores them, and determines a winner or marks
 //! the belief as unresolved.
 //!
-//! Currently operates in **read-only mode**: it builds and updates beliefs
-//! during maintenance but does NOT influence recall ranking or policy.
+//! Beliefs are rebuilt during maintenance and influence recall only through
+//! bounded reranking plus the resolved-loser admission gate. They do not erase
+//! underlying records; losing evidence remains inspectable.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,15 @@ use crate::sdr::SDRInterpreter;
 /// Passed into the belief engine so it can do content-aware grouping
 /// without directly depending on AuraStorage.
 pub type SdrLookup = HashMap<String, Vec<u16>>;
+
+/// Result of turning record-level contradiction evidence into hypotheses.
+/// `force_unresolved` is set when the graph cannot honestly be represented as
+/// one binary contest (odd cycle, disconnected conflict components, or
+/// conflict mass without directional topology).
+struct ContradictionPartition<'a> {
+    groups: Vec<Vec<&'a Record>>,
+    force_unresolved: bool,
+}
 
 // ── Constants ──
 
@@ -236,15 +246,20 @@ impl Hypothesis {
         let mut confidence_sum = 0.0_f32;
         let mut support_sum = 0.0_f32;
         let mut conflict_sum = 0.0_f32;
-        let mut most_recent = 0.0_f64;
+        let mut most_recent_evidence_time = 0.0_f64;
         let mut confidences = Vec::with_capacity(records.len());
 
         for rec in records {
             confidence_sum += rec.confidence;
             support_sum += rec.support_mass as f32;
             conflict_sum += rec.conflict_mass as f32;
-            if rec.last_activated > most_recent {
-                most_recent = rec.last_activated;
+            // Epistemic recency must describe when evidence became valid, not
+            // when retrieval happened to touch it. Using last_activated here
+            // creates a feedback loop where repeatedly recalled stale rules
+            // look fresh enough to keep winning.
+            let evidence_time = rec.valid_from.unwrap_or(rec.created_at);
+            if evidence_time > most_recent_evidence_time {
+                most_recent_evidence_time = evidence_time;
             }
             confidences.push(rec.confidence);
         }
@@ -255,7 +270,7 @@ impl Hypothesis {
         let conflict_mass = conflict_sum;
 
         // Recency = exp(-age_days / tau)
-        let age_days = ((now - most_recent) / 86400.0).max(0.0);
+        let age_days = ((now - most_recent_evidence_time) / 86400.0).max(0.0);
         let recency = (-age_days / TAU_DAYS).exp() as f32;
 
         // Consistency = 1 / (1 + variance(confidences))
@@ -501,8 +516,8 @@ impl Belief {
 
 /// The belief engine — maintains the full belief state.
 ///
-/// Currently read-only: builds beliefs from records during maintenance
-/// but does not modify recall or agent behavior.
+/// Builds beliefs from records during maintenance. Recall reads this state for
+/// bounded winner/loser governance without mutating the engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeliefEngine {
     /// All beliefs, keyed by belief ID.
@@ -1240,26 +1255,15 @@ impl BeliefEngine {
                 bid
             });
 
-            // Cluster records into hypotheses.
-            // Simple strategy: split by whether records have contradictions.
-            let (supporting, opposing) = Self::split_by_contradiction(group_records);
+            let partition = Self::partition_contradictions(group_records);
 
             let mut hyp_refs = Vec::new();
 
-            // Build supporting hypothesis
-            if !supporting.is_empty() {
-                let h = Hypothesis::from_records(&belief_id, &supporting);
-                for rid in &h.prototype_record_ids {
-                    self.record_index.insert(rid.clone(), h.id.clone());
+            for hypothesis_records in &partition.groups {
+                if hypothesis_records.is_empty() {
+                    continue;
                 }
-                let hid = h.id.clone();
-                self.hypotheses.insert(hid.clone(), h);
-                hyp_refs.push(hid);
-            }
-
-            // Build opposing hypothesis (if any contradictions)
-            if !opposing.is_empty() {
-                let h = Hypothesis::from_records(&belief_id, &opposing);
+                let h = Hypothesis::from_records(&belief_id, hypothesis_records);
                 for rid in &h.prototype_record_ids {
                     self.record_index.insert(rid.clone(), h.id.clone());
                 }
@@ -1285,6 +1289,11 @@ impl BeliefEngine {
                     .collect();
 
                 let prev_winner = belief.resolve(&hyps);
+                if partition.force_unresolved && hyps.len() > 1 {
+                    belief.state = BeliefState::Unresolved;
+                    belief.winner_id = None;
+                    belief.stability = 0.0;
+                }
 
                 // Track revisions
                 if let Some(ref prev) = prev_winner {
@@ -1336,23 +1345,184 @@ impl BeliefEngine {
         report
     }
 
-    /// Split records into (supporting, opposing) based on contradiction markers.
-    ///
-    /// Records with semantic_type="contradiction" or conflict_mass > support_mass
-    /// go into the opposing group.
-    fn split_by_contradiction<'a>(records: &[&'a Record]) -> (Vec<&'a Record>, Vec<&'a Record>) {
+    /// Partition records into competing hypotheses without inventing binary
+    /// certainty for a non-binary contradiction graph.
+    fn partition_contradictions<'a>(records: &[&'a Record]) -> ContradictionPartition<'a> {
+        let by_id: HashMap<&str, usize> = records
+            .iter()
+            .enumerate()
+            .map(|(index, record)| (record.id.as_str(), index))
+            .collect();
+        let mut adjacency = vec![Vec::<usize>::new(); records.len()];
+        let mut has_explicit_conflict = false;
+        for (index, record) in records.iter().enumerate() {
+            for (other_id, relation) in &record.connection_types {
+                if !(relation.contains("conflict") || relation.contains("contradict")) {
+                    continue;
+                }
+                let Some(&other_index) = by_id.get(other_id.as_str()) else {
+                    continue;
+                };
+                if other_index == index {
+                    continue;
+                }
+                adjacency[index].push(other_index);
+                adjacency[other_index].push(index);
+                has_explicit_conflict = true;
+            }
+        }
+
+        if has_explicit_conflict {
+            for neighbors in &mut adjacency {
+                neighbors.sort_unstable();
+                neighbors.dedup();
+            }
+
+            let mut colors: Vec<Option<bool>> = vec![None; records.len()];
+            let mut visited = vec![false; records.len()];
+            let mut groups = Vec::new();
+            let mut force_unresolved = false;
+            let mut conflict_component_count = 0usize;
+            let mut traversal_order: Vec<usize> = (0..records.len()).collect();
+            traversal_order.sort_by(|left, right| records[*left].id.cmp(&records[*right].id));
+
+            for start in traversal_order {
+                if adjacency[start].is_empty() {
+                    continue;
+                }
+                if colors[start].is_some() || adjacency[start].is_empty() {
+                    continue;
+                }
+                conflict_component_count += 1;
+                colors[start] = Some(records[start].semantic_type == "contradiction");
+                let mut queue = VecDeque::from([start]);
+                let mut component = Vec::new();
+                let mut bipartite = true;
+                while let Some(index) = queue.pop_front() {
+                    if visited[index] {
+                        continue;
+                    }
+                    visited[index] = true;
+                    component.push(index);
+                    let next_color = !colors[index].unwrap_or(false);
+                    for &neighbor in &adjacency[index] {
+                        match colors[neighbor] {
+                            None => {
+                                colors[neighbor] = Some(next_color);
+                                queue.push_back(neighbor);
+                            }
+                            Some(existing) if existing != next_color => {
+                                bipartite = false;
+                            }
+                            Some(_) => {
+                                if !visited[neighbor] {
+                                    queue.push_back(neighbor);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                component.sort_by(|left, right| records[*left].id.cmp(&records[*right].id));
+                if bipartite {
+                    let mut side_false = Vec::new();
+                    let mut side_true = Vec::new();
+                    for index in component {
+                        if colors[index].unwrap_or(false) {
+                            side_true.push(records[index]);
+                        } else {
+                            side_false.push(records[index]);
+                        }
+                    }
+                    if !side_false.is_empty() {
+                        groups.push(side_false);
+                    }
+                    if !side_true.is_empty() {
+                        groups.push(side_true);
+                    }
+                } else {
+                    // An odd cycle cannot be represented by two consistent
+                    // sides. Keep every claim independently inspectable and
+                    // force the aggregate belief to remain unresolved.
+                    force_unresolved = true;
+                    for index in component {
+                        groups.push(vec![records[index]]);
+                    }
+                }
+            }
+
+            // Multiple disconnected conflict components are independent
+            // contests, not one global vote. Isolated records inside the coarse
+            // belief group are also not safely assignable to either side.
+            if conflict_component_count > 1 {
+                force_unresolved = true;
+            }
+            for (index, record) in records.iter().enumerate() {
+                if adjacency[index].is_empty() {
+                    groups.push(vec![*record]);
+                    force_unresolved = true;
+                }
+            }
+
+            return ContradictionPartition {
+                groups,
+                force_unresolved,
+            };
+        }
+
         let mut supporting = Vec::new();
         let mut opposing = Vec::new();
 
+        let has_semantic_contradiction = records
+            .iter()
+            .any(|record| record.semantic_type == "contradiction");
+
+        if has_semantic_contradiction {
+            for rec in records {
+                if rec.semantic_type == "contradiction" {
+                    opposing.push(*rec);
+                } else {
+                    supporting.push(*rec);
+                }
+            }
+            let groups = [supporting, opposing]
+                .into_iter()
+                .filter(|group| !group.is_empty())
+                .collect();
+            return ContradictionPartition {
+                groups,
+                force_unresolved: false,
+            };
+        }
+
+        if records
+            .iter()
+            .any(|record| record.conflict_mass > record.support_mass)
+        {
+            // Conflict mass is symmetric and carries no side information.
+            // Preserve each claim as a hypothesis and refuse to invent a
+            // winner until explicit topology or reconciliation arrives.
+            return ContradictionPartition {
+                groups: records.iter().map(|record| vec![*record]).collect(),
+                force_unresolved: records.len() > 1,
+            };
+        }
+
         for rec in records {
-            if rec.semantic_type == "contradiction" || rec.conflict_mass > rec.support_mass {
+            if rec.semantic_type == "contradiction" {
                 opposing.push(*rec);
             } else {
                 supporting.push(*rec);
             }
         }
 
-        (supporting, opposing)
+        ContradictionPartition {
+            groups: [supporting, opposing]
+                .into_iter()
+                .filter(|group| !group.is_empty())
+                .collect(),
+            force_unresolved: false,
+        }
     }
 
     /// Get belief for a record (if it participates in one).
@@ -1360,6 +1530,21 @@ impl BeliefEngine {
         let hid = self.record_index.get(record_id)?;
         let hyp = self.hypotheses.get(hid)?;
         self.beliefs.get(&hyp.belief_id)
+    }
+
+    /// Get the hypothesis that currently owns a record.
+    pub fn hypothesis_for_record(&self, record_id: &str) -> Option<&Hypothesis> {
+        let hypothesis_id = self.record_index.get(record_id)?;
+        self.hypotheses.get(hypothesis_id)
+    }
+
+    /// Return the record's belief and hypothesis together. Keeping this lookup
+    /// centralized prevents recall/explain surfaces from accidentally treating
+    /// every member of a resolved belief as part of its winning hypothesis.
+    pub fn resolution_for_record(&self, record_id: &str) -> Option<(&Belief, &Hypothesis)> {
+        let hypothesis = self.hypothesis_for_record(record_id)?;
+        let belief = self.beliefs.get(&hypothesis.belief_id)?;
+        Some((belief, hypothesis))
     }
 
     /// Soft-deprecate a belief without deleting its provenance.
@@ -1759,6 +1944,48 @@ mod tests {
     }
 
     #[test]
+    fn hypothesis_recency_uses_evidence_time_not_retrieval_activation() {
+        let now = now_secs();
+        let mut stale = make_record("old policy", &["deploy", "policy"], "decision");
+        stale.created_at = now - 90.0 * 86_400.0;
+        stale.last_activated = now;
+
+        let mut fresh = make_record("new policy", &["deploy", "policy"], "decision");
+        fresh.created_at = now - 60.0;
+        fresh.last_activated = now - 60.0;
+
+        let stale_hypothesis = Hypothesis::from_records("belief", &[&stale]);
+        let fresh_hypothesis = Hypothesis::from_records("belief", &[&fresh]);
+        assert!(fresh_hypothesis.recency > stale_hypothesis.recency);
+        assert!(stale_hypothesis.recency < 0.01);
+    }
+
+    #[test]
+    fn explicit_conflict_edge_creates_competing_hypotheses() {
+        let mut old = make_record(
+            "deploy to staging before production",
+            &["deploy", "policy"],
+            "decision",
+        );
+        let mut fresh = make_record(
+            "deploy directly to production under the new pipeline",
+            &["deploy", "policy"],
+            "decision",
+        );
+        old.add_typed_connection(&fresh.id, 1.0, "contradicts");
+        fresh.add_typed_connection(&old.id, 1.0, "contradicts");
+        // Conflict mass is symmetric and must not collapse both records onto
+        // the same side of the belief.
+        old.conflict_mass = 1;
+        fresh.conflict_mass = 1;
+
+        let partition = BeliefEngine::partition_contradictions(&[&old, &fresh]);
+        assert_eq!(partition.groups.len(), 2);
+        assert!(partition.groups.iter().all(|group| group.len() == 1));
+        assert!(!partition.force_unresolved);
+    }
+
+    #[test]
     fn test_belief_resolve_singleton() {
         let r1 = make_record(
             "user uses vim keybindings always",
@@ -2103,7 +2330,7 @@ mod tests {
     }
 
     #[test]
-    fn test_split_by_contradiction() {
+    fn test_partition_by_semantic_contradiction() {
         let r1 = make_record(
             "normal fact about deployment safety patterns",
             &["deploy"],
@@ -2116,9 +2343,60 @@ mod tests {
         );
         r2.conflict_mass = 3;
 
-        let (supporting, opposing) = BeliefEngine::split_by_contradiction(&[&r1, &r2]);
-        assert_eq!(supporting.len(), 1);
-        assert_eq!(opposing.len(), 1);
+        let partition = BeliefEngine::partition_contradictions(&[&r1, &r2]);
+        assert_eq!(partition.groups.len(), 2);
+        assert!(partition.groups.iter().all(|group| group.len() == 1));
+        assert!(!partition.force_unresolved);
+    }
+
+    #[test]
+    fn odd_contradiction_cycle_forces_unresolved_partition() {
+        let mut a = make_record("deployment policy A", &["deploy", "policy"], "decision");
+        let mut b = make_record("deployment policy B", &["deploy", "policy"], "decision");
+        let mut c = make_record("deployment policy C", &["deploy", "policy"], "decision");
+        a.add_typed_connection(&b.id, 1.0, "contradicts");
+        b.add_typed_connection(&a.id, 1.0, "contradicts");
+        b.add_typed_connection(&c.id, 1.0, "contradicts");
+        c.add_typed_connection(&b.id, 1.0, "contradicts");
+        c.add_typed_connection(&a.id, 1.0, "contradicts");
+        a.add_typed_connection(&c.id, 1.0, "contradicts");
+        a.confidence = 0.99;
+        a.support_mass = 20;
+        b.confidence = 0.4;
+        c.confidence = 0.4;
+
+        let partition = BeliefEngine::partition_contradictions(&[&a, &b, &c]);
+        assert!(partition.force_unresolved);
+        assert_eq!(partition.groups.len(), 3);
+        assert!(partition.groups.iter().all(|group| group.len() == 1));
+
+        let mut records = HashMap::new();
+        records.insert(a.id.clone(), a.clone());
+        records.insert(b.id.clone(), b);
+        records.insert(c.id.clone(), c);
+        let mut engine = BeliefEngine::new();
+        engine.update(&records);
+        let belief = engine
+            .belief_for_record(&a.id)
+            .expect("triangle records should share an inspectable belief");
+        assert_eq!(belief.state, BeliefState::Unresolved);
+        assert_eq!(belief.winner_id, None);
+    }
+
+    #[test]
+    fn disconnected_conflict_components_do_not_form_one_global_vote() {
+        let mut a = make_record("policy A", &["deploy", "policy"], "decision");
+        let mut b = make_record("policy B", &["deploy", "policy"], "decision");
+        let mut c = make_record("policy C", &["deploy", "policy"], "decision");
+        let mut d = make_record("policy D", &["deploy", "policy"], "decision");
+        a.add_typed_connection(&b.id, 1.0, "contradicts");
+        b.add_typed_connection(&a.id, 1.0, "contradicts");
+        c.add_typed_connection(&d.id, 1.0, "contradicts");
+        d.add_typed_connection(&c.id, 1.0, "contradicts");
+
+        let partition = BeliefEngine::partition_contradictions(&[&a, &b, &c, &d]);
+        assert!(partition.force_unresolved);
+        assert_eq!(partition.groups.len(), 4);
     }
 
     // ── Replay stability: running the same data twice should produce zero revisions ──

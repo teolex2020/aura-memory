@@ -168,7 +168,10 @@ mod tests {
     fn identical_neighbor_masses_overlap_fully() {
         let a = [10u64, 20, 30, 40];
         let s = neighbor_mass_role_similarity(&a, &a);
-        assert!(s > 0.99, "identical neighbor masses should overlap ~1.0, got {s}");
+        assert!(
+            s > 0.99,
+            "identical neighbor masses should overlap ~1.0, got {s}"
+        );
     }
 
     #[test]
@@ -176,7 +179,10 @@ mod tests {
         let s = neighbor_mass_role_similarity(&[1, 2, 3], &[100, 200, 300]);
         // With a 512-bit footprint and 3 hashes/neighbor, accidental collisions
         // are rare; disjoint sets should score near zero.
-        assert!(s < 0.2, "disjoint neighbor masses should be near 0, got {s}");
+        assert!(
+            s < 0.2,
+            "disjoint neighbor masses should be near 0, got {s}"
+        );
     }
 
     #[test]
@@ -205,7 +211,10 @@ mod tests {
     fn order_and_duplicates_do_not_matter() {
         // Role depends on the SET of neighbors, not order or multiplicity.
         let s1 = neighbor_mass_role_similarity(&[1, 2, 3], &[3, 3, 2, 1, 1]);
-        assert!(s1 > 0.99, "set-equal neighbor masses must overlap ~1.0, got {s1}");
+        assert!(
+            s1 > 0.99,
+            "set-equal neighbor masses must overlap ~1.0, got {s1}"
+        );
     }
 
     #[test]

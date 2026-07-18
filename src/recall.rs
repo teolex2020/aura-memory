@@ -957,6 +957,8 @@ const BELIEF_RERANK_MAX_TOP_K: usize = 20;
 
 /// Phase 4 limited-influence multipliers.
 const BELIEF_RERANK_RESOLVED: f32 = 1.05;
+/// A record belonging to a non-winning hypothesis of a resolved belief.
+const BELIEF_RERANK_SUPPRESSED: f32 = 0.95;
 const BELIEF_RERANK_SINGLETON: f32 = 1.02;
 const BELIEF_RERANK_UNRESOLVED: f32 = 0.97;
 
@@ -1048,9 +1050,14 @@ pub fn apply_belief_rerank(
 
     let mut multiplier_sum = 0.0f32;
     for (score, rec) in matched.iter_mut() {
-        let multiplier = match belief_engine.belief_for_record(&rec.id) {
-            Some(belief) => match belief.state {
-                BeliefState::Resolved => BELIEF_RERANK_RESOLVED,
+        let multiplier = match belief_engine.resolution_for_record(&rec.id) {
+            Some((belief, hypothesis)) => match belief.state {
+                BeliefState::Resolved
+                    if belief.winner_id.as_deref() == Some(hypothesis.id.as_str()) =>
+                {
+                    BELIEF_RERANK_RESOLVED
+                }
+                BeliefState::Resolved => BELIEF_RERANK_SUPPRESSED,
                 BeliefState::Singleton => BELIEF_RERANK_SINGLETON,
                 BeliefState::Unresolved => BELIEF_RERANK_UNRESOLVED,
                 BeliefState::Empty => 1.0,
@@ -1157,6 +1164,27 @@ pub fn apply_belief_rerank(
     }
 }
 
+/// Remove records that belong to a losing hypothesis of a resolved belief.
+///
+/// This is an admission gate, not another score heuristic: once a belief has a
+/// clear winner, its contradictory losing side remains available through
+/// audit/history/explain surfaces but must not be activated and reinforced as
+/// current context. Unresolved beliefs keep every side visible.
+pub fn suppress_resolved_losing_hypotheses(
+    matched: &mut Vec<(f32, Record)>,
+    belief_engine: &BeliefEngine,
+) -> usize {
+    let before = matched.len();
+    matched.retain(|(_, record)| {
+        let Some((belief, hypothesis)) = belief_engine.resolution_for_record(&record.id) else {
+            return true;
+        };
+        belief.state != BeliefState::Resolved
+            || belief.winner_id.as_deref() == Some(hypothesis.id.as_str())
+    });
+    before.saturating_sub(matched.len())
+}
+
 // ── Shadow Belief Scoring ──
 //
 // Phase 3 Candidate B: parallel shadow scoring based on belief state.
@@ -1213,6 +1241,7 @@ pub struct ShadowRecallReport {
 /// Unresolved beliefs are penalized: competing hypotheses, uncertain.
 /// No belief membership: neutral (1.0).
 const RESOLVED_MULTIPLIER: f32 = 1.10;
+const SUPPRESSED_MULTIPLIER: f32 = 0.90;
 const SINGLETON_MULTIPLIER: f32 = 1.05;
 const UNRESOLVED_MULTIPLIER: f32 = 0.95;
 const NO_BELIEF_MULTIPLIER: f32 = 1.00;
@@ -1237,11 +1266,17 @@ pub fn compute_shadow_belief_scores(
 
     // Phase 1: compute shadow scores
     for (baseline_rank, (base_score, rec)) in baseline.iter().enumerate() {
-        let (multiplier, state_str, confidence) = match belief_engine.belief_for_record(&rec.id) {
-            Some(belief) => {
+        let (multiplier, state_str, confidence) = match belief_engine.resolution_for_record(&rec.id)
+        {
+            Some((belief, hypothesis)) => {
                 belief_member_count += 1;
                 let m = match belief.state {
-                    BeliefState::Resolved => RESOLVED_MULTIPLIER,
+                    BeliefState::Resolved
+                        if belief.winner_id.as_deref() == Some(hypothesis.id.as_str()) =>
+                    {
+                        RESOLVED_MULTIPLIER
+                    }
+                    BeliefState::Resolved => SUPPRESSED_MULTIPLIER,
                     BeliefState::Singleton => SINGLETON_MULTIPLIER,
                     BeliefState::Unresolved => UNRESOLVED_MULTIPLIER,
                     BeliefState::Empty => NO_BELIEF_MULTIPLIER,
@@ -2122,6 +2157,9 @@ mod tests {
             };
 
             let hid = hyp.id.clone();
+            if matches!(state, BeliefState::Resolved | BeliefState::Singleton) {
+                belief.winner_id = Some(hid.clone());
+            }
             engine.hypotheses.insert(hid.clone(), hyp);
             engine.beliefs.insert(bid, belief);
             engine.record_index.insert(record_id.to_string(), hid);
@@ -2421,6 +2459,75 @@ mod tests {
             "expected 0.525, got {}",
             matched[0].0
         );
+    }
+
+    #[test]
+    fn test_rerank_resolved_belief_penalizes_losing_hypothesis() {
+        let mut engine = BeliefEngine::default();
+        let mut belief = Belief::new("deploy-policy".to_string());
+        belief.state = BeliefState::Resolved;
+
+        let winner = Hypothesis {
+            id: "winner-hypothesis".to_string(),
+            belief_id: belief.id.clone(),
+            prototype_record_ids: vec!["fresh".to_string()],
+            score: 0.9,
+            confidence: 0.9,
+            support_mass: 2.0,
+            conflict_mass: 0.0,
+            recency: 1.0,
+            consistency: 1.0,
+        };
+        let loser = Hypothesis {
+            id: "loser-hypothesis".to_string(),
+            belief_id: belief.id.clone(),
+            prototype_record_ids: vec!["stale".to_string()],
+            score: 0.4,
+            confidence: 0.9,
+            support_mass: 2.0,
+            conflict_mass: 0.0,
+            recency: 0.2,
+            consistency: 1.0,
+        };
+        belief.winner_id = Some(winner.id.clone());
+        belief.hypothesis_ids = vec![winner.id.clone(), loser.id.clone()];
+        engine
+            .record_index
+            .insert("fresh".to_string(), winner.id.clone());
+        engine
+            .record_index
+            .insert("stale".to_string(), loser.id.clone());
+        engine.hypotheses.insert(winner.id.clone(), winner);
+        engine.hypotheses.insert(loser.id.clone(), loser);
+        engine.beliefs.insert(belief.id.clone(), belief);
+
+        let mut matched: Vec<(f32, Record)> = ["fresh", "stale", "other-a", "other-b"]
+            .iter()
+            .map(|id| {
+                let mut record = Record::new((*id).to_string(), Level::Decisions);
+                record.id = (*id).to_string();
+                (0.5, record)
+            })
+            .collect();
+        let report = apply_belief_rerank(&mut matched, &engine, 10);
+        assert!(report.was_applied);
+        let fresh_score = matched
+            .iter()
+            .find(|(_, record)| record.id == "fresh")
+            .unwrap()
+            .0;
+        let stale_score = matched
+            .iter()
+            .find(|(_, record)| record.id == "stale")
+            .unwrap()
+            .0;
+        assert!((fresh_score - 0.525).abs() < 0.001);
+        assert!((stale_score - 0.475).abs() < 0.001);
+        assert_eq!(
+            suppress_resolved_losing_hypotheses(&mut matched, &engine),
+            1
+        );
+        assert!(!matched.iter().any(|(_, record)| record.id == "stale"));
     }
 
     #[test]

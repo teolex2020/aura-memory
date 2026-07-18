@@ -3,7 +3,7 @@
 //! This is the SINGLE entry point. Replaces both `AuraMemory` (Rust)
 //! and `CognitiveMemory` (Python).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -154,6 +154,11 @@ pub struct Aura {
 pub struct RecallBeliefExplanation {
     pub id: String,
     pub state: String,
+    pub hypothesis_id: String,
+    pub winner_hypothesis_id: Option<String>,
+    pub hypothesis_score: f32,
+    pub winner_score: Option<f32>,
+    pub is_winning_hypothesis: bool,
     pub confidence: f32,
     pub support_mass: f32,
     pub conflict_mass: f32,
@@ -213,6 +218,34 @@ pub struct RecallTraceScore {
     pub final_score: f32,
 }
 
+/// A relevant recall candidate that was inspected but not returned.
+///
+/// Rejections are namespace-safe: candidates outside the requested namespace
+/// scope are never represented here, even as identifiers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecallRejectedCandidate {
+    pub record_id: String,
+    pub namespace: String,
+    pub content_preview: String,
+    pub reasons: Vec<String>,
+    pub strength: f32,
+    pub valid_from: Option<f64>,
+    pub valid_until: Option<f64>,
+    pub belief: Option<RecallBeliefExplanation>,
+    pub trace: RecallTraceScore,
+}
+
+/// Aggregate outcome of the gates applied during an explained recall.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecallDecisionSummary {
+    pub evaluated_candidate_count: usize,
+    pub selected_count: usize,
+    pub rejected_count: usize,
+    pub reported_rejected_count: usize,
+    pub omitted_rejected_count: usize,
+    pub rejection_counts: BTreeMap<String, usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HonestAnswerSupport {
     pub significance_phrase: Option<String>,
@@ -248,6 +281,8 @@ pub struct RecallExplanationItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallExplanation {
+    pub trace_id: String,
+    pub evaluated_at: f64,
     pub query: String,
     pub top_k: usize,
     pub result_count: usize,
@@ -256,7 +291,9 @@ pub struct RecallExplanation {
     pub concept_surface_mode: String,
     pub causal_rerank_mode: String,
     pub policy_rerank_mode: String,
+    pub decision_summary: RecallDecisionSummary,
     pub items: Vec<RecallExplanationItem>,
+    pub rejected_candidates: Vec<RecallRejectedCandidate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -537,11 +574,23 @@ impl Aura {
         let path_buf = PathBuf::from(path);
         std::fs::create_dir_all(&path_buf)?;
 
-        // Initialize aura-memory components
+        // Initialize aura-memory components. A password must never silently
+        // degrade to unencrypted storage when the feature is absent.
+        #[cfg(feature = "encryption")]
         let encryption_key = if let Some(pwd) = password {
             let salt = crate::crypto::generate_salt();
             Some(EncryptionKey::from_password(pwd, &salt)?)
         } else {
+            None
+        };
+
+        #[cfg(not(feature = "encryption"))]
+        let encryption_key: Option<EncryptionKey> = {
+            if password.is_some() {
+                anyhow::bail!(
+                    "Password-protected storage requires the 'encryption' feature; rebuild Aura with --features encryption"
+                );
+            }
             None
         };
 
@@ -586,16 +635,104 @@ impl Aura {
                 migrated_ids.push(rec.id.clone());
             }
         }
-        // Persist only the migrated records
-        if !migrated_ids.is_empty() {
-            for id in &migrated_ids {
-                if let Some(rec) = loaded_records.get(id) {
-                    let _ = cognitive_store.append_update(rec);
+        // Recover version replacements written by pre-transaction releases.
+        // A `pending` marker means the old implementation closed the source
+        // before it knew whether a successor would be durably created.
+        let pending_recoveries: Vec<(String, Option<(String, f64, f64)>)> = loaded_records
+            .values()
+            .filter(|record| {
+                record.metadata.get("superseded_by").map(String::as_str) == Some("pending")
+            })
+            .map(|old| {
+                let successor = loaded_records
+                    .values()
+                    .filter(|candidate| {
+                        candidate.caused_by_id.as_deref() == Some(old.id.as_str())
+                            && candidate.namespace == old.namespace
+                    })
+                    .min_by(|left, right| {
+                        left.created_at
+                            .partial_cmp(&right.created_at)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| left.id.cmp(&right.id))
+                    })
+                    .map(|successor| {
+                        (
+                            successor.id.clone(),
+                            successor.valid_from.unwrap_or(successor.created_at),
+                            successor.created_at,
+                        )
+                    });
+                (old.id.clone(), successor)
+            })
+            .collect();
+        for (old_id, successor) in pending_recoveries {
+            let Some(old) = loaded_records.get_mut(&old_id) else {
+                continue;
+            };
+            match successor {
+                Some((successor_id, boundary, recorded_at)) => {
+                    old.metadata.insert("superseded_by".into(), successor_id);
+                    old.metadata.insert(
+                        "supersede_recovery".into(),
+                        "linked_pending_successor".into(),
+                    );
+                    old.valid_until = Some(boundary);
+                    old.superseded_at.get_or_insert(recorded_at);
+                }
+                None => {
+                    old.metadata.remove("superseded_by");
+                    old.metadata.insert(
+                        "supersede_recovery".into(),
+                        "reopened_incomplete_pending".into(),
+                    );
+                    old.valid_until = None;
+                    old.superseded_at = None;
                 }
             }
+            if !migrated_ids.contains(&old_id) {
+                migrated_ids.push(old_id);
+            }
+        }
+        // Backfill business/system time for version chains created before
+        // first-class temporal validity fields existed. The successor's
+        // creation time is the best deterministic effective-time boundary
+        // available in legacy data.
+        let legacy_version_boundaries: Vec<(String, f64)> = loaded_records
+            .iter()
+            .filter_map(|(id, rec)| {
+                if rec.valid_until.is_some() || rec.superseded_at.is_some() {
+                    return None;
+                }
+                let successor_id = rec.metadata.get("superseded_by")?;
+                if successor_id.is_empty() || successor_id == "pending" {
+                    return None;
+                }
+                let successor = loaded_records.get(successor_id)?;
+                Some((id.clone(), successor.created_at))
+            })
+            .collect();
+        for (id, boundary) in legacy_version_boundaries {
+            if let Some(rec) = loaded_records.get_mut(&id) {
+                rec.valid_until = Some(boundary);
+                rec.superseded_at = Some(boundary);
+                if !migrated_ids.contains(&id) {
+                    migrated_ids.push(id);
+                }
+            }
+        }
+        // Persist only the migrated records
+        if !migrated_ids.is_empty() {
+            let migrated_records: Vec<Record> = migrated_ids
+                .iter()
+                .filter_map(|id| loaded_records.get(id).cloned())
+                .collect();
+            cognitive_store
+                .append_atomic_upserts(&migrated_records)
+                .context("failed to persist recovered legacy record state")?;
             tracing::info!(
                 count = migrated_ids.len(),
-                "Migrated legacy record confidence values"
+                "Migrated legacy record defaults"
             );
         }
 
@@ -796,6 +933,79 @@ impl Aura {
         namespace: Option<&str>,
         semantic_type: Option<&str>,
     ) -> Result<Record> {
+        self.store_with_channel_and_validity(
+            content,
+            level,
+            tags,
+            pin,
+            content_type,
+            source_type,
+            metadata,
+            deduplicate,
+            caused_by_id,
+            channel,
+            auto_promote,
+            namespace,
+            semantic_type,
+            None,
+            None,
+        )
+    }
+
+    /// Store a memory with an explicit business-time validity interval.
+    ///
+    /// The interval is half-open: `valid_from <= t < valid_until`. Either
+    /// boundary may be omitted. Temporal records only deduplicate against a
+    /// record with the same content and the same validity interval.
+    pub fn store_temporal(
+        &self,
+        content: &str,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+        level: Option<Level>,
+        tags: Option<Vec<String>>,
+        namespace: Option<&str>,
+    ) -> Result<Record> {
+        self.store_with_channel_and_validity(
+            content,
+            level,
+            tags,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            namespace,
+            None,
+            valid_from,
+            valid_until,
+        )
+    }
+
+    /// Store with explicit business-time validity while preserving the
+    /// existing `store_with_channel` API for Rust callers.
+    #[instrument(skip(self, content, metadata), fields(level, namespace, tag_count))]
+    fn store_with_channel_and_validity(
+        &self,
+        content: &str,
+        level: Option<Level>,
+        tags: Option<Vec<String>>,
+        pin: Option<bool>,
+        content_type: Option<&str>,
+        source_type: Option<&str>,
+        metadata: Option<HashMap<String, String>>,
+        deduplicate: Option<bool>,
+        caused_by_id: Option<&str>,
+        channel: Option<&str>,
+        auto_promote: Option<bool>,
+        namespace: Option<&str>,
+        semantic_type: Option<&str>,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> Result<Record> {
         // Validation
         if content.is_empty() {
             return Err(anyhow::anyhow!("Content cannot be empty"));
@@ -839,7 +1049,10 @@ impl Aura {
                     // Strong match — activate existing record instead (only within same namespace)
                     let mut records = self.records.write();
                     if let Some(existing) = records.get_mut(existing_id) {
-                        if existing.namespace == ns {
+                        if existing.namespace == ns
+                            && existing.valid_from == valid_from
+                            && existing.valid_until == valid_until
+                        {
                             existing.activate();
                             // Merge tags
                             for tag in &tags {
@@ -890,6 +1103,8 @@ impl Aura {
         }
         rec.namespace = ns.to_string();
         rec.semantic_type = semantic_type.to_string();
+        rec.set_validity(valid_from, valid_until)
+            .map_err(anyhow::Error::msg)?;
 
         // ── Guard: Stamp provenance ──
         {
@@ -1388,6 +1603,11 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<String> {
+        if self.has_temporal_boundaries(namespaces) {
+            // A wall-clock validity boundary can be crossed without a write,
+            // so cached context is unsafe for temporally bounded namespaces.
+            self.runtime.clear_recall_caches();
+        }
         let budget = token_budget.unwrap_or(2048);
         let result = RecallService::recall_formatted(
             &self.runtime.recall_cache,
@@ -1426,6 +1646,9 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<Vec<(f32, Record)>> {
+        if self.has_temporal_boundaries(namespaces) {
+            self.runtime.clear_recall_caches();
+        }
         let top = top_k.unwrap_or(20);
         let min_str = min_strength.unwrap_or(0.1);
 
@@ -1495,17 +1718,17 @@ impl Aura {
             .collect();
 
         // Sort by effective score desc; stable so equal scores keep recall order.
-        adjusted.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        adjusted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         Ok(adjusted)
     }
 
-    /// Temporal recall: recall only from records created at or before a given timestamp.
+    /// System-time recall: return records Aura had recorded and that were
+    /// business-time valid at the given timestamp.
     ///
     /// Answers the question: "What did the agent know at time X?"
     /// The pipeline is identical to `recall_structured`, but the record set is
-    /// pre-filtered by `created_at <= timestamp` before scoring.
+    /// pre-filtered by `created_at <= timestamp` and the half-open validity
+    /// interval before scoring.
     pub fn recall_at(
         &self,
         query: &str,
@@ -1516,6 +1739,9 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<Vec<(f32, Record)>> {
+        if !timestamp.is_finite() {
+            anyhow::bail!("timestamp must be a finite Unix timestamp");
+        }
         let records = self.records.read();
         let time_records = Self::records_before_timestamp(&records, timestamp);
 
@@ -1557,6 +1783,52 @@ impl Aura {
         Ok(scored)
     }
 
+    /// Business-time recall: return records valid at `timestamp`, using all
+    /// information currently known to Aura.
+    ///
+    /// Unlike `recall_at`, this does not apply a `created_at` cutoff. It is a
+    /// read-only historical projection and does not activate returned records.
+    pub fn recall_as_of(
+        &self,
+        query: &str,
+        timestamp: f64,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        namespaces: Option<&[&str]>,
+    ) -> Result<Vec<(f32, Record)>> {
+        if !timestamp.is_finite() {
+            anyhow::bail!("timestamp must be a finite Unix timestamp");
+        }
+        let records = self.records.read();
+        let time_records = Self::records_valid_at(&records, timestamp);
+        let ngram = self.ngram_index.read();
+        let tag_idx = self.tag_index.read();
+        let aura_idx = self.aura_index.read();
+        let top = top_k.unwrap_or(20);
+        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let trust_config = self.config.trust_config.read();
+
+        Ok(RecallService::recall_temporal(
+            RecallPipelineView {
+                sdr: &self.sdr,
+                index: &self.index,
+                storage: &self.storage,
+                ngram: &ngram,
+                tag_index: &tag_idx,
+                aura_index: &aura_idx,
+                records: &time_records,
+                embedding_ranked,
+                trust_config: Some(&trust_config),
+            },
+            query,
+            top,
+            min_strength.unwrap_or(0.1),
+            expand_connections.unwrap_or(true),
+            namespaces,
+        ))
+    }
+
     /// Return the access/strength timeline for a single record.
     ///
     /// Returns a snapshot with: creation time, last activation, current strength,
@@ -1582,6 +1854,24 @@ impl Aura {
         info.insert(
             "last_activated".into(),
             format!("{:.3}", rec.last_activated),
+        );
+        info.insert(
+            "valid_from".into(),
+            rec.valid_from
+                .map(|value| format!("{value:.3}"))
+                .unwrap_or_default(),
+        );
+        info.insert(
+            "valid_until".into(),
+            rec.valid_until
+                .map(|value| format!("{value:.3}"))
+                .unwrap_or_default(),
+        );
+        info.insert(
+            "superseded_at".into(),
+            rec.superseded_at
+                .map(|value| format!("{value:.3}"))
+                .unwrap_or_default(),
         );
         info.insert(
             "age_days".into(),
@@ -1630,6 +1920,7 @@ impl Aura {
         let min_strength_v = min_strength.unwrap_or(0.1);
         let default_ns = [crate::record::DEFAULT_NAMESPACE];
         let ns_list = namespaces.unwrap_or(&default_ns);
+        let now = now_secs_f64();
 
         // Stage 1: RRF pipeline (has its own lock cycle — read + write for activation)
         let mut scored = self.recall_core(
@@ -1650,6 +1941,9 @@ impl Aura {
 
             for rec in records.values() {
                 if seen_ids.contains(&rec.id) {
+                    continue;
+                }
+                if !rec.is_valid_at(now) {
                     continue;
                 }
                 if !ns_list.contains(&rec.namespace.as_str()) {
@@ -1716,9 +2010,31 @@ impl Aura {
     ) -> HashMap<String, Record> {
         records
             .iter()
-            .filter(|(_, r)| r.created_at <= timestamp)
+            .filter(|(_, r)| r.created_at <= timestamp && r.is_valid_at(timestamp))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
+    }
+
+    /// Filter records by business-time validity without applying a system-time
+    /// knowledge cutoff. This answers "what is valid at T, given what Aura knows now?"
+    fn records_valid_at(
+        records: &HashMap<String, Record>,
+        timestamp: f64,
+    ) -> HashMap<String, Record> {
+        records
+            .iter()
+            .filter(|(_, record)| record.is_valid_at(timestamp))
+            .map(|(id, record)| (id.clone(), record.clone()))
+            .collect()
+    }
+
+    fn has_temporal_boundaries(&self, namespaces: Option<&[&str]>) -> bool {
+        let default_ns = [crate::record::DEFAULT_NAMESPACE];
+        let ns_list = namespaces.unwrap_or(&default_ns);
+        self.records.read().values().any(|record| {
+            ns_list.contains(&record.namespace.as_str())
+                && (record.valid_from.is_some() || record.valid_until.is_some())
+        })
     }
 
     fn record_to_stored_record(rec: &Record) -> StoredRecord {
@@ -1784,6 +2100,12 @@ impl Aura {
         namespaces: Option<&[&str]>,
     ) -> Vec<(f32, Record)> {
         let records = self.records.read();
+        let now = now_secs_f64();
+        let temporal_records = records
+            .values()
+            .any(|record| record.valid_from.is_some() || record.valid_until.is_some())
+            .then(|| Self::records_valid_at(&records, now));
+        let recall_records = temporal_records.as_ref().unwrap_or(&*records);
         let ngram = self.ngram_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
@@ -1798,7 +2120,7 @@ impl Aura {
                 ngram: &ngram,
                 tag_index: &tag_idx,
                 aura_index: &aura_idx,
-                records: &records,
+                records: recall_records,
                 embedding_ranked,
                 trust_config: Some(&trust_config),
             },
@@ -1896,8 +2218,17 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<Vec<(f32, Record)>> {
-        let mut scored =
-            self.recall_raw(query, top_k, min_strength, expand_connections, namespaces);
+        // Retrieve a bounded candidate window before belief admission so a
+        // highly-ranked losing hypothesis cannot consume the entire requested
+        // top-k and hide its winning replacement.
+        let candidate_top = top_k.saturating_mul(2).max(top_k).min(100);
+        let mut scored = self.recall_raw(
+            query,
+            candidate_top,
+            min_strength,
+            expand_connections,
+            namespaces,
+        );
 
         let belief_eng = self.belief_engine.read();
         let concept_eng = self.concept_engine.read();
@@ -1934,6 +2265,10 @@ impl Aura {
                 policy_mode: policy_rerank,
             },
         );
+        if rerank_mode == recall::BeliefRerankMode::Limited {
+            recall::suppress_resolved_losing_hypotheses(&mut scored, &belief_eng);
+        }
+        scored.truncate(top_k);
 
         self.recall_finalize(&scored, query, session_id);
         Ok(scored)
@@ -2009,6 +2344,16 @@ impl Aura {
     ///
     /// This is inspection-only: it mirrors the current bounded reranking path
     /// but does not activate records or mutate runtime state.
+    #[instrument(
+        skip(self, query, namespaces),
+        fields(
+            top_k,
+            min_strength,
+            memory_trace_id = tracing::field::Empty,
+            selected_count = tracing::field::Empty,
+            rejected_count = tracing::field::Empty
+        )
+    )]
     pub fn explain_recall(
         &self,
         query: &str,
@@ -2018,13 +2363,29 @@ impl Aura {
         namespaces: Option<&[&str]>,
     ) -> RecallExplanation {
         let started = std::time::Instant::now();
+        let trace_id = format!("mem_{}", uuid::Uuid::new_v4().simple());
+        tracing::Span::current().record("memory_trace_id", trace_id.as_str());
+        let evaluated_at = now_secs_f64();
         let top = top_k.unwrap_or(20);
+        let candidate_top = top.saturating_mul(2).max(top).min(100);
         let min_str = min_strength.unwrap_or(0.1);
         let records = self.records.read();
+        let default_ns = [crate::record::DEFAULT_NAMESPACE];
+        let ns_list = namespaces.unwrap_or(&default_ns);
+
+        // Keep the diagnostic candidate universe inside the authorized
+        // namespace scope. This intentionally prevents cross-tenant record IDs
+        // or content from appearing in decision traces.
+        let scoped_records: HashMap<String, Record> = records
+            .iter()
+            .filter(|(_, record)| ns_list.contains(&record.namespace.as_str()))
+            .map(|(id, record)| (id.clone(), record.clone()))
+            .collect();
+        let recall_records = Self::records_valid_at(&scoped_records, evaluated_at);
         let ngram = self.ngram_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.collect_embedding_signal(query, candidate_top);
         let trust_config = self.config.trust_config.read();
         let traced = RecallService::raw_with_trace(
             RecallPipelineView {
@@ -2034,17 +2395,44 @@ impl Aura {
                 ngram: &ngram,
                 tag_index: &tag_idx,
                 aura_index: &aura_idx,
-                records: &records,
-                embedding_ranked,
+                records: &recall_records,
+                embedding_ranked: embedding_ranked.clone(),
                 trust_config: Some(&trust_config),
             },
             query,
-            top,
+            candidate_top,
             min_str,
             expand_connections.unwrap_or(true),
             namespaces,
         );
         let crate::recall::RecallTraceResult { mut scored, traces } = traced;
+
+        // The production-equivalent trace above is bounded to the requested
+        // result count and only sees temporally eligible records. Run the same
+        // existing trace primitive with a bounded diagnostic window over the
+        // scoped candidate universe to explain relevant future, expired,
+        // below-threshold, and outside-top-k candidates. Its scored output is
+        // intentionally ignored.
+        let diagnostic_top = top.saturating_mul(4).max(1).min(100);
+        let diagnostic_traces = RecallService::raw_with_trace(
+            RecallPipelineView {
+                sdr: &self.sdr,
+                index: &self.index,
+                storage: &self.storage,
+                ngram: &ngram,
+                tag_index: &tag_idx,
+                aura_index: &aura_idx,
+                records: &scoped_records,
+                embedding_ranked,
+                trust_config: Some(&trust_config),
+            },
+            query,
+            diagnostic_top,
+            min_str,
+            expand_connections.unwrap_or(true),
+            namespaces,
+        )
+        .traces;
 
         let belief_eng = self.belief_engine.read();
         let concept_eng = self.concept_engine.read();
@@ -2071,6 +2459,10 @@ impl Aura {
                 policy_mode,
             },
         );
+        if belief_mode == recall::BeliefRerankMode::Limited {
+            recall::suppress_resolved_losing_hypotheses(&mut scored, &belief_eng);
+        }
+        scored.truncate(top);
 
         let items = scored
             .iter()
@@ -2090,9 +2482,115 @@ impl Aura {
                     traces.get(&rec.id),
                 )
             })
+            .collect::<Vec<_>>();
+
+        let selected_ids: HashSet<&str> = scored
+            .iter()
+            .map(|(_, record)| record.id.as_str())
             .collect();
+        let mut candidate_traces = diagnostic_traces;
+        for (record_id, trace) in &traces {
+            candidate_traces.insert(record_id.clone(), trace.clone());
+        }
+
+        let mut rejected_candidates = candidate_traces
+            .into_iter()
+            .filter_map(|(record_id, trace)| {
+                if selected_ids.contains(record_id.as_str()) {
+                    return None;
+                }
+                let record = scoped_records.get(&record_id)?;
+                let mut reasons = Vec::new();
+                if record
+                    .valid_from
+                    .is_some_and(|valid_from| !valid_from.is_finite())
+                    || record
+                        .valid_until
+                        .is_some_and(|valid_until| !valid_until.is_finite())
+                {
+                    reasons.push("invalid_temporal_bounds".to_string());
+                } else if record
+                    .valid_from
+                    .is_some_and(|valid_from| evaluated_at < valid_from)
+                {
+                    reasons.push("not_yet_valid".to_string());
+                } else if record
+                    .valid_until
+                    .is_some_and(|valid_until| evaluated_at >= valid_until)
+                {
+                    reasons.push("expired".to_string());
+                }
+                if record.strength < min_str {
+                    reasons.push("below_strength_threshold".to_string());
+                }
+                if reasons.is_empty() {
+                    reasons.push("outside_top_k".to_string());
+                }
+                let belief = recall_belief_explanation(&belief_eng, &record.id);
+                if belief.as_ref().is_some_and(|explanation| {
+                    explanation.state == "resolved" && !explanation.is_winning_hypothesis
+                }) {
+                    reasons.push("suppressed_by_belief_resolution".to_string());
+                }
+
+                Some(RecallRejectedCandidate {
+                    record_id: record.id.clone(),
+                    namespace: record.namespace.clone(),
+                    content_preview: preview_text(&record.content, 160),
+                    reasons,
+                    strength: record.strength,
+                    valid_from: record.valid_from,
+                    valid_until: record.valid_until,
+                    belief,
+                    // Rejected candidates never enter bounded reranking, so
+                    // their last observable score is the pre-rerank score.
+                    trace: recall_trace_score(&trace, trace.pre_rerank_score),
+                })
+            })
+            .collect::<Vec<_>>();
+        rejected_candidates.sort_by(|left, right| {
+            right
+                .trace
+                .rrf_score
+                .partial_cmp(&left.trace.rrf_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.record_id.cmp(&right.record_id))
+        });
+
+        let rejected_count = rejected_candidates.len();
+        let mut rejection_counts = BTreeMap::new();
+        for candidate in &rejected_candidates {
+            for reason in &candidate.reasons {
+                *rejection_counts.entry(reason.clone()).or_insert(0) += 1;
+            }
+        }
+        const MAX_REPORTED_REJECTIONS: usize = 100;
+        rejected_candidates.truncate(MAX_REPORTED_REJECTIONS);
+        let reported_rejected_count = rejected_candidates.len();
+        let decision_summary = RecallDecisionSummary {
+            evaluated_candidate_count: scored.len() + rejected_count,
+            selected_count: scored.len(),
+            rejected_count,
+            reported_rejected_count,
+            omitted_rejected_count: rejected_count.saturating_sub(reported_rejected_count),
+            rejection_counts,
+        };
+
+        let current_span = tracing::Span::current();
+        current_span.record("selected_count", decision_summary.selected_count);
+        current_span.record("rejected_count", decision_summary.rejected_count);
+
+        tracing::info!(
+            target: "aura.memory_decision",
+            trace_id = %trace_id,
+            selected_count = decision_summary.selected_count,
+            rejected_count = decision_summary.rejected_count,
+            "memory recall decision inspected"
+        );
 
         RecallExplanation {
+            trace_id,
+            evaluated_at,
             query: query.to_string(),
             top_k: top,
             result_count: scored.len(),
@@ -2101,7 +2599,9 @@ impl Aura {
             concept_surface_mode: format!("{concept_mode:?}").to_lowercase(),
             causal_rerank_mode: format!("{causal_mode:?}").to_lowercase(),
             policy_rerank_mode: format!("{policy_mode:?}").to_lowercase(),
+            decision_summary,
             items,
+            rejected_candidates,
         }
     }
 
@@ -2587,10 +3087,14 @@ impl Aura {
         let limit = limit.unwrap_or(20);
         let default_ns = [crate::record::DEFAULT_NAMESPACE];
         let ns_list = namespaces.unwrap_or(&default_ns);
+        let now = now_secs_f64();
 
         let mut results: Vec<Record> = records
             .values()
             .filter(|r| {
+                if !r.is_valid_at(now) {
+                    return false;
+                }
                 if !ns_list.contains(&r.namespace.as_str()) {
                     return false;
                 }
@@ -2929,12 +3433,12 @@ impl Aura {
         let archived = to_archive.len();
         for id in &to_archive {
             records.remove(id);
-            let _ = self.cognitive_store.append_delete(id);
+            self.cognitive_store.append_delete(id)?;
         }
 
         // Compact if many dead entries
         if archived > 100 {
-            let _ = self.cognitive_store.compact(&records);
+            self.cognitive_store.compact(&records)?;
         }
 
         Ok((decayed, archived))
@@ -2986,7 +3490,7 @@ impl Aura {
         let demoted = to_demote.len();
         for id in &to_demote {
             if let Some(rec) = records.get(id) {
-                let _ = self.cognitive_store.append_update(rec);
+                self.cognitive_store.append_update(rec)?;
             }
             records.remove(id);
         }
@@ -3020,12 +3524,65 @@ impl Aura {
     #[instrument(skip(self))]
     pub fn reflect(&self) -> Result<HashMap<String, usize>> {
         let mut records = self.records.write();
-        let mut promoted = 0;
+        let epistemic_before: HashMap<String, (u32, u32, u32)> = records
+            .iter()
+            .map(|(id, record)| {
+                (
+                    id.clone(),
+                    (
+                        record.support_mass,
+                        record.conflict_mass,
+                        record.volatility.to_bits(),
+                    ),
+                )
+            })
+            .collect();
+        let epistemic = background_brain::update_epistemic_state(&mut records);
+        for (id, record) in records.iter() {
+            let current = (
+                record.support_mass,
+                record.conflict_mass,
+                record.volatility.to_bits(),
+            );
+            if epistemic_before
+                .get(id)
+                .is_some_and(|before| *before != current)
+            {
+                self.cognitive_store.append_update(record)?;
+            }
+        }
 
-        // Promote frequently used
+        let now = now_secs_f64();
+        let mut promoted = 0;
+        let mut blocked_conflict = 0usize;
+        let mut blocked_volatility = 0usize;
+        let mut blocked_identity_threshold = 0usize;
+
+        for record in records
+            .values()
+            .filter(|record| record.can_promote() && record.is_valid_at(now))
+        {
+            match record.auto_promotion_block_reason() {
+                Some(
+                    crate::record::PromotionBlockReason::ContradictionRecord
+                    | crate::record::PromotionBlockReason::ConflictingEvidence,
+                ) => blocked_conflict += 1,
+                Some(crate::record::PromotionBlockReason::HighVolatility) => {
+                    blocked_volatility += 1
+                }
+                Some(crate::record::PromotionBlockReason::IdentityEvidenceThreshold) => {
+                    blocked_identity_threshold += 1
+                }
+                _ => {}
+            }
+        }
+
+        // Promote frequently used records only through the shared governed
+        // policy. Expired and not-yet-valid versions remain auditable but are
+        // never made more durable.
         let promotable: Vec<String> = records
             .values()
-            .filter(|r| r.can_promote())
+            .filter(|record| record.is_valid_at(now) && record.can_auto_promote())
             .map(|r| r.id.clone())
             .collect();
 
@@ -3033,44 +3590,14 @@ impl Aura {
             if let Some(rec) = records.get_mut(id) {
                 if rec.promote() {
                     promoted += 1;
-                    let _ = self.cognitive_store.append_update(rec);
+                    self.cognitive_store.append_update(rec)?;
                 }
             }
         }
 
-        // Semantic-aware promotion removed: Level decay rates already encode importance.
-        // Standard promotion threshold applies uniformly (activation_count >= 5, strength >= 0.7).
-        let semantic_promotable: Vec<String> = vec![];
-
-        for id in &semantic_promotable {
-            if let Some(rec) = records.get_mut(id) {
-                if rec.promote() {
-                    promoted += 1;
-                    let _ = self.cognitive_store.append_update(rec);
-                }
-            }
-        }
-
-        // Contextual hub promotion (10+ connections, avg weight >= 0.4)
-        let hub_promotable: Vec<String> = records
-            .values()
-            .filter(|r| {
-                r.connections.len() >= 10
-                    && r.strength >= 0.5
-                    && r.level < Level::Identity
-                    && r.connections.values().sum::<f32>() / r.connections.len() as f32 >= 0.4
-            })
-            .map(|r| r.id.clone())
-            .collect();
-
-        for id in &hub_promotable {
-            if let Some(rec) = records.get_mut(id) {
-                if rec.promote() {
-                    promoted += 1;
-                    let _ = self.cognitive_store.append_update(rec);
-                }
-            }
-        }
+        // Graph centrality remains part of ranking, but no longer acts as a
+        // second promotion bypass. Repeated co-recall is not independent truth
+        // evidence and must not make a conflicted rule permanent.
 
         // Archive dead records — uniform threshold regardless of semantic_type.
         // Level decay rates (Identity=0.99 .. Working=0.80) already protect important records.
@@ -3083,12 +3610,25 @@ impl Aura {
         let archived = dead.len();
         for id in &dead {
             records.remove(id);
-            let _ = self.cognitive_store.append_delete(id);
+            self.cognitive_store.append_delete(id)?;
         }
 
         let mut stats = HashMap::new();
         stats.insert("promoted".to_string(), promoted);
         stats.insert("archived".to_string(), archived);
+        stats.insert("promotion_blocked_conflict".to_string(), blocked_conflict);
+        stats.insert(
+            "promotion_blocked_volatility".to_string(),
+            blocked_volatility,
+        );
+        stats.insert(
+            "promotion_blocked_identity_threshold".to_string(),
+            blocked_identity_threshold,
+        );
+        stats.insert(
+            "epistemic_records_updated".to_string(),
+            epistemic.updated_records,
+        );
         Ok(stats)
     }
 
@@ -3223,6 +3763,7 @@ impl Aura {
         let limit = limit.unwrap_or(20);
         let default_ns = [crate::record::DEFAULT_NAMESPACE];
         let ns_list = namespaces.unwrap_or(&default_ns);
+        let now = now_secs_f64();
 
         if let Some(q) = query {
             // RRF pipeline → filter to cognitive tier
@@ -3244,7 +3785,11 @@ impl Aura {
         let records = self.records.read();
         let mut results: Vec<Record> = records
             .values()
-            .filter(|r| r.level.is_cognitive() && ns_list.contains(&r.namespace.as_str()))
+            .filter(|r| {
+                r.is_valid_at(now)
+                    && r.level.is_cognitive()
+                    && ns_list.contains(&r.namespace.as_str())
+            })
             .cloned()
             .collect();
 
@@ -3274,6 +3819,7 @@ impl Aura {
         let limit = limit.unwrap_or(20);
         let default_ns = [crate::record::DEFAULT_NAMESPACE];
         let ns_list = namespaces.unwrap_or(&default_ns);
+        let now = now_secs_f64();
 
         if let Some(q) = query {
             // RRF pipeline → filter to core tier
@@ -3294,7 +3840,9 @@ impl Aura {
         let records = self.records.read();
         let mut results: Vec<Record> = records
             .values()
-            .filter(|r| r.level.is_core() && ns_list.contains(&r.namespace.as_str()))
+            .filter(|r| {
+                r.is_valid_at(now) && r.level.is_core() && ns_list.contains(&r.namespace.as_str())
+            })
             .cloned()
             .collect();
 
@@ -3366,11 +3914,16 @@ impl Aura {
         let records = self.records.read();
         let min_act = min_activations.unwrap_or(5);
         let min_str = min_strength.unwrap_or(0.7);
+        let now = now_secs_f64();
 
         let mut candidates: Vec<Record> = records
             .values()
             .filter(|r| {
-                r.level.is_cognitive() && r.activation_count >= min_act && r.strength >= min_str
+                r.level.is_cognitive()
+                    && r.activation_count >= min_act
+                    && r.strength >= min_str
+                    && r.is_valid_at(now)
+                    && r.epistemic_promotion_block_reason().is_none()
             })
             .cloned()
             .collect();
@@ -3388,22 +3941,60 @@ impl Aura {
     /// Promote a record to the next cognitive level.
     ///
     /// WORKING → DECISIONS → DOMAIN → IDENTITY.
-    /// Returns the new level, or None if already at IDENTITY or record not found.
+    /// Returns the new level, or `None` if the record is missing, temporally
+    /// inactive, or blocked by the governed epistemic promotion policy.
     pub fn promote_record(&self, record_id: &str) -> Option<Level> {
-        let mut records = self.records.write();
-        if let Some(rec) = records.get_mut(record_id) {
-            if rec.promote() {
-                // Persist the change
-                let _ = self.cognitive_store.append_update(rec);
-                self.runtime.recall_cache.clear();
-                self.runtime.structured_recall_cache.clear();
-                Some(rec.level)
-            } else {
+        match self.promote_record_checked(record_id) {
+            Ok(level) => level,
+            Err(error) => {
+                tracing::warn!(%error, %record_id, "Record promotion was not persisted");
                 None
             }
-        } else {
-            None
         }
+    }
+
+    /// Fallible promotion API. The live record changes only after its updated
+    /// form has been durably appended to the cognitive journal.
+    pub fn promote_record_checked(&self, record_id: &str) -> Result<Option<Level>> {
+        let mut records = self.records.write();
+        let Some(current) = records.get(record_id).cloned() else {
+            return Ok(None);
+        };
+        if !current.is_valid_at(now_secs_f64())
+            || current.epistemic_promotion_block_reason().is_some()
+        {
+            return Ok(None);
+        }
+
+        let mut promoted = current;
+        if !promoted.promote() {
+            return Ok(None);
+        }
+        self.cognitive_store.append_update(&promoted)?;
+        let new_level = promoted.level;
+        records.insert(record_id.to_string(), promoted);
+        drop(records);
+        self.runtime.recall_cache.clear();
+        self.runtime.structured_recall_cache.clear();
+        Ok(Some(new_level))
+    }
+
+    /// Return the machine-readable reason a record cannot be promoted through
+    /// the governed automatic/manual path. `None` means the next promotion is
+    /// currently admissible.
+    pub fn promotion_block_reason(&self, record_id: &str) -> Option<String> {
+        let records = self.records.read();
+        let record = records.get(record_id)?;
+        if !record.is_valid_at(now_secs_f64()) {
+            return Some(
+                crate::record::PromotionBlockReason::NotCurrentlyValid
+                    .as_str()
+                    .to_string(),
+            );
+        }
+        record
+            .epistemic_promotion_block_reason()
+            .map(|reason| reason.as_str().to_string())
     }
 
     // ── Optional Embedding Support ──
@@ -3627,11 +4218,14 @@ impl Aura {
         let epistemic = initial.epistemic;
         let insights_found = initial.insights_found;
 
-        // Phase 3.5: Belief update (read-only — builds beliefs, does not affect recall)
+        // Phase 3.5: Belief update. Discovery is read-only over the record
+        // snapshot; the persisted result later governs bounded recall admission.
         // Take a read-only snapshot of record refs to avoid holding write lock during
         // belief computation and disk persistence.
+        let belief_evaluated_at = now_secs_f64();
         let belief_snapshot: HashMap<String, Record> = records
             .iter()
+            .filter(|(_, record)| record.is_valid_at(belief_evaluated_at))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         // Release records lock before belief work (Phase 4 will re-acquire)
@@ -7126,6 +7720,32 @@ impl Aura {
         ))
     }
 
+    /// Build a deterministic context capsule for one business-time instant.
+    pub fn build_context_capsule_as_of(
+        &self,
+        namespace: Option<&str>,
+        purpose: &str,
+        token_budget: usize,
+        valid_at: f64,
+    ) -> Result<ContextCapsule> {
+        let namespace = namespace.unwrap_or(crate::record::DEFAULT_NAMESPACE);
+        Record::validate_namespace(namespace).map_err(anyhow::Error::msg)?;
+        if purpose.trim().is_empty() {
+            anyhow::bail!("context capsule purpose must not be empty");
+        }
+        if !valid_at.is_finite() {
+            anyhow::bail!("valid_at must be a finite Unix timestamp");
+        }
+        let records = self.records.read();
+        Ok(crate::context_capsule::build_context_capsule_at(
+            records.values(),
+            namespace,
+            purpose,
+            token_budget,
+            valid_at,
+        ))
+    }
+
     /// Add a research finding with immutable source-span lineage.
     #[allow(clippy::too_many_arguments)]
     pub fn add_research_evidence_finding(
@@ -7769,12 +8389,33 @@ impl Aura {
 
     // ── Phase 6: Semantic Versioning (Supersede) ──
 
+    /// Update a record's business-time validity interval.
+    pub fn set_temporal_validity(
+        &self,
+        record_id: &str,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> Result<Record> {
+        let mut records = self.records.write();
+        let record = records
+            .get_mut(record_id)
+            .ok_or_else(|| anyhow::anyhow!("Record '{}' not found", record_id))?;
+        record
+            .set_validity(valid_from, valid_until)
+            .map_err(anyhow::Error::msg)?;
+        self.cognitive_store.append_update(record)?;
+        let updated = record.clone();
+        drop(records);
+        self.runtime.clear_recall_caches();
+        Ok(updated)
+    }
+
     /// Supersede an old record with new content.
     ///
-    /// The old record is marked with `superseded_by` in metadata and its
-    /// strength is halved. A new record is created with a causal link to
-    /// the old one. Recall prefers the new version automatically because
-    /// the old record's weakened strength pushes it down in rankings.
+    /// The old record is marked with `superseded_by` and closed at the
+    /// effective boundary. A new record is created with a causal link to it.
+    /// Validity filtering selects exactly one version without corrupting the
+    /// historical version's learned strength.
     #[instrument(skip(self, new_content))]
     pub fn supersede(
         &self,
@@ -7784,57 +8425,219 @@ impl Aura {
         tags: Option<Vec<String>>,
         namespace: Option<&str>,
     ) -> Result<Record> {
-        // Validate old record exists
-        {
-            let mut records = self.records.write();
-            let old_rec = records
-                .get_mut(old_id)
-                .ok_or_else(|| anyhow::anyhow!("Record '{}' not found", old_id))?;
+        self.supersede_at(old_id, new_content, now_secs_f64(), level, tags, namespace)
+    }
 
-            // Mark as superseded
-            old_rec
-                .metadata
-                .insert("superseded_by".into(), "pending".into());
-            old_rec.strength *= 0.5; // Halve strength — still findable but de-ranked
-            self.cognitive_store.append_update(old_rec)?;
+    /// Supersede a record with a new version that becomes business-time valid
+    /// at `effective_at`. The change is recorded at the current system time.
+    pub fn supersede_at(
+        &self,
+        old_id: &str,
+        new_content: &str,
+        effective_at: f64,
+        level: Option<Level>,
+        tags: Option<Vec<String>>,
+        namespace: Option<&str>,
+    ) -> Result<Record> {
+        if !effective_at.is_finite() {
+            anyhow::bail!("effective_at must be a finite Unix timestamp");
+        }
+        if new_content.is_empty() {
+            anyhow::bail!("Content cannot be empty");
+        }
+        if new_content.len() > MAX_CONTENT_SIZE {
+            anyhow::bail!("Content exceeds maximum size of 100KB");
         }
 
-        // Determine level and tags from old record if not provided
-        let (effective_level, effective_tags, effective_ns) = {
-            let records = self.records.read();
-            let old_rec = records.get(old_id).unwrap();
-            let l = level.unwrap_or(old_rec.level);
-            let t = tags.unwrap_or_else(|| old_rec.tags.clone());
-            let n = namespace.unwrap_or(&old_rec.namespace).to_string();
-            (l, t, n)
+        let superseded_at = now_secs_f64();
+        let mut records = self.records.write();
+        let old_snapshot = records
+            .get(old_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Record '{}' not found", old_id))?;
+
+        if old_snapshot
+            .metadata
+            .get("superseded_by")
+            .is_some_and(|successor| !successor.is_empty())
+        {
+            anyhow::bail!("Record '{}' is already superseded", old_id);
+        }
+        if old_snapshot
+            .valid_from
+            .is_some_and(|valid_from| effective_at <= valid_from)
+        {
+            anyhow::bail!("effective_at must be later than the old record's valid_from");
+        }
+
+        let effective_ns = namespace.unwrap_or(&old_snapshot.namespace);
+        if effective_ns != old_snapshot.namespace {
+            anyhow::bail!(
+                "A superseding version must remain in namespace '{}'",
+                old_snapshot.namespace
+            );
+        }
+        crate::record::Record::validate_namespace(effective_ns)
+            .map_err(|error| anyhow::anyhow!(error))?;
+
+        let effective_level = level.unwrap_or(old_snapshot.level);
+        let mut effective_tags = tags.unwrap_or_else(|| old_snapshot.tags.clone());
+        if effective_tags.len() > MAX_TAGS {
+            anyhow::bail!("Maximum {} tags allowed", MAX_TAGS);
+        }
+        guards::auto_protect_tags(new_content, &mut effective_tags);
+
+        let taxonomy = self.config.taxonomy.read();
+        let guard_result = guards::apply_store_guard(new_content, &effective_tags, None, &taxonomy);
+        let mut new_rec = Record::new(new_content.to_string(), effective_level);
+        new_rec.tags = effective_tags;
+        new_rec.content_type = old_snapshot.content_type.clone();
+        new_rec.source_type = crate::record::DEFAULT_SOURCE_TYPE.to_string();
+        new_rec.confidence =
+            Record::default_confidence_for_source(crate::record::DEFAULT_SOURCE_TYPE);
+        new_rec.caused_by_id = Some(old_id.to_string());
+        new_rec.namespace = effective_ns.to_string();
+        new_rec.semantic_type = old_snapshot.semantic_type.clone();
+        new_rec
+            .set_validity(Some(effective_at), None)
+            .map_err(anyhow::Error::msg)?;
+
+        {
+            let trust_config = self.config.trust_config.read();
+            trust::stamp_provenance(
+                &mut new_rec.metadata,
+                None,
+                &new_rec.tags,
+                &taxonomy,
+                &trust_config,
+            );
+        }
+        for (key, value) in &guard_result.extra_metadata {
+            new_rec
+                .metadata
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
+        for extra_tag in &guard_result.extra_tags {
+            if !new_rec.tags.contains(extra_tag) {
+                new_rec.tags.push(extra_tag.clone());
+            }
+        }
+        drop(taxonomy);
+
+        // Stage graph mutations on a clone. No live record is closed or linked
+        // until the authoritative atomic journal frame succeeds.
+        let mut staged_records = records.clone();
+        {
+            let tag_index = self.tag_index.read();
+            crate::graph::auto_connect(&mut new_rec, &tag_index, &mut staged_records);
+        }
+        new_rec.add_typed_connection(old_id, 0.7, "causal");
+        let mut old_updated = staged_records
+            .remove(old_id)
+            .ok_or_else(|| anyhow::anyhow!("Record '{}' disappeared during supersede", old_id))?;
+        old_updated
+            .metadata
+            .insert("superseded_by".into(), new_rec.id.clone());
+        if old_updated
+            .valid_until
+            .map_or(true, |valid_until| effective_at < valid_until)
+        {
+            old_updated.valid_until = Some(effective_at);
+        }
+        old_updated.superseded_at = Some(superseded_at);
+        old_updated.add_typed_connection(&new_rec.id, 0.7, "causal");
+        new_rec.aura_id = Some(new_rec.id.clone());
+
+        let mut changed_existing_ids: Vec<String> = new_rec.connections.keys().cloned().collect();
+        if !changed_existing_ids.iter().any(|id| id == old_id) {
+            changed_existing_ids.push(old_id.to_string());
+        }
+        changed_existing_ids.sort();
+        changed_existing_ids.dedup();
+
+        let mut atomic_upserts = Vec::with_capacity(changed_existing_ids.len() + 1);
+        for id in &changed_existing_ids {
+            if id == old_id {
+                atomic_upserts.push(old_updated.clone());
+            } else if let Some(record) = staged_records.get(id) {
+                atomic_upserts.push(record.clone());
+            }
+        }
+        atomic_upserts.push(new_rec.clone());
+
+        let is_identity = effective_level.is_identity_sdr();
+        let sdr_indices = self.sdr.text_to_sdr(new_content, is_identity);
+        let stored_record = crate::storage::StoredRecord {
+            id: new_rec.id.clone(),
+            dna: effective_level.to_dna().to_string(),
+            timestamp: new_rec.created_at,
+            intensity: new_rec.strength,
+            stability: 1.0,
+            decay_velocity: 0.0,
+            entropy: 0.0,
+            sdr_indices: sdr_indices.clone(),
+            text: new_content.to_string(),
+            offset: 0,
         };
 
-        // Store new record with causal link to old
-        let new_rec = self.store_with_channel(
-            new_content,
-            Some(effective_level),
-            Some(effective_tags),
-            None,
-            None,
-            None,
-            None,
-            Some(false), // Don't deduplicate against old version
-            Some(old_id),
-            None,
-            None,
-            Some(&effective_ns),
-            None,
-        )?;
+        // The auxiliary retrieval store is written first. If the authoritative
+        // cognitive transaction fails, its in-memory entry is removed and the
+        // old version remains untouched. An auxiliary orphan cannot enter Aura
+        // recall because indexes are installed only after the commit.
+        self.storage.append(&stored_record)?;
+        if let Err(error) = self.cognitive_store.append_atomic_upserts(&atomic_upserts) {
+            self.storage.delete(&new_rec.id);
+            return Err(error.context("failed to atomically persist superseding version"));
+        }
 
-        // Update old record's superseded_by with actual new ID
-        {
-            let mut records = self.records.write();
-            if let Some(old_rec) = records.get_mut(old_id) {
-                old_rec
-                    .metadata
-                    .insert("superseded_by".into(), new_rec.id.clone());
-                let _ = self.cognitive_store.append_update(old_rec);
+        for id in &changed_existing_ids {
+            if id == old_id {
+                records.insert(id.clone(), old_updated.clone());
+            } else if let Some(record) = staged_records.get(id) {
+                records.insert(id.clone(), record.clone());
             }
+        }
+        records.insert(new_rec.id.clone(), new_rec.clone());
+        drop(records);
+
+        self.index.add(&new_rec.id, &sdr_indices);
+        self.ngram_index.write().add(&new_rec.id, new_content);
+        {
+            let mut tag_index = self.tag_index.write();
+            for tag in &new_rec.tags {
+                tag_index
+                    .entry(tag.clone())
+                    .or_default()
+                    .insert(new_rec.id.clone());
+            }
+        }
+        self.aura_index
+            .write()
+            .insert(new_rec.id.clone(), new_rec.id.clone());
+        self.runtime
+            .sdr_lookup_cache
+            .write()
+            .insert(new_rec.id.clone(), self.sdr.text_to_sdr(new_content, false));
+
+        if is_identity {
+            let sdr_u32: Vec<u32> = sdr_indices.iter().map(|&index| index as u32).collect();
+            let payload = crate::cortex::ReflexPayload::new(
+                new_content.to_string(),
+                new_rec.strength,
+                None,
+                0,
+            );
+            self.cortex.insert(&sdr_u32, payload);
+        }
+
+        if let Some(ref log) = self.audit_log {
+            if let Err(error) = log.log_store(&new_rec.id, new_content) {
+                tracing::warn!(%error, record_id = %new_rec.id, "Supersede committed but audit logging failed");
+            }
+        }
+        if let Err(error) = self.refresh_deterministic_relations_for_namespace(&new_rec.namespace) {
+            tracing::warn!(%error, namespace = %new_rec.namespace, "Supersede committed but deterministic relation refresh failed");
         }
 
         self.runtime.clear_recall_caches();
@@ -8205,7 +9008,7 @@ impl Aura {
                 let mut records = self.records.write();
                 if let Some(r) = records.get_mut(&rec.id) {
                     r.strength *= 0.5;
-                    let _ = self.cognitive_store.append_update(r);
+                    self.cognitive_store.append_update(r)?;
                 }
             }
 
@@ -8482,25 +9285,44 @@ impl Aura {
     ///
     /// Prunes connections that would become cross-namespace after the move.
     pub fn move_record(&self, record_id: &str, new_namespace: &str) -> Option<Record> {
-        if crate::record::Record::validate_namespace(new_namespace).is_err() {
-            return None;
+        match self.move_record_checked(record_id, new_namespace) {
+            Ok(record) => record,
+            Err(error) => {
+                tracing::warn!(%error, %record_id, %new_namespace, "Namespace move was not persisted");
+                None
+            }
         }
+    }
+
+    /// Fallible namespace move. All affected records are journaled in one
+    /// atomic frame before the live graph is changed.
+    pub fn move_record_checked(
+        &self,
+        record_id: &str,
+        new_namespace: &str,
+    ) -> Result<Option<Record>> {
+        crate::record::Record::validate_namespace(new_namespace).map_err(anyhow::Error::msg)?;
         let mut records = self.records.write();
 
         // 1. Collect outgoing connection keys and old namespace (immutable access)
-        let rec = records.get(record_id)?;
+        let Some(rec) = records.get(record_id) else {
+            return Ok(None);
+        };
         let old_namespace = rec.namespace.clone();
         let outgoing_keys: Vec<String> = rec.connections.keys().cloned().collect();
+        let mut staged = records.clone();
 
         // 2. Move the record
-        let rec = records.get_mut(record_id)?;
+        let rec = staged
+            .get_mut(record_id)
+            .expect("record was present when namespace move was staged");
         rec.namespace = new_namespace.to_string();
 
         // 3. Determine which outgoing connections are now cross-namespace
         let cross_ns_ids: Vec<String> = outgoing_keys
             .into_iter()
             .filter(|cid| {
-                records
+                staged
                     .get(cid.as_str())
                     .map(|r| r.namespace != new_namespace)
                     .unwrap_or(false)
@@ -8509,13 +9331,14 @@ impl Aura {
 
         // 4. Prune cross-namespace outgoing connections
         //    (re-borrow after immutable filter above)
-        let rec = records.get_mut(record_id).unwrap();
+        let rec = staged.get_mut(record_id).unwrap();
         for cid in &cross_ns_ids {
             rec.connections.remove(cid);
+            rec.connection_types.remove(cid);
         }
 
         // 5. Prune incoming connections from old-namespace records pointing to this one
-        let peers_to_clean: Vec<String> = records
+        let peers_to_clean: Vec<String> = staged
             .iter()
             .filter(|(id, r)| {
                 *id != record_id
@@ -8525,16 +9348,27 @@ impl Aura {
             .map(|(id, _)| id.clone())
             .collect();
         for pid in &peers_to_clean {
-            if let Some(peer) = records.get_mut(pid.as_str()) {
+            if let Some(peer) = staged.get_mut(pid.as_str()) {
                 peer.connections.remove(record_id);
+                peer.connection_types.remove(record_id);
             }
         }
 
-        let _ = self
-            .cognitive_store
-            .append_update(records.get(record_id).unwrap());
+        let mut changed = Vec::with_capacity(peers_to_clean.len() + 1);
+        changed.push(staged.get(record_id).unwrap().clone());
+        changed.extend(
+            peers_to_clean
+                .iter()
+                .filter_map(|id| staged.get(id).cloned()),
+        );
+        self.cognitive_store.append_atomic_upserts(&changed)?;
+        for record in changed {
+            records.insert(record.id.clone(), record);
+        }
+        let moved = records.get(record_id).cloned();
+        drop(records);
         self.runtime.clear_recall_caches();
-        Some(records.get(record_id).unwrap().clone())
+        Ok(moved)
     }
 
     /// Get record counts per namespace.
@@ -10112,6 +10946,64 @@ fn save_reflection_summaries(
     Ok(())
 }
 
+fn recall_trace_score(trace: &recall::RecallScoreTrace, final_score: f32) -> RecallTraceScore {
+    let signal = |signal: Option<&recall::SignalTrace>| {
+        signal.map(|signal| RecallSignalScore {
+            raw_score: signal.raw_score,
+            rank: signal.rank,
+            rrf_share: signal.rrf_share,
+        })
+    };
+
+    RecallTraceScore {
+        sdr: signal(trace.sdr.as_ref()),
+        ngram: signal(trace.ngram.as_ref()),
+        tags: signal(trace.tags.as_ref()),
+        embedding: signal(trace.embedding.as_ref()),
+        rrf_score: trace.rrf_score,
+        graph_score: trace.graph_score,
+        causal_score: trace.causal_score,
+        pre_trust_score: trace.pre_trust_score,
+        trust_multiplier: trace.trust_multiplier,
+        pre_rerank_score: trace.pre_rerank_score,
+        rerank_delta: final_score - trace.pre_rerank_score,
+        final_score,
+    }
+}
+
+fn recall_belief_explanation(
+    belief_eng: &BeliefEngine,
+    record_id: &str,
+) -> Option<RecallBeliefExplanation> {
+    let (belief, hypothesis) = belief_eng.resolution_for_record(record_id)?;
+    let winner_score = belief
+        .winner_id
+        .as_ref()
+        .and_then(|winner_id| belief_eng.hypotheses.get(winner_id))
+        .map(|winner| winner.score);
+    let is_winning_hypothesis = belief.winner_id.as_deref() == Some(hypothesis.id.as_str());
+
+    Some(RecallBeliefExplanation {
+        id: belief.id.clone(),
+        state: format!("{:?}", belief.state).to_lowercase(),
+        hypothesis_id: hypothesis.id.clone(),
+        winner_hypothesis_id: belief.winner_id.clone(),
+        hypothesis_score: hypothesis.score,
+        winner_score,
+        is_winning_hypothesis,
+        confidence: belief.confidence,
+        support_mass: belief.support_mass,
+        conflict_mass: belief.conflict_mass,
+        stability: belief.stability,
+        volatility: belief.volatility,
+        has_unresolved_evidence: matches!(
+            belief.state,
+            crate::belief::BeliefState::Unresolved | crate::belief::BeliefState::Empty
+        ) || belief.volatility >= 0.20
+            || belief.conflict_mass > belief.support_mass,
+    })
+}
+
 fn build_recall_explanation_item(
     rank: usize,
     score: f32,
@@ -10125,22 +11017,7 @@ fn build_recall_explanation_item(
     reflection_summaries: &[background_brain::ReflectionSummary],
     trace: Option<&recall::RecallScoreTrace>,
 ) -> RecallExplanationItem {
-    let belief = belief_eng
-        .belief_for_record(&rec.id)
-        .map(|belief| RecallBeliefExplanation {
-            id: belief.id.clone(),
-            state: format!("{:?}", belief.state).to_lowercase(),
-            confidence: belief.confidence,
-            support_mass: belief.support_mass,
-            conflict_mass: belief.conflict_mass,
-            stability: belief.stability,
-            volatility: belief.volatility,
-            has_unresolved_evidence: matches!(
-                belief.state,
-                crate::belief::BeliefState::Unresolved | crate::belief::BeliefState::Empty
-            ) || belief.volatility >= 0.20
-                || belief.conflict_mass > belief.support_mass,
-        });
+    let belief = recall_belief_explanation(belief_eng, &rec.id);
     let belief_id = belief.as_ref().map(|b| b.id.clone());
     let has_unresolved_evidence = belief
         .as_ref()
@@ -10273,13 +11150,6 @@ fn build_recall_explanation_item(
     };
 
     let trace = trace.cloned().unwrap_or_default();
-    let signal = |signal: Option<recall::SignalTrace>| {
-        signal.map(|signal| RecallSignalScore {
-            raw_score: signal.raw_score,
-            rank: signal.rank,
-            rrf_share: signal.rrf_share,
-        })
-    };
 
     RecallExplanationItem {
         rank,
@@ -10301,20 +11171,7 @@ fn build_recall_explanation_item(
         concepts,
         causal_patterns,
         policy_hints,
-        trace: RecallTraceScore {
-            sdr: signal(trace.sdr),
-            ngram: signal(trace.ngram),
-            tags: signal(trace.tags),
-            embedding: signal(trace.embedding),
-            rrf_score: trace.rrf_score,
-            graph_score: trace.graph_score,
-            causal_score: trace.causal_score,
-            pre_trust_score: trace.pre_trust_score,
-            trust_multiplier: trace.trust_multiplier,
-            pre_rerank_score: trace.pre_rerank_score,
-            rerank_delta: score - trace.pre_rerank_score,
-            final_score: score,
-        },
+        trace: recall_trace_score(&trace, score),
     }
 }
 
@@ -10562,10 +11419,7 @@ pub(crate) fn apply_cross_namespace_dimension_flags(
 }
 
 #[cfg(feature = "python")]
-fn recall_explanation_item_to_py(
-    py: Python<'_>,
-    item: &RecallExplanationItem,
-) -> PyResult<PyObject> {
+fn recall_trace_score_to_py(py: Python<'_>, trace: &RecallTraceScore) -> PyResult<PyObject> {
     let signal_to_py = |signal: &RecallSignalScore| -> PyResult<PyObject> {
         let signal_dict = pyo3::types::PyDict::new_bound(py);
         signal_dict.set_item("raw_score", signal.raw_score)?;
@@ -10574,6 +11428,39 @@ fn recall_explanation_item_to_py(
         Ok(signal_dict.unbind().into_any())
     };
 
+    let trace_dict = pyo3::types::PyDict::new_bound(py);
+    match &trace.sdr {
+        Some(signal) => trace_dict.set_item("sdr", signal_to_py(signal)?)?,
+        None => trace_dict.set_item("sdr", py.None())?,
+    }
+    match &trace.ngram {
+        Some(signal) => trace_dict.set_item("ngram", signal_to_py(signal)?)?,
+        None => trace_dict.set_item("ngram", py.None())?,
+    }
+    match &trace.tags {
+        Some(signal) => trace_dict.set_item("tags", signal_to_py(signal)?)?,
+        None => trace_dict.set_item("tags", py.None())?,
+    }
+    match &trace.embedding {
+        Some(signal) => trace_dict.set_item("embedding", signal_to_py(signal)?)?,
+        None => trace_dict.set_item("embedding", py.None())?,
+    }
+    trace_dict.set_item("rrf_score", trace.rrf_score)?;
+    trace_dict.set_item("graph_score", trace.graph_score)?;
+    trace_dict.set_item("causal_score", trace.causal_score)?;
+    trace_dict.set_item("pre_trust_score", trace.pre_trust_score)?;
+    trace_dict.set_item("trust_multiplier", trace.trust_multiplier)?;
+    trace_dict.set_item("pre_rerank_score", trace.pre_rerank_score)?;
+    trace_dict.set_item("rerank_delta", trace.rerank_delta)?;
+    trace_dict.set_item("final_score", trace.final_score)?;
+    Ok(trace_dict.unbind().into_any())
+}
+
+#[cfg(feature = "python")]
+fn recall_explanation_item_to_py(
+    py: Python<'_>,
+    item: &RecallExplanationItem,
+) -> PyResult<PyObject> {
     let item_dict = pyo3::types::PyDict::new_bound(py);
     item_dict.set_item("rank", item.rank)?;
     item_dict.set_item("record_id", &item.record_id)?;
@@ -10613,6 +11500,11 @@ fn recall_explanation_item_to_py(
         let belief_dict = pyo3::types::PyDict::new_bound(py);
         belief_dict.set_item("id", &belief.id)?;
         belief_dict.set_item("state", &belief.state)?;
+        belief_dict.set_item("hypothesis_id", &belief.hypothesis_id)?;
+        belief_dict.set_item("winner_hypothesis_id", &belief.winner_hypothesis_id)?;
+        belief_dict.set_item("hypothesis_score", belief.hypothesis_score)?;
+        belief_dict.set_item("winner_score", belief.winner_score)?;
+        belief_dict.set_item("is_winning_hypothesis", belief.is_winning_hypothesis)?;
         belief_dict.set_item("confidence", belief.confidence)?;
         belief_dict.set_item("support_mass", belief.support_mass)?;
         belief_dict.set_item("conflict_mass", belief.conflict_mass)?;
@@ -10679,32 +11571,7 @@ fn recall_explanation_item_to_py(
     }
     item_dict.set_item("policy_hints", policy_hints)?;
 
-    let trace_dict = pyo3::types::PyDict::new_bound(py);
-    match &item.trace.sdr {
-        Some(signal) => trace_dict.set_item("sdr", signal_to_py(signal)?)?,
-        None => trace_dict.set_item("sdr", py.None())?,
-    }
-    match &item.trace.ngram {
-        Some(signal) => trace_dict.set_item("ngram", signal_to_py(signal)?)?,
-        None => trace_dict.set_item("ngram", py.None())?,
-    }
-    match &item.trace.tags {
-        Some(signal) => trace_dict.set_item("tags", signal_to_py(signal)?)?,
-        None => trace_dict.set_item("tags", py.None())?,
-    }
-    match &item.trace.embedding {
-        Some(signal) => trace_dict.set_item("embedding", signal_to_py(signal)?)?,
-        None => trace_dict.set_item("embedding", py.None())?,
-    }
-    trace_dict.set_item("rrf_score", item.trace.rrf_score)?;
-    trace_dict.set_item("graph_score", item.trace.graph_score)?;
-    trace_dict.set_item("causal_score", item.trace.causal_score)?;
-    trace_dict.set_item("pre_trust_score", item.trace.pre_trust_score)?;
-    trace_dict.set_item("trust_multiplier", item.trace.trust_multiplier)?;
-    trace_dict.set_item("pre_rerank_score", item.trace.pre_rerank_score)?;
-    trace_dict.set_item("rerank_delta", item.trace.rerank_delta)?;
-    trace_dict.set_item("final_score", item.trace.final_score)?;
-    item_dict.set_item("trace", trace_dict)?;
+    item_dict.set_item("trace", recall_trace_score_to_py(py, &item.trace)?)?;
 
     Ok(item_dict.unbind().into_any())
 }
@@ -10712,6 +11579,8 @@ fn recall_explanation_item_to_py(
 #[cfg(feature = "python")]
 fn recall_explanation_to_py(py: Python<'_>, explanation: &RecallExplanation) -> PyResult<PyObject> {
     let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("trace_id", &explanation.trace_id)?;
+    dict.set_item("evaluated_at", explanation.evaluated_at)?;
     dict.set_item("query", &explanation.query)?;
     dict.set_item("top_k", explanation.top_k)?;
     dict.set_item("result_count", explanation.result_count)?;
@@ -10721,11 +11590,72 @@ fn recall_explanation_to_py(py: Python<'_>, explanation: &RecallExplanation) -> 
     dict.set_item("causal_rerank_mode", &explanation.causal_rerank_mode)?;
     dict.set_item("policy_rerank_mode", &explanation.policy_rerank_mode)?;
 
+    let summary = pyo3::types::PyDict::new_bound(py);
+    summary.set_item(
+        "evaluated_candidate_count",
+        explanation.decision_summary.evaluated_candidate_count,
+    )?;
+    summary.set_item(
+        "selected_count",
+        explanation.decision_summary.selected_count,
+    )?;
+    summary.set_item(
+        "rejected_count",
+        explanation.decision_summary.rejected_count,
+    )?;
+    summary.set_item(
+        "reported_rejected_count",
+        explanation.decision_summary.reported_rejected_count,
+    )?;
+    summary.set_item(
+        "omitted_rejected_count",
+        explanation.decision_summary.omitted_rejected_count,
+    )?;
+    summary.set_item(
+        "rejection_counts",
+        &explanation.decision_summary.rejection_counts,
+    )?;
+    dict.set_item("decision_summary", summary)?;
+
     let py_items = pyo3::types::PyList::empty_bound(py);
     for item in &explanation.items {
         py_items.append(recall_explanation_item_to_py(py, item)?)?;
     }
     dict.set_item("items", py_items)?;
+
+    let rejected = pyo3::types::PyList::empty_bound(py);
+    for candidate in &explanation.rejected_candidates {
+        let candidate_dict = pyo3::types::PyDict::new_bound(py);
+        candidate_dict.set_item("record_id", &candidate.record_id)?;
+        candidate_dict.set_item("namespace", &candidate.namespace)?;
+        candidate_dict.set_item("content_preview", &candidate.content_preview)?;
+        candidate_dict.set_item("reasons", &candidate.reasons)?;
+        candidate_dict.set_item("strength", candidate.strength)?;
+        candidate_dict.set_item("valid_from", candidate.valid_from)?;
+        candidate_dict.set_item("valid_until", candidate.valid_until)?;
+        if let Some(belief) = &candidate.belief {
+            let belief_dict = pyo3::types::PyDict::new_bound(py);
+            belief_dict.set_item("id", &belief.id)?;
+            belief_dict.set_item("state", &belief.state)?;
+            belief_dict.set_item("hypothesis_id", &belief.hypothesis_id)?;
+            belief_dict.set_item("winner_hypothesis_id", &belief.winner_hypothesis_id)?;
+            belief_dict.set_item("hypothesis_score", belief.hypothesis_score)?;
+            belief_dict.set_item("winner_score", belief.winner_score)?;
+            belief_dict.set_item("is_winning_hypothesis", belief.is_winning_hypothesis)?;
+            belief_dict.set_item("confidence", belief.confidence)?;
+            belief_dict.set_item("support_mass", belief.support_mass)?;
+            belief_dict.set_item("conflict_mass", belief.conflict_mass)?;
+            belief_dict.set_item("stability", belief.stability)?;
+            belief_dict.set_item("volatility", belief.volatility)?;
+            belief_dict.set_item("has_unresolved_evidence", belief.has_unresolved_evidence)?;
+            candidate_dict.set_item("belief", belief_dict)?;
+        } else {
+            candidate_dict.set_item("belief", py.None())?;
+        }
+        candidate_dict.set_item("trace", recall_trace_score_to_py(py, &candidate.trace)?)?;
+        rejected.append(candidate_dict)?;
+    }
+    dict.set_item("rejected_candidates", rejected)?;
     Ok(dict.unbind().into_any())
 }
 
@@ -11286,7 +12216,7 @@ impl Aura {
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
     }
 
-    #[pyo3(name = "store", signature = (content, level=None, tags=None, pin=None, content_type=None, source_type=None, metadata=None, deduplicate=None, caused_by_id=None, channel=None, auto_promote=None, namespace=None, semantic_type=None))]
+    #[pyo3(name = "store", signature = (content, level=None, tags=None, pin=None, content_type=None, source_type=None, metadata=None, deduplicate=None, caused_by_id=None, channel=None, auto_promote=None, namespace=None, semantic_type=None, valid_from=None, valid_until=None))]
     fn py_store(
         &self,
         py: Python<'_>,
@@ -11303,10 +12233,12 @@ impl Aura {
         auto_promote: Option<bool>,
         namespace: Option<&str>,
         semantic_type: Option<&str>,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
     ) -> PyResult<String> {
         let rec = py
             .allow_threads(|| {
-                self.store_with_channel(
+                self.store_with_channel_and_validity(
                     content,
                     level,
                     tags,
@@ -11320,6 +12252,8 @@ impl Aura {
                     auto_promote,
                     namespace,
                     semantic_type,
+                    valid_from,
+                    valid_until,
                 )
             })
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -11443,9 +12377,7 @@ impl Aura {
         action: &str,
         namespace: Option<&str>,
     ) -> PyResult<PyObject> {
-        let hint = py.allow_threads(|| {
-            self.consequence_policy_hint(situation, action, namespace)
-        });
+        let hint = py.allow_threads(|| self.consequence_policy_hint(situation, action, namespace));
         let dict = pyo3::types::PyDict::new_bound(py);
         dict.set_item("situation", &hint.situation)?;
         dict.set_item("action", &hint.action)?;
@@ -11529,6 +12461,10 @@ impl Aura {
             dict.set_item("salience", rec.salience)?;
             dict.set_item("tags", &rec.tags)?;
             dict.set_item("source_type", &rec.source_type)?;
+            dict.set_item("created_at", rec.created_at)?;
+            dict.set_item("valid_from", rec.valid_from)?;
+            dict.set_item("valid_until", rec.valid_until)?;
+            dict.set_item("superseded_at", rec.superseded_at)?;
             // Include trust metadata
             if let Some(trust) = rec.metadata.get("trust_score") {
                 dict.set_item("trust", trust)?;
@@ -11659,6 +12595,9 @@ impl Aura {
             dict.set_item("strength", rec.strength)?;
             dict.set_item("tags", &rec.tags)?;
             dict.set_item("created_at", rec.created_at)?;
+            dict.set_item("valid_from", rec.valid_from)?;
+            dict.set_item("valid_until", rec.valid_until)?;
+            dict.set_item("superseded_at", rec.superseded_at)?;
             dict.set_item("source_type", &rec.source_type)?;
             if let Some(trust) = rec.metadata.get("trust_score") {
                 dict.set_item("trust", trust)?;
@@ -11690,6 +12629,55 @@ impl Aura {
             py_results.push(dict.unbind().into_any());
         }
         Ok(py_results)
+    }
+
+    /// Business-time recall using all information currently known to Aura.
+    #[pyo3(name = "recall_as_of", signature = (query, timestamp, top_k=None, min_strength=None, expand_connections=None, namespace=None))]
+    fn py_recall_as_of(
+        &self,
+        py: Python<'_>,
+        query: &str,
+        timestamp: f64,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        namespace: Option<&pyo3::Bound<'_, pyo3::types::PyAny>>,
+    ) -> PyResult<Vec<PyObject>> {
+        let ns_vec = extract_namespaces(namespace)?;
+        let ns_refs: Option<Vec<&str>> = ns_vec
+            .as_ref()
+            .map(|values| values.iter().map(String::as_str).collect());
+        let results = py
+            .allow_threads(|| {
+                self.recall_as_of(
+                    query,
+                    timestamp,
+                    top_k,
+                    min_strength,
+                    expand_connections,
+                    ns_refs.as_deref(),
+                )
+            })
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+
+        results
+            .into_iter()
+            .map(|(score, rec)| {
+                let dict = pyo3::types::PyDict::new_bound(py);
+                dict.set_item("id", &rec.id)?;
+                dict.set_item("content", &rec.content)?;
+                dict.set_item("score", score)?;
+                dict.set_item("level", rec.level.name())?;
+                dict.set_item("strength", rec.strength)?;
+                dict.set_item("tags", &rec.tags)?;
+                dict.set_item("created_at", rec.created_at)?;
+                dict.set_item("valid_from", rec.valid_from)?;
+                dict.set_item("valid_until", rec.valid_until)?;
+                dict.set_item("superseded_at", rec.superseded_at)?;
+                dict.set_item("source_type", &rec.source_type)?;
+                Ok(dict.unbind().into_any())
+            })
+            .collect()
     }
 
     /// Return access/strength timeline snapshot for a single record.
@@ -13014,7 +14002,7 @@ impl Aura {
 
     #[pyo3(
         name = "build_context_capsule",
-        signature = (purpose, token_budget=2000, namespace=None)
+        signature = (purpose, token_budget=2000, namespace=None, valid_at=None)
     )]
     fn py_build_context_capsule(
         &self,
@@ -13022,9 +14010,13 @@ impl Aura {
         purpose: &str,
         token_budget: usize,
         namespace: Option<&str>,
+        valid_at: Option<f64>,
     ) -> PyResult<PyObject> {
-        let capsule = self
-            .build_context_capsule(namespace, purpose, token_budget)
+        let capsule = valid_at
+            .map(|timestamp| {
+                self.build_context_capsule_as_of(namespace, purpose, token_budget, timestamp)
+            })
+            .unwrap_or_else(|| self.build_context_capsule(namespace, purpose, token_budget))
             .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
         let dict = pyo3::types::PyDict::new_bound(py);
         dict.set_item("namespace", &capsule.namespace)?;
@@ -13320,8 +14312,19 @@ impl Aura {
 
     // ── Phase 6: Semantic Versioning ──
 
+    #[pyo3(name = "set_temporal_validity", signature = (record_id, valid_from=None, valid_until=None))]
+    fn py_set_temporal_validity(
+        &self,
+        record_id: &str,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> PyResult<Record> {
+        self.set_temporal_validity(record_id, valid_from, valid_until)
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+    }
+
     #[pyo3(name = "supersede")]
-    #[pyo3(signature = (old_id, new_content, level=None, tags=None, namespace=None))]
+    #[pyo3(signature = (old_id, new_content, level=None, tags=None, namespace=None, effective_at=None))]
     fn py_supersede(
         &self,
         old_id: &str,
@@ -13329,8 +14332,20 @@ impl Aura {
         level: Option<Level>,
         tags: Option<Vec<String>>,
         namespace: Option<&str>,
+        effective_at: Option<f64>,
     ) -> PyResult<String> {
-        self.supersede(old_id, new_content, level, tags, namespace)
+        effective_at
+            .map(|timestamp| {
+                self.supersede_at(
+                    old_id,
+                    new_content,
+                    timestamp,
+                    level,
+                    tags.clone(),
+                    namespace,
+                )
+            })
+            .unwrap_or_else(|| self.supersede(old_id, new_content, level, tags, namespace))
             .map(|r| r.id)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
@@ -13572,8 +14587,14 @@ impl Aura {
     }
 
     #[pyo3(name = "promote_record")]
-    fn py_promote_record(&self, record_id: &str) -> Option<Level> {
-        self.promote_record(record_id)
+    fn py_promote_record(&self, record_id: &str) -> PyResult<Option<Level>> {
+        self.promote_record_checked(record_id)
+            .map_err(|error| pyo3::exceptions::PyIOError::new_err(error.to_string()))
+    }
+
+    #[pyo3(name = "promotion_block_reason")]
+    fn py_promotion_block_reason(&self, record_id: &str) -> Option<String> {
+        self.promotion_block_reason(record_id)
     }
 
     // ── Namespace PyO3 Methods ──
@@ -13584,8 +14605,9 @@ impl Aura {
     }
 
     #[pyo3(name = "move_record")]
-    fn py_move_record(&self, record_id: &str, new_namespace: &str) -> Option<Record> {
-        self.move_record(record_id, new_namespace)
+    fn py_move_record(&self, record_id: &str, new_namespace: &str) -> PyResult<Option<Record>> {
+        self.move_record_checked(record_id, new_namespace)
+            .map_err(|error| pyo3::exceptions::PyIOError::new_err(error.to_string()))
     }
 
     #[pyo3(name = "namespace_stats")]
@@ -13607,6 +14629,25 @@ impl Aura {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "encryption"))]
+    #[test]
+    fn non_encryption_build_opens_plain_storage_and_rejects_passwords() -> Result<()> {
+        let plain_dir = tempfile::tempdir()?;
+        let aura = Aura::open(plain_dir.path().to_str().unwrap())?;
+        aura.close()?;
+
+        let protected_dir = tempfile::tempdir()?;
+        let error = Aura::open_with_password(
+            protected_dir.path().to_str().unwrap(),
+            Some("secret-password"),
+        )
+        .err()
+        .expect("password opening must fail without encryption support");
+        let message = error.to_string();
+        assert!(message.contains("requires the 'encryption' feature"));
+        Ok(())
+    }
 
     #[test]
     fn test_store_and_recall() -> Result<()> {
@@ -13647,12 +14688,30 @@ mod tests {
 
         // Two records that will co-surface on the same query.
         let r1 = aura.store(
-            "aspirin reduces clotting", Some(Level::Domain),
-            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+            "aspirin reduces clotting",
+            Some(Level::Domain),
+            Some(vec!["med".into()]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )?;
         let r2 = aura.store(
-            "aspirin can cause stomach bleeding", Some(Level::Domain),
-            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+            "aspirin can cause stomach bleeding",
+            Some(Level::Domain),
+            Some(vec!["med".into()]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )?;
 
         let n1 = crate::topology::node_id_for(&r1.id);
@@ -13670,8 +14729,14 @@ mod tests {
         let snap = aura.topology_snapshot();
         match snap.edge_weight(n1, n2) {
             Some(w) => {
-                assert!(w > 0.0, "co-recalled pair should have positive weight, got {w}");
-                assert!(w <= crate::topology::EDGE_WEIGHT_CAP, "weight must stay capped, got {w}");
+                assert!(
+                    w > 0.0,
+                    "co-recalled pair should have positive weight, got {w}"
+                );
+                assert!(
+                    w <= crate::topology::EDGE_WEIGHT_CAP,
+                    "weight must stay capped, got {w}"
+                );
             }
             None => {
                 // Acceptable only if the two records never co-surfaced
@@ -13703,12 +14768,30 @@ mod tests {
         let aura = Aura::open(dir.path().to_str().unwrap())?;
 
         let r1 = aura.store(
-            "warfarin interacts with aspirin", Some(Level::Domain),
-            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+            "warfarin interacts with aspirin",
+            Some(Level::Domain),
+            Some(vec!["med".into()]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )?;
         let r2 = aura.store(
-            "aspirin thins the blood", Some(Level::Domain),
-            Some(vec!["med".into()]), None, None, None, None, None, None, None, None,
+            "aspirin thins the blood",
+            Some(Level::Domain),
+            Some(vec!["med".into()]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )?;
         let n1 = crate::topology::node_id_for(&r1.id);
         let n2 = crate::topology::node_id_for(&r2.id);
@@ -16133,7 +17216,18 @@ mod tests {
         let new_level = aura.promote_record(&rec.id);
         assert_eq!(new_level, Some(Level::Domain));
 
-        // Promote to Identity
+        // Identity requires stronger evidence tenure even on the direct API.
+        assert_eq!(aura.promote_record(&rec.id), None);
+        assert_eq!(
+            aura.promotion_block_reason(&rec.id).as_deref(),
+            Some("identity_evidence_threshold")
+        );
+        {
+            let mut records = aura.records.write();
+            let record = records.get_mut(&rec.id).unwrap();
+            record.activation_count = 20;
+            record.strength = 0.95;
+        }
         let new_level = aura.promote_record(&rec.id);
         assert_eq!(new_level, Some(Level::Identity));
 
@@ -17996,6 +19090,261 @@ mod tests {
     }
 
     #[test]
+    fn explain_recall_reports_temporal_strength_and_tenant_safe_rejections() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let now = now_secs_f64();
+
+        let current = aura.store_temporal(
+            "decisiontrace refund policy currently allows 14 days",
+            Some(now - 100.0),
+            None,
+            Some(Level::Domain),
+            None,
+            Some("tenant-a"),
+        )?;
+        let expired = aura.store_temporal(
+            "decisiontrace refund policy formerly allowed 30 days",
+            Some(now - 1_000.0),
+            Some(now - 500.0),
+            Some(Level::Domain),
+            None,
+            Some("tenant-a"),
+        )?;
+        let future = aura.store_temporal(
+            "decisiontrace refund policy will allow 7 days",
+            Some(now + 500.0),
+            None,
+            Some(Level::Domain),
+            None,
+            Some("tenant-a"),
+        )?;
+        let weak = aura.store_temporal(
+            "decisiontrace refund policy weak candidate",
+            None,
+            None,
+            Some(Level::Domain),
+            None,
+            Some("tenant-a"),
+        )?;
+        aura.update(&weak.id, None, None, None, Some(0.01), None, None)?;
+        let other_tenant = aura.store_temporal(
+            "decisiontrace refund policy private tenant value",
+            None,
+            None,
+            Some(Level::Domain),
+            None,
+            Some("tenant-b"),
+        )?;
+
+        let explanation = aura.explain_recall(
+            "decisiontrace refund policy",
+            Some(10),
+            Some(0.1),
+            Some(false),
+            Some(&["tenant-a"]),
+        );
+
+        assert!(explanation.trace_id.starts_with("mem_"));
+        assert!(explanation.evaluated_at >= now);
+        assert!(explanation
+            .items
+            .iter()
+            .any(|item| item.record_id == current.id));
+        let reason_for = |record_id: &str, reason: &str| {
+            explanation.rejected_candidates.iter().any(|candidate| {
+                candidate.record_id == record_id
+                    && candidate.reasons.iter().any(|value| value == reason)
+            })
+        };
+        assert!(reason_for(&expired.id, "expired"));
+        assert!(reason_for(&future.id, "not_yet_valid"));
+        assert!(reason_for(&weak.id, "below_strength_threshold"));
+        assert!(!explanation
+            .items
+            .iter()
+            .any(|item| item.record_id == other_tenant.id));
+        assert!(!explanation
+            .rejected_candidates
+            .iter()
+            .any(|candidate| candidate.record_id == other_tenant.id));
+        assert_eq!(
+            explanation.decision_summary.evaluated_candidate_count,
+            explanation.decision_summary.selected_count
+                + explanation.decision_summary.rejected_count
+        );
+        assert_eq!(
+            explanation.decision_summary.rejection_counts.get("expired"),
+            Some(&1)
+        );
+        let serialized = serde_json::to_value(&explanation)?;
+        assert_eq!(
+            serialized["decision_summary"]["selected_count"],
+            explanation.decision_summary.selected_count
+        );
+        assert!(serialized["rejected_candidates"].is_array());
+        Ok(())
+    }
+
+    #[test]
+    fn explain_recall_reports_candidates_outside_top_k() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        for suffix in ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"] {
+            aura.store_temporal(
+                &format!("ranktrace deployment policy {suffix}"),
+                None,
+                None,
+                Some(Level::Domain),
+                None,
+                Some("rank-test"),
+            )?;
+        }
+
+        let explanation = aura.explain_recall(
+            "ranktrace deployment policy",
+            Some(1),
+            Some(0.0),
+            Some(false),
+            Some(&["rank-test"]),
+        );
+        assert_eq!(explanation.items.len(), 1);
+        assert!(explanation.rejected_candidates.iter().any(|candidate| {
+            candidate
+                .reasons
+                .iter()
+                .any(|reason| reason == "outside_top_k")
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn fresh_conflicting_decision_blocks_promotion_and_explains_stale_identity() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let now = now_secs_f64();
+
+        let old = aura.store(
+            "deployment policy requires staging before production",
+            Some(Level::Identity),
+            Some(vec![
+                "deploy".into(),
+                "policy".into(),
+                "user-profile".into(),
+            ]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            Some("promotion-governance"),
+            Some("decision"),
+        )?;
+        let fresh = aura.store(
+            "deployment policy no longer requires staging before production",
+            Some(Level::Decisions),
+            Some(vec!["deploy".into(), "policy".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            Some("promotion-governance"),
+            Some("decision"),
+        )?;
+        aura.connect(&old.id, &fresh.id, Some(1.0), Some("contradicts"))?;
+
+        {
+            let mut records = aura.records.write();
+            let old_record = records.get_mut(&old.id).unwrap();
+            old_record.created_at = now - 90.0 * 86_400.0;
+            // Recalling the stale rule now must not refresh its evidence time.
+            old_record.last_activated = now;
+            old_record.strength = 0.05;
+
+            let fresh_record = records.get_mut(&fresh.id).unwrap();
+            // Align the belief key after storage without triggering the
+            // store-time identity-tag protection that is unrelated to this
+            // promotion regression.
+            fresh_record.tags.push("user-profile".into());
+            fresh_record.activation_count = 10;
+            fresh_record.strength = 1.0;
+            fresh_record.created_at = now - 60.0;
+        }
+
+        let report = aura.run_maintenance();
+        let fresh_after = aura.get(&fresh.id).unwrap();
+        assert_eq!(fresh_after.level, Level::Decisions);
+        assert!(fresh_after.conflict_mass > 0);
+        assert!(report.reflect.blocked_conflict >= 1);
+        assert_eq!(
+            aura.promotion_block_reason(&fresh.id).as_deref(),
+            Some("conflicting_evidence")
+        );
+
+        let belief = aura
+            .get_belief_for_record(&fresh.id)
+            .expect("conflicting records should form a belief");
+        let winner_id = belief
+            .winner_id
+            .expect("fresh evidence should resolve the belief");
+        let winner = aura
+            .belief_engine
+            .read()
+            .hypotheses
+            .get(&winner_id)
+            .cloned()
+            .expect("winner hypothesis exists");
+        assert!(winner.prototype_record_ids.contains(&fresh.id));
+        assert!(!winner.prototype_record_ids.contains(&old.id));
+
+        let namespaces = ["promotion-governance"];
+        let explanation = aura.explain_recall(
+            "deployment policy no longer requires staging before production",
+            Some(1),
+            Some(0.0),
+            Some(false),
+            Some(&namespaces),
+        );
+        let suppressed_old = explanation
+            .rejected_candidates
+            .iter()
+            .find(|candidate| candidate.record_id == old.id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "stale identity should remain inspectable; selected={:?}, rejected={:?}",
+                    explanation
+                        .items
+                        .iter()
+                        .map(|item| (&item.record_id, item.score))
+                        .collect::<Vec<_>>(),
+                    explanation
+                        .rejected_candidates
+                        .iter()
+                        .map(|candidate| (&candidate.record_id, &candidate.reasons))
+                        .collect::<Vec<_>>()
+                )
+            });
+        assert!(suppressed_old
+            .reasons
+            .iter()
+            .any(|reason| reason == "suppressed_by_belief_resolution"));
+        let competition = suppressed_old
+            .belief
+            .as_ref()
+            .expect("suppressed evidence should include hypothesis competition");
+        assert!(!competition.is_winning_hypothesis);
+        assert_eq!(
+            competition.winner_hypothesis_id.as_deref(),
+            Some(winner_id.as_str())
+        );
+        assert!(competition.winner_score.unwrap() > competition.hypothesis_score);
+        Ok(())
+    }
+
+    #[test]
     fn test_explain_record_returns_direct_provenance() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let root = dir.path().to_str().unwrap();
@@ -19760,7 +21109,13 @@ mod tests {
         // verdict would silently flip — the exact attack this guards against.
         let dir = tempfile::tempdir()?;
         let aura = Aura::open(dir.path().to_str().unwrap())?;
-        cap(&aura, "patient on warfarin", "suggest ibuprofen", "GI bleed", -1);
+        cap(
+            &aura,
+            "patient on warfarin",
+            "suggest ibuprofen",
+            "GI bleed",
+            -1,
+        );
 
         // Flood 700 unrelated newer supports (> the old 500 window).
         for i in 0..700 {
@@ -19834,7 +21189,13 @@ mod tests {
     fn policy_hint_supported_is_prefer() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let aura = Aura::open(dir.path().to_str().unwrap())?;
-        cap(&aura, "headache", "suggest hydration", "patient improved", 1);
+        cap(
+            &aura,
+            "headache",
+            "suggest hydration",
+            "patient improved",
+            1,
+        );
         let h = aura.consequence_policy_hint("headache", "suggest hydration", None);
         assert_eq!(h.hint, "prefer");
         assert!(!h.should_block);
@@ -19847,7 +21208,13 @@ mod tests {
     fn policy_hint_refuted_is_avoid_and_blocks() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let aura = Aura::open(dir.path().to_str().unwrap())?;
-        cap(&aura, "patient on warfarin", "suggest ibuprofen", "GI bleed", -1);
+        cap(
+            &aura,
+            "patient on warfarin",
+            "suggest ibuprofen",
+            "GI bleed",
+            -1,
+        );
         let h = aura.consequence_policy_hint("patient on warfarin", "suggest ibuprofen", None);
         assert_eq!(h.hint, "avoid");
         assert!(h.should_block);
@@ -19862,7 +21229,13 @@ mod tests {
         // many later supports.
         let dir = tempfile::tempdir()?;
         let aura = Aura::open(dir.path().to_str().unwrap())?;
-        cap(&aura, "patient on warfarin", "suggest ibuprofen", "GI bleed", -1);
+        cap(
+            &aura,
+            "patient on warfarin",
+            "suggest ibuprofen",
+            "GI bleed",
+            -1,
+        );
         for _ in 0..30 {
             cap(
                 &aura,
@@ -19935,7 +21308,10 @@ mod tests {
         // Junk left the active field (demoted) but its on-disk trace remains
         // (demotion, not deletion) — reload sees it.
         let in_field = aura.records.read().contains_key(&junk.id);
-        assert!(!in_field, "frequent junk must demote out of the active field");
+        assert!(
+            !in_field,
+            "frequent junk must demote out of the active field"
+        );
 
         aura.close()?;
         Ok(())
@@ -20119,7 +21495,14 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let aura = Aura::open(dir.path().to_str().unwrap())?;
         let scar = aura.capture_consequence(
-            "deploy", "ship without tests", "outage", -1, None, None, None, None,
+            "deploy",
+            "ship without tests",
+            "outage",
+            -1,
+            None,
+            None,
+            None,
+            None,
         )?;
         if let Some(rec) = aura.records.write().get_mut(&scar.record_id) {
             rec.strength = 0.0; // would be archived by frequency decay
@@ -20264,8 +21647,9 @@ mod tests {
             assert_eq!(*a, b, "uniform-kind order must be preserved (no-op)");
         }
         // And every record carries the same provenance label.
-        assert!(ranked.iter().all(|(_, _, k, _)| *k
-            == crate::credibility::ProvenanceKind::ModelGenerated));
+        assert!(ranked
+            .iter()
+            .all(|(_, _, k, _)| *k == crate::credibility::ProvenanceKind::ModelGenerated));
         aura.close()?;
         Ok(())
     }
@@ -20277,13 +21661,29 @@ mod tests {
         // frequency cannot bury.
         let dir = tempfile::tempdir()?;
         let aura = Aura::open(dir.path().to_str().unwrap())?;
-        cap(&aura, "deploy step", "skip the smoke test", "world fact: refutes", -1);
+        cap(
+            &aura,
+            "deploy step",
+            "skip the smoke test",
+            "world fact: refutes",
+            -1,
+        );
         // Flood supports for the same pair.
         for _ in 0..20 {
-            cap(&aura, "deploy step", "skip the smoke test", "looked fine", 1);
+            cap(
+                &aura,
+                "deploy step",
+                "skip the smoke test",
+                "looked fine",
+                1,
+            );
         }
         let (v, ..) = aura.consequence_verdict("deploy step", "skip the smoke test", None);
-        assert_eq!(v, ConsequencePolarity::Refutes, "world-fact refutation is a scar");
+        assert_eq!(
+            v,
+            ConsequencePolarity::Refutes,
+            "world-fact refutation is a scar"
+        );
         aura.close()?;
         Ok(())
     }
@@ -20365,6 +21765,311 @@ mod tests {
             .find(|belief| belief.id == belief_id)
             .expect("belief remains available");
         assert_eq!(belief.world_verdict, WorldVerdict::Refuted);
+        Ok(())
+    }
+
+    #[test]
+    fn temporal_validity_filters_current_search_and_persists() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let now = now_secs_f64();
+        let current_id;
+        let future_id;
+
+        {
+            let aura = Aura::open(dir.path().to_str().unwrap())?;
+            current_id = aura
+                .store_temporal(
+                    "temporalpolicy current shipping rule",
+                    Some(now - 60.0),
+                    Some(now + 3_600.0),
+                    Some(Level::Working),
+                    None,
+                    None,
+                )?
+                .id;
+            future_id = aura
+                .store_temporal(
+                    "temporalpolicy future shipping rule",
+                    Some(now + 3_600.0),
+                    None,
+                    Some(Level::Working),
+                    None,
+                    None,
+                )?
+                .id;
+            aura.store_temporal(
+                "temporalpolicy expired shipping rule",
+                Some(now - 7_200.0),
+                Some(now - 3_600.0),
+                Some(Level::Working),
+                None,
+                None,
+            )?;
+
+            let current = aura.search(
+                Some("temporalpolicy"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            assert_eq!(current.len(), 1);
+            assert_eq!(current[0].id, current_id);
+            let recalled = aura.recall_structured(
+                "temporalpolicy shipping rule",
+                Some(10),
+                Some(0.0),
+                Some(false),
+                None,
+                None,
+            )?;
+            assert_eq!(recalled.len(), 1);
+            assert_eq!(recalled[0].1.id, current_id);
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(dir.path().to_str().unwrap())?;
+        let future = reopened.get(&future_id).expect("future record persists");
+        assert!(
+            (future.valid_from.expect("future boundary persists") - (now + 3_600.0)).abs()
+                < 0.000_001
+        );
+        assert_eq!(future.valid_until, None);
+        let current = reopened.search(
+            Some("temporalpolicy"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0].id, current_id);
+        Ok(())
+    }
+
+    #[test]
+    fn supersede_at_supports_bitemporal_recall_and_namespace_isolation() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let old = aura.store_temporal(
+            "bitemporalrule standard refund window is 30 days",
+            Some(100.0),
+            None,
+            Some(Level::Working),
+            None,
+            Some("tenant-a"),
+        )?;
+        let other_tenant = aura.store_temporal(
+            "bitemporalrule standard refund window is 90 days",
+            Some(100.0),
+            None,
+            Some(Level::Working),
+            None,
+            Some("tenant-b"),
+        )?;
+        let new = aura.supersede_at(
+            &old.id,
+            "bitemporalrule standard refund window is 14 days",
+            200.0,
+            None,
+            None,
+            None,
+        )?;
+
+        let stored_old = aura.get(&old.id).expect("old version remains auditable");
+        assert_eq!(stored_old.valid_until, Some(200.0));
+        assert!(stored_old.superseded_at.is_some());
+        assert_eq!(stored_old.strength, old.strength);
+        assert_eq!(new.valid_from, Some(200.0));
+        assert_eq!(new.caused_by_id.as_deref(), Some(old.id.as_str()));
+
+        let tenant_a = ["tenant-a"];
+        let before = aura.recall_as_of(
+            "bitemporalrule refund window",
+            150.0,
+            Some(10),
+            Some(0.0),
+            Some(false),
+            Some(&tenant_a),
+        )?;
+        assert!(before.iter().any(|(_, record)| record.id == old.id));
+        assert!(!before.iter().any(|(_, record)| record.id == new.id));
+        assert!(!before
+            .iter()
+            .any(|(_, record)| record.id == other_tenant.id));
+
+        let after = aura.recall_as_of(
+            "bitemporalrule refund window",
+            200.0,
+            Some(10),
+            Some(0.0),
+            Some(false),
+            Some(&tenant_a),
+        )?;
+        assert!(after.iter().any(|(_, record)| record.id == new.id));
+        assert!(!after.iter().any(|(_, record)| record.id == old.id));
+
+        // At Unix time 150 Aura had not recorded either version yet. This is
+        // intentionally different from the business-time projection above.
+        let known_then = aura.recall_at(
+            "bitemporalrule refund window",
+            150.0,
+            Some(10),
+            Some(0.0),
+            Some(false),
+            None,
+            Some(&tenant_a),
+        )?;
+        assert!(known_then.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn failed_atomic_supersede_leaves_old_version_current_after_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let old_id;
+        {
+            let aura = Aura::open(dir.path().to_str().unwrap())?;
+            let old = aura.store_temporal(
+                "atomic policy remains current",
+                Some(100.0),
+                None,
+                Some(Level::Working),
+                None,
+                Some("tenant-a"),
+            )?;
+            old_id = old.id.clone();
+            let record_count = aura.records.read().len();
+
+            aura.cognitive_store.fail_next_atomic_upsert_for_test();
+            let error = aura
+                .supersede_at(
+                    &old.id,
+                    "atomic replacement must not partially commit",
+                    200.0,
+                    None,
+                    None,
+                    None,
+                )
+                .expect_err("the injected journal failure must abort supersession");
+            assert!(error
+                .to_string()
+                .contains("failed to atomically persist superseding version"));
+
+            let unchanged = aura.get(&old.id).expect("old record remains available");
+            assert_eq!(unchanged.valid_until, None);
+            assert_eq!(unchanged.superseded_at, None);
+            assert_eq!(unchanged.metadata.get("superseded_by"), None);
+            assert_eq!(aura.records.read().len(), record_count);
+            assert_eq!(aura.version_chain(&old.id).len(), 1);
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(dir.path().to_str().unwrap())?;
+        let unchanged = reopened
+            .get(&old_id)
+            .expect("old record remains current after replay");
+        assert_eq!(unchanged.valid_until, None);
+        assert_eq!(unchanged.superseded_at, None);
+        assert_eq!(unchanged.metadata.get("superseded_by"), None);
+        assert_eq!(reopened.version_chain(&old_id).len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn incomplete_legacy_pending_supersede_is_reopened_on_startup() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut old = Record::new("interrupted legacy policy".into(), Level::Working);
+        old.valid_from = Some(100.0);
+        old.valid_until = Some(200.0);
+        old.superseded_at = Some(200.0);
+        old.metadata
+            .insert("superseded_by".into(), "pending".into());
+
+        let store = crate::cognitive_store::CognitiveStore::new(dir.path())?;
+        store.append_store(&old)?;
+        store.close()?;
+
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let recovered = aura.get(&old.id).expect("legacy record was recovered");
+        assert_eq!(recovered.valid_until, None);
+        assert_eq!(recovered.superseded_at, None);
+        assert_eq!(recovered.metadata.get("superseded_by"), None);
+        assert_eq!(
+            recovered
+                .metadata
+                .get("supersede_recovery")
+                .map(String::as_str),
+            Some("reopened_incomplete_pending")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_pending_supersede_links_an_existing_successor_on_startup() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut old = Record::new("interrupted linked policy".into(), Level::Working);
+        let mut successor = Record::new("completed linked policy".into(), Level::Working);
+        old.valid_from = Some(100.0);
+        old.valid_until = Some(200.0);
+        old.superseded_at = Some(200.0);
+        old.metadata
+            .insert("superseded_by".into(), "pending".into());
+        successor.valid_from = Some(200.0);
+        successor.namespace = old.namespace.clone();
+        successor.caused_by_id = Some(old.id.clone());
+
+        let store = crate::cognitive_store::CognitiveStore::new(dir.path())?;
+        store.append_store(&old)?;
+        store.append_store(&successor)?;
+        store.close()?;
+
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let recovered = aura.get(&old.id).expect("legacy record was recovered");
+        assert_eq!(
+            recovered.metadata.get("superseded_by").map(String::as_str),
+            Some(successor.id.as_str())
+        );
+        assert_eq!(recovered.valid_until, Some(200.0));
+        assert_eq!(
+            recovered
+                .metadata
+                .get("supersede_recovery")
+                .map(String::as_str),
+            Some("linked_pending_successor")
+        );
+        assert_eq!(aura.version_chain(&old.id).len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_supersede_chain_is_migrated_to_temporal_boundaries() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut old = Record::new("legacy policy".into(), Level::Working);
+        let mut successor = Record::new("replacement policy".into(), Level::Working);
+        old.created_at = 100.0;
+        successor.created_at = 200.0;
+        successor.caused_by_id = Some(old.id.clone());
+        old.metadata
+            .insert("superseded_by".into(), successor.id.clone());
+
+        let store = crate::cognitive_store::CognitiveStore::new(dir.path())?;
+        store.append_store(&old)?;
+        store.append_store(&successor)?;
+        store.close()?;
+
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let migrated = aura.get(&old.id).expect("legacy record was loaded");
+        assert_eq!(migrated.valid_until, Some(200.0));
+        assert_eq!(migrated.superseded_at, Some(200.0));
+        assert!(!migrated.is_valid_at(200.0));
+        assert!(successor.is_valid_at(200.0));
         Ok(())
     }
 }

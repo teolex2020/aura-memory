@@ -186,8 +186,8 @@ pub mod concept;
 
 // ── Causal Pattern Discovery Layer ──
 pub mod causal;
-pub mod neighbor_mass;
 pub mod executable_judge;
+pub mod neighbor_mass;
 
 // ── Shared weighted-graph substrate (ported from Aura research brain) ──
 pub mod topology;

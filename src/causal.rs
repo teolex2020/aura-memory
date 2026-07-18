@@ -521,12 +521,7 @@ impl CausalEngine {
     /// the learned topology, then the static connections map, then the
     /// historical `0.5` default. `effect_rec` is the record that carries
     /// the `connections` entry keyed by `cause_id` (the original lookup).
-    fn edge_weight_for(
-        &self,
-        cause_id: &str,
-        effect_id: &str,
-        effect_rec: &Record,
-    ) -> f32 {
+    fn edge_weight_for(&self, cause_id: &str, effect_id: &str, effect_rec: &Record) -> f32 {
         if let Some(topo) = &self.learned_topology {
             let a = crate::topology::node_id_for(cause_id);
             let b = crate::topology::node_id_for(effect_id);
@@ -534,11 +529,7 @@ impl CausalEngine {
                 return w;
             }
         }
-        effect_rec
-            .connections
-            .get(cause_id)
-            .copied()
-            .unwrap_or(0.5)
+        effect_rec.connections.get(cause_id).copied().unwrap_or(0.5)
     }
 
     /// Remove a single causal pattern from the persisted engine state.
@@ -1710,7 +1701,10 @@ mod tests {
         // 1. No topology, has static connection → static weight (0.30)
         let engine = CausalEngine::new();
         let w = engine.edge_weight_for("cause", "effect", &effect);
-        assert!((w - 0.30).abs() < 1e-6, "static connection expected, got {w}");
+        assert!(
+            (w - 0.30).abs() < 1e-6,
+            "static connection expected, got {w}"
+        );
 
         // 2. No topology, no static connection → 0.5 default (unchanged behaviour)
         let bare = make_record("effect2", "e", "default", 1.0);

@@ -464,13 +464,21 @@ pub(super) async fn explainability_bundle(
         ("namespaces" = Option<String>, Query, description = "Comma-separated namespace filter")
     ),
     responses(
-        (status = 200, description = "Full recall explanation with bounded trace scoring", body = ExplainRecallResponse, example = json!({
+        (status = 200, description = "Inspectable memory decision with bounded selected and rejected candidates", body = ExplainRecallResponse, example = json!({
             "explanation": {
+                "trace_id": "mem_a1b2c3d4e5f6",
                 "query": "deploy stability rollback",
                 "top_k": 5,
                 "result_count": 1,
                 "belief_rerank_mode": "limited",
-                "items": [{"record_id": "rec_123", "rank": 1, "score": 0.91}]
+                "decision_summary": {
+                    "evaluated_candidate_count": 2,
+                    "selected_count": 1,
+                    "rejected_count": 1,
+                    "rejection_counts": {"expired": 1}
+                },
+                "items": [{"record_id": "rec_123", "rank": 1, "score": 0.91}],
+                "rejected_candidates": [{"record_id": "rec_old", "reasons": ["expired"]}]
             }
         }))
     )

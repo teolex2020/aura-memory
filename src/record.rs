@@ -47,6 +47,18 @@ pub struct Record {
     pub created_at: f64,
     /// Unix timestamp of last activation.
     pub last_activated: f64,
+    /// Business-time instant from which this record is valid (Unix seconds).
+    /// `None` means the record has no lower validity bound.
+    #[serde(default)]
+    pub valid_from: Option<f64>,
+    /// Business-time instant at which this record stops being valid (Unix seconds).
+    /// Validity is half-open: `[valid_from, valid_until)`. `None` means unbounded.
+    #[serde(default)]
+    pub valid_until: Option<f64>,
+    /// System-time instant at which Aura recorded that this version was superseded.
+    /// This is distinct from `valid_until`, which describes business time.
+    #[serde(default)]
+    pub superseded_at: Option<f64>,
     /// Classification tags.
     pub tags: Vec<String>,
     /// Bidirectional connections to other records (id → weight).
@@ -137,6 +149,40 @@ pub const VALID_SEMANTIC_TYPES: &[&str] = &[
     "contradiction", // Detected conflict between records
 ];
 
+/// Automatic promotion is paused once epistemic volatility reaches this
+/// level. This matches the existing high-volatility review threshold used by
+/// Aura's governance surfaces.
+pub const AUTO_PROMOTION_VOLATILITY_LIMIT: f32 = 0.20;
+
+/// A stable, machine-readable reason why automatic promotion was denied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromotionBlockReason {
+    InsufficientActivation,
+    InsufficientStrength,
+    AlreadyIdentity,
+    NotCurrentlyValid,
+    ContradictionRecord,
+    ConflictingEvidence,
+    HighVolatility,
+    IdentityEvidenceThreshold,
+}
+
+impl PromotionBlockReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InsufficientActivation => "insufficient_activation",
+            Self::InsufficientStrength => "insufficient_strength",
+            Self::AlreadyIdentity => "already_identity",
+            Self::NotCurrentlyValid => "not_currently_valid",
+            Self::ContradictionRecord => "contradiction_record",
+            Self::ConflictingEvidence => "conflicting_evidence",
+            Self::HighVolatility => "high_volatility",
+            Self::IdentityEvidenceThreshold => "identity_evidence_threshold",
+        }
+    }
+}
+
 fn default_namespace() -> String {
     DEFAULT_NAMESPACE.to_string()
 }
@@ -172,6 +218,9 @@ impl Record {
             activation_count: 0,
             created_at: now,
             last_activated: now,
+            valid_from: None,
+            valid_until: None,
+            superseded_at: None,
             tags: Vec::new(),
             connections: HashMap::new(),
             connection_types: HashMap::new(),
@@ -210,6 +259,51 @@ impl Record {
             + 0.20 * conn_score
             + 0.15 * act_score
             + 0.10 * self.salience.clamp(0.0, 1.0)
+    }
+
+    /// Whether this record is business-time valid at `timestamp`.
+    ///
+    /// Validity uses half-open intervals: `valid_from <= timestamp < valid_until`.
+    /// Unbounded legacy records remain valid at every finite timestamp.
+    pub fn is_valid_at(&self, timestamp: f64) -> bool {
+        if !timestamp.is_finite() {
+            return false;
+        }
+        if self
+            .valid_from
+            .is_some_and(|valid_from| !valid_from.is_finite() || timestamp < valid_from)
+        {
+            return false;
+        }
+        if self
+            .valid_until
+            .is_some_and(|valid_until| !valid_until.is_finite() || timestamp >= valid_until)
+        {
+            return false;
+        }
+        true
+    }
+
+    /// Validate and assign a business-time validity interval.
+    pub fn set_validity(
+        &mut self,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> Result<(), String> {
+        if valid_from.is_some_and(|value| !value.is_finite()) {
+            return Err("valid_from must be a finite Unix timestamp".to_string());
+        }
+        if valid_until.is_some_and(|value| !value.is_finite()) {
+            return Err("valid_until must be a finite Unix timestamp".to_string());
+        }
+        if let (Some(start), Some(end)) = (valid_from, valid_until) {
+            if start >= end {
+                return Err("valid_from must be earlier than valid_until".to_string());
+            }
+        }
+        self.valid_from = valid_from;
+        self.valid_until = valid_until;
+        Ok(())
     }
 
     /// Activate this record (boost strength, update timestamp, update velocity).
@@ -309,6 +403,61 @@ impl Record {
     /// Requires: activation_count >= 5, strength >= 0.7, level < IDENTITY.
     pub fn can_promote(&self) -> bool {
         self.activation_count >= 5 && self.strength >= 0.7 && self.level < Level::Identity
+    }
+
+    /// Assess whether this record may be promoted automatically.
+    ///
+    /// Working memory may still graduate to Decisions while evidence is being
+    /// reconciled. Promotion into the durable Domain/Identity tiers is blocked
+    /// by explicit contradiction, conflict mass, or high volatility. Identity
+    /// additionally requires the stricter tenure threshold previously enforced
+    /// only by the background maintenance path.
+    pub fn auto_promotion_block_reason(&self) -> Option<PromotionBlockReason> {
+        if self.level >= Level::Identity {
+            return Some(PromotionBlockReason::AlreadyIdentity);
+        }
+        if self.activation_count < 5 {
+            return Some(PromotionBlockReason::InsufficientActivation);
+        }
+        if self.strength < 0.7 {
+            return Some(PromotionBlockReason::InsufficientStrength);
+        }
+
+        self.epistemic_promotion_block_reason()
+    }
+
+    /// Assess only the epistemic/durability gates for the next level.
+    ///
+    /// This is also used by operator-facing candidate queries that support
+    /// custom frequency thresholds without bypassing contradiction safety.
+    pub fn epistemic_promotion_block_reason(&self) -> Option<PromotionBlockReason> {
+        if self.level >= Level::Identity {
+            return Some(PromotionBlockReason::AlreadyIdentity);
+        }
+
+        let target = self.level.promote()?;
+        if target >= Level::Domain {
+            if self.semantic_type == "contradiction" {
+                return Some(PromotionBlockReason::ContradictionRecord);
+            }
+            if self.conflict_mass > 0 {
+                return Some(PromotionBlockReason::ConflictingEvidence);
+            }
+            if self.volatility >= AUTO_PROMOTION_VOLATILITY_LIMIT {
+                return Some(PromotionBlockReason::HighVolatility);
+            }
+        }
+
+        if target == Level::Identity && (self.activation_count < 20 || self.strength < 0.9) {
+            return Some(PromotionBlockReason::IdentityEvidenceThreshold);
+        }
+
+        None
+    }
+
+    /// Whether the shared governed policy allows automatic promotion.
+    pub fn can_auto_promote(&self) -> bool {
+        self.auto_promotion_block_reason().is_none()
     }
 
     /// Promote to the next level, if eligible.
@@ -491,6 +640,18 @@ impl Record {
     #[getter]
     fn get_last_activated(&self) -> f64 {
         self.last_activated
+    }
+    #[getter]
+    fn get_valid_from(&self) -> Option<f64> {
+        self.valid_from
+    }
+    #[getter]
+    fn get_valid_until(&self) -> Option<f64> {
+        self.valid_until
+    }
+    #[getter]
+    fn get_superseded_at(&self) -> Option<f64> {
+        self.superseded_at
     }
     #[getter]
     fn get_tags(&self) -> Vec<String> {
@@ -725,8 +886,44 @@ mod tests {
         rec.activation_count = 5;
         rec.strength = 0.8;
         assert!(rec.can_promote());
+        assert!(rec.can_auto_promote());
         assert!(rec.promote());
         assert_eq!(rec.level, Level::Decisions);
+    }
+
+    #[test]
+    fn durable_auto_promotion_pauses_on_conflict_and_volatility() {
+        let mut conflicted = Record::new("new deployment rule".into(), Level::Decisions);
+        conflicted.activation_count = 10;
+        conflicted.strength = 0.9;
+        conflicted.conflict_mass = 1;
+        assert_eq!(
+            conflicted.auto_promotion_block_reason(),
+            Some(PromotionBlockReason::ConflictingEvidence)
+        );
+
+        let mut volatile = Record::new("unstable deployment rule".into(), Level::Decisions);
+        volatile.activation_count = 10;
+        volatile.strength = 0.9;
+        volatile.volatility = AUTO_PROMOTION_VOLATILITY_LIMIT;
+        assert_eq!(
+            volatile.auto_promotion_block_reason(),
+            Some(PromotionBlockReason::HighVolatility)
+        );
+    }
+
+    #[test]
+    fn identity_auto_promotion_requires_stricter_evidence_tenure() {
+        let mut rec = Record::new("durable profile rule".into(), Level::Domain);
+        rec.activation_count = 10;
+        rec.strength = 0.95;
+        assert_eq!(
+            rec.auto_promotion_block_reason(),
+            Some(PromotionBlockReason::IdentityEvidenceThreshold)
+        );
+
+        rec.activation_count = 20;
+        assert!(rec.can_auto_promote());
     }
 
     #[test]
@@ -842,6 +1039,40 @@ mod tests {
         assert_eq!(restored.conflict_mass, 0);
         assert!((restored.volatility).abs() < 0.001);
         assert!((restored.salience).abs() < 0.001);
+    }
+
+    #[test]
+    fn temporal_validity_is_half_open() {
+        let mut rec = Record::new("dated rule".into(), Level::Domain);
+        rec.set_validity(Some(100.0), Some(200.0)).unwrap();
+        assert!(!rec.is_valid_at(99.999));
+        assert!(rec.is_valid_at(100.0));
+        assert!(rec.is_valid_at(199.999));
+        assert!(!rec.is_valid_at(200.0));
+    }
+
+    #[test]
+    fn temporal_validity_rejects_invalid_intervals() {
+        let mut rec = Record::new("dated rule".into(), Level::Domain);
+        assert!(rec.set_validity(Some(200.0), Some(100.0)).is_err());
+        assert!(rec.set_validity(Some(100.0), Some(100.0)).is_err());
+        assert!(rec.set_validity(Some(f64::NAN), None).is_err());
+        assert!(rec.set_validity(None, Some(f64::INFINITY)).is_err());
+    }
+
+    #[test]
+    fn temporal_fields_are_backward_compatible() {
+        let rec = Record::new("legacy record".into(), Level::Working);
+        let mut json_val: serde_json::Value = serde_json::to_value(&rec).unwrap();
+        let object = json_val.as_object_mut().unwrap();
+        object.remove("valid_from");
+        object.remove("valid_until");
+        object.remove("superseded_at");
+        let restored: Record = serde_json::from_value(json_val).unwrap();
+        assert_eq!(restored.valid_from, None);
+        assert_eq!(restored.valid_until, None);
+        assert_eq!(restored.superseded_at, None);
+        assert!(restored.is_valid_at(0.0));
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! records it selects.
 
 use std::collections::BTreeSet;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -107,11 +108,26 @@ pub fn build_context_capsule<'a>(
     purpose: &str,
     token_budget: usize,
 ) -> ContextCapsule {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64();
+    build_context_capsule_at(records, namespace, purpose, token_budget, now)
+}
+
+/// Build a deterministic context capsule for records valid at `valid_at`.
+pub fn build_context_capsule_at<'a>(
+    records: impl IntoIterator<Item = &'a Record>,
+    namespace: &str,
+    purpose: &str,
+    token_budget: usize,
+    valid_at: f64,
+) -> ContextCapsule {
     let token_budget = token_budget.clamp(1, MAX_TOKEN_BUDGET);
     let purpose_terms = normalized_terms(purpose);
     let namespace_records: Vec<&Record> = records
         .into_iter()
-        .filter(|record| record.namespace == namespace)
+        .filter(|record| record.namespace == namespace && record.is_valid_at(valid_at))
         .collect();
     let source_record_count = namespace_records.len();
 
@@ -224,7 +240,10 @@ fn classify<'a>(record: &'a Record, purpose_terms: &BTreeSet<String>) -> Option<
     if answer_blocked
         || admission_blocked
         || verification_superseded
-        || record.metadata.contains_key("superseded_by")
+        // Legacy superseded records have no validity boundary and must remain
+        // blocked. Temporal supersede records are admitted until valid_until;
+        // the caller's is_valid_at(valid_at) filter enforces that boundary.
+        || (record.metadata.contains_key("superseded_by") && record.valid_until.is_none())
     {
         return None;
     }
@@ -425,5 +444,23 @@ mod tests {
         let capsule =
             build_context_capsule([&blocked, &denied, &superseded], "default", "plan", 128);
         assert!(capsule.entries.is_empty());
+    }
+
+    #[test]
+    fn capsule_at_filters_by_business_time() {
+        let mut old = record("old", "Use legacy deployment", "default", &["goal"]);
+        old.set_validity(Some(100.0), Some(200.0)).unwrap();
+        old.metadata.insert("superseded_by".into(), "new".into());
+        let mut new = record("new", "Use current deployment", "default", &["goal"]);
+        new.set_validity(Some(200.0), None).unwrap();
+
+        let historical =
+            build_context_capsule_at([&old, &new], "default", "deployment", 128, 150.0);
+        assert_eq!(historical.entries.len(), 1);
+        assert_eq!(historical.entries[0].record_id, "old");
+
+        let current = build_context_capsule_at([&old, &new], "default", "deployment", 128, 200.0);
+        assert_eq!(current.entries.len(), 1);
+        assert_eq!(current.entries[0].record_id, "new");
     }
 }

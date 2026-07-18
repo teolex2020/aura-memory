@@ -11,6 +11,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::record::Record;
 
 const MAGIC: &[u8; 4] = b"COG1";
@@ -19,6 +22,10 @@ const VERSION: u8 = 2;
 const OP_STORE: u8 = 0x01;
 const OP_UPDATE: u8 = 0x02;
 const OP_DELETE: u8 = 0x03;
+/// One CRC-protected frame containing multiple record upserts. Replay applies
+/// the complete vector or none of it, which makes version-chain replacement
+/// atomic in the authoritative cognitive journal.
+const OP_ATOMIC_UPSERTS: u8 = 0x04;
 
 const SNAP_MAGIC: &[u8; 4] = b"CSN1";
 
@@ -30,6 +37,8 @@ pub struct CognitiveStore {
     snap_path: PathBuf,
     writer: Mutex<Option<BufWriter<File>>>,
     log_position: Mutex<u64>,
+    #[cfg(test)]
+    fail_next_atomic_upsert: AtomicBool,
 }
 
 impl CognitiveStore {
@@ -58,6 +67,8 @@ impl CognitiveStore {
             snap_path,
             writer: Mutex::new(Some(writer)),
             log_position: Mutex::new(0),
+            #[cfg(test)]
+            fail_next_atomic_upsert: AtomicBool::new(false),
         })
     }
 
@@ -168,6 +179,21 @@ impl CognitiveStore {
                         records.remove(&id);
                     }
                 }
+                OP_ATOMIC_UPSERTS => {
+                    // Deserialize the complete frame before mutating replay
+                    // state. A corrupt/partial batch can therefore never apply
+                    // only one side of a version replacement.
+                    match serde_json::from_slice::<Vec<Record>>(&payload) {
+                        Ok(batch) => {
+                            for rec in batch {
+                                records.insert(rec.id.clone(), rec);
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "Invalid atomic cognitive batch, skipping frame");
+                        }
+                    }
+                }
                 _ => {
                     tracing::warn!("Unknown op code {} in cognitive log", op);
                 }
@@ -198,8 +224,36 @@ impl CognitiveStore {
         self.append_entry(OP_DELETE, &id_bytes)
     }
 
+    /// Atomically append several record upserts as one durable journal frame.
+    ///
+    /// The frame has one length and CRC. Replay first validates and deserializes
+    /// the entire vector, then applies every record. A crash before the frame is
+    /// complete leaves the previous journal state intact.
+    pub fn append_atomic_upserts(&self, records: &[Record]) -> Result<()> {
+        if records.is_empty() {
+            return Ok(());
+        }
+
+        #[cfg(test)]
+        if self.fail_next_atomic_upsert.swap(false, Ordering::SeqCst) {
+            anyhow::bail!("injected atomic cognitive upsert failure");
+        }
+
+        let payload = serde_json::to_vec(records)?;
+        self.append_entry_internal(OP_ATOMIC_UPSERTS, &payload, true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_atomic_upsert_for_test(&self) {
+        self.fail_next_atomic_upsert.store(true, Ordering::SeqCst);
+    }
+
     /// Low-level: append an entry to the log.
     fn append_entry(&self, op: u8, payload: &[u8]) -> Result<()> {
+        self.append_entry_internal(op, payload, false)
+    }
+
+    fn append_entry_internal(&self, op: u8, payload: &[u8], durable: bool) -> Result<()> {
         let crc = crc32fast::hash(payload);
 
         let mut writer = self.writer.lock();
@@ -211,6 +265,9 @@ impl CognitiveStore {
         w.write_u32::<LittleEndian>(crc)?;
         w.write_all(payload)?;
         w.flush()?;
+        if durable {
+            w.get_ref().sync_all()?;
+        }
 
         Ok(())
     }
@@ -355,6 +412,69 @@ mod tests {
         store.append_delete(&rec.id)?;
         let records = store.load_all()?;
         assert!(records.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn atomic_upsert_frame_replays_all_records_together() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = CognitiveStore::new(dir.path())?;
+
+        let mut old = Record::new("old policy".into(), Level::Domain);
+        store.append_store(&old)?;
+        let mut successor = Record::new("new policy".into(), Level::Domain);
+        successor.caused_by_id = Some(old.id.clone());
+        old.metadata
+            .insert("superseded_by".into(), successor.id.clone());
+        old.valid_until = Some(successor.created_at);
+
+        store.append_atomic_upserts(&[old.clone(), successor.clone()])?;
+        let loaded = store.load_all()?;
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(
+            loaded[&old.id].metadata.get("superseded_by"),
+            Some(&successor.id)
+        );
+        assert_eq!(
+            loaded[&successor.id].caused_by_id.as_deref(),
+            Some(old.id.as_str())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn truncated_atomic_upsert_tail_replays_none_of_the_batch() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut old = Record::new("old policy remains current".into(), Level::Domain);
+        let old_id = old.id.clone();
+        {
+            let store = CognitiveStore::new(dir.path())?;
+            store.append_store(&old)?;
+            store.close()?;
+        }
+
+        let mut successor = Record::new("replacement was interrupted".into(), Level::Domain);
+        successor.caused_by_id = Some(old.id.clone());
+        old.metadata
+            .insert("superseded_by".into(), successor.id.clone());
+        old.valid_until = Some(successor.created_at);
+        let payload = serde_json::to_vec(&vec![old, successor])?;
+        let mut log = OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("brain.cog"))?;
+        log.write_u8(OP_ATOMIC_UPSERTS)?;
+        log.write_u32::<LittleEndian>(payload.len() as u32)?;
+        log.write_u32::<LittleEndian>(crc32fast::hash(&payload))?;
+        log.write_all(&payload[..payload.len() / 2])?;
+        log.sync_all()?;
+        drop(log);
+
+        let reopened = CognitiveStore::new(dir.path())?;
+        let loaded = reopened.load_all()?;
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[&old_id].content, "old policy remains current");
+        assert_eq!(loaded[&old_id].valid_until, None);
+        assert_eq!(loaded[&old_id].metadata.get("superseded_by"), None);
         Ok(())
     }
 

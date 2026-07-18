@@ -208,7 +208,10 @@ mod tests {
     #[test]
     fn inconclusive_leaves_debt_open() {
         let mut b = Belief::new("k".to_string());
-        assert!(!close_evidence_debt_with_fact(&mut b, WorldFact::Inconclusive));
+        assert!(!close_evidence_debt_with_fact(
+            &mut b,
+            WorldFact::Inconclusive
+        ));
         assert_eq!(b.world_verdict, WorldVerdict::EvidenceDebt);
     }
 

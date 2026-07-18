@@ -492,10 +492,7 @@ mod tests {
     fn lived_marker_wins_even_alongside_model_marker() {
         // A unit captured by a tool but also tagged with the model that proposed
         // it is still a lived consequence — the collision happened.
-        let p = vec![
-            "llm:gpt".to_string(),
-            "tool:fetch".to_string(),
-        ];
+        let p = vec!["llm:gpt".to_string(), "tool:fetch".to_string()];
         assert_eq!(
             ProvenanceKind::from_provenance(&p),
             ProvenanceKind::LivedConsequence

@@ -213,7 +213,9 @@ impl Topology {
     ///   - `prune_below` must be finite and in `[0.0, EDGE_WEIGHT_CAP]`.
     pub fn decay_edges(&mut self, rate: f32, prune_below: f32) -> Result<usize> {
         if !(rate.is_finite() && (0.0..=1.0).contains(&rate)) {
-            return Err(anyhow!("topology: decay rate {rate} out of range [0.0, 1.0]"));
+            return Err(anyhow!(
+                "topology: decay rate {rate} out of range [0.0, 1.0]"
+            ));
         }
         if !(prune_below.is_finite() && (0.0..=EDGE_WEIGHT_CAP).contains(&prune_below)) {
             return Err(anyhow!(

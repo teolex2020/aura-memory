@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+## 1.5.7
+
+Crash-safe temporal supersession and conservative contradiction-graph resolution.
+
+### Added
+
+- **Temporal memory versioning** — records can carry half-open business-time validity intervals (`valid_from`, `valid_until`) plus the system-time `superseded_at` audit timestamp.
+- **Historical business-time recall** — `recall_as_of()` and time-aware context capsules reconstruct the version valid at a chosen Unix timestamp without activating records.
+- **Effective-date supersession** — `supersede(..., effective_at=...)` closes the old version and opens its replacement at one deterministic boundary while preserving the causal version chain and namespace.
+- **Inspectable memory decisions** — `explain_recall()` now returns a correlation-safe `trace_id`, selected results, bounded rejected candidates, aggregate gate counts, and structured reasons including `expired`, `not_yet_valid`, `below_strength_threshold`, and `outside_top_k`.
+- **Governed durable-tier promotion** — one shared policy blocks automatic promotion into Domain/Identity for contradictory, conflicted, or high-volatility records; Identity additionally requires stronger activation and strength evidence.
+- **Hypothesis competition traces** — selected and rejected recall evidence now identifies its hypothesis, the resolved winner, both scores, and whether it belongs to the winning side.
+
+- **Atomic cognitive journal batches** — multi-record graph and version updates can be persisted as one CRC-protected, durable replay unit.
+
+### Changed
+
+- Normal recall, structured recall, search, cognitive/core tier recall, full recall, and context capsules exclude future and expired records by default.
+- Legacy supersede chains are migrated on open using the successor creation time as their deterministic validity boundary.
+- Python structured recall results expose `created_at`, `valid_from`, `valid_until`, and `superseded_at`.
+- Explained recall emits a metadata-only `aura.memory_decision` tracing event and span attributes suitable for existing OpenTelemetry export; queries and record content are not written to the span.
+- Maintenance refreshes epistemic conflict/volatility before promotion, considers only currently valid records during belief discovery, and reports promotion blocks by conflict, volatility, and Identity evidence threshold.
+- Belief recency is based on `valid_from` or record creation time instead of `last_activated`, preventing retrieval from refreshing stale evidence.
+- Resolved belief reranking now boosts only the winning hypothesis; losing hypotheses are excluded from current recall activation but remain available through audit/history and `explain_recall()` with `suppressed_by_belief_resolution`.
+
+- Interrupted legacy supersessions with `superseded_by="pending"` are repaired on open: Aura links an existing successor or reopens the old version when no successor was committed.
+
+### Fixed
+
+- Minimal builds without the `encryption` feature compile again. Plain `Aura::open()` remains available, while password-protected opening now fails explicitly instead of referencing unavailable crypto functions or silently degrading to plaintext.
+- Prevented contextual-hub promotion and repeated recall from bypassing contradiction governance and entrenching stale Domain/Identity rules.
+- Prevented symmetric conflict mass from collapsing both sides of an explicit contradiction edge into the same hypothesis.
+- Prevented a failed superseding write from closing the old version without a successor; the version boundary, causal links, and replacement are now committed atomically.
+- Non-bipartite contradiction graphs (including odd cycles), disconnected conflict components, and non-binary conflict sets now remain unresolved instead of producing an artificial winner.
+- Standalone reflection, decay, and shared-import paths no longer silently discard cognitive-journal write errors; fallible promotion and namespace-move APIs commit live changes only after persistence succeeds.
+
 ## 1.5.6
 
 Immutable evidence lineage, deterministic context capsules, and observable recall outcomes.

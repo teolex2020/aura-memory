@@ -512,7 +512,7 @@ impl AuraMcpServer {
     }
 
     #[tool(
-        description = "Explain recall scoring and provenance for a query. Returns bounded trace-scoring output for the retrieved results."
+        description = "Explain a memory decision for a query. Returns bounded selected and rejected candidates, structured gate reasons, scoring, and provenance without activating records."
     )]
     async fn explain_recall(
         &self,

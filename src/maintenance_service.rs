@@ -109,8 +109,7 @@ impl MaintenanceService {
                 // applied to the live maintenance loop (it previously deleted any
                 // record whose frequency-driven strength fell below the floor,
                 // scar or not).
-                let is_scar = rec.route_state_class()
-                    == crate::record::RouteStateClass::Refuted;
+                let is_scar = rec.route_state_class() == crate::record::RouteStateClass::Refuted;
                 let anchored = rec.level >= crate::levels::Level::Identity;
                 if !rec.is_alive() && !is_scar && !anchored {
                     to_archive.push(rec.id.clone());
@@ -145,6 +144,13 @@ impl MaintenanceService {
         };
         timings.decay_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
+        // Refresh conflict mass and volatility before promotion. Previously
+        // reflect ran first, so a newly contradictory record could cross into
+        // Domain/Identity one cycle before the guard learned about the conflict.
+        let t25 = std::time::Instant::now();
+        let epistemic = background_brain::update_epistemic_state(records);
+        timings.epistemic_ms = t25.elapsed().as_secs_f64() * 1000.0;
+
         let t2 = std::time::Instant::now();
         let reflect = if config.reflect_enabled {
             background_brain::guarded_reflect(records, taxonomy)
@@ -152,10 +158,6 @@ impl MaintenanceService {
             background_brain::ReflectReport::default()
         };
         timings.reflect_ms = t2.elapsed().as_secs_f64() * 1000.0;
-
-        let t25 = std::time::Instant::now();
-        let epistemic = background_brain::update_epistemic_state(records);
-        timings.epistemic_ms = t25.elapsed().as_secs_f64() * 1000.0;
 
         let t3 = std::time::Instant::now();
         let insights_found = if config.insights_enabled {
@@ -301,7 +303,10 @@ impl MaintenanceService {
         // ages it (decay + prune), persists it, and hands a snapshot to
         // the causal engine so causal discovery reads *learned* edge
         // weights. `None` keeps the original behaviour exactly.
-        topology: Option<(&RwLock<crate::topology::Topology>, &crate::topology::TopologyStore)>,
+        topology: Option<(
+            &RwLock<crate::topology::Topology>,
+            &crate::topology::TopologyStore,
+        )>,
     ) -> DiscoveryPhaseResult {
         // ── Topology aging ───────────────────────────────────────────
         // Decay the learned topology once per maintenance cycle so stale

@@ -228,7 +228,8 @@ let integrity = verify_lineage(&document, bytes, &span);
 
 `VerificationStatus` and `AnswerPermission` are independent gates. A high
 confidence score never overrides a changed source hash, a superseded claim, or
-a blocked citation. Existing `Record` serialization remains unchanged.
+a blocked citation. New `Record` fields remain backward-compatible with older
+serialized records.
 
 Evidence-aware research reports are composed only from admitted findings.
 Free-form synthesis is omitted until the synthesis itself can carry claim-level
@@ -250,8 +251,105 @@ capsule = brain.build_context_capsule(
 The bounded capsule prioritizes refutation scars, open evidence debt, active
 goals, contradictions, outcomes, decisions, and durable domain/identity
 records. It returns an estimated token count, omitted-record count, selection
-reasons, and a stable content hash. Records marked blocked or superseded are
-never surfaced.
+reasons, and a stable content hash. Blocked records and superseded versions
+outside their validity interval are never surfaced.
+
+### Temporal Memory Versioning
+
+Context answers what an agent needs now; memory also needs to preserve which
+version of a fact was valid at a particular time. Aura records business-time
+validity separately from the system time at which a replacement was recorded:
+
+```python
+old_id = brain.store(
+    "The refund window is 30 days",
+    namespace="shop-a",
+    valid_from=1_735_689_600,
+)
+new_id = brain.supersede(
+    old_id,
+    "The refund window is 14 days",
+    namespace="shop-a",
+    effective_at=1_751_328_000,
+)
+
+historical = brain.recall_as_of(
+    "refund window",
+    timestamp=1_743_811_200,
+    namespace="shop-a",
+)
+```
+
+Validity intervals are half-open: `valid_from <= time < valid_until`. Ordinary
+recall, search, and context capsules return only records valid now; expired and
+future versions remain available for audit through `get()`, `history()`,
+`version_chain()`, and `recall_as_of()`. `recall_at()` retains its system-time
+knowledge cutoff, while `recall_as_of()` answers the business-time question
+using everything Aura knows now. Namespace isolation applies to both paths.
+Supersession is committed as one durable cognitive-journal frame: the old
+validity boundary, successor, and causal links either replay together or do not
+apply. On startup Aura also repairs the `pending` marker written by older
+releases after an interrupted replacement.
+
+### Inspectable Memory Decisions
+
+`explain_recall()` uses the same retrieval and bounded-reranking pipeline as
+normal recall, but does not activate or mutate records. In addition to the
+selected items and their existing score/provenance traces, it reports relevant
+candidates rejected by memory gates:
+
+```python
+decision = brain.explain_recall(
+    "refund window",
+    top_k=5,
+    namespace="shop-a",
+)
+
+print(decision["trace_id"])
+print(decision["decision_summary"]["rejection_counts"])
+for candidate in decision["rejected_candidates"]:
+    print(candidate["record_id"], candidate["reasons"])
+```
+
+Current rejection reasons are `expired`, `not_yet_valid`,
+`invalid_temporal_bounds`, `below_strength_threshold`, `outside_top_k`, and
+`suppressed_by_belief_resolution`. For belief competition, selected and
+rejected entries expose the candidate hypothesis, winning hypothesis, both
+scores, and whether the record belongs to the winning side. Rejected output is
+bounded and includes omission counts. Candidate discovery is performed only
+inside the requested namespace scope: records belonging to another tenant are
+never represented in the trace, even by ID. The generated `memory_trace_id`,
+selected count, and rejected count are also attached to the existing
+OpenTelemetry span without logging the query or record contents.
+
+### Governed Promotion and Contradiction Safety
+
+Memory level controls retention, not truth. Aura therefore uses one governed
+policy for automatic reflection and promotion-candidate surfaces:
+
+- Working records may graduate to Decisions through repeated use.
+- Promotion into Domain or Identity pauses when a record is an explicit
+  contradiction, carries conflict mass, or has volatility of `0.20` or more.
+- Domain-to-Identity promotion additionally requires at least 20 activations
+  and `0.90` strength.
+- Expired and not-yet-valid versions are never promoted.
+
+During maintenance, conflict and volatility are refreshed before promotion.
+Explicit `contradicts`/`conflict` links form competing belief hypotheses rather
+than collapsing both sides into one bucket. Hypothesis recency uses business
+validity (`valid_from`) or creation time—not `last_activated`—so retrieving a
+stale rule cannot make its evidence fresh again. When a belief is resolved,
+the winning hypothesis is admitted to current recall and the losing side stays
+available through history and `explain_recall()` as suppressed evidence.
+Aura only resolves an explicit conflict graph as two competing sides when the
+graph is one connected bipartite component. Odd cycles, multiple independent
+components, isolated claims, and conflict sets without a defensible binary
+topology remain `Unresolved`; no record receives a synthetic winning vote.
+
+Use `promotion_block_reason(record_id)` to inspect why a record cannot advance.
+For a genuine rule replacement, prefer `supersede(..., effective_at=...)`; use
+an explicit `contradicts` relationship when both claims must remain auditable
+as competing evidence.
 
 **Core Cognitive Runtime**
 - **Fast Local Recall** - Multi-signal ranking with optional embedding support
@@ -270,7 +368,7 @@ never surfaced.
 
 **Adaptive Memory**
 - **Feedback Learning** — `brain.feedback(id, useful=True)` boosts useful memories, weakens noise
-- **Semantic Versioning** — `brain.supersede(old_id, new_content)` with full version chains
+- **Temporal Semantic Versioning** — `brain.supersede(old_id, new_content, effective_at=...)` with validity intervals and full version chains
 - **Snapshots & Rollback** — `brain.snapshot("v1")` / `brain.rollback("v1")` / `brain.diff("v1","v2")`
 - **Agent-to-Agent Sharing** — `export_context()` / `import_context()` with trust metadata
 
@@ -291,7 +389,7 @@ never surfaced.
 - **Cross-Namespace Analytics** — read-only digest for tags, concepts, structural overlap, and canonical causal signatures across namespaces
 
 **Explainability & Governed Adaptation**
-- **Explainability APIs** — `explain_recall()`, `explain_record()`, `provenance_chain()`, `explainability_bundle()`
+- **Explainability APIs** — inspectable selected/rejected decisions through `explain_recall()`, plus `explain_record()`, `provenance_chain()`, and `explainability_bundle()`
 - **Correction Governance** — correction log, correction review queue, suggested corrections, namespace governance status
 - **Autonomous Cognitive Plasticity** — extraction → ingest → maintenance loop for bounded self-adaptation without changing model weights
 - **Plasticity Safety Bounds** — generated-confidence ceiling, risk throttling, purge/freeze controls, operator-visible risk state

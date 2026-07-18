@@ -14,7 +14,7 @@ use parking_lot::RwLock;
 use pyo3::prelude::*;
 
 use crate::levels::Level;
-use crate::record::Record;
+use crate::record::{PromotionBlockReason, Record};
 use crate::trust::TagTaxonomy;
 
 // ── Archival Rule ──
@@ -188,6 +188,12 @@ pub struct DecayReport {
 pub struct ReflectReport {
     pub promoted: usize,
     pub archived: usize,
+    /// Durable-tier promotions blocked by contradictory evidence.
+    pub blocked_conflict: usize,
+    /// Durable-tier promotions blocked by epistemic volatility.
+    pub blocked_volatility: usize,
+    /// Domain→Identity promotions that lacked the stricter evidence tenure.
+    pub blocked_identity_threshold: usize,
 }
 
 /// Consolidation phase report.
@@ -842,30 +848,44 @@ pub fn update_epistemic_state(records: &mut HashMap<String, Record>) -> Epistemi
     report
 }
 
-/// Phase 2: Guarded reflect — prevents overpromotion.
+/// Phase 2: governed reflect — prevents epistemically unsafe promotion.
 ///
-/// Saves original levels, runs reflect, restores violations:
-/// 1. WORKING records are NEVER promoted
-/// 2. Records can't reach IDENTITY without 20+ activations AND 0.9+ strength
+/// All automatic promotion paths use `Record::can_auto_promote`: ordinary
+/// Working→Decisions graduation remains available, while promotion into the
+/// durable Domain/Identity tiers pauses on contradiction, conflict, or high
+/// volatility. Domain→Identity additionally needs 20 activations and 0.9
+/// strength.
 pub fn guarded_reflect(
     records: &mut HashMap<String, Record>,
     _taxonomy: &TagTaxonomy,
 ) -> ReflectReport {
-    // Save original levels for non-IDENTITY records
-    let original_levels: HashMap<String, Level> = records
-        .iter()
-        .filter(|(_, r)| r.level != Level::Identity)
-        .map(|(id, r)| (id.clone(), r.level))
-        .collect();
+    let mut blocked_conflict = 0usize;
+    let mut blocked_volatility = 0usize;
+    let mut blocked_identity_threshold = 0usize;
 
-    // Run reflect logic: promote candidates
-    let mut promoted: usize = 0;
+    // Count only records that meet the legacy frequency/strength gate; routine
+    // ineligible records are not governance events.
+    for rec in records.values().filter(|record| record.can_promote()) {
+        match rec.auto_promotion_block_reason() {
+            Some(
+                PromotionBlockReason::ContradictionRecord
+                | PromotionBlockReason::ConflictingEvidence,
+            ) => blocked_conflict += 1,
+            Some(PromotionBlockReason::HighVolatility) => blocked_volatility += 1,
+            Some(PromotionBlockReason::IdentityEvidenceThreshold) => {
+                blocked_identity_threshold += 1
+            }
+            _ => {}
+        }
+    }
+
     let promotable: Vec<String> = records
         .values()
-        .filter(|r| r.can_promote())
+        .filter(|record| record.can_auto_promote())
         .map(|r| r.id.clone())
         .collect();
 
+    let mut promoted = 0usize;
     for id in &promotable {
         if let Some(rec) = records.get_mut(id) {
             if rec.promote() {
@@ -885,34 +905,12 @@ pub fn guarded_reflect(
         records.remove(id);
     }
 
-    // Restore overpromotions
-    let mut restored: usize = 0;
-    for (rec_id, orig_level) in &original_levels {
-        let rec = match records.get_mut(rec_id) {
-            Some(r) => r,
-            None => continue,
-        };
-
-        let should_restore =
-            // Rule 1: WORKING must stay WORKING
-            (*orig_level == Level::Working && rec.level != Level::Working)
-            // Rule 2: No IDENTITY without threshold
-            || (rec.level == Level::Identity
-                && (rec.activation_count < 20 || rec.strength < 0.9));
-
-        if should_restore {
-            rec.level = *orig_level;
-            restored += 1;
-        }
-    }
-
-    if restored > 0 {
-        tracing::info!(restored, "Overpromotion guard: restored records");
-    }
-
     ReflectReport {
-        promoted: promoted.saturating_sub(restored),
+        promoted,
         archived,
+        blocked_conflict,
+        blocked_volatility,
+        blocked_identity_threshold,
     }
 }
 
@@ -1396,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn test_guarded_reflect_prevents_working_promotion() {
+    fn test_guarded_reflect_uses_shared_promotion_policy() {
         let taxonomy = TagTaxonomy::default();
         let mut records = HashMap::new();
 
@@ -1406,12 +1404,19 @@ mod tests {
         let rid = r.id.clone();
         records.insert(rid.clone(), r);
 
-        let _report = guarded_reflect(&mut records, &taxonomy);
+        let mut conflicted = Record::new("contested durable rule".into(), Level::Decisions);
+        conflicted.activation_count = 10;
+        conflicted.strength = 0.9;
+        conflicted.conflict_mass = 1;
+        let conflicted_id = conflicted.id.clone();
+        records.insert(conflicted_id.clone(), conflicted);
 
-        // WORKING should NOT have been promoted
-        if let Some(rec) = records.get(&rid) {
-            assert_eq!(rec.level, Level::Working);
-        }
+        let report = guarded_reflect(&mut records, &taxonomy);
+
+        assert_eq!(records.get(&rid).unwrap().level, Level::Decisions);
+        assert_eq!(records.get(&conflicted_id).unwrap().level, Level::Decisions);
+        assert_eq!(report.promoted, 1);
+        assert_eq!(report.blocked_conflict, 1);
     }
 
     #[test]

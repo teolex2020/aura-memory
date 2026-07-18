@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 1.5.7
+## 1.57.0
 
 Crash-safe temporal supersession and conservative contradiction-graph resolution.
 

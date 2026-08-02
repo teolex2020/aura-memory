@@ -41,7 +41,7 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File .\scripts\cleanup_windows_test_lock.ps1
       - name: Cargo check
-        run: cargo check --lib --tests --no-default-features --features "encryption,audit"
+        run: cargo check --lib --tests --no-default-features --features "encryption,audit,capsule"
       - name: Cleanup stale Windows test locks (post)
         if: always() && runner.os == 'Windows'
         shell: powershell
@@ -58,9 +58,9 @@ jobs:
         with:
           cache-on-failure: true
       - name: Build library tests
-        run: cargo test --lib --no-default-features --features "encryption,audit" --no-run 2>&1 | tail -5
+        run: cargo test --lib --no-default-features --features "encryption,audit,capsule" --no-run 2>&1 | tail -5
       - name: Run library tests
-        run: cargo test --lib --no-default-features --features "encryption,audit" -- --test-threads=2
+        run: cargo test --lib --no-default-features --features "encryption,audit,capsule" -- --test-threads=2
 
   rust-windows-smoke:
     name: Rust Smoke (Windows)
@@ -76,7 +76,7 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File .\scripts\cleanup_windows_test_lock.ps1
       - name: Run bounded Windows smoke test
-        run: cargo test test_startup_validation_report_captures_recovery_fallbacks --lib --no-default-features --features "encryption,audit"
+        run: cargo test test_startup_validation_report_captures_recovery_fallbacks --lib --no-default-features --features "encryption,audit,capsule"
       - name: Cleanup stale Windows test locks (post)
         if: always()
         shell: powershell
@@ -113,10 +113,10 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File .\scripts\cleanup_windows_test_lock.ps1
       - name: Build and install
-        run: .venv/bin/maturin develop --release --features "pyo3/extension-module,encryption"
+        run: .venv/bin/maturin develop --release --features "pyo3/extension-module,encryption,capsule"
         if: runner.os != 'Windows'
       - name: Build and install (Windows)
-        run: .venv\Scripts\maturin develop --release --features "pyo3/extension-module,encryption"
+        run: .venv\Scripts\maturin develop --release --features "pyo3/extension-module,encryption,capsule"
         if: runner.os == 'Windows'
       - name: Run Python smoke
         run: .venv/bin/python scripts/python_release_smoke.py

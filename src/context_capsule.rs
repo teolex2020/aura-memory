@@ -127,7 +127,11 @@ pub fn build_context_capsule_at<'a>(
     let purpose_terms = normalized_terms(purpose);
     let namespace_records: Vec<&Record> = records
         .into_iter()
-        .filter(|record| record.namespace == namespace && record.is_valid_at(valid_at))
+        .filter(|record| {
+            record.namespace == namespace
+                && record.is_valid_at(valid_at)
+                && crate::acl::evaluate(record, &crate::acl::AclContext::default()).allowed
+        })
         .collect();
     let source_record_count = namespace_records.len();
 

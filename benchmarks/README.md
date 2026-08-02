@@ -21,6 +21,12 @@ python benchmarks/bench_store.py
 # Recall latency: cold / warm / cached
 python benchmarks/bench_recall.py
 
+# Exact lexical BM25 recall + trace coverage
+python benchmarks/bench_bm25.py 10000 500
+
+# Counterfactual experiment: ordinary recall vs context applicability gate
+cargo run --example context_applicability_experiment
+
 # Maintenance cycle performance
 python benchmarks/bench_maintenance.py
 ```

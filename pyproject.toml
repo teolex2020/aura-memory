@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "aura-memory"
-version = "1.57.0"
+version = "1.58.0"
 authors = [{name = "Alexander Tepliuk", email = "aura@aurasdk.dev"}]
 description = "Adaptive cognitive layer for AI agents. Sub-millisecond recall, zero LLM calls, pure Rust."
 readme = "README.md"
@@ -26,6 +26,6 @@ Repository = "https://github.com/teolex2020/aura-memory"
 Documentation = "https://github.com/teolex2020/aura-memory/blob/main/README.md"
 
 [tool.maturin]
-features = ["pyo3/extension-module", "encryption"]
+features = ["pyo3/extension-module", "encryption", "capsule"]
 python-source = "python"
 module-name = "aura._core"

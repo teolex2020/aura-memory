@@ -16,6 +16,7 @@ use crate::concept::{ConceptEngine, ConceptState};
 use crate::graph::SessionTracker;
 use crate::index::InvertedIndex;
 use crate::levels::Level;
+use crate::lexical::LexicalIndex;
 use crate::ngram::NGramIndex;
 use crate::policy::{PolicyActionKind, PolicyEngine, PolicyState};
 use crate::record::Record;
@@ -31,6 +32,7 @@ pub const RRF_K: usize = 60;
 #[inline]
 fn in_namespace(rec: &Record, namespaces: &[&str]) -> bool {
     namespaces.contains(&rec.namespace.as_str())
+        && crate::acl::evaluate(rec, &crate::acl::AclContext::default()).allowed
 }
 
 /// Graph walk parameters.
@@ -61,6 +63,7 @@ pub struct SignalTrace {
 pub struct RecallScoreTrace {
     pub record_id: String,
     pub sdr: Option<SignalTrace>,
+    pub bm25: Option<SignalTrace>,
     pub ngram: Option<SignalTrace>,
     pub tags: Option<SignalTrace>,
     pub embedding: Option<SignalTrace>,
@@ -156,6 +159,18 @@ pub fn collect_ngram(
         .take(top_k)
         .map(|(sim, rid)| (rid, sim))
         .collect()
+}
+
+/// Collect exact lexical BM25 results, filtered before fusion.
+#[instrument(skip_all, fields(top_k))]
+pub fn collect_bm25(
+    lexical_index: &LexicalIndex,
+    records: &HashMap<String, Record>,
+    query: &str,
+    top_k: usize,
+    namespaces: &[&str],
+) -> Vec<(String, f32)> {
+    lexical_index.search(query, top_k, records, namespaces)
 }
 
 /// Collect Tag Jaccard similarity results.
@@ -717,7 +732,7 @@ fn estimate_tokens(text: &str) -> usize {
 
 /// Full recall pipeline.
 ///
-/// `embedding_ranked` is an optional 4th signal from pluggable embeddings.
+/// `embedding_ranked` is an optional signal from pluggable embeddings.
 /// When provided, it participates in RRF fusion alongside SDR, N-gram, and Tag Jaccard.
 ///
 /// `trust_config` is used for recency boost + source authority scoring.
@@ -731,6 +746,7 @@ pub fn recall_pipeline(
     inverted_index: &InvertedIndex,
     storage: &AuraStorage,
     ngram_index: &NGramIndex,
+    lexical_index: &LexicalIndex,
     tag_index: &HashMap<String, HashSet<String>>,
     aura_index: &HashMap<String, String>,
     records: &HashMap<String, Record>,
@@ -752,6 +768,7 @@ pub fn recall_pipeline(
         top_k,
         ns,
     );
+    let bm25_ranked = collect_bm25(lexical_index, records, query, top_k, ns);
     let ngram_ranked = collect_ngram(ngram_index, records, query, top_k, ns);
     let tag_ranked = collect_tags(tag_index, records, query, top_k, ns);
 
@@ -759,6 +776,9 @@ pub fn recall_pipeline(
     let mut lists = Vec::new();
     if !sdr_ranked.is_empty() {
         lists.push(sdr_ranked);
+    }
+    if !bm25_ranked.is_empty() {
+        lists.push(bm25_ranked);
     }
     if !ngram_ranked.is_empty() {
         lists.push(ngram_ranked);
@@ -800,6 +820,7 @@ pub fn recall_pipeline_with_trace(
     inverted_index: &InvertedIndex,
     storage: &AuraStorage,
     ngram_index: &NGramIndex,
+    lexical_index: &LexicalIndex,
     tag_index: &HashMap<String, HashSet<String>>,
     aura_index: &HashMap<String, String>,
     records: &HashMap<String, Record>,
@@ -820,12 +841,16 @@ pub fn recall_pipeline_with_trace(
         top_k,
         ns,
     );
+    let bm25_ranked = collect_bm25(lexical_index, records, query, top_k, ns);
     let ngram_ranked = collect_ngram(ngram_index, records, query, top_k, ns);
     let tag_ranked = collect_tags(tag_index, records, query, top_k, ns);
 
     let mut named_lists: Vec<(&str, Vec<(String, f32)>)> = Vec::new();
     if !sdr_ranked.is_empty() {
         named_lists.push(("sdr", sdr_ranked));
+    }
+    if !bm25_ranked.is_empty() {
+        named_lists.push(("bm25", bm25_ranked));
     }
     if !ngram_ranked.is_empty() {
         named_lists.push(("ngram", ngram_ranked));
@@ -867,6 +892,7 @@ pub fn recall_pipeline_with_trace(
             };
             match *name {
                 "sdr" => trace.sdr = Some(signal),
+                "bm25" => trace.bm25 = Some(signal),
                 "ngram" => trace.ngram = Some(signal),
                 "tags" => trace.tags = Some(signal),
                 "embedding" => trace.embedding = Some(signal),

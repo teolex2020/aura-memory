@@ -15,7 +15,12 @@ use tracing::instrument;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+use crate::acl::{AclContext, AclDecision, AclEnforcementMode, AclVisibility};
 use crate::api_groups::{AnalyticsApi, CorrectionApi, ExplainabilityApi, MemoryApi, OperatorApi};
+use crate::applicability::{
+    evaluate_applicability as evaluate_record_applicability, ApplicabilityContext,
+    ApplicabilityRecallResult, ApplicabilityReport,
+};
 use crate::audit::AuditLog;
 use crate::aura_state::{AuraConfigState, AuraRuntimeState};
 use crate::canonical::CanonicalProjector;
@@ -32,6 +37,7 @@ use crate::graph::SessionTracker;
 use crate::index::InvertedIndex;
 use crate::insights;
 use crate::levels::Level;
+use crate::lexical::LexicalIndex;
 use crate::maintenance_service::MaintenanceService;
 use crate::ngram::NGramIndex;
 use crate::recall;
@@ -72,6 +78,7 @@ use crate::trust::{self, TagTaxonomy, TrustConfig};
 const MAX_CONTENT_SIZE: usize = 100 * 1024;
 const MAINTENANCE_TRENDS_FILE: &str = "maintenance_trends.json";
 const REFLECTION_SUMMARIES_FILE: &str = "reflection_summaries.json";
+const RECALL_REPLAY_FILE: &str = "recall_replay.json";
 /// Maximum tags per record.
 const MAX_TAGS: usize = 50;
 const STRUCTURAL_RELATION_DEFAULT_LIMIT: usize = 32;
@@ -81,6 +88,7 @@ const SURPRISE_THRESHOLD: f32 = 0.2;
 const RECORD_SALIENCE_REASON_KEY: &str = "salience_reason";
 const RECORD_SALIENCE_MARKED_AT_KEY: &str = "salience_marked_at";
 const CONTRADICTION_REVIEW_PRIORITY_MAX: f32 = 10.0;
+const MAX_RECALL_REPLAY_BASELINES: usize = 128;
 
 /// Unified cognitive memory for AI agents.
 #[cfg_attr(feature = "python", pyclass)]
@@ -95,9 +103,11 @@ pub struct Aura {
     records: RwLock<HashMap<String, Record>>,
     cognitive_store: CognitiveStore,
     ngram_index: RwLock<NGramIndex>,
+    lexical_index: RwLock<LexicalIndex>,
     tag_index: RwLock<HashMap<String, HashSet<String>>>,
     synonym_ring: RwLock<SynonymRing>,
     session_tracker: RwLock<SessionTracker>,
+    recall_replay_baselines: RwLock<Vec<RecallReplayBaseline>>,
     #[allow(dead_code)]
     learner: RwLock<Option<SemanticLearnerEngine>>,
 
@@ -148,6 +158,9 @@ pub struct Aura {
     embedding_store: EmbeddingStore,
     #[cfg(feature = "python")]
     embedding_fn: RwLock<Option<PyObject>>,
+    #[cfg(feature = "capsule")]
+    capsule_retention_scheduler:
+        parking_lot::Mutex<Option<crate::capsule::CapsuleRetentionScheduler>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +218,7 @@ pub struct RecallSignalScore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallTraceScore {
     pub sdr: Option<RecallSignalScore>,
+    pub bm25: Option<RecallSignalScore>,
     pub ngram: Option<RecallSignalScore>,
     pub tags: Option<RecallSignalScore>,
     pub embedding: Option<RecallSignalScore>,
@@ -294,6 +308,47 @@ pub struct RecallExplanation {
     pub decision_summary: RecallDecisionSummary,
     pub items: Vec<RecallExplanationItem>,
     pub rejected_candidates: Vec<RecallRejectedCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RecallReplayBaseline {
+    trace_id: String,
+    query: String,
+    top_k: usize,
+    min_strength: f32,
+    expand_connections: bool,
+    namespaces: Vec<String>,
+    ranked: Vec<(String, f32)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecallReplayReport {
+    pub original_trace_id: String,
+    pub replay_trace_id: String,
+    pub ranking_stable: bool,
+    pub original_record_ids: Vec<String>,
+    pub replay_record_ids: Vec<String>,
+    pub added_record_ids: Vec<String>,
+    pub removed_record_ids: Vec<String>,
+    pub moved_record_ids: Vec<String>,
+    pub max_score_delta: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AclRecordDecision {
+    pub record_id: String,
+    pub namespace: String,
+    pub decision: AclDecision,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AclRecallResult {
+    pub results: Vec<(f32, Record)>,
+    pub enforcement_mode: AclEnforcementMode,
+    pub evaluated_count: usize,
+    pub denied_count: usize,
+    /// Populated only in audit mode. Enforce mode never exposes denied IDs.
+    pub audit_decisions: Vec<AclRecordDecision>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -738,6 +793,7 @@ impl Aura {
 
         // Build indexes from loaded records
         let mut ngram_index = NGramIndex::new(None, None);
+        let lexical_index = LexicalIndex::from_records(&loaded_records);
         let mut tag_index: HashMap<String, HashSet<String>> = HashMap::new();
         let mut aura_index: HashMap<String, String> = HashMap::new();
 
@@ -804,6 +860,8 @@ impl Aura {
             load_maintenance_trends_with_validation(&path_buf, &mut startup_events);
         let reflection_summaries =
             load_reflection_summaries_with_validation(&path_buf, &mut startup_events);
+        let recall_replay_baselines =
+            load_recall_replay_baselines_with_validation(&path_buf, &mut startup_events);
         *runtime.maintenance_trends.write() = maintenance_trends;
         *runtime.reflection_summaries.write() = reflection_summaries;
         *runtime.persistence_manifest.write() = persistence_manifest;
@@ -817,9 +875,11 @@ impl Aura {
             records: RwLock::new(loaded_records),
             cognitive_store,
             ngram_index: RwLock::new(ngram_index),
+            lexical_index: RwLock::new(lexical_index),
             tag_index: RwLock::new(tag_index),
             synonym_ring: RwLock::new(SynonymRing::new()),
             session_tracker: RwLock::new(SessionTracker::new()),
+            recall_replay_baselines: RwLock::new(recall_replay_baselines),
             learner: RwLock::new(None),
             canonical: RwLock::new(None),
             encryption_key,
@@ -852,6 +912,8 @@ impl Aura {
             embedding_store: EmbeddingStore::new(),
             #[cfg(feature = "python")]
             embedding_fn: RwLock::new(None),
+            #[cfg(feature = "capsule")]
+            capsule_retention_scheduler: parking_lot::Mutex::new(None),
         })
     }
 
@@ -1158,6 +1220,11 @@ impl Aura {
         {
             let mut ngram = self.ngram_index.write();
             ngram.add(&rec.id, content);
+        }
+        {
+            self.lexical_index
+                .write()
+                .add(&rec.id, content, &rec.namespace);
         }
 
         // Index tags
@@ -1675,6 +1742,247 @@ impl Aura {
         result
     }
 
+    /// Evaluate whether one stored memory's declared preconditions match the
+    /// current state supplied by the host agent.
+    ///
+    /// This check is deterministic, read-only, and model-independent. Missing,
+    /// conflicting, or undeclared conditions produce `UNKNOWN` rather than an
+    /// inferred answer.
+    pub fn evaluate_applicability(
+        &self,
+        record_id: &str,
+        current_state: &ApplicabilityContext,
+    ) -> Option<ApplicabilityReport> {
+        self.records
+            .read()
+            .get(record_id)
+            .map(|record| evaluate_record_applicability(record, current_state))
+    }
+
+    /// Recall records and annotate every result with `USE`, `REJECT`, or
+    /// `UNKNOWN` applicability. Ranking remains identical to
+    /// [`recall_structured`](Self::recall_structured); callers decide how to
+    /// handle rejected or unresolved memories.
+    pub fn recall_with_applicability(
+        &self,
+        query: &str,
+        current_state: &ApplicabilityContext,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespaces: Option<&[&str]>,
+    ) -> Result<Vec<ApplicabilityRecallResult>> {
+        self.recall_structured(
+            query,
+            top_k,
+            min_strength,
+            expand_connections,
+            session_id,
+            namespaces,
+        )
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(score, record)| {
+                    let applicability = evaluate_record_applicability(&record, current_state);
+                    ApplicabilityRecallResult {
+                        score,
+                        record,
+                        applicability,
+                    }
+                })
+                .collect()
+        })
+    }
+
+    /// Apply or replace record-level ACL metadata.
+    pub fn set_record_acl(
+        &self,
+        record_id: &str,
+        visibility: AclVisibility,
+        read_roles: Vec<String>,
+        read_groups: Vec<String>,
+        read_principals: Vec<String>,
+        policy_version: Option<&str>,
+    ) -> Result<Option<Record>> {
+        let mut records = self.records.write();
+        let Some(record) = records.get_mut(record_id) else {
+            return Ok(None);
+        };
+        crate::acl::apply_acl_metadata(
+            &mut record.metadata,
+            visibility,
+            &read_roles,
+            &read_groups,
+            &read_principals,
+            policy_version,
+        );
+        self.cognitive_store.append_update(record)?;
+        let updated = record.clone();
+        drop(records);
+        self.runtime.clear_recall_caches();
+        Ok(Some(updated))
+    }
+
+    /// Evaluate one record's ACL without retrieving its content.
+    pub fn check_record_access(
+        &self,
+        record_id: &str,
+        context: &AclContext,
+    ) -> Option<AclDecision> {
+        self.records
+            .read()
+            .get(record_id)
+            .map(|record| crate::acl::evaluate(record, context))
+    }
+
+    /// Permission-aware structured recall.
+    ///
+    /// `Audit` preserves normal results and reports records that enforcement
+    /// would deny. `Enforce` filters before candidate generation and never
+    /// exposes denied record identifiers.
+    pub fn recall_structured_acl(
+        &self,
+        query: &str,
+        context: &AclContext,
+        enforcement_mode: AclEnforcementMode,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespaces: Option<&[&str]>,
+    ) -> Result<AclRecallResult> {
+        let default_ns = [crate::record::DEFAULT_NAMESPACE];
+        let namespace_list = namespaces.unwrap_or(&default_ns);
+        let now = now_secs_f64();
+        let records = self.records.read();
+        let scoped_records: HashMap<String, Record> = records
+            .iter()
+            .filter(|(_, record)| {
+                namespace_list.contains(&record.namespace.as_str()) && record.is_valid_at(now)
+            })
+            .map(|(id, record)| (id.clone(), record.clone()))
+            .collect();
+
+        let mut denied = Vec::new();
+        let filtered_records: HashMap<String, Record> = scoped_records
+            .iter()
+            .filter_map(|(id, record)| {
+                let decision = crate::acl::evaluate(record, context);
+                if !decision.allowed {
+                    denied.push(AclRecordDecision {
+                        record_id: id.clone(),
+                        namespace: record.namespace.clone(),
+                        decision: decision.clone(),
+                    });
+                }
+                if enforcement_mode == AclEnforcementMode::Audit || decision.allowed {
+                    let mut authorized_projection = record.clone();
+                    // The ACL decision has already been made above. Mark only
+                    // this ephemeral candidate projection public so the shared
+                    // recall pipeline's context-free deny guard cannot reject
+                    // an explicitly authorized restricted record.
+                    authorized_projection
+                        .metadata
+                        .insert(crate::acl::ACL_VISIBILITY_KEY.into(), "public".into());
+                    Some((id.clone(), authorized_projection))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let evaluated_count = scoped_records.len();
+        let denied_count = denied.len();
+        drop(records);
+
+        let top = top_k.unwrap_or(20);
+        let candidate_top = top.saturating_mul(2).max(top).min(100);
+        let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
+        let tag_index = self.tag_index.read();
+        let aura_index = self.aura_index.read();
+        let embedding_ranked = self.collect_embedding_signal(query, candidate_top);
+        let trust_config = self.config.trust_config.read();
+        let mut scored = RecallService::raw(
+            RecallPipelineView {
+                sdr: &self.sdr,
+                index: &self.index,
+                storage: &self.storage,
+                ngram: &ngram,
+                lexical: &lexical,
+                tag_index: &tag_index,
+                aura_index: &aura_index,
+                records: &filtered_records,
+                embedding_ranked,
+                trust_config: Some(&trust_config),
+            },
+            query,
+            candidate_top,
+            min_strength.unwrap_or(0.1),
+            expand_connections.unwrap_or(true),
+            Some(namespace_list),
+        );
+        drop(ngram);
+        drop(lexical);
+        drop(tag_index);
+        drop(aura_index);
+        drop(trust_config);
+
+        let belief_engine = self.belief_engine.read();
+        let concept_engine = self.concept_engine.read();
+        let causal_engine = self.causal_engine.read();
+        let policy_engine = self.policy_engine.read();
+        let belief_mode = recall::BeliefRerankMode::from_u8(
+            self.runtime
+                .belief_rerank_mode
+                .load(std::sync::atomic::Ordering::Relaxed),
+        );
+        RecallService::apply_bounded_reranking(
+            &mut scored,
+            top,
+            RecallRerankView {
+                belief_engine: &belief_engine,
+                concept_engine: &concept_engine,
+                causal_engine: &causal_engine,
+                policy_engine: &policy_engine,
+                belief_mode,
+                concept_mode: self.get_concept_surface_mode(),
+                causal_mode: CausalRerankMode::from_u8(
+                    self.runtime
+                        .causal_rerank_mode
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                ),
+                policy_mode: PolicyRerankMode::from_u8(
+                    self.runtime
+                        .policy_rerank_mode
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                ),
+            },
+        );
+        if belief_mode == recall::BeliefRerankMode::Limited {
+            recall::suppress_resolved_losing_hypotheses(&mut scored, &belief_engine);
+        }
+        scored.truncate(top);
+        drop(belief_engine);
+        drop(concept_engine);
+        drop(causal_engine);
+        drop(policy_engine);
+
+        self.recall_finalize(&scored, query, session_id);
+        self.runtime.note_recall(scored.len());
+        Ok(AclRecallResult {
+            results: scored,
+            enforcement_mode,
+            evaluated_count,
+            denied_count,
+            audit_decisions: if enforcement_mode == AclEnforcementMode::Audit {
+                denied
+            } else {
+                Vec::new()
+            },
+        })
+    }
+
     /// Recall structured, then re-rank by **born-from-collision provenance**.
     ///
     /// This consumes `credibility::effective_credibility`: each record's recall
@@ -1746,6 +2054,7 @@ impl Aura {
         let time_records = Self::records_before_timestamp(&records, timestamp);
 
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
 
@@ -1759,6 +2068,7 @@ impl Aura {
                 index: &self.index,
                 storage: &self.storage,
                 ngram: &ngram,
+                lexical: &lexical,
                 tag_index: &tag_idx,
                 aura_index: &aura_idx,
                 records: &time_records,
@@ -1803,6 +2113,7 @@ impl Aura {
         let records = self.records.read();
         let time_records = Self::records_valid_at(&records, timestamp);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let top = top_k.unwrap_or(20);
@@ -1815,6 +2126,7 @@ impl Aura {
                 index: &self.index,
                 storage: &self.storage,
                 ngram: &ngram,
+                lexical: &lexical,
                 tag_index: &tag_idx,
                 aura_index: &aura_idx,
                 records: &time_records,
@@ -2107,6 +2419,7 @@ impl Aura {
             .then(|| Self::records_valid_at(&records, now));
         let recall_records = temporal_records.as_ref().unwrap_or(&*records);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let embedding_ranked = self.collect_embedding_signal(query, top_k);
@@ -2118,6 +2431,7 @@ impl Aura {
                 index: &self.index,
                 storage: &self.storage,
                 ngram: &ngram,
+                lexical: &lexical,
                 tag_index: &tag_idx,
                 aura_index: &aura_idx,
                 records: recall_records,
@@ -2383,6 +2697,7 @@ impl Aura {
             .collect();
         let recall_records = Self::records_valid_at(&scoped_records, evaluated_at);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let embedding_ranked = self.collect_embedding_signal(query, candidate_top);
@@ -2393,6 +2708,7 @@ impl Aura {
                 index: &self.index,
                 storage: &self.storage,
                 ngram: &ngram,
+                lexical: &lexical,
                 tag_index: &tag_idx,
                 aura_index: &aura_idx,
                 records: &recall_records,
@@ -2420,6 +2736,7 @@ impl Aura {
                 index: &self.index,
                 storage: &self.storage,
                 ngram: &ngram,
+                lexical: &lexical,
                 tag_index: &tag_idx,
                 aura_index: &aura_idx,
                 records: &scoped_records,
@@ -2588,7 +2905,7 @@ impl Aura {
             "memory recall decision inspected"
         );
 
-        RecallExplanation {
+        let explanation = RecallExplanation {
             trace_id,
             evaluated_at,
             query: query.to_string(),
@@ -2602,7 +2919,129 @@ impl Aura {
             decision_summary,
             items,
             rejected_candidates,
+        };
+        self.remember_recall_baseline(
+            &explanation,
+            min_str,
+            expand_connections.unwrap_or(true),
+            ns_list,
+        );
+        explanation
+    }
+
+    fn remember_recall_baseline(
+        &self,
+        explanation: &RecallExplanation,
+        min_strength: f32,
+        expand_connections: bool,
+        namespaces: &[&str],
+    ) {
+        let baseline = RecallReplayBaseline {
+            trace_id: explanation.trace_id.clone(),
+            query: explanation.query.clone(),
+            top_k: explanation.top_k,
+            min_strength,
+            expand_connections,
+            namespaces: namespaces
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            ranked: explanation
+                .items
+                .iter()
+                .map(|item| (item.record_id.clone(), item.score))
+                .collect(),
+        };
+        let mut baselines = self.recall_replay_baselines.write();
+        if baselines.len() >= MAX_RECALL_REPLAY_BASELINES {
+            baselines.remove(0);
         }
+        baselines.push(baseline);
+        if let Err(error) = save_recall_replay_baselines(&self.config.path, &baselines) {
+            tracing::warn!(%error, "failed to persist recall replay baselines");
+        }
+    }
+
+    /// Replay a previously explained recall against current memory and report
+    /// ranking drift. Baselines are bounded to the latest runtime traces.
+    pub fn replay_recall(&self, trace_id: &str) -> Result<RecallReplayReport> {
+        let baseline = self
+            .recall_replay_baselines
+            .read()
+            .iter()
+            .rev()
+            .find(|baseline| baseline.trace_id == trace_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Unknown or expired recall trace: {trace_id}"))?;
+
+        let namespace_refs: Vec<&str> = baseline.namespaces.iter().map(String::as_str).collect();
+        let replay = self.explain_recall(
+            &baseline.query,
+            Some(baseline.top_k),
+            Some(baseline.min_strength),
+            Some(baseline.expand_connections),
+            Some(&namespace_refs),
+        );
+        let original_record_ids: Vec<String> =
+            baseline.ranked.iter().map(|item| item.0.clone()).collect();
+        let replay_record_ids: Vec<String> = replay
+            .items
+            .iter()
+            .map(|item| item.record_id.clone())
+            .collect();
+        let original_set: HashSet<&str> = original_record_ids.iter().map(String::as_str).collect();
+        let replay_set: HashSet<&str> = replay_record_ids.iter().map(String::as_str).collect();
+        let added_record_ids = replay_record_ids
+            .iter()
+            .filter(|id| !original_set.contains(id.as_str()))
+            .cloned()
+            .collect();
+        let removed_record_ids = original_record_ids
+            .iter()
+            .filter(|id| !replay_set.contains(id.as_str()))
+            .cloned()
+            .collect();
+        let original_positions: HashMap<&str, usize> = original_record_ids
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (id.as_str(), position))
+            .collect();
+        let moved_record_ids = replay_record_ids
+            .iter()
+            .enumerate()
+            .filter(|(position, id)| {
+                original_positions
+                    .get(id.as_str())
+                    .is_some_and(|original| *original != *position)
+            })
+            .map(|(_, id)| id.clone())
+            .collect();
+        let replay_scores: HashMap<&str, f32> = replay
+            .items
+            .iter()
+            .map(|item| (item.record_id.as_str(), item.score))
+            .collect();
+        let max_score_delta = baseline
+            .ranked
+            .iter()
+            .filter_map(|(id, score)| {
+                replay_scores
+                    .get(id.as_str())
+                    .map(|replayed| (score - replayed).abs())
+            })
+            .fold(0.0_f32, f32::max);
+
+        Ok(RecallReplayReport {
+            original_trace_id: baseline.trace_id,
+            replay_trace_id: replay.trace_id,
+            ranking_stable: original_record_ids == replay_record_ids,
+            original_record_ids,
+            replay_record_ids,
+            added_record_ids,
+            removed_record_ids,
+            moved_record_ids,
+            max_score_delta,
+        })
     }
 
     /// Explain a single record using current persisted provenance across
@@ -3128,6 +3567,9 @@ impl Aura {
                         return false;
                     }
                 }
+                if !crate::acl::evaluate(r, &AclContext::default()).allowed {
+                    return false;
+                }
                 true
             })
             .cloned()
@@ -3272,6 +3714,7 @@ impl Aura {
             let mut ngram = self.ngram_index.write();
             ngram.remove(record_id);
             ngram.add(record_id, c);
+            self.lexical_index.write().add(record_id, c, &rec.namespace);
         }
         if let Some(l) = level {
             rec.level = l;
@@ -3324,6 +3767,7 @@ impl Aura {
 
         self.storage.delete(record_id);
         self.index.remove(record_id);
+        self.lexical_index.write().remove(record_id);
         self.embedding_store.remove(record_id);
         self.runtime.sdr_lookup_cache.write().remove(record_id);
 
@@ -3433,6 +3877,7 @@ impl Aura {
         let archived = to_archive.len();
         for id in &to_archive {
             records.remove(id);
+            self.lexical_index.write().remove(id);
             self.cognitive_store.append_delete(id)?;
         }
 
@@ -3493,6 +3938,7 @@ impl Aura {
                 self.cognitive_store.append_update(rec)?;
             }
             records.remove(id);
+            self.lexical_index.write().remove(id);
         }
 
         Ok((decayed, demoted))
@@ -3610,6 +4056,7 @@ impl Aura {
         let archived = dead.len();
         for id in &dead {
             records.remove(id);
+            self.lexical_index.write().remove(id);
             self.cognitive_store.append_delete(id)?;
         }
 
@@ -4057,6 +4504,7 @@ impl Aura {
         let top_k = top_k.unwrap_or(20);
         let records = self.records.read();
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
 
@@ -4073,6 +4521,7 @@ impl Aura {
             &self.index,
             &self.storage,
             &ngram,
+            &lexical,
             &tag_idx,
             &aura_idx,
             &records,
@@ -6518,6 +6967,7 @@ impl Aura {
 
         let top = top_k.unwrap_or(10);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
@@ -6533,6 +6983,7 @@ impl Aura {
             &self.index,
             &self.storage,
             &ngram,
+            &lexical,
             &tag_idx,
             &aura_idx,
             &scoped_records,
@@ -6585,6 +7036,7 @@ impl Aura {
 
         let top = top_k.unwrap_or(10);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
@@ -6600,6 +7052,7 @@ impl Aura {
             &self.index,
             &self.storage,
             &ngram,
+            &lexical,
             &tag_idx,
             &aura_idx,
             &scoped_records,
@@ -6642,6 +7095,7 @@ impl Aura {
 
         let top = top_k.unwrap_or(10);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
@@ -6657,6 +7111,7 @@ impl Aura {
             &self.index,
             &self.storage,
             &ngram,
+            &lexical,
             &tag_idx,
             &aura_idx,
             &scoped_records,
@@ -6816,6 +7271,7 @@ impl Aura {
 
         let top = top_k.unwrap_or(10);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
@@ -6831,6 +7287,7 @@ impl Aura {
             &self.index,
             &self.storage,
             &ngram,
+            &lexical,
             &tag_idx,
             &aura_idx,
             &person_records,
@@ -7135,6 +7592,7 @@ impl Aura {
 
         let top = top_k.unwrap_or(10);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
@@ -7150,6 +7608,7 @@ impl Aura {
             &self.index,
             &self.storage,
             &ngram,
+            &lexical,
             &tag_idx,
             &aura_idx,
             &family_records,
@@ -7192,6 +7651,7 @@ impl Aura {
 
         let top = top_k.unwrap_or(10);
         let ngram = self.ngram_index.read();
+        let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
@@ -7207,6 +7667,7 @@ impl Aura {
             &self.index,
             &self.storage,
             &ngram,
+            &lexical,
             &tag_idx,
             &aura_idx,
             &project_records,
@@ -8293,10 +8754,407 @@ impl Aura {
 
     // ── Persistence ──
 
+    /// Export the current Aura store as a portable, integrity-checked `.aura` snapshot.
+    ///
+    /// The live store remains authoritative. Secrets such as `master.key` are not
+    /// included in the container.
+    #[cfg(feature = "capsule")]
+    pub fn export_container<P: AsRef<Path>>(
+        &self,
+        output_path: P,
+    ) -> Result<crate::capsule::CapsuleExportReport> {
+        self.flush()?;
+        self.index.save()?;
+        crate::capsule::export_directory(&self.config.path, output_path.as_ref())
+    }
+
+    /// Generate a new Ed25519 key pair for portable-container signatures.
+    #[cfg(feature = "capsule")]
+    pub fn generate_container_signing_key() -> crate::capsule::CapsuleSigningKeyPair {
+        crate::capsule::generate_signing_key()
+    }
+
+    /// Export a container whose first generation is signed.
+    #[cfg(feature = "capsule")]
+    pub fn export_signed_container<P: AsRef<Path>>(
+        &self,
+        output_path: P,
+        signing_key: &str,
+    ) -> Result<crate::capsule::CapsuleExportReport> {
+        self.flush()?;
+        self.index.save()?;
+        crate::capsule::export_directory_signed(
+            &self.config.path,
+            output_path.as_ref(),
+            signing_key,
+        )
+    }
+
+    /// Append a new generation, writing only changed durable artifacts.
+    #[cfg(feature = "capsule")]
+    pub fn append_container<P: AsRef<Path>>(
+        &self,
+        container_path: P,
+    ) -> Result<crate::capsule::CapsuleAppendReport> {
+        self.flush()?;
+        self.index.save()?;
+        crate::capsule::append_directory(&self.config.path, container_path.as_ref())
+    }
+
+    /// Append a generation to an Ed25519-authenticated container.
+    #[cfg(feature = "capsule")]
+    pub fn append_signed_container<P: AsRef<Path>>(
+        &self,
+        container_path: P,
+        signing_key: &str,
+    ) -> Result<crate::capsule::CapsuleAppendReport> {
+        self.flush()?;
+        self.index.save()?;
+        crate::capsule::append_directory_signed(
+            &self.config.path,
+            container_path.as_ref(),
+            signing_key,
+        )
+    }
+
+    /// Append a generation and immediately enforce a retention policy.
+    ///
+    /// If retention fails, the newly committed append remains valid.
+    #[cfg(feature = "capsule")]
+    pub fn append_container_with_retention<P: AsRef<Path>>(
+        &self,
+        container_path: P,
+        policy: &crate::capsule::CapsuleRetentionPolicy,
+    ) -> Result<crate::capsule::CapsuleAppendRetentionReport> {
+        self.flush()?;
+        self.index.save()?;
+        crate::capsule::append_directory_with_retention(
+            &self.config.path,
+            container_path.as_ref(),
+            policy,
+        )
+    }
+
+    /// Append a signed generation and immediately apply retention.
+    #[cfg(feature = "capsule")]
+    pub fn append_signed_container_with_retention<P: AsRef<Path>>(
+        &self,
+        container_path: P,
+        signing_key: &str,
+        policy: &crate::capsule::CapsuleRetentionPolicy,
+    ) -> Result<crate::capsule::CapsuleAppendRetentionReport> {
+        self.flush()?;
+        self.index.save()?;
+        crate::capsule::append_directory_signed_with_retention(
+            &self.config.path,
+            container_path.as_ref(),
+            signing_key,
+            policy,
+        )
+    }
+
+    /// Read a portable container's table of contents without extracting it.
+    #[cfg(feature = "capsule")]
+    pub fn inspect_container<P: AsRef<Path>>(
+        container_path: P,
+    ) -> Result<crate::capsule::CapsuleToc> {
+        crate::capsule::inspect(container_path.as_ref())
+    }
+
+    /// Verify generation signatures and optionally pin the expected signer.
+    #[cfg(feature = "capsule")]
+    pub fn verify_container_authenticity<P: AsRef<Path>>(
+        container_path: P,
+        trusted_public_key: Option<&str>,
+        require_all_signed: bool,
+    ) -> Result<crate::capsule::CapsuleAuthenticityReport> {
+        crate::capsule::verify_authenticity(
+            container_path.as_ref(),
+            trusted_public_key,
+            require_all_signed,
+        )
+    }
+
+    /// Create or monotonically advance an external anti-rollback checkpoint.
+    #[cfg(feature = "capsule")]
+    pub fn update_container_authenticity_checkpoint<P: AsRef<Path>, Q: AsRef<Path>>(
+        container_path: P,
+        checkpoint_path: Q,
+        trusted_public_key: &str,
+    ) -> Result<crate::capsule::CapsuleAuthenticityCheckpoint> {
+        crate::capsule::update_authenticity_checkpoint(
+            container_path.as_ref(),
+            checkpoint_path.as_ref(),
+            trusted_public_key,
+        )
+    }
+
+    /// Reject a signed container older than or divergent from its checkpoint.
+    #[cfg(feature = "capsule")]
+    pub fn verify_container_authenticity_checkpoint<P: AsRef<Path>, Q: AsRef<Path>>(
+        container_path: P,
+        checkpoint_path: Q,
+    ) -> Result<crate::capsule::CapsuleCheckpointVerificationReport> {
+        crate::capsule::verify_authenticity_checkpoint(
+            container_path.as_ref(),
+            checkpoint_path.as_ref(),
+        )
+    }
+
+    /// List committed container generations from oldest retained to newest.
+    #[cfg(feature = "capsule")]
+    pub fn list_container_generations<P: AsRef<Path>>(
+        container_path: P,
+    ) -> Result<Vec<crate::capsule::CapsuleGenerationInfo>> {
+        crate::capsule::list_generations(container_path.as_ref())
+    }
+
+    /// Inspect one retained generation without extracting its payloads.
+    #[cfg(feature = "capsule")]
+    pub fn inspect_container_generation<P: AsRef<Path>>(
+        container_path: P,
+        generation: u64,
+    ) -> Result<crate::capsule::CapsuleToc> {
+        crate::capsule::inspect_generation(container_path.as_ref(), generation)
+    }
+
+    /// Verify every payload referenced by one retained generation.
+    #[cfg(feature = "capsule")]
+    pub fn verify_container_generation<P: AsRef<Path>>(
+        container_path: P,
+        generation: u64,
+    ) -> Result<crate::capsule::CapsuleToc> {
+        crate::capsule::verify_generation(container_path.as_ref(), generation)
+    }
+
+    /// Diff the logical artifact sets of two retained generations.
+    #[cfg(feature = "capsule")]
+    pub fn diff_container_generations<P: AsRef<Path>>(
+        container_path: P,
+        from_generation: u64,
+        to_generation: u64,
+    ) -> Result<crate::capsule::CapsuleGenerationDiff> {
+        crate::capsule::diff_generations(container_path.as_ref(), from_generation, to_generation)
+    }
+
+    /// Compact a portable container in place, retaining the latest N generations.
+    #[cfg(feature = "capsule")]
+    pub fn compact_container<P: AsRef<Path>>(
+        container_path: P,
+        keep_last: usize,
+    ) -> Result<crate::capsule::CapsuleCompactionReport> {
+        crate::capsule::compact_in_place(container_path.as_ref(), keep_last)
+    }
+
+    /// Apply count, age, and/or size retention limits to a v2 container.
+    #[cfg(feature = "capsule")]
+    pub fn apply_container_retention<P: AsRef<Path>>(
+        container_path: P,
+        policy: &crate::capsule::CapsuleRetentionPolicy,
+    ) -> Result<crate::capsule::CapsuleRetentionReport> {
+        crate::capsule::apply_retention_policy(container_path.as_ref(), policy)
+    }
+
+    /// Compute retention effects without modifying the container.
+    #[cfg(feature = "capsule")]
+    pub fn plan_container_retention<P: AsRef<Path>>(
+        container_path: P,
+        policy: &crate::capsule::CapsuleRetentionPolicy,
+    ) -> Result<crate::capsule::CapsuleRetentionPlan> {
+        crate::capsule::plan_retention_policy(container_path.as_ref(), policy)
+    }
+
+    /// Persist a legal hold for a retained generation.
+    #[cfg(feature = "capsule")]
+    pub fn hold_container_generation<P: AsRef<Path>>(
+        container_path: P,
+        generation: u64,
+        label: &str,
+    ) -> Result<crate::capsule::CapsuleHoldReport> {
+        crate::capsule::set_generation_hold(container_path.as_ref(), generation, label)
+    }
+
+    /// Persist a signed legal-hold control generation.
+    #[cfg(feature = "capsule")]
+    pub fn hold_signed_container_generation<P: AsRef<Path>>(
+        container_path: P,
+        generation: u64,
+        label: &str,
+        signing_key: &str,
+    ) -> Result<crate::capsule::CapsuleHoldReport> {
+        crate::capsule::set_generation_hold_signed(
+            container_path.as_ref(),
+            generation,
+            label,
+            signing_key,
+        )
+    }
+
+    /// Release a generation legal hold through an append-only control generation.
+    #[cfg(feature = "capsule")]
+    pub fn release_container_generation_hold<P: AsRef<Path>>(
+        container_path: P,
+        generation: u64,
+    ) -> Result<crate::capsule::CapsuleHoldReport> {
+        crate::capsule::release_generation_hold(container_path.as_ref(), generation)
+    }
+
+    /// Release a legal hold through a signed control generation.
+    #[cfg(feature = "capsule")]
+    pub fn release_signed_container_generation_hold<P: AsRef<Path>>(
+        container_path: P,
+        generation: u64,
+        signing_key: &str,
+    ) -> Result<crate::capsule::CapsuleHoldReport> {
+        crate::capsule::release_generation_hold_signed(
+            container_path.as_ref(),
+            generation,
+            signing_key,
+        )
+    }
+
+    /// Start periodic background retention for one portable container.
+    #[cfg(feature = "capsule")]
+    pub fn start_container_retention_scheduler<P: AsRef<Path>>(
+        &self,
+        container_path: P,
+        policy: crate::capsule::CapsuleRetentionPolicy,
+        interval_seconds: u64,
+    ) -> Result<crate::capsule::CapsuleRetentionSchedulerStatus> {
+        let scheduler = crate::capsule::CapsuleRetentionScheduler::start(
+            container_path.as_ref().to_path_buf(),
+            policy,
+            interval_seconds,
+        )?;
+        let status = scheduler.status();
+        let mut active = self.capsule_retention_scheduler.lock();
+        if let Some(mut previous) = active.take() {
+            previous.stop();
+        }
+        *active = Some(scheduler);
+        Ok(status)
+    }
+
+    /// Stop the active portable-container retention scheduler, if any.
+    #[cfg(feature = "capsule")]
+    pub fn stop_container_retention_scheduler(&self) -> bool {
+        let mut active = self.capsule_retention_scheduler.lock();
+        if let Some(mut scheduler) = active.take() {
+            scheduler.stop();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Inspect background retention state.
+    #[cfg(feature = "capsule")]
+    pub fn container_retention_scheduler_status(
+        &self,
+    ) -> Option<crate::capsule::CapsuleRetentionSchedulerStatus> {
+        self.capsule_retention_scheduler
+            .lock()
+            .as_ref()
+            .map(crate::capsule::CapsuleRetentionScheduler::status)
+    }
+
+    /// Verify the container header, table of contents, segment bounds, and checksums.
+    #[cfg(feature = "capsule")]
+    pub fn verify_container<P: AsRef<Path>>(
+        container_path: P,
+    ) -> Result<crate::capsule::CapsuleToc> {
+        crate::capsule::verify(container_path.as_ref())
+    }
+
+    /// Verify only named logical segments from the latest committed generation.
+    #[cfg(feature = "capsule")]
+    pub fn verify_container_segments<P: AsRef<Path>>(
+        container_path: P,
+        names: &[String],
+    ) -> Result<crate::capsule::CapsuleSelectionReport> {
+        crate::capsule::verify_selected(container_path.as_ref(), names)
+    }
+
+    /// Read and verify one named segment without extracting the container.
+    #[cfg(feature = "capsule")]
+    pub fn read_container_segment<P: AsRef<Path>>(
+        container_path: P,
+        name: &str,
+    ) -> Result<Vec<u8>> {
+        crate::capsule::read_named_segment(container_path.as_ref(), name)
+    }
+
+    /// Read and verify one segment from a retained historical generation.
+    #[cfg(feature = "capsule")]
+    pub fn read_container_segment_at_generation<P: AsRef<Path>>(
+        container_path: P,
+        generation: u64,
+        name: &str,
+    ) -> Result<Vec<u8>> {
+        crate::capsule::read_named_segment_at_generation(container_path.as_ref(), generation, name)
+    }
+
+    /// Restore a portable container into a new directory.
+    ///
+    /// Existing paths are rejected so import cannot partially overwrite a live store.
+    #[cfg(feature = "capsule")]
+    pub fn import_container<P: AsRef<Path>, Q: AsRef<Path>>(
+        container_path: P,
+        target_path: Q,
+    ) -> Result<crate::capsule::CapsuleImportReport> {
+        crate::capsule::import_to_new_directory(container_path.as_ref(), target_path.as_ref())
+    }
+
+    /// Verify a trusted signing identity and restore under one container lock.
+    #[cfg(feature = "capsule")]
+    pub fn import_authenticated_container<P: AsRef<Path>, Q: AsRef<Path>>(
+        container_path: P,
+        target_path: Q,
+        trusted_public_key: &str,
+        require_all_signed: bool,
+    ) -> Result<crate::capsule::CapsuleImportReport> {
+        crate::capsule::import_authenticated_to_new_directory(
+            container_path.as_ref(),
+            target_path.as_ref(),
+            trusted_public_key,
+            require_all_signed,
+        )
+    }
+
+    /// Restore one retained generation into a new directory.
+    #[cfg(feature = "capsule")]
+    pub fn import_container_generation<P: AsRef<Path>, Q: AsRef<Path>>(
+        container_path: P,
+        target_path: Q,
+        generation: u64,
+    ) -> Result<crate::capsule::CapsuleImportReport> {
+        crate::capsule::import_generation_to_new_directory(
+            container_path.as_ref(),
+            target_path.as_ref(),
+            generation,
+        )
+    }
+
+    /// Extract selected segments into a new directory without reading unrelated payloads.
+    #[cfg(feature = "capsule")]
+    pub fn extract_container_segments<P: AsRef<Path>, Q: AsRef<Path>>(
+        container_path: P,
+        target_path: Q,
+        names: &[String],
+    ) -> Result<crate::capsule::CapsuleImportReport> {
+        crate::capsule::extract_selected_to_new_directory(
+            container_path.as_ref(),
+            target_path.as_ref(),
+            names,
+        )
+    }
+
     /// Close and flush everything. Runs final maintenance cycle.
     pub fn close(&self) -> Result<()> {
         // Stop background if running
         self.stop_background();
+        #[cfg(feature = "capsule")]
+        self.stop_container_retention_scheduler();
 
         self.flush()?;
         let _ = self.index.save();
@@ -10293,6 +11151,7 @@ impl Aura {
         let removed = to_remove.len();
         for id in &to_remove {
             records.remove(id);
+            self.lexical_index.write().remove(id);
         }
         drop(records);
 
@@ -10438,6 +11297,10 @@ fn maintenance_trends_path(root: &Path) -> PathBuf {
 
 fn reflection_summaries_path(root: &Path) -> PathBuf {
     root.join(REFLECTION_SUMMARIES_FILE)
+}
+
+fn recall_replay_path(root: &Path) -> PathBuf {
+    root.join(RECALL_REPLAY_FILE)
 }
 
 fn persistence_manifest_path(root: &Path) -> PathBuf {
@@ -10926,6 +11789,68 @@ fn load_reflection_summaries_with_validation(
     }
 }
 
+fn load_recall_replay_baselines_with_validation(
+    root: &Path,
+    events: &mut Vec<StartupValidationEvent>,
+) -> Vec<RecallReplayBaseline> {
+    let path = recall_replay_path(root);
+    let backup = path.with_extension("json.bak");
+    let source = if path.exists() {
+        path.clone()
+    } else if backup.exists() {
+        backup
+    } else {
+        events.push(startup_event(
+            "recall_replay",
+            path.display().to_string(),
+            "missing_fallback",
+            Some("recall replay history missing; started with empty history".into()),
+            true,
+        ));
+        return Vec::new();
+    };
+    let Ok(contents) = std::fs::read_to_string(&source) else {
+        events.push(startup_event(
+            "recall_replay",
+            source.display().to_string(),
+            "read_error_fallback",
+            Some("recall replay history could not be read".into()),
+            true,
+        ));
+        return Vec::new();
+    };
+
+    match serde_json::from_str::<Vec<RecallReplayBaseline>>(&contents) {
+        Ok(mut baselines) => {
+            if baselines.len() > MAX_RECALL_REPLAY_BASELINES {
+                let keep_from = baselines.len() - MAX_RECALL_REPLAY_BASELINES;
+                baselines.drain(..keep_from);
+            }
+            events.push(startup_event(
+                "recall_replay",
+                path.display().to_string(),
+                "loaded",
+                Some(format!(
+                    "loaded {} recall replay baselines",
+                    baselines.len()
+                )),
+                false,
+            ));
+            baselines
+        }
+        Err(error) => {
+            events.push(startup_event(
+                "recall_replay",
+                path.display().to_string(),
+                "load_error_fallback",
+                Some(error.to_string()),
+                true,
+            ));
+            Vec::new()
+        }
+    }
+}
+
 fn save_maintenance_trends(
     root: &Path,
     trends: &[background_brain::MaintenanceTrendSnapshot],
@@ -10946,6 +11871,35 @@ fn save_reflection_summaries(
     Ok(())
 }
 
+fn save_recall_replay_baselines(root: &Path, baselines: &[RecallReplayBaseline]) -> Result<()> {
+    let path = recall_replay_path(root);
+    let temporary = path.with_extension("json.tmp");
+    let backup = path.with_extension("json.bak");
+    let json = serde_json::to_vec_pretty(baselines)?;
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&temporary)?;
+        file.write_all(&json)?;
+        file.sync_all()?;
+    }
+    if backup.exists() {
+        std::fs::remove_file(&backup)?;
+    }
+    if path.exists() {
+        std::fs::rename(&path, &backup)?;
+    }
+    if let Err(error) = std::fs::rename(&temporary, &path) {
+        if backup.exists() {
+            let _ = std::fs::rename(&backup, &path);
+        }
+        return Err(error.into());
+    }
+    if backup.exists() {
+        std::fs::remove_file(backup)?;
+    }
+    Ok(())
+}
+
 fn recall_trace_score(trace: &recall::RecallScoreTrace, final_score: f32) -> RecallTraceScore {
     let signal = |signal: Option<&recall::SignalTrace>| {
         signal.map(|signal| RecallSignalScore {
@@ -10957,6 +11911,7 @@ fn recall_trace_score(trace: &recall::RecallScoreTrace, final_score: f32) -> Rec
 
     RecallTraceScore {
         sdr: signal(trace.sdr.as_ref()),
+        bm25: signal(trace.bm25.as_ref()),
         ngram: signal(trace.ngram.as_ref()),
         tags: signal(trace.tags.as_ref()),
         embedding: signal(trace.embedding.as_ref()),
@@ -11433,6 +12388,10 @@ fn recall_trace_score_to_py(py: Python<'_>, trace: &RecallTraceScore) -> PyResul
         Some(signal) => trace_dict.set_item("sdr", signal_to_py(signal)?)?,
         None => trace_dict.set_item("sdr", py.None())?,
     }
+    match &trace.bm25 {
+        Some(signal) => trace_dict.set_item("bm25", signal_to_py(signal)?)?,
+        None => trace_dict.set_item("bm25", py.None())?,
+    }
     match &trace.ngram {
         Some(signal) => trace_dict.set_item("ngram", signal_to_py(signal)?)?,
         None => trace_dict.set_item("ngram", py.None())?,
@@ -11833,6 +12792,7 @@ fn provenance_chain_to_py(py: Python<'_>, chain: &ProvenanceChain) -> PyResult<P
         policy_hints: chain.policy_hints.clone(),
         trace: RecallTraceScore {
             sdr: None,
+            bm25: None,
             ngram: None,
             tags: None,
             embedding: None,
@@ -12206,6 +13166,290 @@ fn consequence_unit_to_py(py: Python<'_>, unit: &ConsequenceUnit) -> PyResult<Py
     Ok(dict.unbind().into_any())
 }
 
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_toc_to_py(py: Python<'_>, toc: &crate::capsule::CapsuleToc) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("format", &toc.format)?;
+    dict.set_item("version", toc.version)?;
+    dict.set_item("generation", toc.generation)?;
+    dict.set_item("created_at", toc.created_at)?;
+    dict.set_item("original_size", toc.original_size)?;
+    dict.set_item("stored_size", toc.stored_size)?;
+    let holds = pyo3::types::PyList::empty_bound(py);
+    for hold in &toc.holds {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("generation", hold.generation)?;
+        item.set_item("label", &hold.label)?;
+        item.set_item("created_at", hold.created_at)?;
+        holds.append(item)?;
+    }
+    dict.set_item("holds", holds)?;
+    if let Some(authenticity) = &toc.authenticity {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("algorithm", &authenticity.algorithm)?;
+        item.set_item("public_key", &authenticity.public_key)?;
+        item.set_item("manifest_sha256", &authenticity.manifest_sha256)?;
+        item.set_item(
+            "previous_manifest_sha256",
+            &authenticity.previous_manifest_sha256,
+        )?;
+        item.set_item("signature", &authenticity.signature)?;
+        dict.set_item("authenticity", item)?;
+    } else {
+        dict.set_item("authenticity", py.None())?;
+    }
+    let segments = pyo3::types::PyList::empty_bound(py);
+    for segment in &toc.segments {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("name", &segment.name)?;
+        item.set_item("offset", segment.offset)?;
+        item.set_item("stored_size", segment.stored_size)?;
+        item.set_item("original_size", segment.original_size)?;
+        item.set_item(
+            "codec",
+            match segment.codec {
+                crate::capsule::CapsuleCodec::Raw => "raw",
+                crate::capsule::CapsuleCodec::Zstd => "zstd",
+            },
+        )?;
+        item.set_item("sha256", &segment.sha256)?;
+        segments.append(item)?;
+    }
+    dict.set_item("segments", segments)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_authenticity_report_to_py(
+    py: Python<'_>,
+    report: &crate::capsule::CapsuleAuthenticityReport,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("path", report.path.to_string_lossy().as_ref())?;
+    dict.set_item("verified", report.verified)?;
+    dict.set_item("generation_count", report.generation_count)?;
+    dict.set_item("signed_generation_count", report.signed_generation_count)?;
+    dict.set_item(
+        "unsigned_generation_count",
+        report.unsigned_generation_count,
+    )?;
+    dict.set_item("all_generations_signed", report.all_generations_signed)?;
+    dict.set_item("chain_start_generation", report.chain_start_generation)?;
+    dict.set_item("detached_prefix", report.detached_prefix)?;
+    dict.set_item("public_key", &report.public_key)?;
+    dict.set_item("latest_manifest_sha256", &report.latest_manifest_sha256)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_authenticity_checkpoint_to_py(
+    py: Python<'_>,
+    checkpoint: &crate::capsule::CapsuleAuthenticityCheckpoint,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("format", &checkpoint.format)?;
+    dict.set_item("version", checkpoint.version)?;
+    dict.set_item("public_key", &checkpoint.public_key)?;
+    dict.set_item("generation", checkpoint.generation)?;
+    dict.set_item("manifest_sha256", &checkpoint.manifest_sha256)?;
+    dict.set_item("updated_at", checkpoint.updated_at)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_checkpoint_verification_to_py(
+    py: Python<'_>,
+    report: &crate::capsule::CapsuleCheckpointVerificationReport,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item(
+        "checkpoint_path",
+        report.checkpoint_path.to_string_lossy().as_ref(),
+    )?;
+    dict.set_item("public_key", &report.public_key)?;
+    dict.set_item("checkpoint_generation", report.checkpoint_generation)?;
+    dict.set_item("current_generation", report.current_generation)?;
+    dict.set_item("current_manifest_sha256", &report.current_manifest_sha256)?;
+    dict.set_item("advanced_by", report.advanced_by)?;
+    dict.set_item("checkpoint_is_current", report.checkpoint_is_current)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(feature = "python")]
+fn applicability_report_to_py(py: Python<'_>, report: &ApplicabilityReport) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("record_id", &report.record_id)?;
+    dict.set_item("decision", report.decision.as_str())?;
+    dict.set_item("requirements_total", report.requirements_total)?;
+    dict.set_item("matched_fields", &report.matched_fields)?;
+    dict.set_item("missing_fields", &report.missing_fields)?;
+    dict.set_item(
+        "invalid_requirement_fields",
+        &report.invalid_requirement_fields,
+    )?;
+    dict.set_item("reasons", &report.reasons)?;
+
+    let conflicts = pyo3::types::PyList::empty_bound(py);
+    for conflict in &report.conflicting_fields {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("field", &conflict.field)?;
+        item.set_item("values", &conflict.values)?;
+        conflicts.append(item)?;
+    }
+    dict.set_item("conflicting_fields", conflicts)?;
+
+    let mismatches = pyo3::types::PyList::empty_bound(py);
+    for mismatch in &report.mismatches {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("field", &mismatch.field)?;
+        item.set_item("expected", &mismatch.expected)?;
+        item.set_item("actual", &mismatch.actual)?;
+        mismatches.append(item)?;
+    }
+    dict.set_item("mismatches", mismatches)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_compaction_report_to_py(
+    py: Python<'_>,
+    report: &crate::capsule::CapsuleCompactionReport,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("path", report.path.to_string_lossy().as_ref())?;
+    dict.set_item("kept_generations", &report.kept_generations)?;
+    dict.set_item("dropped_generation_count", report.dropped_generation_count)?;
+    dict.set_item("copied_segment_count", report.copied_segment_count)?;
+    dict.set_item("reused_segment_count", report.reused_segment_count)?;
+    dict.set_item("previous_size", report.previous_size)?;
+    dict.set_item("compacted_size", report.compacted_size)?;
+    dict.set_item("reclaimed_bytes", report.reclaimed_bytes)?;
+    dict.set_item("trailing_bytes_removed", report.trailing_bytes_removed)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_append_report_to_py(
+    py: Python<'_>,
+    report: &crate::capsule::CapsuleAppendReport,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("output_path", report.output_path.to_string_lossy().as_ref())?;
+    dict.set_item("generation", report.generation)?;
+    dict.set_item("segment_count", report.segment_count)?;
+    dict.set_item("changed_segment_count", report.changed_segment_count)?;
+    dict.set_item("reused_segment_count", report.reused_segment_count)?;
+    dict.set_item("removed_segment_count", report.removed_segment_count)?;
+    dict.set_item("appended_bytes", report.appended_bytes)?;
+    dict.set_item("container_size", report.container_size)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_retention_plan_to_py(
+    py: Python<'_>,
+    plan: &crate::capsule::CapsuleRetentionPlan,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("evaluated_generations", &plan.evaluated_generations)?;
+    dict.set_item("keep_generations", &plan.keep_generations)?;
+    dict.set_item("drop_generations", &plan.drop_generations)?;
+    dict.set_item("selected_keep_last", plan.selected_keep_last)?;
+    dict.set_item("age_cutoff", plan.age_cutoff)?;
+    dict.set_item("estimated_compacted_size", plan.estimated_compacted_size)?;
+    dict.set_item("size_target_met", plan.size_target_met)?;
+    dict.set_item("held_generations", &plan.held_generations)?;
+    dict.set_item("hold_floor_generation", plan.hold_floor_generation)?;
+    dict.set_item("limits_blocked_by_holds", plan.limits_blocked_by_holds)?;
+    dict.set_item("reasons", &plan.reasons)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_retention_report_to_py(
+    py: Python<'_>,
+    report: &crate::capsule::CapsuleRetentionReport,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item(
+        "evaluated_generation_count",
+        report.evaluated_generation_count,
+    )?;
+    dict.set_item("selected_keep_last", report.selected_keep_last)?;
+    dict.set_item("age_cutoff", report.age_cutoff)?;
+    dict.set_item("estimated_compacted_size", report.estimated_compacted_size)?;
+    dict.set_item("size_target_met", report.size_target_met)?;
+    dict.set_item("reasons", &report.reasons)?;
+    dict.set_item(
+        "compaction",
+        capsule_compaction_report_to_py(py, &report.compaction)?,
+    )?;
+    dict.set_item("plan", capsule_retention_plan_to_py(py, &report.plan)?)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_scheduler_status_to_py(
+    py: Python<'_>,
+    status: &crate::capsule::CapsuleRetentionSchedulerStatus,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("path", status.path.to_string_lossy().as_ref())?;
+    dict.set_item("running", status.running)?;
+    dict.set_item("interval_seconds", status.interval_seconds)?;
+    dict.set_item("run_count", status.run_count)?;
+    dict.set_item("last_run_at", status.last_run_at)?;
+    dict.set_item("last_reclaimed_bytes", status.last_reclaimed_bytes)?;
+    dict.set_item("last_error", &status.last_error)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_hold_report_to_py(
+    py: Python<'_>,
+    report: &crate::capsule::CapsuleHoldReport,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("control_generation", report.control_generation)?;
+    dict.set_item("held_generation", report.held_generation)?;
+    let holds = pyo3::types::PyList::empty_bound(py);
+    for hold in &report.active_holds {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("generation", hold.generation)?;
+        item.set_item("label", &hold.label)?;
+        item.set_item("created_at", hold.created_at)?;
+        holds.append(item)?;
+    }
+    dict.set_item("active_holds", holds)?;
+    Ok(dict.unbind().into_any())
+}
+
+#[cfg(all(feature = "python", feature = "capsule"))]
+fn capsule_generation_diff_to_py(
+    py: Python<'_>,
+    diff: &crate::capsule::CapsuleGenerationDiff,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("from_generation", diff.from_generation)?;
+    dict.set_item("to_generation", diff.to_generation)?;
+    dict.set_item("added", &diff.added)?;
+    dict.set_item("removed", &diff.removed)?;
+    dict.set_item("unchanged", &diff.unchanged)?;
+    dict.set_item("original_size_delta", diff.original_size_delta)?;
+    let changed = pyo3::types::PyList::empty_bound(py);
+    for delta in &diff.changed {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("name", &delta.name)?;
+        item.set_item("previous_sha256", &delta.previous_sha256)?;
+        item.set_item("current_sha256", &delta.current_sha256)?;
+        item.set_item("previous_size", delta.previous_size)?;
+        item.set_item("current_size", delta.current_size)?;
+        changed.append(item)?;
+    }
+    dict.set_item("changed", changed)?;
+    Ok(dict.unbind().into_any())
+}
+
 #[cfg(feature = "python")]
 #[pymethods]
 impl Aura {
@@ -12421,6 +13665,77 @@ impl Aura {
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
+    /// Evaluate one record against agent-supplied structured current state.
+    #[pyo3(name = "evaluate_applicability")]
+    fn py_evaluate_applicability(
+        &self,
+        py: Python<'_>,
+        record_id: &str,
+        current_state: HashMap<String, Vec<String>>,
+    ) -> PyResult<Option<PyObject>> {
+        Ok(py
+            .allow_threads(|| self.evaluate_applicability(record_id, &current_state))
+            .as_ref()
+            .map(|report| applicability_report_to_py(py, report))
+            .transpose()?)
+    }
+
+    /// Recall without changing ranking and annotate each result with
+    /// applicability details.
+    #[pyo3(name = "recall_with_applicability", signature = (query, current_state, top_k=None, min_strength=None, expand_connections=None, session_id=None, namespace=None))]
+    fn py_recall_with_applicability(
+        &self,
+        py: Python<'_>,
+        query: &str,
+        current_state: HashMap<String, Vec<String>>,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespace: Option<&pyo3::Bound<'_, pyo3::types::PyAny>>,
+    ) -> PyResult<Vec<PyObject>> {
+        let ns_vec = extract_namespaces(namespace)?;
+        let ns_refs: Option<Vec<&str>> = ns_vec
+            .as_ref()
+            .map(|values| values.iter().map(String::as_str).collect());
+        let results = py
+            .allow_threads(|| {
+                self.recall_with_applicability(
+                    query,
+                    &current_state,
+                    top_k,
+                    min_strength,
+                    expand_connections,
+                    session_id,
+                    ns_refs.as_deref(),
+                )
+            })
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+
+        results
+            .iter()
+            .map(|result| {
+                let dict = pyo3::types::PyDict::new_bound(py);
+                dict.set_item("id", &result.record.id)?;
+                dict.set_item("content", &result.record.content)?;
+                dict.set_item("score", result.score)?;
+                dict.set_item("level", result.record.level.name())?;
+                dict.set_item("strength", result.record.strength)?;
+                dict.set_item("salience", result.record.salience)?;
+                dict.set_item("tags", &result.record.tags)?;
+                dict.set_item("source_type", &result.record.source_type)?;
+                dict.set_item("namespace", &result.record.namespace)?;
+                dict.set_item("semantic_type", &result.record.semantic_type)?;
+                dict.set_item("metadata", &result.record.metadata)?;
+                dict.set_item(
+                    "applicability",
+                    applicability_report_to_py(py, &result.applicability)?,
+                )?;
+                Ok(dict.unbind().into_any())
+            })
+            .collect()
+    }
+
     #[pyo3(name = "recall_structured", signature = (query, top_k=None, min_strength=None, expand_connections=None, session_id=None, namespace=None))]
     fn py_recall_structured(
         &self,
@@ -12499,6 +13814,143 @@ impl Aura {
             py_results.push(dict.unbind().into_any());
         }
         Ok(py_results)
+    }
+
+    #[pyo3(name = "set_record_acl", signature = (record_id, visibility, read_roles=None, read_groups=None, read_principals=None, policy_version=None))]
+    fn py_set_record_acl(
+        &self,
+        record_id: &str,
+        visibility: &str,
+        read_roles: Option<Vec<String>>,
+        read_groups: Option<Vec<String>>,
+        read_principals: Option<Vec<String>>,
+        policy_version: Option<&str>,
+    ) -> PyResult<Option<Record>> {
+        let visibility = match visibility {
+            "public" => AclVisibility::Public,
+            "restricted" => AclVisibility::Restricted,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "visibility must be 'public' or 'restricted'",
+                ))
+            }
+        };
+        self.set_record_acl(
+            record_id,
+            visibility,
+            read_roles.unwrap_or_default(),
+            read_groups.unwrap_or_default(),
+            read_principals.unwrap_or_default(),
+            policy_version,
+        )
+        .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(name = "check_record_access", signature = (record_id, subject_id=None, roles=None, groups=None))]
+    fn py_check_record_access(
+        &self,
+        py: Python<'_>,
+        record_id: &str,
+        subject_id: Option<String>,
+        roles: Option<Vec<String>>,
+        groups: Option<Vec<String>>,
+    ) -> PyResult<Option<PyObject>> {
+        let context = AclContext {
+            subject_id,
+            roles: roles.unwrap_or_default().into_iter().collect(),
+            groups: groups.unwrap_or_default().into_iter().collect(),
+        };
+        let Some(decision) = self.check_record_access(record_id, &context) else {
+            return Ok(None);
+        };
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("allowed", decision.allowed)?;
+        dict.set_item("reason", decision.reason)?;
+        dict.set_item("policy_version", decision.policy_version)?;
+        Ok(Some(dict.unbind().into_any()))
+    }
+
+    #[pyo3(name = "recall_structured_acl", signature = (query, enforcement_mode="enforce", subject_id=None, roles=None, groups=None, top_k=None, min_strength=None, expand_connections=None, session_id=None, namespace=None))]
+    fn py_recall_structured_acl(
+        &self,
+        py: Python<'_>,
+        query: &str,
+        enforcement_mode: &str,
+        subject_id: Option<String>,
+        roles: Option<Vec<String>>,
+        groups: Option<Vec<String>>,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespace: Option<&pyo3::Bound<'_, pyo3::types::PyAny>>,
+    ) -> PyResult<PyObject> {
+        let enforcement_mode = match enforcement_mode {
+            "audit" => AclEnforcementMode::Audit,
+            "enforce" => AclEnforcementMode::Enforce,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "enforcement_mode must be 'audit' or 'enforce'",
+                ))
+            }
+        };
+        let context = AclContext {
+            subject_id,
+            roles: roles.unwrap_or_default().into_iter().collect(),
+            groups: groups.unwrap_or_default().into_iter().collect(),
+        };
+        let namespace_values = extract_namespaces(namespace)?;
+        let namespace_refs = namespace_values
+            .as_ref()
+            .map(|values| values.iter().map(String::as_str).collect::<Vec<_>>());
+        let report = py
+            .allow_threads(|| {
+                self.recall_structured_acl(
+                    query,
+                    &context,
+                    enforcement_mode,
+                    top_k,
+                    min_strength,
+                    expand_connections,
+                    session_id,
+                    namespace_refs.as_deref(),
+                )
+            })
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item(
+            "enforcement_mode",
+            match report.enforcement_mode {
+                AclEnforcementMode::Audit => "audit",
+                AclEnforcementMode::Enforce => "enforce",
+            },
+        )?;
+        dict.set_item("evaluated_count", report.evaluated_count)?;
+        dict.set_item("denied_count", report.denied_count)?;
+        let results = pyo3::types::PyList::empty_bound(py);
+        for (score, record) in report.results {
+            let item = pyo3::types::PyDict::new_bound(py);
+            item.set_item("id", record.id)?;
+            item.set_item("content", record.content)?;
+            item.set_item("score", score)?;
+            item.set_item("namespace", record.namespace)?;
+            item.set_item("level", record.level.name())?;
+            results.append(item)?;
+        }
+        dict.set_item("results", results)?;
+        let decisions = pyo3::types::PyList::empty_bound(py);
+        for entry in report.audit_decisions {
+            let item = pyo3::types::PyDict::new_bound(py);
+            item.set_item("record_id", entry.record_id)?;
+            item.set_item("namespace", entry.namespace)?;
+            item.set_item("allowed", entry.decision.allowed)?;
+            item.set_item("reason", entry.decision.reason)?;
+            item.set_item("policy_version", entry.decision.policy_version)?;
+            decisions.append(item)?;
+        }
+        dict.set_item("audit_decisions", decisions)?;
+        Ok(dict.unbind().into_any())
     }
 
     /// Recall re-ranked by born-from-collision provenance. Same shape as
@@ -12847,6 +14299,24 @@ impl Aura {
             namespaces_ref.as_deref(),
         );
         recall_explanation_to_py(py, &explanation)
+    }
+
+    #[pyo3(name = "replay_recall")]
+    fn py_replay_recall(&self, py: Python<'_>, trace_id: &str) -> PyResult<PyObject> {
+        let report = self
+            .replay_recall(trace_id)
+            .map_err(|error| pyo3::exceptions::PyKeyError::new_err(error.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("original_trace_id", report.original_trace_id)?;
+        dict.set_item("replay_trace_id", report.replay_trace_id)?;
+        dict.set_item("ranking_stable", report.ranking_stable)?;
+        dict.set_item("original_record_ids", report.original_record_ids)?;
+        dict.set_item("replay_record_ids", report.replay_record_ids)?;
+        dict.set_item("added_record_ids", report.added_record_ids)?;
+        dict.set_item("removed_record_ids", report.removed_record_ids)?;
+        dict.set_item("moved_record_ids", report.moved_record_ids)?;
+        dict.set_item("max_score_delta", report.max_score_delta)?;
+        Ok(dict.unbind().into_any())
     }
 
     #[pyo3(name = "explain_record")]
@@ -14449,6 +15919,556 @@ impl Aura {
     fn py_close(&self) -> PyResult<()> {
         self.close()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "generate_container_signing_key")]
+    fn py_generate_container_signing_key(py: Python<'_>) -> PyResult<PyObject> {
+        let key = Self::generate_container_signing_key();
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("private_key", key.private_key)?;
+        dict.set_item("public_key", key.public_key)?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "export_container")]
+    fn py_export_container(&self, py: Python<'_>, output_path: &str) -> PyResult<PyObject> {
+        let report = self
+            .export_container(output_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("output_path", report.output_path.to_string_lossy().as_ref())?;
+        dict.set_item("segment_count", report.segment_count)?;
+        dict.set_item("original_size", report.original_size)?;
+        dict.set_item("container_size", report.container_size)?;
+        dict.set_item("compressed_segment_count", report.compressed_segment_count)?;
+        dict.set_item("generation", report.generation)?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "export_signed_container")]
+    fn py_export_signed_container(
+        &self,
+        py: Python<'_>,
+        output_path: &str,
+        signing_key: &str,
+    ) -> PyResult<PyObject> {
+        let report = self
+            .export_signed_container(output_path, signing_key)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("output_path", report.output_path.to_string_lossy().as_ref())?;
+        dict.set_item("segment_count", report.segment_count)?;
+        dict.set_item("original_size", report.original_size)?;
+        dict.set_item("container_size", report.container_size)?;
+        dict.set_item("compressed_segment_count", report.compressed_segment_count)?;
+        dict.set_item("generation", report.generation)?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "append_container")]
+    fn py_append_container(&self, py: Python<'_>, container_path: &str) -> PyResult<PyObject> {
+        let report = self
+            .append_container(container_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_append_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "append_signed_container")]
+    fn py_append_signed_container(
+        &self,
+        py: Python<'_>,
+        container_path: &str,
+        signing_key: &str,
+    ) -> PyResult<PyObject> {
+        let report = self
+            .append_signed_container(container_path, signing_key)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_append_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "append_container_with_retention", signature = (container_path, min_generations=1, max_generations=None, max_age_seconds=None, max_size_bytes=None))]
+    fn py_append_container_with_retention(
+        &self,
+        py: Python<'_>,
+        container_path: &str,
+        min_generations: usize,
+        max_generations: Option<usize>,
+        max_age_seconds: Option<u64>,
+        max_size_bytes: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let report = self
+            .append_container_with_retention(
+                container_path,
+                &crate::capsule::CapsuleRetentionPolicy {
+                    min_generations,
+                    max_generations,
+                    max_age_seconds,
+                    max_size_bytes,
+                },
+            )
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("append", capsule_append_report_to_py(py, &report.append)?)?;
+        dict.set_item(
+            "retention",
+            capsule_retention_report_to_py(py, &report.retention)?,
+        )?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "append_signed_container_with_retention", signature = (container_path, signing_key, min_generations=1, max_generations=None, max_age_seconds=None, max_size_bytes=None))]
+    fn py_append_signed_container_with_retention(
+        &self,
+        py: Python<'_>,
+        container_path: &str,
+        signing_key: &str,
+        min_generations: usize,
+        max_generations: Option<usize>,
+        max_age_seconds: Option<u64>,
+        max_size_bytes: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let report = self
+            .append_signed_container_with_retention(
+                container_path,
+                signing_key,
+                &crate::capsule::CapsuleRetentionPolicy {
+                    min_generations,
+                    max_generations,
+                    max_age_seconds,
+                    max_size_bytes,
+                },
+            )
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("append", capsule_append_report_to_py(py, &report.append)?)?;
+        dict.set_item(
+            "retention",
+            capsule_retention_report_to_py(py, &report.retention)?,
+        )?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "inspect_container")]
+    fn py_inspect_container(py: Python<'_>, container_path: &str) -> PyResult<PyObject> {
+        let toc = Self::inspect_container(container_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_toc_to_py(py, &toc)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "verify_container_authenticity", signature = (container_path, trusted_public_key=None, require_all_signed=true))]
+    fn py_verify_container_authenticity(
+        py: Python<'_>,
+        container_path: &str,
+        trusted_public_key: Option<&str>,
+        require_all_signed: bool,
+    ) -> PyResult<PyObject> {
+        let report = Self::verify_container_authenticity(
+            container_path,
+            trusted_public_key,
+            require_all_signed,
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_authenticity_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "update_container_authenticity_checkpoint")]
+    fn py_update_container_authenticity_checkpoint(
+        py: Python<'_>,
+        container_path: &str,
+        checkpoint_path: &str,
+        trusted_public_key: &str,
+    ) -> PyResult<PyObject> {
+        let checkpoint = Self::update_container_authenticity_checkpoint(
+            container_path,
+            checkpoint_path,
+            trusted_public_key,
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_authenticity_checkpoint_to_py(py, &checkpoint)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "verify_container_authenticity_checkpoint")]
+    fn py_verify_container_authenticity_checkpoint(
+        py: Python<'_>,
+        container_path: &str,
+        checkpoint_path: &str,
+    ) -> PyResult<PyObject> {
+        let report =
+            Self::verify_container_authenticity_checkpoint(container_path, checkpoint_path)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_checkpoint_verification_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "list_container_generations")]
+    fn py_list_container_generations(py: Python<'_>, container_path: &str) -> PyResult<PyObject> {
+        let generations = Self::list_container_generations(container_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let items = pyo3::types::PyList::empty_bound(py);
+        for generation in generations {
+            let dict = pyo3::types::PyDict::new_bound(py);
+            dict.set_item("generation", generation.generation)?;
+            dict.set_item("created_at", generation.created_at)?;
+            dict.set_item("segment_count", generation.segment_count)?;
+            dict.set_item("original_size", generation.original_size)?;
+            dict.set_item("stored_size", generation.stored_size)?;
+            items.append(dict)?;
+        }
+        Ok(items.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "inspect_container_generation")]
+    fn py_inspect_container_generation(
+        py: Python<'_>,
+        container_path: &str,
+        generation: u64,
+    ) -> PyResult<PyObject> {
+        let toc = Self::inspect_container_generation(container_path, generation)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_toc_to_py(py, &toc)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "diff_container_generations")]
+    fn py_diff_container_generations(
+        py: Python<'_>,
+        container_path: &str,
+        from_generation: u64,
+        to_generation: u64,
+    ) -> PyResult<PyObject> {
+        let diff = Self::diff_container_generations(container_path, from_generation, to_generation)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_generation_diff_to_py(py, &diff)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "compact_container")]
+    fn py_compact_container(
+        py: Python<'_>,
+        container_path: &str,
+        keep_last: usize,
+    ) -> PyResult<PyObject> {
+        let report = Self::compact_container(container_path, keep_last)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_compaction_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "apply_container_retention", signature = (container_path, min_generations=1, max_generations=None, max_age_seconds=None, max_size_bytes=None))]
+    fn py_apply_container_retention(
+        py: Python<'_>,
+        container_path: &str,
+        min_generations: usize,
+        max_generations: Option<usize>,
+        max_age_seconds: Option<u64>,
+        max_size_bytes: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let report = Self::apply_container_retention(
+            container_path,
+            &crate::capsule::CapsuleRetentionPolicy {
+                min_generations,
+                max_generations,
+                max_age_seconds,
+                max_size_bytes,
+            },
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_retention_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "plan_container_retention", signature = (container_path, min_generations=1, max_generations=None, max_age_seconds=None, max_size_bytes=None))]
+    fn py_plan_container_retention(
+        py: Python<'_>,
+        container_path: &str,
+        min_generations: usize,
+        max_generations: Option<usize>,
+        max_age_seconds: Option<u64>,
+        max_size_bytes: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let plan = Self::plan_container_retention(
+            container_path,
+            &crate::capsule::CapsuleRetentionPolicy {
+                min_generations,
+                max_generations,
+                max_age_seconds,
+                max_size_bytes,
+            },
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_retention_plan_to_py(py, &plan)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "hold_container_generation")]
+    fn py_hold_container_generation(
+        py: Python<'_>,
+        container_path: &str,
+        generation: u64,
+        label: &str,
+    ) -> PyResult<PyObject> {
+        let report = Self::hold_container_generation(container_path, generation, label)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_hold_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "hold_signed_container_generation")]
+    fn py_hold_signed_container_generation(
+        py: Python<'_>,
+        container_path: &str,
+        generation: u64,
+        label: &str,
+        signing_key: &str,
+    ) -> PyResult<PyObject> {
+        let report =
+            Self::hold_signed_container_generation(container_path, generation, label, signing_key)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_hold_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "release_container_generation_hold")]
+    fn py_release_container_generation_hold(
+        py: Python<'_>,
+        container_path: &str,
+        generation: u64,
+    ) -> PyResult<PyObject> {
+        let report = Self::release_container_generation_hold(container_path, generation)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_hold_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "release_signed_container_generation_hold")]
+    fn py_release_signed_container_generation_hold(
+        py: Python<'_>,
+        container_path: &str,
+        generation: u64,
+        signing_key: &str,
+    ) -> PyResult<PyObject> {
+        let report =
+            Self::release_signed_container_generation_hold(container_path, generation, signing_key)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_hold_report_to_py(py, &report)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "start_container_retention_scheduler", signature = (container_path, interval_seconds, min_generations=1, max_generations=None, max_age_seconds=None, max_size_bytes=None))]
+    fn py_start_container_retention_scheduler(
+        &self,
+        py: Python<'_>,
+        container_path: &str,
+        interval_seconds: u64,
+        min_generations: usize,
+        max_generations: Option<usize>,
+        max_age_seconds: Option<u64>,
+        max_size_bytes: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let status = self
+            .start_container_retention_scheduler(
+                container_path,
+                crate::capsule::CapsuleRetentionPolicy {
+                    min_generations,
+                    max_generations,
+                    max_age_seconds,
+                    max_size_bytes,
+                },
+                interval_seconds,
+            )
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_scheduler_status_to_py(py, &status)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "stop_container_retention_scheduler")]
+    fn py_stop_container_retention_scheduler(&self) -> bool {
+        self.stop_container_retention_scheduler()
+    }
+
+    #[cfg(feature = "capsule")]
+    #[pyo3(name = "container_retention_scheduler_status")]
+    fn py_container_retention_scheduler_status(
+        &self,
+        py: Python<'_>,
+    ) -> PyResult<Option<PyObject>> {
+        self.container_retention_scheduler_status()
+            .map(|status| capsule_scheduler_status_to_py(py, &status))
+            .transpose()
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "verify_container")]
+    fn py_verify_container(py: Python<'_>, container_path: &str) -> PyResult<PyObject> {
+        let toc = Self::verify_container(container_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_toc_to_py(py, &toc)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "verify_container_generation")]
+    fn py_verify_container_generation(
+        py: Python<'_>,
+        container_path: &str,
+        generation: u64,
+    ) -> PyResult<PyObject> {
+        let toc = Self::verify_container_generation(container_path, generation)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        capsule_toc_to_py(py, &toc)
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "verify_container_segments")]
+    fn py_verify_container_segments(
+        py: Python<'_>,
+        container_path: &str,
+        names: Vec<String>,
+    ) -> PyResult<PyObject> {
+        let report = Self::verify_container_segments(container_path, &names)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("segment_count", report.segment_count)?;
+        dict.set_item("total_size", report.total_size)?;
+        dict.set_item("segments", report.segments)?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "read_container_segment")]
+    fn py_read_container_segment(
+        py: Python<'_>,
+        container_path: &str,
+        name: &str,
+    ) -> PyResult<PyObject> {
+        let bytes = Self::read_container_segment(container_path, name)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        Ok(pyo3::types::PyBytes::new_bound(py, &bytes)
+            .unbind()
+            .into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "read_container_segment_at_generation")]
+    fn py_read_container_segment_at_generation(
+        py: Python<'_>,
+        container_path: &str,
+        generation: u64,
+        name: &str,
+    ) -> PyResult<PyObject> {
+        let bytes = Self::read_container_segment_at_generation(container_path, generation, name)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        Ok(pyo3::types::PyBytes::new_bound(py, &bytes)
+            .unbind()
+            .into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "import_container")]
+    fn py_import_container(
+        py: Python<'_>,
+        container_path: &str,
+        target_path: &str,
+    ) -> PyResult<PyObject> {
+        let report = Self::import_container(container_path, target_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
+        dict.set_item("segment_count", report.segment_count)?;
+        dict.set_item("restored_size", report.restored_size)?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "import_authenticated_container", signature = (container_path, target_path, trusted_public_key, require_all_signed=true))]
+    fn py_import_authenticated_container(
+        py: Python<'_>,
+        container_path: &str,
+        target_path: &str,
+        trusted_public_key: &str,
+        require_all_signed: bool,
+    ) -> PyResult<PyObject> {
+        let report = Self::import_authenticated_container(
+            container_path,
+            target_path,
+            trusted_public_key,
+            require_all_signed,
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
+        dict.set_item("segment_count", report.segment_count)?;
+        dict.set_item("restored_size", report.restored_size)?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "import_container_generation")]
+    fn py_import_container_generation(
+        py: Python<'_>,
+        container_path: &str,
+        target_path: &str,
+        generation: u64,
+    ) -> PyResult<PyObject> {
+        let report = Self::import_container_generation(container_path, target_path, generation)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
+        dict.set_item("segment_count", report.segment_count)?;
+        dict.set_item("restored_size", report.restored_size)?;
+        Ok(dict.unbind().into_any())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[staticmethod]
+    #[pyo3(name = "extract_container_segments")]
+    fn py_extract_container_segments(
+        py: Python<'_>,
+        container_path: &str,
+        target_path: &str,
+        names: Vec<String>,
+    ) -> PyResult<PyObject> {
+        let report = Self::extract_container_segments(container_path, target_path, &names)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
+        dict.set_item("segment_count", report.segment_count)?;
+        dict.set_item("restored_size", report.restored_size)?;
+        Ok(dict.unbind().into_any())
     }
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -19075,6 +21095,7 @@ mod tests {
         assert!(item.trace.final_score >= item.trace.pre_rerank_score);
         assert!(
             item.trace.sdr.is_some()
+                || item.trace.bm25.is_some()
                 || item.trace.ngram.is_some()
                 || item.trace.tags.is_some()
                 || item.trace.embedding.is_some()
@@ -19086,6 +21107,318 @@ mod tests {
             .any(|c| c.id == "causal-explain"));
         assert!(item.policy_hints.iter().any(|h| h.id == "policy-explain"));
 
+        Ok(())
+    }
+
+    #[test]
+    fn explain_recall_exposes_namespace_safe_bm25_signal() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let selected = aura.store(
+            "release failed with ERR_AUTH_431 during token exchange",
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some("tenant-a"),
+            None,
+        )?;
+        aura.store(
+            "another tenant observed ERR_AUTH_431",
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some("tenant-b"),
+            None,
+        )?;
+
+        let explanation = aura.explain_recall(
+            "ERR_AUTH_431",
+            Some(5),
+            Some(0.1),
+            Some(false),
+            Some(&["tenant-a"]),
+        );
+        assert_eq!(explanation.items.len(), 1);
+        assert_eq!(explanation.items[0].record_id, selected.id);
+        let bm25 = explanation.items[0]
+            .trace
+            .bm25
+            .as_ref()
+            .expect("exact lexical match should expose BM25 trace");
+        assert!(bm25.raw_score > 0.0);
+        assert_eq!(bm25.rank, 0);
+        assert!(explanation
+            .rejected_candidates
+            .iter()
+            .all(|candidate| candidate.namespace == "tenant-a"));
+        Ok(())
+    }
+
+    #[test]
+    fn recall_replay_reports_stable_and_drifted_rankings() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let first = aura.store(
+            "alpha deployment uses canary gates",
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some("tenant-a"),
+            None,
+        )?;
+        aura.store(
+            "alpha deployment rollback checklist",
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some("tenant-a"),
+            None,
+        )?;
+
+        let original = aura.explain_recall(
+            "alpha deployment canary",
+            Some(5),
+            Some(0.1),
+            Some(false),
+            Some(&["tenant-a"]),
+        );
+        let stable = aura.replay_recall(&original.trace_id)?;
+        assert!(stable.ranking_stable);
+        assert!(stable.added_record_ids.is_empty());
+        assert!(stable.removed_record_ids.is_empty());
+
+        aura.delete(&first.id)?;
+        let drifted = aura.replay_recall(&original.trace_id)?;
+        assert!(!drifted.ranking_stable);
+        assert!(drifted.removed_record_ids.contains(&first.id));
+        Ok(())
+    }
+
+    #[test]
+    fn recall_replay_baseline_persists_across_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let trace_id = {
+            let aura = Aura::open(dir.path().to_str().unwrap())?;
+            aura.store(
+                "persistent replay marker REPLAY_742",
+                Some(Level::Domain),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                Some("tenant-a"),
+                None,
+            )?;
+            aura.explain_recall(
+                "REPLAY_742",
+                Some(5),
+                Some(0.1),
+                Some(false),
+                Some(&["tenant-a"]),
+            )
+            .trace_id
+        };
+
+        let reopened = Aura::open(dir.path().to_str().unwrap())?;
+        let report = reopened.replay_recall(&trace_id)?;
+        assert!(report.ranking_stable);
+        assert!(dir.path().join(RECALL_REPLAY_FILE).exists());
+        Ok(())
+    }
+
+    #[test]
+    fn acl_recall_audits_and_enforces_without_leaking_denied_ids() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let public = aura.store(
+            "quarterly budget overview marker",
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some("tenant-a"),
+            None,
+        )?;
+        let restricted = aura.store(
+            "quarterly budget finance marker",
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some("tenant-a"),
+            None,
+        )?;
+        aura.set_record_acl(
+            &restricted.id,
+            AclVisibility::Restricted,
+            vec!["finance".into()],
+            Vec::new(),
+            Vec::new(),
+            Some("v1"),
+        )?;
+        aura.connect(&public.id, &restricted.id, Some(1.0), Some("associative"))?;
+
+        let legacy = aura.recall_structured(
+            "quarterly budget marker",
+            Some(10),
+            Some(0.1),
+            Some(true),
+            None,
+            Some(&["tenant-a"]),
+        )?;
+        assert!(legacy.iter().all(|(_, record)| record.id != restricted.id));
+        assert!(aura
+            .search(
+                Some("quarterly budget"),
+                None,
+                None,
+                Some(10),
+                None,
+                None,
+                Some(&["tenant-a"]),
+                None,
+            )
+            .iter()
+            .all(|record| record.id != restricted.id));
+        let capsule = aura.build_context_capsule(Some("tenant-a"), "quarterly budget", 500)?;
+        assert!(capsule
+            .entries
+            .iter()
+            .all(|entry| entry.record_id != restricted.id));
+
+        let empty_context = AclContext::default();
+        let enforced = aura.recall_structured_acl(
+            "quarterly budget marker",
+            &empty_context,
+            AclEnforcementMode::Enforce,
+            Some(10),
+            Some(0.1),
+            Some(true),
+            None,
+            Some(&["tenant-a"]),
+        )?;
+        assert!(enforced
+            .results
+            .iter()
+            .any(|(_, record)| record.id == public.id));
+        assert!(enforced
+            .results
+            .iter()
+            .all(|(_, record)| record.id != restricted.id));
+        assert_eq!(enforced.denied_count, 1);
+        assert!(enforced.audit_decisions.is_empty());
+
+        let audited = aura.recall_structured_acl(
+            "quarterly budget marker",
+            &empty_context,
+            AclEnforcementMode::Audit,
+            Some(10),
+            Some(0.1),
+            Some(false),
+            None,
+            Some(&["tenant-a"]),
+        )?;
+        assert!(audited
+            .results
+            .iter()
+            .any(|(_, record)| record.id == restricted.id));
+        assert_eq!(audited.audit_decisions.len(), 1);
+        assert_eq!(audited.audit_decisions[0].record_id, restricted.id);
+
+        let mut finance_context = AclContext::default();
+        finance_context.roles.insert("Finance".into());
+        let allowed = aura.recall_structured_acl(
+            "quarterly budget marker",
+            &finance_context,
+            AclEnforcementMode::Enforce,
+            Some(10),
+            Some(0.1),
+            Some(false),
+            None,
+            Some(&["tenant-a"]),
+        )?;
+        assert!(allowed
+            .results
+            .iter()
+            .any(|(_, record)| record.id == restricted.id));
+        assert_eq!(allowed.denied_count, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn record_acl_persists_across_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let record_id = {
+            let aura = Aura::open(dir.path().to_str().unwrap())?;
+            let record = aura.store(
+                "persistent restricted plan",
+                Some(Level::Domain),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                Some("tenant-a"),
+                None,
+            )?;
+            aura.set_record_acl(
+                &record.id,
+                AclVisibility::Restricted,
+                Vec::new(),
+                Vec::new(),
+                vec!["alice".into()],
+                Some("v2"),
+            )?;
+            record.id
+        };
+
+        let reopened = Aura::open(dir.path().to_str().unwrap())?;
+        assert!(
+            !reopened
+                .check_record_access(&record_id, &AclContext::default())
+                .unwrap()
+                .allowed
+        );
+        let alice = AclContext {
+            subject_id: Some("ALICE".into()),
+            ..AclContext::default()
+        };
+        let decision = reopened.check_record_access(&record_id, &alice).unwrap();
+        assert!(decision.allowed);
+        assert_eq!(decision.policy_version.as_deref(), Some("v2"));
         Ok(())
     }
 
@@ -22070,6 +24403,125 @@ mod tests {
         assert_eq!(migrated.superseded_at, Some(200.0));
         assert!(!migrated.is_valid_at(200.0));
         assert!(successor.is_valid_at(200.0));
+        Ok(())
+    }
+
+    #[cfg(feature = "capsule")]
+    #[test]
+    fn portable_container_restores_a_real_aura_store() -> Result<()> {
+        let source = tempfile::tempdir()?;
+        let aura = Aura::open(source.path().to_str().unwrap())?;
+        let record = aura.store(
+            "portable memory with access policy",
+            Some(Level::Working),
+            Some(vec!["portable".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            None,
+            None,
+            Some("project"),
+            None,
+        )?;
+        aura.set_record_acl(
+            &record.id,
+            AclVisibility::Restricted,
+            vec!["maintainer".into()],
+            Vec::new(),
+            Vec::new(),
+            Some("capsule-test-v1"),
+        )?;
+
+        let destination = tempfile::tempdir()?;
+        let container = destination.path().join("memory.aura");
+        let exported = aura.export_container(&container)?;
+        assert!(exported.segment_count > 0);
+        let verified = Aura::verify_container(&container)?;
+        assert_eq!(verified.segments.len(), exported.segment_count);
+        assert_eq!(verified.generation, 1);
+
+        let appended_record = aura.store(
+            "memory added after the initial portable snapshot",
+            Some(Level::Working),
+            Some(vec!["incremental".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            None,
+            None,
+            Some("project"),
+            None,
+        )?;
+        let appended = aura.append_container(&container)?;
+        assert_eq!(appended.generation, 2);
+        assert!(appended.changed_segment_count > 0);
+        assert_eq!(Aura::list_container_generations(&container)?.len(), 2);
+        let generation_diff = Aura::diff_container_generations(&container, 1, 2)?;
+        assert!(!generation_diff.changed.is_empty());
+        let scheduler_status = aura.start_container_retention_scheduler(
+            &container,
+            crate::capsule::CapsuleRetentionPolicy {
+                min_generations: 1,
+                max_generations: Some(2),
+                max_age_seconds: None,
+                max_size_bytes: None,
+            },
+            60,
+        )?;
+        assert!(scheduler_status.running);
+        assert!(aura
+            .container_retention_scheduler_status()
+            .is_some_and(|status| status.running));
+        assert!(aura.stop_container_retention_scheduler());
+        let historical_path = destination.path().join("historical");
+        Aura::import_container_generation(&container, &historical_path, 1)?;
+        let historical = Aura::open(historical_path.to_str().unwrap())?;
+        assert!(historical.get(&record.id).is_some());
+        assert!(historical.get(&appended_record.id).is_none());
+        drop(historical);
+
+        let retention = Aura::apply_container_retention(
+            &container,
+            &crate::capsule::CapsuleRetentionPolicy {
+                min_generations: 1,
+                max_generations: Some(1),
+                max_age_seconds: None,
+                max_size_bytes: None,
+            },
+        )?;
+        assert_eq!(retention.compaction.kept_generations, vec![2]);
+        assert_eq!(
+            Aura::inspect_container_generation(&container, 2)?.generation,
+            2
+        );
+
+        let restored_path = destination.path().join("restored");
+        let imported = Aura::import_container(&container, &restored_path)?;
+        assert_eq!(imported.segment_count, appended.segment_count);
+
+        let restored = Aura::open(restored_path.to_str().unwrap())?;
+        let restored_record = restored.get(&record.id).expect("record was restored");
+        assert_eq!(restored_record.content, record.content);
+        assert_eq!(
+            restored
+                .get(&appended_record.id)
+                .expect("incremental record was restored")
+                .content,
+            appended_record.content
+        );
+        let acl = restored
+            .check_record_access(
+                &record.id,
+                &AclContext {
+                    roles: ["maintainer".into()].into_iter().collect(),
+                    ..AclContext::default()
+                },
+            )
+            .expect("ACL was restored");
+        assert!(acl.allowed);
+        assert_eq!(acl.policy_version.as_deref(), Some("capsule-test-v1"));
         Ok(())
     }
 }

@@ -11,6 +11,7 @@ pub const CAUSAL_STORE_VERSION: u32 = 1;
 pub const POLICY_STORE_VERSION: u32 = 1;
 pub const MAINTENANCE_TRENDS_VERSION: u32 = 1;
 pub const REFLECTION_SUMMARIES_VERSION: u32 = 1;
+pub const RECALL_REPLAY_VERSION: u32 = 1;
 
 #[cfg_attr(feature = "python", pyclass(get_all))]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -28,6 +29,7 @@ impl PersistenceManifest {
         surfaces.insert("policy".into(), POLICY_STORE_VERSION);
         surfaces.insert("maintenance_trends".into(), MAINTENANCE_TRENDS_VERSION);
         surfaces.insert("reflection_summaries".into(), REFLECTION_SUMMARIES_VERSION);
+        surfaces.insert("recall_replay".into(), RECALL_REPLAY_VERSION);
         Self {
             schema_version: PERSISTENCE_SCHEMA_VERSION,
             surfaces,

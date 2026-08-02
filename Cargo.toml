@@ -1,6 +1,6 @@
 [package]
 name = "aura"
-version = "1.57.0"
+version = "1.58.0"
 edition = "2021"
 authors = ["Alexander Tepliuk <aura@aurasdk.dev>"]
 description = "Adaptive cognitive layer for AI agents. Sub-millisecond recall, zero LLM calls, pure Rust."
@@ -26,7 +26,7 @@ required-features = ["server"]
 
 [features]
 default = ["full"]
-full = ["python", "encryption", "server", "audit"]
+full = ["python", "encryption", "server", "audit", "capsule"]
 python = ["pyo3"]
 encryption = ["chacha20poly1305", "argon2", "zeroize"]
 server = ["axum", "tower-http", "utoipa", "utoipa-swagger-ui", "metrics", "metrics-exporter-prometheus", "axum-server", "rust-embed", "mime_guess"]
@@ -37,6 +37,7 @@ embedded = ["encryption"]
 lite = []
 ffi = []
 telemetry = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tracing-opentelemetry"]
+capsule = ["zstd"]
 
 [dependencies]
 # ============= CORE (Always included) =============
@@ -54,6 +55,7 @@ parking_lot = "0.12"
 memmap2 = "0.9"
 byteorder = "1.5"
 crossbeam-channel = "0.5"
+fs2 = "0.4"
 
 # Error Handling
 anyhow = "1.0"
@@ -83,6 +85,7 @@ uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1.0", features = ["full"] }
 lazy_static = "1.4"
 rayon = "1"
+zstd = { version = "0.13", optional = true }
 
 # License
 ctor = "0.2"

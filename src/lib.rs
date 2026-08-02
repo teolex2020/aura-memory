@@ -28,6 +28,8 @@ pub mod backend;
 mod anchors;
 pub mod backup;
 pub mod canonical;
+#[cfg(feature = "capsule")]
+pub mod capsule;
 mod cortex;
 pub mod federated;
 pub mod gates;
@@ -86,6 +88,8 @@ pub mod crypto {
     }
 }
 
+pub mod acl;
+pub mod applicability;
 pub mod audit;
 mod aura_state;
 pub mod tenant;
@@ -151,6 +155,7 @@ pub mod context_capsule;
 pub mod graph;
 pub mod insights;
 pub mod levels;
+pub mod lexical;
 pub mod ngram;
 pub mod recall;
 mod recall_service;
@@ -210,6 +215,11 @@ mod memory;
 pub use memory::AuraMemory;
 
 // ── Unified API ──
+pub use applicability::{
+    evaluate_applicability, ApplicabilityConflict, ApplicabilityContext, ApplicabilityDecision,
+    ApplicabilityMismatch, ApplicabilityRecallResult, ApplicabilityReport,
+    APPLICABILITY_REQUIRE_PREFIX,
+};
 pub use aura::Aura;
 pub use consequence::ConsequenceUnit;
 pub use context_capsule::{

@@ -86,6 +86,10 @@ POSITIONING_PRIVATE.md
 plans/
 reports/
 tests/
+!tests/
+tests/*
+!tests/memory_resilience.rs
+!tests/applicability_api.rs
 
 # Marketing materials (strategy — not public)
 marketing/

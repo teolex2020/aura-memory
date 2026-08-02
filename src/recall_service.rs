@@ -14,6 +14,7 @@ use crate::causal::{CausalEngine, CausalRerankMode};
 use crate::concept::{ConceptEngine, ConceptSurfaceMode};
 use crate::graph::SessionTracker;
 use crate::index::InvertedIndex;
+use crate::lexical::LexicalIndex;
 use crate::ngram::NGramIndex;
 use crate::policy::{PolicyEngine, PolicyRerankMode};
 use crate::recall;
@@ -27,6 +28,7 @@ pub(crate) struct RecallPipelineView<'a> {
     pub(crate) index: &'a InvertedIndex,
     pub(crate) storage: &'a AuraStorage,
     pub(crate) ngram: &'a NGramIndex,
+    pub(crate) lexical: &'a LexicalIndex,
     pub(crate) tag_index: &'a HashMap<String, HashSet<String>>,
     pub(crate) aura_index: &'a HashMap<String, String>,
     pub(crate) records: &'a HashMap<String, Record>,
@@ -73,6 +75,7 @@ impl RecallService {
             view.index,
             view.storage,
             view.ngram,
+            view.lexical,
             view.tag_index,
             view.aura_index,
             view.records,
@@ -99,6 +102,7 @@ impl RecallService {
             view.index,
             view.storage,
             view.ngram,
+            view.lexical,
             view.tag_index,
             view.aura_index,
             view.records,

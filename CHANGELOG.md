@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 1.58.0
+
+### Added
+
+- **Hybrid lexical recall** — namespace-safe BM25 contributes a transparent ranking signal, with persisted replay traces for detecting ranking additions, removals, moves, and score drift.
+- **Permission-aware memory retrieval** — public/restricted record ACLs support role, group, and principal allow-lists with audit and deny-by-default enforcement modes.
+- **Portable `.aura` containers** — independently checksummed and compressed generation snapshots support incremental append, partial extraction, historical restore/diff, compaction, retention planning, legal holds, and background cleanup.
+- **Safe concurrent container maintenance** — thread and cross-process mutation locks serialize export, append, compaction, retention, and legal-hold control generations.
+- **Optional container provenance** — Ed25519 manifest chains, trusted-key import, and external anti-rollback checkpoints detect tampering, signer substitution, rollback, and same-generation forks without changing the simple unsigned workflow.
+
+- **Context-aware applicability** — experiential memories can declare structured preconditions and receive deterministic `use`, `reject`, or `unknown` annotations during recall, without reranking, model calls, or unsafe inference from missing state.
+
+### Changed
+
+- Release wheel builds and Python smoke tests explicitly include and exercise the portable-container feature.
+- Container retention can combine generation count, age, and compacted-size limits while preserving active legal holds.
+
 ## 1.57.0
 
 Crash-safe temporal supersession and conservative contradiction-graph resolution.

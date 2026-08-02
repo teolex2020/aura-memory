@@ -254,6 +254,260 @@ records. It returns an estimated token count, omitted-record count, selection
 reasons, and a stable content hash. Blocked records and superseded versions
 outside their validity interval are never surfaced.
 
+### Context-Aware Applicability
+
+Semantic relevance does not guarantee that an old experience is safe to reuse
+in the agent's current situation. Experience records can declare hard,
+model-independent preconditions in metadata:
+
+```python
+experience = brain.store(
+    "Refresh the expired token and retry deployment",
+    level=Level.DECISIONS,
+    semantic_type="decision",
+    metadata={
+        "applicability.require.cause": "expired_token",
+        "applicability.require.environment": "ready",
+    },
+)
+
+results = brain.recall_with_applicability(
+    "deployment authentication recovery",
+    current_state={
+        "cause": ["permission_denied"],
+        "environment": ["ready"],
+    },
+    top_k=5,
+)
+print(results[0]["applicability"]["decision"])
+```
+
+Every recalled record is annotated as `use`, `reject`, or `unknown`, with
+matched, missing, conflicting, and mismatched fields. Aura does not filter or
+rerank the results and never guesses missing state. The host agent remains in
+control of whether to adapt an `unknown` memory. Existing `recall()` and
+`recall_structured()` behavior is unchanged.
+
+### Portable Store Containers
+
+Aura can package its durable memory artifacts into one portable `.aura` file:
+
+```python
+report = brain.export_container("./snapshots/agent-memory.aura")
+
+# For provenance-sensitive backups, keep the private key outside the Aura
+# store and create a signed chain from generation one.
+keys = Aura.generate_container_signing_key()
+signed = brain.export_signed_container(
+    "./snapshots/agent-memory-signed.aura",
+    keys["private_key"],
+)
+auth = Aura.verify_container_authenticity(
+    "./snapshots/agent-memory-signed.aura",
+    trusted_public_key=keys["public_key"],
+    require_all_signed=True,
+)
+print(auth["public_key"], auth["latest_manifest_sha256"])
+Aura.update_container_authenticity_checkpoint(
+    "./snapshots/agent-memory-signed.aura",
+    "./trusted-state/agent-memory.checkpoint.json",
+    trusted_public_key=keys["public_key"],
+)
+Aura.verify_container_authenticity_checkpoint(
+    "./snapshots/agent-memory-signed.aura",
+    "./trusted-state/agent-memory.checkpoint.json",
+)
+Aura.import_authenticated_container(
+    "./snapshots/agent-memory-signed.aura",
+    "./trusted-restore",
+    trusted_public_key=keys["public_key"],
+    require_all_signed=True,
+)
+
+# Later snapshots append only changed artifacts. Unchanged segments are
+# referenced from the previous committed generation.
+delta = brain.append_container("./snapshots/agent-memory.aura")
+print(delta["generation"], delta["changed_segment_count"])
+
+signed_delta = brain.append_signed_container(
+    "./snapshots/agent-memory-signed.aura",
+    keys["private_key"],
+)
+
+# Inspect retention history and garbage-collect unreachable generations.
+history = Aura.list_container_generations("./snapshots/agent-memory.aura")
+change = Aura.diff_container_generations(
+    "./snapshots/agent-memory.aura",
+    from_generation=7,
+    to_generation=8,
+)
+Aura.import_container_generation(
+    "./snapshots/agent-memory.aura",
+    "./restored-generation-7",
+    generation=7,
+)
+gc = Aura.compact_container(
+    "./snapshots/agent-memory.aura",
+    keep_last=10,
+)
+print(gc["kept_generations"], gc["reclaimed_bytes"])
+
+policy = Aura.apply_container_retention(
+    "./snapshots/agent-memory.aura",
+    min_generations=2,
+    max_generations=20,
+    max_age_seconds=30 * 24 * 60 * 60,
+    max_size_bytes=512 * 1024 * 1024,
+)
+print(policy["selected_keep_last"], policy["size_target_met"])
+
+# Dry-run makes no filesystem changes.
+plan = Aura.plan_container_retention(
+    "./snapshots/agent-memory.aura",
+    min_generations=2,
+    max_generations=20,
+    max_age_seconds=30 * 24 * 60 * 60,
+    max_size_bytes=512 * 1024 * 1024,
+)
+print(plan["keep_generations"], plan["drop_generations"])
+
+# Legal holds are persisted as append-only control generations.
+Aura.hold_container_generation(
+    "./snapshots/agent-memory.aura",
+    generation=7,
+    label="legal-case-42",
+)
+Aura.release_container_generation_hold(
+    "./snapshots/agent-memory.aura",
+    generation=7,
+)
+
+# Signed chains require signed control generations too.
+Aura.hold_signed_container_generation(
+    "./snapshots/agent-memory-signed.aura",
+    generation=1,
+    label="legal-case-42",
+    signing_key=keys["private_key"],
+)
+
+# Or enforce the same policy automatically after every committed append.
+managed = brain.append_container_with_retention(
+    "./snapshots/agent-memory.aura",
+    min_generations=2,
+    max_generations=20,
+    max_age_seconds=30 * 24 * 60 * 60,
+    max_size_bytes=512 * 1024 * 1024,
+)
+
+# One scheduler can run per Aura instance and stops when Aura closes.
+brain.start_container_retention_scheduler(
+    "./snapshots/agent-memory.aura",
+    interval_seconds=3600,
+    min_generations=2,
+    max_generations=20,
+    max_age_seconds=30 * 24 * 60 * 60,
+    max_size_bytes=512 * 1024 * 1024,
+)
+
+# Inspection reads only the checksummed table of contents; verification also
+# decompresses every segment and checks its SHA-256 digest.
+toc = Aura.inspect_container("./snapshots/agent-memory.aura")
+Aura.verify_container("./snapshots/agent-memory.aura")
+
+# Read, verify, or extract only selected logical segments.
+brain_log = Aura.read_container_segment(
+    "./snapshots/agent-memory.aura", "brain.cog"
+)
+Aura.verify_container_segments(
+    "./snapshots/agent-memory.aura", ["brain.cog", "index/sdr.idx"]
+)
+Aura.extract_container_segments(
+    "./snapshots/agent-memory.aura",
+    "./diagnostic-extract",
+    ["brain.cog"],
+)
+
+# Import is deliberately restore-only: the target path must not exist.
+Aura.import_container("./snapshots/agent-memory.aura", "./restored-memory")
+restored = Aura("./restored-memory")
+```
+
+The versioned container uses independently compressed Zstd segments, bounded
+sizes, a checksummed table of contents, and per-segment SHA-256 integrity.
+Version 2 stores append-only generation frames: a generation becomes visible
+only after its frame header is committed, so an interrupted append falls back
+to the previous valid generation. Unchanged segments retain their original
+offsets, removed artifacts disappear from the latest logical TOC, and a no-op
+append adds no bytes. Version 1 containers remain readable; incremental append
+requires a v2 container created by the current exporter.
+Compaction retains the latest `N` committed generations with their original
+generation numbers, verifies every reachable segment while rebuilding, and
+replaces the old file only after the compacted container passes validation.
+Unreachable payloads, dropped TOCs, and incomplete trailing frames are removed.
+`keep_last` must be at least one; if the container already satisfies the
+retention policy, compaction is a no-op. Version 1 containers must first be
+restored and exported as v2 before they can be compacted.
+Retained generations can be independently inspected, SHA-256 verified, read,
+diffed, or restored to a new directory. Generation diffs deterministically
+separate added, removed, content-changed, and unchanged artifacts.
+
+Automatic retention combines generation-count, wall-clock age, and estimated
+compacted-size limits by selecting the most restrictive contiguous suffix.
+`min_generations` is a hard floor (default `1`), and at least one maximum must
+be configured. If even the minimum retained snapshot exceeds
+`max_size_bytes`, compaction still preserves the floor and returns
+`size_target_met=False` instead of deleting required history.
+`append_container_with_retention()` commits the new generation first and then
+applies the policy. If retention fails, the append remains valid and its error
+is returned; a later policy run can safely retry cleanup.
+
+Dry-run plans report exact keep/drop generation IDs, estimated compacted size,
+active holds, and whether policy limits are blocked by a hold. Legal holds are
+stored inside the container as append-only control generations and propagate
+through later snapshots. Because generations form a contiguous chain, holding
+generation `N` preserves the full suffix from `N` through the latest
+generation. Manual compaction and automatic retention both honor that floor.
+
+The optional background scheduler uses the same mutation lock as export,
+append, compaction, retention, and hold operations, records its last run/error,
+and can be stopped without waiting for the interval. Mutations are serialized
+both between threads and between cooperating OS processes through an advisory
+sidecar lock such as `agent-memory.aura.lock`. Lock acquisition times out after
+30 seconds with an explicit error. The zero-content sidecar is intentionally
+kept after release so that concurrent processes always address the same OS lock
+object; it does not indicate that a lock is currently held. Processes that
+modify `.aura` files without using Aura APIs must coordinate on the same lock.
+
+Signed containers use Ed25519 over a canonical logical generation manifest:
+generation metadata, legal holds, and each artifact's name, original size, and
+SHA-256 digest. Physical segment offsets are excluded, so verified compaction
+preserves existing signatures. Each signed manifest commits to the preceding
+signed manifest digest. `inspect`, `verify`, and import reject invalid
+signatures automatically; `verify_container_authenticity()` additionally pins
+the expected public key and can require every retained generation to be signed.
+An existing unsigned v2 container can start a signed epoch with a signed append,
+even when no artifact changed. After that, unsigned append and unsigned hold
+operations are rejected. Retention may leave the first retained signature with
+a detached predecessor digest, reported as `detached_prefix=True`.
+
+Keep signing private keys outside the Aura store and portable containers.
+Signatures authenticate retained history but cannot by themselves detect
+rollback to an older, otherwise valid signed container. For anti-rollback,
+persist and compare `latest_manifest_sha256` in an external trusted system.
+Aura's optional authenticity checkpoint automates this comparison: it pins the
+signing identity plus the highest accepted generation and manifest digest,
+rejects older generations and same-generation forks, and advances atomically.
+Store the checkpoint outside the Aura memory directory with trusted filesystem
+permissions; deleting or modifying both the container and its checkpoint is
+outside this local protection model. None of this is enabled or required for
+ordinary unsigned `export_container()` / `import_container()` usage.
+Extraction rejects absolute paths, traversal, duplicate names, overlapping
+ranges, corruption, and existing destinations. It is an additive snapshot
+format, not the live storage backend. Credential files, RBAC secrets, API keys,
+and encryption key material are intentionally excluded and must be managed
+separately. In Rust this support is controlled by the `capsule` feature and is
+included in the default `full` build.
+
 ### Temporal Memory Versioning
 
 Context answers what an agent needs now; memory also needs to preserve which
@@ -352,7 +606,7 @@ an explicit `contradicts` relationship when both claims must remain auditable
 as competing evidence.
 
 **Core Cognitive Runtime**
-- **Fast Local Recall** - Multi-signal ranking with optional embedding support
+- **Fast Local Recall** - Multi-signal SDR + BM25 + N-gram + tag ranking with optional embedding support
 - **Two-Tier Memory** — Cognitive (ephemeral) + Core (permanent) with decay, promotion, and archival
 - **Semantic Memory Types** — 6 roles (`fact`, `decision`, `trend`, `preference`, `contradiction`, `serendipity`) that influence memory behavior and insighting
 - **Phase-Based Insights** — Detects conflicts, trends, preference patterns, and cross-domain links
@@ -367,6 +621,7 @@ as competing evidence.
 - **Encryption** — ChaCha20-Poly1305 with Argon2id key derivation
 
 **Adaptive Memory**
+- **Portable `.aura` Containers** — single-file, Zstd-compressed, SHA-256-verified store snapshots with restore-only safe import
 - **Feedback Learning** — `brain.feedback(id, useful=True)` boosts useful memories, weakens noise
 - **Temporal Semantic Versioning** — `brain.supersede(old_id, new_content, effective_at=...)` with validity intervals and full version chains
 - **Snapshots & Rollback** — `brain.snapshot("v1")` / `brain.rollback("v1")` / `brain.diff("v1","v2")`
@@ -389,7 +644,9 @@ as competing evidence.
 - **Cross-Namespace Analytics** — read-only digest for tags, concepts, structural overlap, and canonical causal signatures across namespaces
 
 **Explainability & Governed Adaptation**
-- **Explainability APIs** — inspectable selected/rejected decisions through `explain_recall()`, plus `explain_record()`, `provenance_chain()`, and `explainability_bundle()`
+- **Explainability APIs** — inspectable selected/rejected decisions through `explain_recall()`, including per-signal BM25 traces, plus `explain_record()`, `provenance_chain()`, and `explainability_bundle()`
+- **Durable recall replay** — `replay_recall(trace_id)` reruns one of the latest 128 persisted traces and reports ranking additions, removals, moves, and score drift
+- **Permission-aware retrieval** — per-record public/restricted ACLs with role, group, and principal allow-lists plus `audit` and deny-by-default `enforce` modes
 - **Correction Governance** — correction log, correction review queue, suggested corrections, namespace governance status
 - **Autonomous Cognitive Plasticity** — extraction → ingest → maintenance loop for bounded self-adaptation without changing model weights
 - **Plasticity Safety Bounds** — generated-confidence ceiling, risk throttling, purge/freeze controls, operator-visible risk state

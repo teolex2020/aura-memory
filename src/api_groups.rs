@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
+use crate::applicability::{ApplicabilityContext, ApplicabilityRecallResult, ApplicabilityReport};
 use crate::aura::{
     Aura, ContradictionReviewCandidate, CorrectionLogEntry, CorrectionReviewCandidate,
     CrossNamespaceDigest, CrossNamespaceDigestOptions, ExplainabilityBundle, MemoryHealthDigest,
@@ -98,6 +99,35 @@ impl<'a> MemoryApi<'a> {
         self.aura.recall(
             query,
             token_budget,
+            min_strength,
+            expand_connections,
+            session_id,
+            namespaces,
+        )
+    }
+
+    pub fn evaluate_applicability(
+        &self,
+        record_id: &str,
+        current_state: &ApplicabilityContext,
+    ) -> Option<ApplicabilityReport> {
+        self.aura.evaluate_applicability(record_id, current_state)
+    }
+
+    pub fn recall_with_applicability(
+        &self,
+        query: &str,
+        current_state: &ApplicabilityContext,
+        top_k: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespaces: Option<&[&str]>,
+    ) -> Result<Vec<ApplicabilityRecallResult>> {
+        self.aura.recall_with_applicability(
+            query,
+            current_state,
+            top_k,
             min_strength,
             expand_connections,
             session_id,

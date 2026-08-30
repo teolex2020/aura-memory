@@ -14,6 +14,7 @@
 - Audit links are namespace-safe, schema-checked, and persisted with existing typed connections in one atomic journal frame.
 - Compact CRC-protected record patches keep graph-heavy journals bounded without weakening all-or-nothing crash replay.
 - Conflict workflows remain advisory and never mutate claims or decisions automatically.
+- Explicitly contradictory or refuting records are excluded from approximate duplicate consolidation, so a correction cannot inherit the durable level of the claim it opposes.
 
 ## 1.58.0
 

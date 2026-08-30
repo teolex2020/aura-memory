@@ -55,6 +55,14 @@ pub fn consolidate(
             continue;
         }
 
+        // Textual similarity is not semantic equivalence. Corrections and
+        // contradictions often differ by only one negation (for example,
+        // "requires staging" vs "no longer requires staging"). Never let the
+        // approximate MinHash pass collapse an explicitly conflicting pair.
+        if records_are_explicitly_conflicting(records, id_a, id_b) {
+            continue;
+        }
+
         let imp_a = records.get(id_a).map(|r| r.importance()).unwrap_or(0.0);
         let imp_b = records.get(id_b).map(|r| r.importance()).unwrap_or(0.0);
 
@@ -101,13 +109,75 @@ pub fn consolidate(
     result
 }
 
+fn records_are_explicitly_conflicting(
+    records: &HashMap<String, Record>,
+    id_a: &str,
+    id_b: &str,
+) -> bool {
+    [
+        records
+            .get(id_a)
+            .and_then(|record| record.connection_type(id_b)),
+        records
+            .get(id_b)
+            .and_then(|record| record.connection_type(id_a)),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|relation| {
+        let relation = relation.to_ascii_lowercase();
+        relation.contains("contradict")
+            || relation.contains("conflict")
+            || relation.contains("refut")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::levels::Level;
 
     #[test]
     fn test_consolidation_threshold() {
         assert!(CONSOLIDATION_THRESHOLD > CONSOLIDATION_SOFT_THRESHOLD);
         assert!(CONSOLIDATION_THRESHOLD <= 1.0);
+    }
+
+    #[test]
+    fn explicit_conflicts_are_never_merged_as_duplicates() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CognitiveStore::new(directory.path()).unwrap();
+        let mut records = HashMap::new();
+        let mut ngram = NGramIndex::new(None, None);
+        let mut tag_index = HashMap::new();
+        let mut aura_index = HashMap::new();
+
+        let mut old = Record::new("deployment policy requires staging".into(), Level::Identity);
+        let mut correction = Record::new(
+            "deployment policy requires staging".into(),
+            Level::Decisions,
+        );
+        old.add_typed_connection(&correction.id, 1.0, "contradicts");
+        correction.add_typed_connection(&old.id, 1.0, "contradicts");
+
+        let old_id = old.id.clone();
+        let correction_id = correction.id.clone();
+        ngram.add(&old_id, &old.content);
+        ngram.add(&correction_id, &correction.content);
+        records.insert(old_id.clone(), old);
+        records.insert(correction_id.clone(), correction);
+
+        let result = consolidate(
+            &mut records,
+            &mut ngram,
+            &mut tag_index,
+            &mut aura_index,
+            &store,
+        );
+
+        assert_eq!(result.checked, 1);
+        assert_eq!(result.merged, 0);
+        assert!(records.contains_key(&old_id));
+        assert!(records.contains_key(&correction_id));
     }
 }

@@ -22079,6 +22079,8 @@ mod tests {
             Some("promotion-governance"),
             Some("decision"),
         )?;
+        assert_ne!(old.id, fresh.id, "deduplication is disabled for this test");
+        assert_eq!(fresh.level, Level::Decisions);
         aura.connect(&old.id, &fresh.id, Some(1.0), Some("contradicts"))?;
 
         {
@@ -22098,6 +22100,8 @@ mod tests {
             fresh_record.strength = 1.0;
             fresh_record.created_at = now - 60.0;
         }
+
+        assert_eq!(aura.get(&fresh.id).unwrap().level, Level::Decisions);
 
         let report = aura.run_maintenance();
         let fresh_after = aura.get(&fresh.id).unwrap();

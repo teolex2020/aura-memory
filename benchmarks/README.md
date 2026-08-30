@@ -5,7 +5,7 @@ Reproducible performance benchmarks for AuraSDK.
 ## Quick Run
 
 ```bash
-# Full summary (1,000 records, ~10 seconds)
+# Full summary (1,000 records)
 python benchmarks/bench_all.py
 
 # Custom scale
@@ -35,13 +35,19 @@ python benchmarks/bench_maintenance.py
 
 `bench_all.py` saves results to `benchmarks/results.json` for CI tracking.
 
-## Reference Numbers
+## Reference Run
 
-Benchmarked on Windows 10 / Ryzen 7 with 1,000 records:
+Aura `1.58.0` release wheel, Windows 10, AMD Ryzen 5 5600X, CPython 3.13.14,
+1,000 records. These are observations, not latency guarantees.
 
-| Operation | Latency |
-|-----------|---------|
-| Store | ~0.09 ms/op |
-| Recall (structured) | ~0.74 ms/op |
-| Recall (cached) | ~0.48 us/op |
-| Maintenance cycle | ~1.1 ms/cycle |
+| Operation | Mean | Median | P95 |
+|-----------|-----:|-------:|----:|
+| Store | 0.956 ms | 0.898 ms | 1.820 ms |
+| Structured recall, uncached | 2.680 ms | 2.483 ms | 4.035 ms |
+| Structured recall, cache hit | 0.101 ms | 0.097 ms | 0.163 ms |
+| Formatted recall, cache hit | 8.6 us | 8.2 us | 8.7 us |
+| Repeated maintenance cycle | - | 25.68 ms | 32.62 ms |
+
+The first maintenance cycle after population took 487.09 ms. Run
+`bench_all.py` on the target system and use `results.json` rather than treating
+these reference values as an SLA.

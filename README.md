@@ -2,7 +2,7 @@
   <h1 align="center">Aura Memory</h1>
   <p align="center"><strong>Aura turns fragile prompt-only agents into auditable, memory-aware, production-ready systems</strong></p>
   <p align="center">
-    Deterministic · No fine-tuning · No cloud training · <1ms recall · ~3 MB
+    Deterministic · No fine-tuning · No cloud training · Local recall · No required embeddings
   </p>
 </p>
 
@@ -12,7 +12,6 @@
   <a href="https://pypi.org/project/aura-memory/"><img src="https://img.shields.io/pypi/dm/aura-memory.svg" alt="Downloads"></a>
   <a href="https://github.com/teolex2020/aura-memory/stargazers"><img src="https://img.shields.io/github/stars/teolex2020/aura-memory?style=social" alt="GitHub stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://github.com/teolex2020/aura-memory/actions/workflows/test.yml"><img src="https://img.shields.io/badge/tests-828_passed-brightgreen" alt="Tests"></a>
   <a href="https://www.uspto.gov/"><img src="https://img.shields.io/badge/Patent_Pending-US_63%2F969%2C703-blue.svg" alt="Patent Pending"></a>
 </p>
 
@@ -43,7 +42,7 @@ brain.store("User always deploys to staging first", level=Level.Domain, tags=["w
 brain.store("Staging deploy prevented 3 production incidents", level=Level.Domain, tags=["workflow"])
 
 # recall — local retrieval with optional bounded cognitive reranking
-context = brain.recall("deployment decision")  # <1ms, no API call
+context = brain.recall("deployment decision")  # local retrieval, no API call
 
 # inspect advisory hints produced from stored evidence
 hints = brain.get_surfaced_policy_hints()
@@ -67,10 +66,10 @@ No API keys. No embeddings required. No cloud. The model stays the same — the 
 | **Salience weighting** | **Yes — what matters persists longer** | No | No | No | No |
 | **Contradiction governance** | **Yes — explicit, operator-visible** | No | No | No | No |
 | **LLM required** | **No** | Yes | Yes | Yes | Yes |
-| **Recall latency** | **<1ms** | ~200ms+ | ~200ms | LLM-bound | LLM-bound |
+| **Recall latency** | **2.68 ms uncached / 8.2 µs formatted cache hit**<sup>1</sup> | Configuration-dependent | Service-dependent | Configuration-dependent | Model-dependent |
 | **Works offline** | **Fully** | Partial | No | No | With local LLM |
 | **Cost per operation** | **$0** | API billing | Credit-based | LLM + DB cost | LLM cost |
-| **Binary size** | **~3 MB** | ~50 MB+ | Cloud service | Heavy (Neo4j+) | Python pkg |
+| **Package size** | **2.77 MB Windows CPython 3.13 wheel**<sup>1</sup> | Varies | Cloud service | Varies | Varies |
 | **Memory decay & promotion** | **Built-in** | Via LLM | Via LLM | No | Via LLM |
 | **Trust & provenance** | **Built-in** | No | No | No | No |
 | **Encryption at rest** | **ChaCha20 + Argon2** | No | No | No | No |
@@ -80,7 +79,7 @@ No API keys. No embeddings required. No cloud. The model stays the same — the 
 
 Fine-tuning costs thousands of dollars and weeks of work. RAG requires embeddings and a vector database. Context windows are expensive per token.
 
-Aura gives you a third path: **a local cognitive runtime that accumulates structured experience between conversations** — free, local, sub-millisecond.
+Aura gives you a third path: **a local cognitive runtime that accumulates structured experience between conversations** — free and local.
 
 ```
 Week 1: GPT-4o-mini + Aura                Week 1: GPT-4 alone
@@ -98,16 +97,37 @@ The model stays the same. The cognitive layer gets stronger. That's Aura.
 
 ### Performance
 
-Benchmarked on 1,000 records (Windows 10 / Ryzen 7):
+Measured from the Aura `1.58.0` release wheel with 1,000 records on Windows 10,
+an AMD Ryzen 5 5600X, and CPython 3.13.14. These are observations from one
+local run, not latency guarantees; hardware, stored content, query shape, cache
+state, enabled features, and background load all affect the result.
 
-| Operation | Latency | vs Mem0 |
-|-----------|---------|---------|
-| Store | 0.09 ms | ~same |
-| Recall (structured) | 0.74 ms | **~270× faster** |
-| Recall (cached) | 0.48 µs | **~400,000× faster** |
-| Maintenance cycle | 1.1 ms | No equivalent |
+| Operation | Mean | Median | P95 |
+|-----------|-----:|-------:|----:|
+| Store | 0.956 ms | 0.898 ms | 1.820 ms |
+| Structured recall, uncached | 2.680 ms | 2.483 ms | 4.035 ms |
+| Structured recall, cache hit | 0.101 ms | 0.097 ms | 0.163 ms |
+| Formatted recall, cache hit | 8.6 µs | 8.2 µs | 8.7 µs |
+| Repeated maintenance cycle | — | 25.68 ms | 32.62 ms |
 
-Mem0 recall requires an embedding API call (~200ms+) + vector search. Aura recall is pure local computation.
+The first maintenance cycle in this run took `487.09 ms` because it processed
+the newly populated store; repeated cycles had less pending work. Aura recall
+uses local computation and makes no required embedding or LLM API call. No
+cross-product speedup is claimed here because a valid comparison requires the
+same dataset, hardware, query workload, cache state, and quality target.
+
+Reproduce the table with:
+
+```bash
+python benchmarks/bench_all.py 1000
+```
+
+The complete machine-readable output is stored in
+[`benchmarks/results.json`](benchmarks/results.json).
+
+<sub><sup>1</sup> Values above are from the measured Windows build. The wheel was
+2,772,715 bytes; installed size and artifacts for other Python versions and
+platforms vary.</sub>
 
 ---
 

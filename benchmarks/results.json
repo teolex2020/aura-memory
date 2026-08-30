@@ -1,27 +1,35 @@
 {
   "records": 1000,
+  "aura_version": "1.58.0",
   "platform": "Windows 10",
-  "python": "3.12.7",
-  "timestamp": "2026-03-03T20:08:29Z",
+  "processor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+  "python": "3.13.14",
+  "timestamp": "2026-08-30T15:44:42Z",
   "results": {
     "store": {
-      "mean_ms": 1.1754,
-      "median_ms": 1.0052,
-      "p95_ms": 2.1754
+      "mean_ms": 0.9558,
+      "median_ms": 0.8978,
+      "p95_ms": 1.8203
     },
-    "recall_structured": {
-      "mean_ms": 24.4485,
-      "median_ms": 22.6717,
-      "p95_ms": 38.0492
+    "recall_structured_uncached": {
+      "mean_ms": 2.6801,
+      "median_ms": 2.4827,
+      "p95_ms": 4.0345
     },
-    "recall_cached": {
-      "mean_us": 0.97,
-      "median_us": 0.9,
-      "min_us": 0.8
+    "recall_structured_cached": {
+      "mean_ms": 0.1005,
+      "median_ms": 0.0966,
+      "p95_ms": 0.163
+    },
+    "recall_formatted_cached": {
+      "mean_us": 8.55,
+      "median_us": 8.2,
+      "p95_us": 8.7
     },
     "maintenance": {
-      "mean_ms": 24.8885,
-      "median_ms": 2.8886
+      "first_cycle_ms": 487.091,
+      "repeated_median_ms": 25.6846,
+      "repeated_p95_ms": 32.6241
     }
   }
 }

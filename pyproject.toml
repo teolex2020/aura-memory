@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "aura-memory"
 version = "1.58.0"
 authors = [{name = "Alexander Tepliuk", email = "aura@aurasdk.dev"}]
-description = "Adaptive cognitive layer for AI agents. Sub-millisecond recall, zero LLM calls, pure Rust."
+description = "Adaptive cognitive layer for AI agents. Local recall, zero required LLM calls, pure Rust."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"

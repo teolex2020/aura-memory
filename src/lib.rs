@@ -91,6 +91,7 @@ pub mod crypto {
 pub mod acl;
 pub mod applicability;
 pub mod audit;
+pub mod audit_graph;
 mod aura_state;
 pub mod tenant;
 
@@ -219,6 +220,10 @@ pub use applicability::{
     evaluate_applicability, ApplicabilityConflict, ApplicabilityContext, ApplicabilityDecision,
     ApplicabilityMismatch, ApplicabilityRecallResult, ApplicabilityReport,
     APPLICABILITY_REQUIRE_PREFIX,
+};
+pub use audit_graph::{
+    AuditConflict, AuditEdge, AuditEntityKind, AuditEntityStatus, AuditEvidenceTrace, AuditGraph,
+    AuditNode, AuditRelationKind, ClaimEvidenceTrace, DecisionAuditExplanation,
 };
 pub use aura::Aura;
 pub use consequence::ConsequenceUnit;

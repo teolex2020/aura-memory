@@ -230,6 +230,42 @@ report = brain.run_maintenance()  # background memory maintenance
 
 ## Key Features
 
+### Evidence & Decision Audit Graph
+
+Aura can preserve the complete chain from evidence to a verified outcome as a
+small, deterministic read-model over the existing local store. It does not
+require a graph database, an LLM, or a cloud service:
+
+```python
+source_id = brain.store("Canary telemetry is healthy", source_type="retrieved")
+claim_id = brain.store("The canary is healthy", semantic_type="fact")
+decision_id = brain.store(
+    "Proceed with the bounded rollout",
+    level=Level.Decisions,
+    semantic_type="decision",
+)
+
+brain.annotate_audit_entity(source_id, "source", "observed", "deploy/source")
+brain.annotate_audit_entity(claim_id, "claim", "accepted", "deploy/claim")
+brain.annotate_audit_entity(decision_id, "decision", "decided", "deploy/decision")
+brain.link_audit_entities("deploy/source", "deploy/claim", "supports")
+brain.link_audit_entities("deploy/claim", "deploy/decision", "recalled_for")
+
+explanation = brain.explain_decision("deploy/decision")
+history = brain.audit_graph(namespace="default", valid_at=timestamp)
+conflicts = brain.find_claim_conflicts("deploy/claim")
+```
+
+Directed relations cover `supports`, `refutes`, `contradicts`, `supersedes`,
+`derived_from`, `recalled_for`, `used_evidence`, `used_by`, `caused`,
+`produced`, and `verified_by`. Entity status is append-only and bitemporal;
+historical graph reconstruction uses both recording time and business-time
+validity. Conflict recommendations are advisory and never rewrite memory.
+
+The graph is rebuilt from reserved `aura.audit.v1.*` record metadata, while
+links are committed atomically with Aura's existing typed connections. Compact
+JSON export is available in Rust through `AuditGraph::to_compact_json()`.
+
 ### Immutable Evidence Lineage
 
 Aura's cognitive provenance explains how a memory was formed and used. The

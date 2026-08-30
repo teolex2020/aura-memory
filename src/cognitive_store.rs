@@ -6,6 +6,7 @@
 use anyhow::{anyhow, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -26,8 +27,31 @@ const OP_DELETE: u8 = 0x03;
 /// the complete vector or none of it, which makes version-chain replacement
 /// atomic in the authoritative cognitive journal.
 const OP_ATOMIC_UPSERTS: u8 = 0x04;
+/// Compact atomic patches for reserved metadata and typed connections. This
+/// avoids rewriting an entire record when a small audit edge is appended.
+const OP_ATOMIC_RECORD_PATCHES: u8 = 0x05;
 
 const SNAP_MAGIC: &[u8; 4] = b"CSN1";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TypedConnectionPatch {
+    #[serde(rename = "i")]
+    pub other_record_id: String,
+    #[serde(rename = "w")]
+    pub weight: f32,
+    #[serde(rename = "r")]
+    pub relationship: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RecordPatch {
+    #[serde(rename = "i")]
+    pub record_id: String,
+    #[serde(rename = "m", default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata_upserts: HashMap<String, String>,
+    #[serde(rename = "c", default, skip_serializing_if = "Vec::is_empty")]
+    pub typed_connection_upserts: Vec<TypedConnectionPatch>,
+}
 
 /// Append-only cognitive record storage with snapshot-accelerated loading.
 pub struct CognitiveStore {
@@ -194,6 +218,37 @@ impl CognitiveStore {
                         }
                     }
                 }
+                OP_ATOMIC_RECORD_PATCHES => {
+                    match serde_json::from_slice::<Vec<RecordPatch>>(&payload) {
+                        Ok(batch)
+                            if batch
+                                .iter()
+                                .all(|patch| records.contains_key(&patch.record_id)) =>
+                        {
+                            for patch in batch {
+                                let record = records
+                                    .get_mut(&patch.record_id)
+                                    .expect("patch targets were prevalidated");
+                                record.metadata.extend(patch.metadata_upserts);
+                                for connection in patch.typed_connection_upserts {
+                                    record.add_typed_connection(
+                                        &connection.other_record_id,
+                                        connection.weight,
+                                        &connection.relationship,
+                                    );
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            tracing::warn!(
+                                "Atomic cognitive patch referenced a missing record; skipping frame"
+                            );
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "Invalid atomic cognitive patch, skipping frame");
+                        }
+                    }
+                }
                 _ => {
                     tracing::warn!("Unknown op code {} in cognitive log", op);
                 }
@@ -241,6 +296,15 @@ impl CognitiveStore {
 
         let payload = serde_json::to_vec(records)?;
         self.append_entry_internal(OP_ATOMIC_UPSERTS, &payload, true)
+    }
+
+    /// Atomically append compact metadata/connection changes.
+    pub(crate) fn append_atomic_record_patches(&self, patches: &[RecordPatch]) -> Result<()> {
+        if patches.is_empty() {
+            return Ok(());
+        }
+        let payload = serde_json::to_vec(patches)?;
+        self.append_entry_internal(OP_ATOMIC_RECORD_PATCHES, &payload, true)
     }
 
     #[cfg(test)]
@@ -439,6 +503,100 @@ mod tests {
             loaded[&successor.id].caused_by_id.as_deref(),
             Some(old.id.as_str())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn compact_record_patches_replay_metadata_and_connections_atomically() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = CognitiveStore::new(dir.path())?;
+        let first = Record::new("first".into(), Level::Domain);
+        let second = Record::new("second".into(), Level::Domain);
+        store.append_store(&first)?;
+        store.append_store(&second)?;
+
+        let mut metadata_upserts = HashMap::new();
+        metadata_upserts.insert("aura.audit.v1.entity_id".into(), "claim:first".into());
+        store.append_atomic_record_patches(&[
+            RecordPatch {
+                record_id: first.id.clone(),
+                metadata_upserts,
+                typed_connection_upserts: vec![TypedConnectionPatch {
+                    other_record_id: second.id.clone(),
+                    weight: 1.0,
+                    relationship: "supports".into(),
+                }],
+            },
+            RecordPatch {
+                record_id: second.id.clone(),
+                metadata_upserts: HashMap::new(),
+                typed_connection_upserts: vec![TypedConnectionPatch {
+                    other_record_id: first.id.clone(),
+                    weight: 1.0,
+                    relationship: "supports".into(),
+                }],
+            },
+        ])?;
+
+        let loaded = store.load_all()?;
+        assert_eq!(
+            loaded[&first.id]
+                .metadata
+                .get("aura.audit.v1.entity_id")
+                .map(String::as_str),
+            Some("claim:first")
+        );
+        assert_eq!(
+            loaded[&first.id].connection_type(&second.id),
+            Some("supports")
+        );
+        assert_eq!(
+            loaded[&second.id].connection_type(&first.id),
+            Some("supports")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn truncated_record_patch_tail_replays_none_of_the_batch() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let first = Record::new("patch source".into(), Level::Domain);
+        let second = Record::new("patch target".into(), Level::Domain);
+        {
+            let store = CognitiveStore::new(dir.path())?;
+            store.append_store(&first)?;
+            store.append_store(&second)?;
+            store.close()?;
+        }
+
+        let mut metadata_upserts = HashMap::new();
+        metadata_upserts.insert("aura.audit.v1.entity_id".into(), "interrupted".into());
+        let payload = serde_json::to_vec(&vec![RecordPatch {
+            record_id: first.id.clone(),
+            metadata_upserts,
+            typed_connection_upserts: vec![TypedConnectionPatch {
+                other_record_id: second.id.clone(),
+                weight: 1.0,
+                relationship: "supports".into(),
+            }],
+        }])?;
+        let mut log = OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("brain.cog"))?;
+        log.write_u8(OP_ATOMIC_RECORD_PATCHES)?;
+        log.write_u32::<LittleEndian>(payload.len() as u32)?;
+        log.write_u32::<LittleEndian>(crc32fast::hash(&payload))?;
+        log.write_all(&payload[..payload.len() / 2])?;
+        log.sync_all()?;
+        drop(log);
+
+        let reopened = CognitiveStore::new(dir.path())?;
+        let loaded = reopened.load_all()?;
+        assert_eq!(
+            loaded[&first.id].metadata.get("aura.audit.v1.entity_id"),
+            None
+        );
+        assert_eq!(loaded[&first.id].connection_type(&second.id), None);
         Ok(())
     }
 

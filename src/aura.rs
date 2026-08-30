@@ -22,9 +22,18 @@ use crate::applicability::{
     ApplicabilityRecallResult, ApplicabilityReport,
 };
 use crate::audit::AuditLog;
+use crate::audit_graph::{
+    is_reserved_audit_metadata_key, read_entity_id, read_entity_kind, read_status_events,
+    read_stored_edges, validate_entity_id as validate_audit_entity_id,
+    validate_relation as validate_audit_relation,
+    validate_temporal_interval as validate_audit_interval, write_annotation, write_stored_edges,
+    AuditEdge, AuditEntityKind, AuditEntityStatus, AuditGraph, AuditNode, AuditRelationKind,
+    AuditStatusEvent, ClaimEvidenceTrace, DecisionAuditExplanation, StoredAuditEdge,
+    AUDIT_EDGES_KEY, AUDIT_ENTITY_ID_KEY, AUDIT_ENTITY_KIND_KEY, AUDIT_STATUS_EVENTS_KEY,
+};
 use crate::aura_state::{AuraConfigState, AuraRuntimeState};
 use crate::canonical::CanonicalProjector;
-use crate::cognitive_store::CognitiveStore;
+use crate::cognitive_store::{CognitiveStore, RecordPatch, TypedConnectionPatch};
 use crate::consequence::{now_secs_f64, ConsequenceUnit, CONSEQUENCE_UNIT_TAG};
 use crate::consolidation;
 use crate::context_capsule::ContextCapsule;
@@ -541,6 +550,55 @@ pub struct MemoryHealthDigest {
     pub top_issues: Vec<OperatorReviewIssue>,
 }
 
+fn resolve_audit_record_id(
+    records: &HashMap<String, Record>,
+    record_or_entity_id: &str,
+) -> Option<String> {
+    if records.contains_key(record_or_entity_id) {
+        return Some(record_or_entity_id.to_string());
+    }
+    records
+        .values()
+        .find(|record| read_entity_id(record) == Some(record_or_entity_id))
+        .map(|record| record.id.clone())
+}
+
+fn ensure_audit_kind_immutable(
+    existing: AuditEntityKind,
+    requested: AuditEntityKind,
+    entity_id: &str,
+) -> Result<()> {
+    anyhow::ensure!(
+        existing == requested,
+        "audit entity kind is immutable for '{}' ({} != {})",
+        entity_id,
+        existing,
+        requested
+    );
+    Ok(())
+}
+
+fn audit_record_patch(
+    record: &Record,
+    metadata_keys: &[&str],
+    typed_connection_upserts: Vec<TypedConnectionPatch>,
+) -> RecordPatch {
+    let metadata_upserts = metadata_keys
+        .iter()
+        .filter_map(|key| {
+            record
+                .metadata
+                .get(*key)
+                .map(|value| ((*key).to_string(), value.clone()))
+        })
+        .collect();
+    RecordPatch {
+        record_id: record.id.clone(),
+        metadata_upserts,
+        typed_connection_upserts,
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CorrectionReviewCandidate {
     pub timestamp: u64,
@@ -944,6 +1002,299 @@ impl Aura {
         OperatorApi::new(self)
     }
 
+    /// Register an existing memory record as a canonical audit-graph entity.
+    ///
+    /// The annotation is stored in the record's reserved `aura.audit.v1.*`
+    /// metadata. `canonical_id` defaults to the record ID and is immutable once
+    /// assigned. Repeating the same annotation is idempotent.
+    pub fn annotate_audit_entity(
+        &self,
+        record_or_entity_id: &str,
+        kind: AuditEntityKind,
+        status: AuditEntityStatus,
+        canonical_id: Option<&str>,
+    ) -> Result<AuditNode> {
+        let recorded_at = now_secs_f64();
+        let mut records = self.records.write();
+        let record_id = resolve_audit_record_id(&records, record_or_entity_id)
+            .with_context(|| format!("record or audit entity not found: {record_or_entity_id}"))?;
+        let mut record = records
+            .get(&record_id)
+            .cloned()
+            .with_context(|| format!("record not found: {record_id}"))?;
+        let entity_id = match (read_entity_id(&record), canonical_id) {
+            (Some(existing), Some(requested)) if existing != requested => {
+                anyhow::bail!(
+                    "audit entity ID is immutable ('{}' != '{}')",
+                    existing,
+                    requested
+                );
+            }
+            (Some(existing), _) => existing.to_string(),
+            (None, Some(requested)) => requested.to_string(),
+            (None, None) => record.id.clone(),
+        };
+        validate_audit_entity_id(&entity_id)?;
+
+        if records.values().any(|candidate| {
+            candidate.id != record.id && read_entity_id(candidate) == Some(entity_id.as_str())
+        }) {
+            anyhow::bail!("audit entity ID is already assigned: {entity_id}");
+        }
+        if read_entity_id(&record).is_some() {
+            let existing_kind = read_entity_kind(&record)?;
+            ensure_audit_kind_immutable(existing_kind, kind, &entity_id)?;
+        }
+
+        let mut events = read_status_events(&record)?;
+        if !events.last().is_some_and(|event| {
+            event.status == status && event.valid_from.is_none() && event.valid_until.is_none()
+        }) {
+            events.push(AuditStatusEvent {
+                status,
+                recorded_at,
+                valid_from: None,
+                valid_until: None,
+            });
+        }
+        write_annotation(&mut record, &entity_id, kind, &events)?;
+        let visible_at = recorded_at.max(record.created_at) + 0.000_001;
+        let patch = audit_record_patch(
+            &record,
+            &[
+                AUDIT_ENTITY_ID_KEY,
+                AUDIT_ENTITY_KIND_KEY,
+                AUDIT_STATUS_EVENTS_KEY,
+            ],
+            Vec::new(),
+        );
+        self.cognitive_store
+            .append_atomic_record_patches(&[patch])?;
+        records.insert(record.id.clone(), record);
+        let namespace = records
+            .get(&record_id)
+            .map(|record| record.namespace.clone())
+            .unwrap_or_default();
+        drop(records);
+        self.runtime.clear_recall_caches();
+
+        self.audit_graph_at(visible_at, Some(&namespace))?
+            .nodes
+            .into_iter()
+            .find(|node| node.entity_id == entity_id)
+            .with_context(|| format!("audit entity was not visible after annotation: {entity_id}"))
+    }
+
+    /// Append a bitemporal status event for an existing audit entity.
+    pub fn set_audit_entity_status(
+        &self,
+        record_or_entity_id: &str,
+        status: AuditEntityStatus,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> Result<AuditNode> {
+        validate_audit_interval(valid_from, valid_until)?;
+        let recorded_at = now_secs_f64();
+        let mut records = self.records.write();
+        let record_id = resolve_audit_record_id(&records, record_or_entity_id)
+            .with_context(|| format!("audit entity not found: {record_or_entity_id}"))?;
+        let mut record = records
+            .get(&record_id)
+            .cloned()
+            .with_context(|| format!("record not found: {record_id}"))?;
+        let entity_id = read_entity_id(&record)
+            .with_context(|| format!("record '{}' is not an audit entity", record.id))?
+            .to_string();
+        let kind = read_entity_kind(&record)?;
+        let mut events = read_status_events(&record)?;
+        if !events.last().is_some_and(|event| {
+            event.status == status
+                && event.valid_from == valid_from
+                && event.valid_until == valid_until
+        }) {
+            events.push(AuditStatusEvent {
+                status,
+                recorded_at,
+                valid_from,
+                valid_until,
+            });
+        }
+        write_annotation(&mut record, &entity_id, kind, &events)?;
+        let namespace = record.namespace.clone();
+        let visible_at = recorded_at.max(record.created_at) + 0.000_001;
+        let patch = audit_record_patch(
+            &record,
+            &[
+                AUDIT_ENTITY_ID_KEY,
+                AUDIT_ENTITY_KIND_KEY,
+                AUDIT_STATUS_EVENTS_KEY,
+            ],
+            Vec::new(),
+        );
+        self.cognitive_store
+            .append_atomic_record_patches(&[patch])?;
+        records.insert(record.id.clone(), record);
+        drop(records);
+        self.runtime.clear_recall_caches();
+
+        let evaluated_at = valid_from
+            .filter(|start| *start > visible_at)
+            .unwrap_or(visible_at);
+        self.audit_graph_at(evaluated_at, Some(&namespace))?
+            .nodes
+            .into_iter()
+            .find(|node| node.entity_id == entity_id)
+            .with_context(|| {
+                format!("audit entity was not visible after status update: {entity_id}")
+            })
+    }
+
+    /// Persist a directed typed relation between two audit entities.
+    ///
+    /// The directed edge metadata is the audit source of truth. Aura's existing
+    /// bidirectional typed connection is updated in the same atomic journal
+    /// frame so ordinary graph recall can also benefit from the relationship.
+    pub fn link_audit_entities(
+        &self,
+        from_record_or_entity_id: &str,
+        to_record_or_entity_id: &str,
+        relation: AuditRelationKind,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> Result<AuditEdge> {
+        validate_audit_interval(valid_from, valid_until)?;
+        let recorded_at = now_secs_f64();
+        let mut records = self.records.write();
+        let from_record_id = resolve_audit_record_id(&records, from_record_or_entity_id)
+            .with_context(|| format!("audit source not found: {from_record_or_entity_id}"))?;
+        let to_record_id = resolve_audit_record_id(&records, to_record_or_entity_id)
+            .with_context(|| format!("audit target not found: {to_record_or_entity_id}"))?;
+        anyhow::ensure!(
+            from_record_id != to_record_id,
+            "self-referential audit edges are not allowed"
+        );
+
+        let mut source = records
+            .get(&from_record_id)
+            .cloned()
+            .with_context(|| format!("record not found: {from_record_id}"))?;
+        let mut target = records
+            .get(&to_record_id)
+            .cloned()
+            .with_context(|| format!("record not found: {to_record_id}"))?;
+        anyhow::ensure!(
+            source.namespace == target.namespace,
+            "cannot link audit entities across namespaces ('{}' vs '{}')",
+            source.namespace,
+            target.namespace
+        );
+        let from_entity_id = read_entity_id(&source)
+            .with_context(|| format!("record '{}' is not an audit entity", source.id))?
+            .to_string();
+        let to_entity_id = read_entity_id(&target)
+            .with_context(|| format!("record '{}' is not an audit entity", target.id))?
+            .to_string();
+        let source_kind = read_entity_kind(&source)?;
+        let target_kind = read_entity_kind(&target)?;
+        validate_audit_relation(source_kind, target_kind, relation)?;
+
+        let mut edges = read_stored_edges(&source)?;
+        let existing_recorded_at = edges
+            .iter()
+            .find(|edge| {
+                edge.relation == relation
+                    && edge.to_entity_id == to_entity_id
+                    && edge.valid_from == valid_from
+                    && edge.valid_until == valid_until
+            })
+            .map(|edge| edge.recorded_at);
+        if existing_recorded_at.is_none() {
+            edges.push(StoredAuditEdge {
+                relation,
+                to_entity_id: to_entity_id.clone(),
+                recorded_at,
+                valid_from,
+                valid_until,
+            });
+            edges.sort_by(|left, right| {
+                left.relation
+                    .cmp(&right.relation)
+                    .then_with(|| left.to_entity_id.cmp(&right.to_entity_id))
+                    .then_with(|| left.recorded_at.total_cmp(&right.recorded_at))
+            });
+        }
+        write_stored_edges(&mut source, &edges)?;
+        source.add_typed_connection(&target.id, 1.0, relation.as_str());
+        target.add_typed_connection(&source.id, 1.0, relation.as_str());
+
+        let source_patch = audit_record_patch(
+            &source,
+            &[AUDIT_EDGES_KEY],
+            vec![TypedConnectionPatch {
+                other_record_id: target.id.clone(),
+                weight: 1.0,
+                relationship: relation.as_str().into(),
+            }],
+        );
+        let target_patch = audit_record_patch(
+            &target,
+            &[],
+            vec![TypedConnectionPatch {
+                other_record_id: source.id.clone(),
+                weight: 1.0,
+                relationship: relation.as_str().into(),
+            }],
+        );
+        self.cognitive_store
+            .append_atomic_record_patches(&[source_patch, target_patch])?;
+        records.insert(source.id.clone(), source.clone());
+        records.insert(target.id.clone(), target.clone());
+        drop(records);
+        self.runtime.clear_recall_caches();
+
+        Ok(AuditEdge {
+            from_entity_id,
+            from_record_id: source.id,
+            to_entity_id,
+            to_record_id: target.id,
+            relation,
+            recorded_at: existing_recorded_at.unwrap_or(recorded_at),
+            valid_from,
+            valid_until,
+        })
+    }
+
+    /// Rebuild the current evidence and decision graph from persisted records.
+    pub fn audit_graph(&self, namespace: Option<&str>) -> Result<AuditGraph> {
+        self.audit_graph_at(now_secs_f64(), namespace)
+    }
+
+    /// Rebuild the evidence and decision graph as known at `timestamp`.
+    ///
+    /// Historical/rejected nodes remain inspectable; each node reports whether
+    /// its backing record was business-time valid at that instant.
+    pub fn audit_graph_at(&self, timestamp: f64, namespace: Option<&str>) -> Result<AuditGraph> {
+        AuditGraph::from_records(&self.records.read(), timestamp, namespace)
+    }
+
+    /// Explain evidence, conflicts, actions, artifacts, and verification for a decision.
+    pub fn explain_decision(&self, decision_id: &str) -> Result<DecisionAuditExplanation> {
+        self.audit_graph(None)?.explain_decision(decision_id)
+    }
+
+    /// Trace sources, decision uses, and contradictions for a claim or memory.
+    pub fn trace_claim_evidence(&self, claim_id: &str) -> Result<ClaimEvidenceTrace> {
+        self.audit_graph(None)?.trace_claim_evidence(claim_id)
+    }
+
+    /// Return an advisory conflict workflow without mutating memory state.
+    pub fn find_claim_conflicts(
+        &self,
+        claim_id: &str,
+    ) -> Result<Vec<crate::audit_graph::AuditConflict>> {
+        self.audit_graph(None)?.find_claim_conflicts(claim_id)
+    }
+
     /// Store a memory with automatic guards (provenance, auto-protect, dedup).
     pub fn store(
         &self,
@@ -1074,6 +1425,15 @@ impl Aura {
         }
         if content.len() > MAX_CONTENT_SIZE {
             return Err(anyhow::anyhow!("Content exceeds maximum size of 100KB"));
+        }
+        if metadata.as_ref().is_some_and(|metadata| {
+            metadata
+                .keys()
+                .any(|key| is_reserved_audit_metadata_key(key))
+        }) {
+            anyhow::bail!(
+                "aura.audit.v1.* metadata is reserved; use annotate_audit_entity() and link_audit_entities()"
+            );
         }
 
         let level = level.unwrap_or(Level::Working);
@@ -3702,6 +4062,13 @@ impl Aura {
         if let Some(st) = source_type {
             crate::record::Record::validate_source_type(st).map_err(|e| anyhow::anyhow!(e))?;
         }
+        if metadata.as_ref().is_some_and(|metadata| {
+            metadata
+                .keys()
+                .any(|key| is_reserved_audit_metadata_key(key))
+        }) {
+            anyhow::bail!("aura.audit.v1.* metadata is reserved; use the audit entity APIs");
+        }
         let mut records = self.records.write();
         let rec = match records.get_mut(record_id) {
             Some(r) => r,
@@ -3726,7 +4093,14 @@ impl Aura {
             rec.strength = s.clamp(0.0, 1.0);
         }
         if let Some(m) = metadata {
+            let reserved = rec
+                .metadata
+                .iter()
+                .filter(|(key, _)| is_reserved_audit_metadata_key(key))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<HashMap<_, _>>();
             rec.metadata = m;
+            rec.metadata.extend(reserved);
         }
         if let Some(st) = source_type {
             rec.source_type = st.to_string();
@@ -10242,6 +10616,14 @@ impl Aura {
 
 // ── PyO3 Bindings ──
 
+#[cfg(feature = "python")]
+fn audit_value_to_py<T: Serialize>(py: Python<'_>, value: &T) -> PyResult<PyObject> {
+    let encoded = serde_json::to_string(value)
+        .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+    let json = pyo3::types::PyModule::import_bound(py, "json")?;
+    Ok(json.call_method1("loads", (encoded,))?.unbind())
+}
+
 /// Extract namespaces from a Python argument that can be str, list[str], or None.
 ///
 /// - `None` → `None` (will default to `["default"]` in Rust methods)
@@ -13502,6 +13884,116 @@ impl Aura {
             })
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(rec.id.clone())
+    }
+
+    #[pyo3(name = "annotate_audit_entity", signature = (record_or_entity_id, kind, status, canonical_id=None))]
+    fn py_annotate_audit_entity(
+        &self,
+        py: Python<'_>,
+        record_or_entity_id: &str,
+        kind: &str,
+        status: &str,
+        canonical_id: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let kind = kind
+            .parse::<AuditEntityKind>()
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        let status = status
+            .parse::<AuditEntityStatus>()
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        let node = py
+            .allow_threads(|| {
+                self.annotate_audit_entity(record_or_entity_id, kind, status, canonical_id)
+            })
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        audit_value_to_py(py, &node)
+    }
+
+    #[pyo3(name = "set_audit_entity_status", signature = (record_or_entity_id, status, valid_from=None, valid_until=None))]
+    fn py_set_audit_entity_status(
+        &self,
+        py: Python<'_>,
+        record_or_entity_id: &str,
+        status: &str,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> PyResult<PyObject> {
+        let status = status
+            .parse::<AuditEntityStatus>()
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        let node = py
+            .allow_threads(|| {
+                self.set_audit_entity_status(record_or_entity_id, status, valid_from, valid_until)
+            })
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        audit_value_to_py(py, &node)
+    }
+
+    #[pyo3(name = "link_audit_entities", signature = (from_record_or_entity_id, to_record_or_entity_id, relation, valid_from=None, valid_until=None))]
+    fn py_link_audit_entities(
+        &self,
+        py: Python<'_>,
+        from_record_or_entity_id: &str,
+        to_record_or_entity_id: &str,
+        relation: &str,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> PyResult<PyObject> {
+        let relation = relation
+            .parse::<AuditRelationKind>()
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        let edge = py
+            .allow_threads(|| {
+                self.link_audit_entities(
+                    from_record_or_entity_id,
+                    to_record_or_entity_id,
+                    relation,
+                    valid_from,
+                    valid_until,
+                )
+            })
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        audit_value_to_py(py, &edge)
+    }
+
+    #[pyo3(name = "audit_graph", signature = (namespace=None, valid_at=None))]
+    fn py_audit_graph(
+        &self,
+        py: Python<'_>,
+        namespace: Option<&str>,
+        valid_at: Option<f64>,
+    ) -> PyResult<PyObject> {
+        let graph = py
+            .allow_threads(|| match valid_at {
+                Some(timestamp) => self.audit_graph_at(timestamp, namespace),
+                None => self.audit_graph(namespace),
+            })
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        audit_value_to_py(py, &graph)
+    }
+
+    #[pyo3(name = "explain_decision")]
+    fn py_explain_decision(&self, py: Python<'_>, decision_id: &str) -> PyResult<PyObject> {
+        let explanation = py
+            .allow_threads(|| self.explain_decision(decision_id))
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        audit_value_to_py(py, &explanation)
+    }
+
+    #[pyo3(name = "trace_claim_evidence")]
+    fn py_trace_claim_evidence(&self, py: Python<'_>, claim_id: &str) -> PyResult<PyObject> {
+        let trace = py
+            .allow_threads(|| self.trace_claim_evidence(claim_id))
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        audit_value_to_py(py, &trace)
+    }
+
+    #[pyo3(name = "find_claim_conflicts")]
+    fn py_find_claim_conflicts(&self, py: Python<'_>, claim_id: &str) -> PyResult<PyObject> {
+        let conflicts = py
+            .allow_threads(|| self.find_claim_conflicts(claim_id))
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        audit_value_to_py(py, &conflicts)
     }
 
     #[pyo3(name = "capture_consequence", signature = (situation, action, consequence, trust=0, scope=None, provenance=None, links=None, namespace=None))]

@@ -90,6 +90,7 @@ tests/
 tests/*
 !tests/memory_resilience.rs
 !tests/applicability_api.rs
+!tests/audit_graph_api.rs
 
 # Marketing materials (strategy — not public)
 marketing/

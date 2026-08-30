@@ -9,6 +9,10 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::applicability::{ApplicabilityContext, ApplicabilityRecallResult, ApplicabilityReport};
+use crate::audit_graph::{
+    AuditConflict, AuditEdge, AuditEntityKind, AuditEntityStatus, AuditGraph, AuditNode,
+    AuditRelationKind, ClaimEvidenceTrace, DecisionAuditExplanation,
+};
 use crate::aura::{
     Aura, ContradictionReviewCandidate, CorrectionLogEntry, CorrectionReviewCandidate,
     CrossNamespaceDigest, CrossNamespaceDigestOptions, ExplainabilityBundle, MemoryHealthDigest,
@@ -171,6 +175,45 @@ impl<'a> MemoryApi<'a> {
         self.aura.mark_record_salience(record_id, salience, reason)
     }
 
+    pub fn annotate_audit_entity(
+        &self,
+        record_or_entity_id: &str,
+        kind: AuditEntityKind,
+        status: AuditEntityStatus,
+        canonical_id: Option<&str>,
+    ) -> Result<AuditNode> {
+        self.aura
+            .annotate_audit_entity(record_or_entity_id, kind, status, canonical_id)
+    }
+
+    pub fn set_audit_entity_status(
+        &self,
+        record_or_entity_id: &str,
+        status: AuditEntityStatus,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> Result<AuditNode> {
+        self.aura
+            .set_audit_entity_status(record_or_entity_id, status, valid_from, valid_until)
+    }
+
+    pub fn link_audit_entities(
+        &self,
+        from_record_or_entity_id: &str,
+        to_record_or_entity_id: &str,
+        relation: AuditRelationKind,
+        valid_from: Option<f64>,
+        valid_until: Option<f64>,
+    ) -> Result<AuditEdge> {
+        self.aura.link_audit_entities(
+            from_record_or_entity_id,
+            to_record_or_entity_id,
+            relation,
+            valid_from,
+            valid_until,
+        )
+    }
+
     pub fn update(
         &self,
         record_id: &str,
@@ -220,6 +263,26 @@ impl<'a> ExplainabilityApi<'a> {
 
     pub fn explainability_bundle(&self, record_id: &str) -> Option<ExplainabilityBundle> {
         self.aura.explainability_bundle(record_id)
+    }
+
+    pub fn audit_graph(&self, namespace: Option<&str>) -> Result<AuditGraph> {
+        self.aura.audit_graph(namespace)
+    }
+
+    pub fn audit_graph_at(&self, timestamp: f64, namespace: Option<&str>) -> Result<AuditGraph> {
+        self.aura.audit_graph_at(timestamp, namespace)
+    }
+
+    pub fn explain_decision(&self, decision_id: &str) -> Result<DecisionAuditExplanation> {
+        self.aura.explain_decision(decision_id)
+    }
+
+    pub fn trace_claim_evidence(&self, claim_id: &str) -> Result<ClaimEvidenceTrace> {
+        self.aura.trace_claim_evidence(claim_id)
+    }
+
+    pub fn find_claim_conflicts(&self, claim_id: &str) -> Result<Vec<AuditConflict>> {
+        self.aura.find_claim_conflicts(claim_id)
     }
 
     pub fn get_latest_reflection_digest(&self) -> Option<ReflectionSummary> {

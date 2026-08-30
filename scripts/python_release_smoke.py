@@ -83,6 +83,42 @@ def main() -> None:
         assert finding["integrity_valid"] is True
         assert finding["admission"] == "cite"
 
+        source_id = brain.store(
+            "Release telemetry is healthy",
+            namespace="release-check",
+            semantic_type="fact",
+        )
+        claim_id = brain.store(
+            "The release candidate is healthy",
+            namespace="release-check",
+            semantic_type="fact",
+        )
+        decision_id = brain.store(
+            "Publish the verified release candidate",
+            level=Level.Decisions,
+            namespace="release-check",
+            semantic_type="decision",
+        )
+        brain.annotate_audit_entity(
+            source_id, "source", "observed", "release/source"
+        )
+        brain.annotate_audit_entity(
+            claim_id, "claim", "accepted", "release/claim"
+        )
+        brain.annotate_audit_entity(
+            decision_id, "decision", "decided", "release/decision"
+        )
+        brain.link_audit_entities("release/source", "release/claim", "supports")
+        brain.link_audit_entities(
+            "release/claim", "release/decision", "recalled_for"
+        )
+        graph = brain.audit_graph(namespace="release-check")
+        assert len(graph["nodes"]) == 3
+        assert len(graph["edges"]) == 2
+        explanation = brain.explain_decision("release/decision")
+        assert explanation["decision"]["entity_id"] == "release/decision"
+        assert explanation["evidence"][0]["claim"]["entity_id"] == "release/claim"
+
         exported = brain.export_container(str(container_path))
         assert exported["generation"] == 1
         assert Aura.verify_container(str(container_path))["generation"] == 1

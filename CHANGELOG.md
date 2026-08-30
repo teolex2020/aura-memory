@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 1.59.0
+
+### Added
+
+- **Evidence & Decision Audit Graph** — a deterministic, dependency-free read-model over existing Aura records connects sources, claims, decisions, actions, artifacts, and verifications with directed typed relations.
+- **Decision and claim inspection** — `explain_decision()`, `trace_claim_evidence()`, and `find_claim_conflicts()` expose accepted/rejected evidence, source lineage, downstream outcomes, and advisory conflict workflows.
+- **Bitemporal audit reconstruction** — append-only entity status events and validity-bounded edges support `audit_graph_at()` without creating a second source of truth.
+- **Python audit API** — wheel users can annotate entities and link them using simple string kinds, statuses, and relations; inspection results are returned as ordinary dictionaries.
+
+### Safety
+
+- Audit links are namespace-safe, schema-checked, and persisted with existing typed connections in one atomic journal frame.
+- Compact CRC-protected record patches keep graph-heavy journals bounded without weakening all-or-nothing crash replay.
+- Conflict workflows remain advisory and never mutate claims or decisions automatically.
 
 ## 1.58.0
 

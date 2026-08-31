@@ -9,6 +9,14 @@ use crate::synonym::SynonymRing;
 
 const PRIME: u64 = 2_147_483_647; // Mersenne prime 2^31-1
 const DEFAULT_NUM_HASHES: usize = 128;
+/// Fixed seed for MinHash coefficient generation.
+///
+/// The coefficients must be identical across every `NGramIndex` instance and
+/// across process restarts; otherwise the same text hashes to different
+/// signatures each session, making fuzzy-match recall scores — and therefore
+/// recall ordering — nondeterministic between runs. A fixed seed keeps the
+/// coefficients well-distributed while guaranteeing "same query → same order".
+const COEFFICIENT_SEED: u64 = 0x4155_5241_5f4e_4752; // "AURA_NGR"
 
 /// MinHash-based n-gram index for approximate Jaccard similarity.
 pub struct NGramIndex {
@@ -29,9 +37,10 @@ impl NGramIndex {
     pub fn new(num_hashes: Option<usize>, synonym_ring: Option<SynonymRing>) -> Self {
         let num_hashes = num_hashes.unwrap_or(DEFAULT_NUM_HASHES);
 
-        // Generate random hash function coefficients
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
+        // Generate hash function coefficients from a fixed seed so the index is
+        // deterministic across instances and process restarts (see COEFFICIENT_SEED).
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(COEFFICIENT_SEED);
         let a: Vec<u64> = (0..num_hashes).map(|_| rng.gen_range(1..PRIME)).collect();
         let b: Vec<u64> = (0..num_hashes).map(|_| rng.gen_range(0..PRIME)).collect();
 
@@ -272,5 +281,37 @@ mod tests {
         assert_eq!(idx.len(), 1);
         idx.remove("r1");
         assert_eq!(idx.len(), 0);
+    }
+
+    #[test]
+    fn test_coefficients_are_deterministic() {
+        // Two independently constructed indexes must use identical hash
+        // coefficients — otherwise the same text hashes to different MinHash
+        // signatures, breaking the "same query -> same order" guarantee across
+        // process restarts.
+        let idx_a = NGramIndex::new(None, None);
+        let idx_b = NGramIndex::new(None, None);
+        assert_eq!(idx_a.a, idx_b.a, "coefficient vector `a` must be stable");
+        assert_eq!(idx_a.b, idx_b.b, "coefficient vector `b` must be stable");
+    }
+
+    #[test]
+    fn test_query_scores_are_stable_across_instances() {
+        // Build two separate indexes with the same content and confirm the
+        // fuzzy-match scores are byte-for-byte identical. This is the property
+        // recall ranking depends on across restarts.
+        let build = || {
+            let mut idx = NGramIndex::new(None, None);
+            idx.add("r1", "The quick brown fox jumps over the lazy dog");
+            idx.add("r2", "The quick brown fox");
+            idx.add("r3", "Something completely different");
+            idx
+        };
+        let first = build().query("quick brown fox", 10);
+        let second = build().query("quick brown fox", 10);
+        assert_eq!(
+            first, second,
+            "query scores and order must be identical across instances"
+        );
     }
 }

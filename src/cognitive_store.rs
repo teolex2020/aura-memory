@@ -61,6 +61,7 @@ pub struct CognitiveStore {
     snap_path: PathBuf,
     writer: Mutex<Option<BufWriter<File>>>,
     log_position: Mutex<u64>,
+    codec: crate::persistence::PersistenceCodec,
     #[cfg(test)]
     fail_next_atomic_upsert: AtomicBool,
 }
@@ -68,6 +69,13 @@ pub struct CognitiveStore {
 impl CognitiveStore {
     /// Open or create a cognitive store at the given directory.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::with_codec(path, crate::persistence::PersistenceCodec::default())
+    }
+
+    pub(crate) fn with_codec<P: AsRef<Path>>(
+        path: P,
+        codec: crate::persistence::PersistenceCodec,
+    ) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         fs::create_dir_all(&path)?;
 
@@ -78,8 +86,18 @@ impl CognitiveStore {
         if !log_path.exists() {
             let mut f = File::create(&log_path)?;
             f.write_all(MAGIC)?;
-            f.write_u8(VERSION)?;
+            f.write_u8(if codec.is_encrypted() { 3 } else { VERSION })?;
             f.flush()?;
+        } else {
+            let mut file = File::open(&log_path)?;
+            let mut magic = [0; 4];
+            file.read_exact(&mut magic)?;
+            let version = file.read_u8()?;
+            anyhow::ensure!(
+                &magic == MAGIC && (version == VERSION || version == 3),
+                "Unsupported cognitive journal format"
+            );
+            anyhow::ensure!((version == 3) == codec.is_encrypted(), "Cognitive journal encryption mode mismatch; password or explicit migration required");
         }
 
         let writer_file = OpenOptions::new().append(true).open(&log_path)?;
@@ -91,6 +109,7 @@ impl CognitiveStore {
             snap_path,
             writer: Mutex::new(Some(writer)),
             log_position: Mutex::new(0),
+            codec,
             #[cfg(test)]
             fail_next_atomic_upsert: AtomicBool::new(false),
         })
@@ -146,6 +165,7 @@ impl CognitiveStore {
             let mut payload = vec![0u8; payload_len];
             reader.read_exact(&mut payload)?;
 
+            let payload = self.codec.decode(&payload)?;
             if let Ok(rec) = self.deserialize_record(&payload) {
                 records.insert(rec.id.clone(), rec);
             }
@@ -189,6 +209,7 @@ impl CognitiveStore {
                 continue;
             }
 
+            let payload = self.codec.decode(&payload)?;
             match op {
                 OP_STORE | OP_UPDATE => {
                     if let Ok(rec) = self.deserialize_record(&payload) {
@@ -318,7 +339,8 @@ impl CognitiveStore {
     }
 
     fn append_entry_internal(&self, op: u8, payload: &[u8], durable: bool) -> Result<()> {
-        let crc = crc32fast::hash(payload);
+        let payload = self.codec.encode(payload)?;
+        let crc = crc32fast::hash(&payload);
 
         let mut writer = self.writer.lock();
         let w = writer
@@ -327,7 +349,7 @@ impl CognitiveStore {
         w.write_u8(op)?;
         w.write_u32::<LittleEndian>(payload.len() as u32)?;
         w.write_u32::<LittleEndian>(crc)?;
-        w.write_all(payload)?;
+        w.write_all(&payload)?;
         w.flush()?;
         if durable {
             w.get_ref().sync_all()?;
@@ -348,12 +370,16 @@ impl CognitiveStore {
             let file = File::create(&temp_path)?;
             let mut writer = BufWriter::new(file);
             writer.write_all(SNAP_MAGIC)?;
-            writer.write_u8(VERSION)?;
+            writer.write_u8(if self.codec.is_encrypted() {
+                3
+            } else {
+                VERSION
+            })?;
             writer.write_u64::<LittleEndian>(log_pos)?;
             writer.write_u32::<LittleEndian>(records.len() as u32)?;
 
             for rec in records.values() {
-                let payload = self.serialize_record(rec)?;
+                let payload = self.codec.encode(&self.serialize_record(rec)?)?;
                 writer.write_u32::<LittleEndian>(payload.len() as u32)?;
                 writer.write_all(&payload)?;
             }
@@ -378,10 +404,14 @@ impl CognitiveStore {
         {
             let mut f = File::create(&temp_path)?;
             f.write_all(MAGIC)?;
-            f.write_u8(VERSION)?;
+            f.write_u8(if self.codec.is_encrypted() {
+                3
+            } else {
+                VERSION
+            })?;
 
             for rec in records.values() {
-                let payload = self.serialize_record(rec)?;
+                let payload = self.codec.encode(&self.serialize_record(rec)?)?;
                 let crc = crc32fast::hash(&payload);
                 f.write_u8(OP_STORE)?;
                 f.write_u32::<LittleEndian>(payload.len() as u32)?;
@@ -633,6 +663,34 @@ mod tests {
         assert_eq!(loaded[&old_id].content, "old policy remains current");
         assert_eq!(loaded[&old_id].valid_until, None);
         assert_eq!(loaded[&old_id].metadata.get("superseded_by"), None);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "encryption")]
+    fn encrypted_atomic_batches_snapshots_and_compaction_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let codec = crate::persistence::PersistenceCodec::new(Some(
+            crate::crypto::EncryptionKey::generate(),
+        ));
+        let left = Record::new("PRIVATE_ENCRYPTED_BATCH_LEFT".into(), Level::Domain);
+        let right = Record::new("PRIVATE_ENCRYPTED_BATCH_RIGHT".into(), Level::Domain);
+        let store = CognitiveStore::with_codec(dir.path(), codec.clone())?;
+        store.append_atomic_upserts(&[left.clone(), right.clone()])?;
+        let records = store.load_all()?;
+        assert_eq!(records.len(), 2);
+        store.compact(&records)?;
+        store.close()?;
+        drop(store);
+        for name in ["brain.cog", "brain.snap"] {
+            let bytes = std::fs::read(dir.path().join(name))?;
+            assert!(!bytes.windows(17).any(|w| w == b"PRIVATE_ENCRYPTED_"));
+        }
+        assert!(CognitiveStore::new(dir.path()).is_err());
+        let reopened = CognitiveStore::with_codec(dir.path(), codec)?;
+        let loaded = reopened.load_all()?;
+        assert_eq!(loaded[&left.id].content, left.content);
+        assert_eq!(loaded[&right.id].content, right.content);
         Ok(())
     }
 

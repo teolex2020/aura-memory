@@ -4,32 +4,83 @@
 //! and used as an additional ranked list in the recall pipeline.
 //! This is optional — Aura works fully without embeddings.
 
+use anyhow::{ensure, Result};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// Stores pre-computed embeddings for records.
 pub struct EmbeddingStore {
     /// record_id → embedding vector
     embeddings: RwLock<HashMap<String, Vec<f32>>>,
+    path: Option<PathBuf>,
+    codec: crate::persistence::PersistenceCodec,
 }
 
 impl EmbeddingStore {
     pub fn new() -> Self {
         Self {
             embeddings: RwLock::new(HashMap::new()),
+            path: None,
+            codec: Default::default(),
         }
     }
 
+    pub(crate) fn open(
+        root: &Path,
+        codec: crate::persistence::PersistenceCodec,
+        records: &HashMap<String, crate::record::Record>,
+    ) -> Result<Self> {
+        let path = root.join("embeddings.cog");
+        let mut embeddings: HashMap<String, Vec<f32>> = if path.exists() {
+            serde_json::from_slice(&codec.read(&path)?)?
+        } else {
+            HashMap::new()
+        };
+        // A crash after the authoritative record deletion cannot resurrect a
+        // stale embedding from the last index snapshot.
+        embeddings.retain(|id, _| records.contains_key(id));
+        let mut dimensions = None;
+        for vector in embeddings.values() {
+            validate_vector(vector, dimensions)?;
+            dimensions = Some(vector.len());
+        }
+        Ok(Self {
+            embeddings: RwLock::new(embeddings),
+            path: Some(path),
+            codec,
+        })
+    }
+
+    fn persist(&self, embeddings: &HashMap<String, Vec<f32>>) -> Result<()> {
+        if let Some(path) = &self.path {
+            self.codec.write(path, &serde_json::to_vec(embeddings)?)?;
+        }
+        Ok(())
+    }
+
     /// Store an embedding for a record.
-    pub fn insert(&self, record_id: &str, embedding: Vec<f32>) {
-        self.embeddings
-            .write()
-            .insert(record_id.to_string(), embedding);
+    pub fn insert(&self, record_id: &str, embedding: Vec<f32>) -> Result<()> {
+        let mut current = self.embeddings.write();
+        validate_vector(&embedding, current.values().next().map(Vec::len))?;
+        let mut updated = current.clone();
+        updated.insert(record_id.to_string(), embedding);
+        self.persist(&updated)?;
+        *current = updated;
+        Ok(())
     }
 
     /// Remove an embedding.
-    pub fn remove(&self, record_id: &str) {
-        self.embeddings.write().remove(record_id);
+    pub fn remove(&self, record_id: &str) -> Result<()> {
+        let mut current = self.embeddings.write();
+        if !current.contains_key(record_id) {
+            return Ok(());
+        }
+        let mut updated = current.clone();
+        updated.remove(record_id);
+        self.persist(&updated)?;
+        *current = updated;
+        Ok(())
     }
 
     /// Check if any embeddings are stored.
@@ -62,15 +113,34 @@ impl EmbeddingStore {
             })
             .collect();
 
-        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scores.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
         scores.truncate(top_k);
         scores
     }
 
     /// Clear all embeddings.
-    pub fn clear(&self) {
-        self.embeddings.write().clear();
+    pub fn clear(&self) -> Result<()> {
+        let mut current = self.embeddings.write();
+        self.persist(&HashMap::new())?;
+        current.clear();
+        Ok(())
     }
+}
+
+fn validate_vector(vector: &[f32], dimensions: Option<usize>) -> Result<()> {
+    ensure!(
+        !vector.is_empty() && vector.iter().all(|v| v.is_finite()),
+        "Embedding must be nonempty and finite"
+    );
+    ensure!(
+        dimensions.map_or(true, |d| d == vector.len()),
+        "Embedding dimension mismatch"
+    );
+    Ok(())
 }
 
 /// Cosine similarity between two vectors.
@@ -102,6 +172,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn prepush_equal_embeddings_have_stable_top_k() {
+        let expected: Vec<_> = (0..8).map(|i| (format!("record-{i:02}"), 1.0)).collect();
+        for reverse in [false, true] {
+            let store = EmbeddingStore::new();
+            let ids: Vec<_> = if reverse {
+                (0..32).rev().collect()
+            } else {
+                (0..32).collect()
+            };
+            for i in ids {
+                store
+                    .insert(&format!("record-{i:02}"), vec![1.0, 0.0])
+                    .unwrap();
+            }
+            assert_eq!(store.query(&[1.0, 0.0], 8), expected);
+        }
+    }
+
+    #[test]
     fn test_cosine_identical() {
         let a = vec![1.0, 0.0, 1.0];
         assert!((cosine_similarity(&a, &a) - 1.0).abs() < 0.001);
@@ -124,9 +213,9 @@ mod tests {
     #[test]
     fn test_embedding_store_query() {
         let store = EmbeddingStore::new();
-        store.insert("r1", vec![1.0, 0.0, 0.0]);
-        store.insert("r2", vec![0.9, 0.1, 0.0]);
-        store.insert("r3", vec![0.0, 0.0, 1.0]);
+        store.insert("r1", vec![1.0, 0.0, 0.0]).unwrap();
+        store.insert("r2", vec![0.9, 0.1, 0.0]).unwrap();
+        store.insert("r3", vec![0.0, 0.0, 1.0]).unwrap();
 
         let results = store.query(&[1.0, 0.0, 0.0], 2);
         assert_eq!(results.len(), 2);

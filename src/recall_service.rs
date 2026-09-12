@@ -49,13 +49,73 @@ pub(crate) struct RecallRerankView<'a> {
 
 pub(crate) struct RecallService;
 
+#[cfg(test)]
+mod cache_regressions {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn expansion_changes_recompute_and_sessions_always_execute() -> Result<()> {
+        let text = RecallCache::default();
+        let structured = StructuredRecallCache::default();
+        let text_calls = Cell::new(0);
+        let structured_calls = Cell::new(0);
+        // Identical stateless requests hit, expansion changes miss, and every
+        // session request runs the core that performs activation/coactivation.
+        for (expand, session, expected) in [
+            (false, None, 1),
+            (false, None, 1),
+            (true, None, 2),
+            (true, Some("session-a"), 3),
+            (true, Some("session-a"), 4),
+        ] {
+            RecallService::recall_formatted(
+                &text,
+                "query",
+                2048,
+                0.0,
+                expand,
+                session,
+                None,
+                || {
+                    text_calls.set(text_calls.get() + 1);
+                    Ok(vec![])
+                },
+                |_| "context".into(),
+            )?;
+            RecallService::recall_structured_cached(
+                &structured,
+                "query",
+                5,
+                0.0,
+                expand,
+                session,
+                None,
+                || {
+                    structured_calls.set(structured_calls.get() + 1);
+                    Ok(vec![])
+                },
+            )?;
+            assert_eq!(text_calls.get(), expected);
+            assert_eq!(structured_calls.get(), expected);
+        }
+        Ok(())
+    }
+}
+
 impl RecallService {
     pub(crate) fn text_cache_key(query: &str, namespaces: Option<&[&str]>) -> String {
         let default_ns = [crate::record::DEFAULT_NAMESPACE];
         let ns_list = namespaces.unwrap_or(&default_ns);
         let mut sorted_ns: Vec<&str> = ns_list.to_vec();
         sorted_ns.sort_unstable();
-        format!("{}|ns={:?}", query, sorted_ns)
+        sorted_ns.dedup();
+        // Hash a structured key before handing it to the legacy text cache,
+        // whose normalization must never lowercase namespace identifiers.
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(
+            serde_json::to_vec(&(query.trim().to_lowercase(), sorted_ns)).unwrap(),
+        ))
     }
 
     pub(crate) fn raw(
@@ -152,6 +212,9 @@ impl RecallService {
         cache: &RecallCache,
         query: &str,
         token_budget: usize,
+        min_strength: f32,
+        expand_connections: bool,
+        session_id: Option<&str>,
         namespaces: Option<&[&str]>,
         run_core: F,
         format_preamble: G,
@@ -160,15 +223,22 @@ impl RecallService {
         F: FnOnce() -> Result<Vec<(f32, Record)>>,
         G: FnOnce(&[(f32, Record)]) -> String,
     {
-        let cache_key = Self::text_cache_key(query, namespaces);
-        if let Some(cached) = cache.get(&cache_key) {
-            return Ok(cached);
+        let cache_key = format!(
+            "{}:{token_budget}:{}:{expand_connections}",
+            Self::text_cache_key(query, namespaces),
+            min_strength.to_bits()
+        );
+        if session_id.is_none() {
+            if let Some(cached) = cache.get(&cache_key) {
+                return Ok(cached);
+            }
         }
 
         let scored = run_core()?;
-        let _ = token_budget;
         let preamble = format_preamble(&scored);
-        cache.put(&cache_key, preamble.clone());
+        if session_id.is_none() {
+            cache.put(&cache_key, preamble.clone());
+        }
         Ok(preamble)
     }
 
@@ -177,18 +247,34 @@ impl RecallService {
         query: &str,
         top_k: usize,
         min_strength: f32,
+        expand_connections: bool,
+        session_id: Option<&str>,
         namespaces: Option<&[&str]>,
         run_core: F,
     ) -> Result<Vec<(f32, Record)>>
     where
         F: FnOnce() -> Result<Vec<(f32, Record)>>,
     {
-        if let Some(cached) = cache.get(query, top_k, min_strength, namespaces) {
-            return Ok(cached);
+        let cache_query = format!(
+            "{}:{expand_connections}",
+            Self::text_cache_key(query, namespaces)
+        );
+        if session_id.is_none() {
+            if let Some(cached) = cache.get(&cache_query, top_k, min_strength, namespaces) {
+                return Ok(cached);
+            }
         }
 
         let scored = run_core()?;
-        cache.put(query, top_k, min_strength, namespaces, scored.clone());
+        if session_id.is_none() {
+            cache.put(
+                &cache_query,
+                top_k,
+                min_strength,
+                namespaces,
+                scored.clone(),
+            );
+        }
         Ok(scored)
     }
 

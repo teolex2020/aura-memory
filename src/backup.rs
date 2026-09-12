@@ -597,6 +597,7 @@ mod tests {
         assert!(source_dir.path().join("brain.aura").exists());
     }
 
+    #[cfg(feature = "encryption")]
     #[test]
     fn test_backup_restore_encrypted() {
         let source_dir = tempdir().unwrap();
@@ -657,6 +658,7 @@ mod tests {
         assert_eq!(header.record_count, 1);
     }
 
+    #[cfg(feature = "encryption")]
     #[test]
     fn test_wrong_key_fails() {
         let source_dir = tempdir().unwrap();

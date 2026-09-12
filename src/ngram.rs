@@ -9,6 +9,9 @@ use crate::synonym::SynonymRing;
 
 const PRIME: u64 = 2_147_483_647; // Mersenne prime 2^31-1
 const DEFAULT_NUM_HASHES: usize = 128;
+/// Rebuilding the in-memory index after restart must produce the same
+/// signatures and rankings for the same records.
+const MINHASH_SEED: u64 = 0x4155_5241_4E47_524D;
 
 /// MinHash-based n-gram index for approximate Jaccard similarity.
 pub struct NGramIndex {
@@ -29,9 +32,10 @@ impl NGramIndex {
     pub fn new(num_hashes: Option<usize>, synonym_ring: Option<SynonymRing>) -> Self {
         let num_hashes = num_hashes.unwrap_or(DEFAULT_NUM_HASHES);
 
-        // Generate random hash function coefficients
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
+        // Fixed coefficients make this derived index reproducible. The seed is
+        // not security material; MinHash only estimates text similarity.
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(MINHASH_SEED);
         let a: Vec<u64> = (0..num_hashes).map(|_| rng.gen_range(1..PRIME)).collect();
         let b: Vec<u64> = (0..num_hashes).map(|_| rng.gen_range(0..PRIME)).collect();
 
@@ -169,7 +173,11 @@ impl NGramIndex {
             .filter(|(sim, _)| *sim > 0.0)
             .collect();
 
-        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.cmp(&b.1))
+        });
         results.truncate(top_k);
         results
     }
@@ -228,6 +236,24 @@ impl NGramIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rebuilding_produces_identical_rankings() {
+        let mut first = NGramIndex::new(None, None);
+        let mut second = NGramIndex::new(None, None);
+        for (id, text) in [
+            ("a", "equal ranking telemetry record alpha"),
+            ("b", "equal ranking telemetry record beta"),
+            ("c", "equal ranking telemetry record gamma"),
+        ] {
+            first.add(id, text);
+            second.add(id, text);
+        }
+        assert_eq!(
+            first.query("equal ranking telemetry", 3),
+            second.query("equal ranking telemetry", 3)
+        );
+    }
 
     #[test]
     fn test_add_and_query() {

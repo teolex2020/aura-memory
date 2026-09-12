@@ -593,13 +593,20 @@ impl Topology {
 #[derive(Debug)]
 pub struct TopologyStore {
     path: std::path::PathBuf,
+    codec: crate::persistence::PersistenceCodec,
 }
 
 impl TopologyStore {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         Self {
             path: path.as_ref().to_path_buf(),
+            codec: Default::default(),
         }
+    }
+
+    pub(crate) fn with_codec(mut self, codec: crate::persistence::PersistenceCodec) -> Self {
+        self.codec = codec;
+        self
     }
 
     /// Persist topology state to `<path>/topology.cog`.
@@ -608,7 +615,8 @@ impl TopologyStore {
             .with_context(|| format!("topology::save: create_dir_all {}", self.path.display()))?;
         let file_path = self.path.join("topology.cog");
         let data = serde_json::to_vec(topology).context("topology::save: serialize")?;
-        std::fs::write(&file_path, data)
+        self.codec
+            .write(&file_path, &data)
             .with_context(|| format!("topology::save: write {}", file_path.display()))?;
         Ok(())
     }
@@ -620,7 +628,9 @@ impl TopologyStore {
         if !file_path.exists() {
             return Ok(Topology::new());
         }
-        let data = std::fs::read(&file_path)
+        let data = self
+            .codec
+            .read(&file_path)
             .with_context(|| format!("topology::load: read {}", file_path.display()))?;
         let topology: Topology =
             serde_json::from_slice(&data).context("topology::load: deserialize")?;

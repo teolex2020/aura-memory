@@ -1173,13 +1173,20 @@ pub struct ConceptStats {
 /// On startup, Aura always creates a fresh empty ConceptEngine (not loaded from disk).
 pub struct ConceptStore {
     path: std::path::PathBuf,
+    codec: crate::persistence::PersistenceCodec,
 }
 
 impl ConceptStore {
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Self {
         Self {
             path: path.as_ref().to_path_buf(),
+            codec: Default::default(),
         }
+    }
+
+    pub(crate) fn with_codec(mut self, codec: crate::persistence::PersistenceCodec) -> Self {
+        self.codec = codec;
+        self
     }
 
     /// Load concept engine state from disk.
@@ -1192,7 +1199,7 @@ impl ConceptStore {
         if !file_path.exists() {
             return Ok(ConceptEngine::new());
         }
-        let data = std::fs::read(&file_path)?;
+        let data = self.codec.read(&file_path)?;
         if data.is_empty() {
             return Ok(ConceptEngine::new());
         }
@@ -1205,7 +1212,7 @@ impl ConceptStore {
         std::fs::create_dir_all(&self.path)?;
         let file_path = self.path.join("concepts.cog");
         let data = serde_json::to_vec(engine)?;
-        std::fs::write(&file_path, &data)?;
+        self.codec.write(&file_path, &data)?;
         Ok(())
     }
 }

@@ -836,13 +836,20 @@ fn truncate(s: &str, max_chars: usize) -> String {
 #[derive(Debug)]
 pub struct PolicyStore {
     path: std::path::PathBuf,
+    codec: crate::persistence::PersistenceCodec,
 }
 
 impl PolicyStore {
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Self {
         Self {
             path: path.as_ref().to_path_buf(),
+            codec: Default::default(),
         }
+    }
+
+    pub(crate) fn with_codec(mut self, codec: crate::persistence::PersistenceCodec) -> Self {
+        self.codec = codec;
+        self
     }
 
     /// Save current engine state to policies.cog (best-effort).
@@ -850,7 +857,7 @@ impl PolicyStore {
         std::fs::create_dir_all(&self.path)?;
         let file_path = self.path.join("policies.cog");
         let data = serde_json::to_vec(engine)?;
-        std::fs::write(&file_path, data)?;
+        self.codec.write(&file_path, &data)?;
         Ok(())
     }
 
@@ -862,7 +869,7 @@ impl PolicyStore {
         if !file_path.exists() {
             return Ok(PolicyEngine::new());
         }
-        let data = std::fs::read(&file_path)?;
+        let data = self.codec.read(&file_path)?;
         let engine: PolicyEngine = serde_json::from_slice(&data)?;
         Ok(engine)
     }

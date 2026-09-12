@@ -134,7 +134,11 @@ pub fn collect_sdr(
         }
     }
 
-    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
     results.truncate(top_k);
     results
 }
@@ -221,7 +225,11 @@ pub fn collect_tags(
         })
         .collect();
 
-    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
     results.truncate(top_k);
     results
 }
@@ -270,7 +278,11 @@ pub fn rrf_fuse(
         })
         .collect();
 
-    results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
     results.truncate(top_k);
     results
 }
@@ -324,7 +336,11 @@ pub fn graph_walk(
         // Add to matched results
         let mut new_frontier = Vec::new();
         let mut sorted: Vec<_> = deduped.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
 
         for (rid, score) in sorted {
             if expanded_count >= GRAPH_WALK_MAX_EXPANDED {
@@ -392,7 +408,11 @@ fn graph_walk_with_trace(
 
         let mut new_frontier = Vec::new();
         let mut sorted: Vec<_> = deduped.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
 
         for (rid, score) in sorted {
             if expanded_count >= GRAPH_WALK_MAX_EXPANDED {
@@ -545,7 +565,11 @@ pub fn apply_recency_scoring(
         *score = *score * rec.strength * effective_trust;
     }
 
-    matched.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    matched.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
     matched.truncate(top_k);
 }
 
@@ -717,8 +741,17 @@ fn format_record(rec: &Record, records: &HashMap<String, Record>) -> String {
     // Append causal reasoning
     if let Some(ref caused_by) = rec.caused_by_id {
         if let Some(parent) = records.get(caused_by) {
-            let preview: String = parent.content.chars().take(120).collect();
-            base.push_str(&format!("\n    ^ because: {}", preview));
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64();
+            if parent.namespace == rec.namespace
+                && parent.is_valid_at(now)
+                && crate::acl::evaluate(parent, &crate::acl::AclContext::default()).allowed
+            {
+                let preview: String = parent.content.chars().take(120).collect();
+                base.push_str(&format!("\n    ^ because: {}", preview));
+            }
         }
     }
 
@@ -933,7 +966,11 @@ pub fn recall_pipeline_with_trace(
         trace.pre_rerank_score = *score;
     }
 
-    matched.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    matched.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
     matched.truncate(top_k);
 
     RecallTraceResult {
@@ -1100,7 +1137,11 @@ pub fn apply_belief_rerank(
 
     // ── Phase 2: Sort, then enforce positional shift cap ──
 
-    matched.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    matched.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
 
     // Check if any record moved more than MAX_POS_SHIFT positions
     // If so, restore it closer to its original position by swapping
@@ -1340,6 +1381,7 @@ pub fn compute_shadow_belief_scores(
             .shadow_score
             .partial_cmp(&scores[a].shadow_score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| scores[a].record_id.cmp(&scores[b].record_id))
     });
 
     // Assign shadow ranks
@@ -1544,7 +1586,11 @@ pub fn apply_concept_rerank(
 
     // ── Phase 2: Sort, then enforce positional shift cap ──
 
-    matched.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    matched.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
 
     let mut needs_fixup = true;
     let mut fixup_rounds = 0;
@@ -1792,7 +1838,11 @@ pub fn apply_causal_rerank(
 
     // ── Phase 2: Sort, then enforce positional shift cap ──
 
-    matched.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    matched.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
 
     let mut needs_fixup = true;
     let mut fixup_rounds = 0;
@@ -2031,7 +2081,11 @@ pub fn apply_policy_rerank(
 
     // ── Phase 2: Sort + positional shift cap ──
 
-    matched.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    matched.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
 
     let mut needs_fixup = true;
     let mut fixup_rounds = 0;

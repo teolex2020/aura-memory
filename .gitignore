@@ -1,7 +1,9 @@
 # Rust
 /target/
+experiments/memory_quality_eval/target/
 **/*.rs.bk
 Cargo.lock
+!experiments/memory_quality_eval/Cargo.lock
 
 # Python
 __pycache__/
@@ -89,8 +91,13 @@ tests/
 !tests/
 tests/*
 !tests/memory_resilience.rs
+!tests/audit_regressions.rs
 !tests/applicability_api.rs
 !tests/audit_graph_api.rs
+!tests/context_compaction_api.rs
+!tests/python_context_compaction_smoke.py
+!tests/retrieval_episode_api.rs
+!tests/python_retrieval_episode_smoke.py
 
 # Marketing materials (strategy — not public)
 marketing/

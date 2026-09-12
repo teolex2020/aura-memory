@@ -177,7 +177,7 @@ impl InvertedIndex {
         }
         let mut candidates = result;
 
-        candidates.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        candidates.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         let limit = (top_k * 10).min(500);
         if candidates.len() > limit {

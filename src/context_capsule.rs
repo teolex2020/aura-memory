@@ -93,12 +93,51 @@ pub struct ContextCapsule {
     pub capsule_hash: String,
 }
 
+/// Metrics for an opt-in loss-aware context capsule build.
+///
+/// Aura never rewrites the underlying records. `original_equivalent_tokens`
+/// estimates the uncompressed size of the records selected by the compacted
+/// capsule, while `compacted_tokens` is the actual bounded capsule estimate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContextCompactionReport {
+    pub baseline_entry_count: usize,
+    pub output_entry_count: usize,
+    pub additional_entry_count: usize,
+    pub original_equivalent_tokens: usize,
+    pub compacted_tokens: usize,
+    pub saved_tokens: usize,
+    pub reduction_ratio: f32,
+    pub transformed_entry_count: usize,
+    pub protected_entry_count: usize,
+    pub originals_unchanged: bool,
+}
+
+/// A compacted context capsule plus auditable compaction metrics.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompactedContextCapsule {
+    pub capsule: ContextCapsule,
+    pub compaction: ContextCompactionReport,
+}
+
 #[derive(Debug)]
 struct Candidate<'a> {
     record: &'a Record,
     category: ContextCategory,
     priority_score: i64,
     reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildMode {
+    Original,
+    LossAware,
+}
+
+#[derive(Debug, Default)]
+struct BuildDiagnostics {
+    original_equivalent_tokens: usize,
+    transformed_entry_count: usize,
+    protected_entry_count: usize,
 }
 
 /// Build a deterministic, token-bounded projection for one namespace.
@@ -115,6 +154,20 @@ pub fn build_context_capsule<'a>(
     build_context_capsule_at(records, namespace, purpose, token_budget, now)
 }
 
+/// Build an opt-in loss-aware context capsule without mutating stored memory.
+pub fn build_compacted_context_capsule<'a>(
+    records: impl IntoIterator<Item = &'a Record>,
+    namespace: &str,
+    purpose: &str,
+    token_budget: usize,
+) -> CompactedContextCapsule {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64();
+    build_compacted_context_capsule_at(records, namespace, purpose, token_budget, now)
+}
+
 /// Build a deterministic context capsule for records valid at `valid_at`.
 pub fn build_context_capsule_at<'a>(
     records: impl IntoIterator<Item = &'a Record>,
@@ -123,6 +176,76 @@ pub fn build_context_capsule_at<'a>(
     token_budget: usize,
     valid_at: f64,
 ) -> ContextCapsule {
+    build_context_capsule_at_mode(
+        records,
+        namespace,
+        purpose,
+        token_budget,
+        valid_at,
+        BuildMode::Original,
+    )
+    .0
+}
+
+/// Build a loss-aware context capsule for one business-time instant.
+pub fn build_compacted_context_capsule_at<'a>(
+    records: impl IntoIterator<Item = &'a Record>,
+    namespace: &str,
+    purpose: &str,
+    token_budget: usize,
+    valid_at: f64,
+) -> CompactedContextCapsule {
+    let records: Vec<&Record> = records.into_iter().collect();
+    let (baseline, _) = build_context_capsule_at_mode(
+        records.iter().copied(),
+        namespace,
+        purpose,
+        token_budget,
+        valid_at,
+        BuildMode::Original,
+    );
+    let (capsule, diagnostics) = build_context_capsule_at_mode(
+        records,
+        namespace,
+        purpose,
+        token_budget,
+        valid_at,
+        BuildMode::LossAware,
+    );
+    let saved_tokens = diagnostics
+        .original_equivalent_tokens
+        .saturating_sub(capsule.estimated_tokens);
+    let reduction_ratio = if diagnostics.original_equivalent_tokens == 0 {
+        0.0
+    } else {
+        saved_tokens as f32 / diagnostics.original_equivalent_tokens as f32
+    };
+    let compaction = ContextCompactionReport {
+        baseline_entry_count: baseline.entries.len(),
+        output_entry_count: capsule.entries.len(),
+        additional_entry_count: capsule.entries.len().saturating_sub(baseline.entries.len()),
+        original_equivalent_tokens: diagnostics.original_equivalent_tokens,
+        compacted_tokens: capsule.estimated_tokens,
+        saved_tokens,
+        reduction_ratio,
+        transformed_entry_count: diagnostics.transformed_entry_count,
+        protected_entry_count: diagnostics.protected_entry_count,
+        originals_unchanged: true,
+    };
+    CompactedContextCapsule {
+        capsule,
+        compaction,
+    }
+}
+
+fn build_context_capsule_at_mode<'a>(
+    records: impl IntoIterator<Item = &'a Record>,
+    namespace: &str,
+    purpose: &str,
+    token_budget: usize,
+    valid_at: f64,
+    mode: BuildMode,
+) -> (ContextCapsule, BuildDiagnostics) {
     let token_budget = token_budget.clamp(1, MAX_TOKEN_BUDGET);
     let purpose_terms = normalized_terms(purpose);
     let namespace_records: Vec<&Record> = records
@@ -168,15 +291,27 @@ pub fn build_context_capsule_at<'a>(
 
     let mut remaining = token_budget;
     let mut entries = Vec::new();
+    let mut diagnostics = BuildDiagnostics::default();
     for candidate in &candidates {
         if remaining <= ENTRY_OVERHEAD_TOKENS + MIN_ENTRY_CONTENT_TOKENS {
             break;
         }
+        let (prepared_content, protected) = match mode {
+            BuildMode::Original => (candidate.record.content.clone(), false),
+            BuildMode::LossAware => compact_record_content(candidate.record, candidate.category),
+        };
         let max_content_tokens = remaining - ENTRY_OVERHEAD_TOKENS;
-        let content = truncate_to_estimated_tokens(&candidate.record.content, max_content_tokens);
+        let content = truncate_to_estimated_tokens(&prepared_content, max_content_tokens);
         let estimated_tokens = ENTRY_OVERHEAD_TOKENS + estimate_tokens(&content);
         if content.trim().is_empty() || estimated_tokens > remaining {
             continue;
+        }
+        if mode == BuildMode::LossAware {
+            diagnostics.original_equivalent_tokens +=
+                ENTRY_OVERHEAD_TOKENS + estimate_tokens(&candidate.record.content);
+            diagnostics.transformed_entry_count +=
+                usize::from(prepared_content != candidate.record.content);
+            diagnostics.protected_entry_count += usize::from(protected);
         }
         remaining -= estimated_tokens;
         entries.push(ContextCapsuleEntry {
@@ -211,19 +346,108 @@ pub fn build_context_capsule_at<'a>(
     .unwrap_or_default();
     let capsule_hash = hex::encode(Sha256::digest(hash_payload));
 
-    ContextCapsule {
-        namespace: namespace.to_string(),
-        purpose: purpose.to_string(),
-        token_budget,
-        estimated_tokens,
-        source_record_count,
-        entries,
-        omitted_count,
-        refutation_count,
-        evidence_debt_count,
-        contradiction_count,
-        capsule_hash,
+    (
+        ContextCapsule {
+            namespace: namespace.to_string(),
+            purpose: purpose.to_string(),
+            token_budget,
+            estimated_tokens,
+            source_record_count,
+            entries,
+            omitted_count,
+            refutation_count,
+            evidence_debt_count,
+            contradiction_count,
+            capsule_hash,
+        },
+        diagnostics,
+    )
+}
+
+fn compact_record_content(record: &Record, category: ContextCategory) -> (String, bool) {
+    // Active goals are action-bearing instructions. The local-model A/B showed
+    // that removing apparently redundant emphasis could change a small model's
+    // answer even when every fact remained present. Structured payloads must
+    // likewise remain byte-for-byte intact.
+    // text/* also includes source code, HTML and tabular payloads.
+    let natural_text = matches!(
+        record.content_type.as_str(),
+        "text" | "text/plain" | "text/markdown"
+    );
+    if category == ContextCategory::ActiveGoal || !natural_text {
+        return (record.content.clone(), true);
     }
+    let compacted = compact_natural_text(&record.content);
+    if compacted.trim().is_empty() && !record.content.trim().is_empty() {
+        (record.content.clone(), true)
+    } else {
+        (compacted, false)
+    }
+}
+
+fn compact_natural_text(input: &str) -> String {
+    let mut seen = BTreeSet::new();
+    let mut kept = Vec::new();
+    for unit in split_text_units(input) {
+        let normalized = normalize_whitespace(&unit);
+        if normalized.is_empty() {
+            continue;
+        }
+        let stripped = strip_boilerplate_prefix(&normalized);
+        if stripped.is_empty() {
+            continue;
+        }
+        // Case can distinguish identifiers, error codes and quoted values.
+        if seen.insert(stripped.clone()) {
+            kept.push(stripped);
+        }
+    }
+    kept.join(" ")
+}
+
+fn split_text_units(input: &str) -> Vec<String> {
+    let mut units = Vec::new();
+    let mut current = String::new();
+    let mut characters = input.chars().peekable();
+    while let Some(character) = characters.next() {
+        current.push(character);
+        let punctuation_boundary = matches!(character, '.' | '!' | '?' | ';')
+            && characters.peek().is_none_or(|next| next.is_whitespace());
+        if character == '\n' || punctuation_boundary {
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                units.push(trimmed.to_string());
+            }
+            current.clear();
+        }
+    }
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        units.push(trimmed.to_string());
+    }
+    units
+}
+
+fn strip_boilerplate_prefix(unit: &str) -> String {
+    const PREFIXES: &[&str] = &[
+        "as previously mentioned, ",
+        "for completeness, ",
+        "in other words, ",
+        "it is important to note that ",
+    ];
+    for prefix in PREFIXES {
+        if unit
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        {
+            return unit[prefix.len()..].trim().to_string();
+        }
+    }
+    unit.to_string()
+}
+
+fn normalize_whitespace(input: &str) -> String {
+    input.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn classify<'a>(record: &'a Record, purpose_terms: &BTreeSet<String>) -> Option<Candidate<'a>> {
@@ -368,6 +592,27 @@ fn truncate_to_estimated_tokens(value: &str, max_tokens: usize) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn prepush_compaction_preserves_case_sensitive_codes() {
+        let text = "The code is AbC123. The code is abc123. The code is AbC123.";
+        assert_eq!(
+            compact_natural_text(text),
+            "The code is AbC123. The code is abc123."
+        );
+    }
+
+    #[test]
+    fn prepush_compaction_preserves_typed_source_code() {
+        let mut rec = Record::new(
+            "print('First')\nprint('Second')\nprint('First')".into(),
+            Level::Domain,
+        );
+        rec.content_type = "text/x-python".into();
+        let (content, protected) = compact_record_content(&rec, ContextCategory::Domain);
+        assert!(protected);
+        assert_eq!(content, rec.content);
+    }
+
     fn record(id: &str, content: &str, namespace: &str, tags: &[&str]) -> Record {
         let mut record = Record::new(content.to_string(), Level::Working);
         record.id = id.to_string();
@@ -466,5 +711,92 @@ mod tests {
         let current = build_context_capsule_at([&old, &new], "default", "deployment", 128, 200.0);
         assert_eq!(current.entries.len(), 1);
         assert_eq!(current.entries[0].record_id, "new");
+    }
+
+    #[test]
+    fn loss_aware_capsule_fits_more_relevant_records_without_mutation() {
+        let records: Vec<Record> = (0..10)
+            .map(|index| {
+                record(
+                    &format!("memory-{index}"),
+                    &format!(
+                        "Memory item {index} concerns deployment. Deployment is approved. \
+                         As previously mentioned, deployment is approved. \
+                         Deployment is approved."
+                    ),
+                    "default",
+                    &[],
+                )
+            })
+            .collect();
+        let originals: Vec<String> = records.iter().map(|item| item.content.clone()).collect();
+        let baseline =
+            build_context_capsule_at(&records, "default", "deployment", 200, 1_800_000_000.0);
+        let compacted = build_compacted_context_capsule_at(
+            &records,
+            "default",
+            "deployment",
+            200,
+            1_800_000_000.0,
+        );
+
+        assert!(compacted.capsule.entries.len() > baseline.entries.len());
+        assert!(compacted.compaction.additional_entry_count > 0);
+        assert!(compacted.compaction.saved_tokens > 0);
+        assert!(compacted.compaction.reduction_ratio > 0.0);
+        assert!(compacted.compaction.transformed_entry_count > 0);
+        assert!(compacted.compaction.originals_unchanged);
+        assert_eq!(
+            records
+                .iter()
+                .map(|item| item.content.clone())
+                .collect::<Vec<_>>(),
+            originals
+        );
+    }
+
+    #[test]
+    fn loss_aware_capsule_protects_active_goals_and_structured_payloads() {
+        let goal_content = "Active goal GOAL-31. Prepare release 1.59.0 after all tests pass. \
+                            Prepare release 1.59.0 after all tests pass.";
+        let goal = record("goal", goal_content, "default", &["goal"]);
+        let json_content = r#"{"decision":"allow","decision":"allow"}"#;
+        let mut json = record("json", json_content, "default", &[]);
+        json.content_type = "json".to_string();
+
+        let compacted = build_compacted_context_capsule_at(
+            [&goal, &json],
+            "default",
+            "goal decision",
+            512,
+            1_800_000_000.0,
+        );
+        let by_id = |id: &str| {
+            compacted
+                .capsule
+                .entries
+                .iter()
+                .find(|entry| entry.record_id == id)
+                .map(|entry| entry.content.as_str())
+        };
+
+        assert_eq!(by_id("goal"), Some(goal_content));
+        assert_eq!(by_id("json"), Some(json_content));
+        assert_eq!(compacted.compaction.protected_entry_count, 2);
+        assert_eq!(goal.content, goal_content);
+    }
+
+    #[test]
+    fn natural_text_compaction_preserves_urls_decimals_versions_and_distinctions() {
+        let input = "Source: https://example.com/report.json. Confidence: 0.54. \
+                     Version 1.5 is allowed. Version 15 is allowed. \
+                     As previously mentioned, Version 1.5 is allowed.";
+        let compacted = compact_natural_text(input);
+
+        assert!(compacted.contains("https://example.com/report.json"));
+        assert!(compacted.contains("Confidence: 0.54"));
+        assert!(compacted.contains("Version 1.5 is allowed"));
+        assert!(compacted.contains("Version 15 is allowed"));
+        assert_eq!(compacted.matches("ersion 1.5 is allowed").count(), 1);
     }
 }

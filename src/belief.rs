@@ -1867,22 +1867,30 @@ pub struct BeliefStats {
 /// but persisted for stability tracking and cross-session continuity.
 pub struct BeliefStore {
     path: std::path::PathBuf,
+    codec: crate::persistence::PersistenceCodec,
 }
 
 impl BeliefStore {
     /// Open or create a belief store at the given directory.
     pub fn new<P: AsRef<std::path::Path>>(path: P) -> Self {
         let path = path.as_ref().to_path_buf();
-        Self { path }
+        Self {
+            path,
+            codec: Default::default(),
+        }
     }
 
+    pub(crate) fn with_codec(mut self, codec: crate::persistence::PersistenceCodec) -> Self {
+        self.codec = codec;
+        self
+    }
     /// Load the belief engine state from disk.
     pub fn load(&self) -> anyhow::Result<BeliefEngine> {
         let file_path = self.path.join("beliefs.cog");
         if !file_path.exists() {
             return Ok(BeliefEngine::new());
         }
-        let data = std::fs::read(&file_path)?;
+        let data = self.codec.read(&file_path)?;
         if data.is_empty() {
             return Ok(BeliefEngine::new());
         }
@@ -1895,7 +1903,7 @@ impl BeliefStore {
         std::fs::create_dir_all(&self.path)?;
         let file_path = self.path.join("beliefs.cog");
         let data = serde_json::to_vec(engine)?;
-        std::fs::write(&file_path, &data)?;
+        self.codec.write(&file_path, &data)?;
         Ok(())
     }
 }

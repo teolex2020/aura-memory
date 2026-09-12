@@ -111,11 +111,22 @@ pub struct AuditLog {
     session_id: String,
     enabled: bool,
     max_size_bytes: u64,
+    codec: crate::persistence::PersistenceCodec,
 }
 
 impl AuditLog {
     /// Create a new audit log
     pub fn new(storage_path: &Path) -> Result<Self> {
+        Self::with_codec(
+            storage_path,
+            crate::persistence::PersistenceCodec::default(),
+        )
+    }
+
+    pub(crate) fn with_codec(
+        storage_path: &Path,
+        codec: crate::persistence::PersistenceCodec,
+    ) -> Result<Self> {
         let path = storage_path.join("brain.audit");
         let session_id = format!(
             "session_{}",
@@ -136,6 +147,7 @@ impl AuditLog {
             session_id,
             enabled: true,
             max_size_bytes: 10 * 1024 * 1024, // 10MB default
+            codec,
         })
     }
 
@@ -147,6 +159,7 @@ impl AuditLog {
             session_id: String::new(),
             enabled: false,
             max_size_bytes: 0,
+            codec: crate::persistence::PersistenceCodec::default(),
         }
     }
 
@@ -163,6 +176,11 @@ impl AuditLog {
 
         let entry = AuditEntry::new(action, &self.session_id, context);
         let json = serde_json::to_string(&entry)?;
+        let json = if self.codec.is_encrypted() {
+            format!("AEF1:{}", hex::encode(self.codec.encode(json.as_bytes())?))
+        } else {
+            json
+        };
 
         let mut guard = self.writer.lock();
         if let Some(writer) = guard.as_mut() {
@@ -294,6 +312,15 @@ impl AuditLog {
 
         for line in reader.lines() {
             let line = line?;
+            let line = if let Some(encoded) = line.strip_prefix("AEF1:") {
+                String::from_utf8(self.codec.decode(&hex::decode(encoded)?)?)?
+            } else {
+                anyhow::ensure!(
+                    !self.codec.is_encrypted(),
+                    "Plaintext audit entry in encrypted memory"
+                );
+                line
+            };
             if let Ok(entry) = serde_json::from_str::<AuditEntry>(&line) {
                 entries.push(entry);
             }

@@ -600,6 +600,7 @@ mod tests {
         assert_eq!(usage.retrieve_ops, 1);
     }
 
+    #[cfg(feature = "encryption")]
     #[test]
     fn test_encrypted_tenant() {
         let dir = tempdir().unwrap();

@@ -90,7 +90,7 @@ Week 4: GPT-4o-mini + Aura                Week 4: GPT-4 alone
   → surfaces patterns you repeat             → same cost per token
   → exposes explainability + correction      → no improvement
   → boundedly adapts from experience         → no durable learning
-  → $0 compute cost                          → still billing per call
+  → no required external API cost            → still billing per call
 ```
 
 The model stays the same. The cognitive layer gets stronger. That's Aura.
@@ -124,6 +124,15 @@ python benchmarks/bench_all.py 1000
 
 The complete machine-readable output is stored in
 [`benchmarks/results.json`](benchmarks/results.json).
+
+Retrieval quality is measured separately from speed. The checked-in synthetic
+development evaluation compares recent history, token overlap, and Aura on a
+primarily English suite with small multilingual diagnostic slices, paraphrases,
+code identifiers, temporal updates, negation, multi-evidence recall, tenant
+interference, and restart consistency.
+Its current machine-readable result and limitations are documented in
+[`experiments/memory_quality_eval`](experiments/memory_quality_eval/README.md).
+This development set is not presented as a competitor benchmark.
 
 <sub><sup>1</sup> Values above are from the measured Windows build. The wheel was
 2,772,715 bytes; installed size and artifacts for other Python versions and
@@ -309,6 +318,83 @@ goals, contradictions, outcomes, decisions, and durable domain/identity
 records. It returns an estimated token count, omitted-record count, selection
 reasons, and a stable content hash. Blocked records and superseded versions
 outside their validity interval are never surfaced.
+
+When the prompt budget is tight, agents can opt into deterministic loss-aware
+packing:
+
+```python
+result = brain.build_compacted_context_capsule(
+    purpose="continue the current institute research",
+    token_budget=2000,
+    namespace="ask-institute",
+)
+
+entries = result["entries"]
+report = result["compaction"]
+print(report["additional_entry_count"], report["saved_tokens"])
+```
+
+This mode removes exact sentence duplication and safe discourse prefixes before
+packing, without calling an LLM or changing stored records. Active goals and
+non-text payloads are excluded from compaction because local-model evaluation
+showed that removing apparently redundant emphasis from an active instruction
+can change a smaller model's answer. The normal token-budget truncation can
+still apply to an oversized final entry. Every returned entry retains its
+original `record_id`, so the full stored record remains available through
+`brain.get(record_id)`. The existing `build_context_capsule()` behavior is
+unchanged.
+
+### Citation-Locked Retrieval Episodes
+
+For answers that must be auditable, Aura can track which evidence was actually
+opened during one retrieval episode and require every atomic answer claim to be
+covered by an opened, citable source:
+
+```python
+source = b"The current launch date is September 24."
+episode = brain.start_retrieval_episode(
+    "What is the current launch date?",
+    candidate_ids=[launch_record_id],
+    routes=["timeline"],
+)
+
+episode.open_verified_evidence(
+    record_id=launch_record_id,
+    claim_id="claim-launch-date",
+    claim_text="The current launch date is September 24.",
+    route="timeline",
+    support_keys=["launch-date"],
+    document_id="launch-plan",
+    revision_id="rev-2",
+    uri="memory://launch-plan",
+    registered_source_bytes=source,
+    current_source_bytes=source,
+    byte_start=0,
+    byte_end=len(source),
+    verification_status="verified",
+    answer_permission="cite",
+)
+
+gate = episode.finalize(
+    answer_present=True,
+    citations=[launch_record_id],
+    atomic_claim_keys=["launch-date"],
+)
+if not gate["answer_permitted"]:
+    answer = "UNKNOWN"
+```
+
+`registered_source_bytes` establish the immutable document revision and span;
+`current_source_bytes` are rechecked when the agent opens the evidence. Changed,
+superseded, contested, context-only, blocked, unopened, or partially supporting
+evidence cannot authorize an answer. `brain.suggest_memory_intent(query)` offers
+a deterministic advisory route, while unknown queries conservatively retain all
+routes. Hosts supply trusted source snapshots, verification status and claim-support
+keys. The gate checks byte lineage and declared coverage; hosts remain responsible
+for semantic support and access authorization. It does not independently verify
+that a source entails the answer or is still current after opening.
+Retrieval episodes are ephemeral and read-only: they do not activate or
+rewrite stored records, and the existing recall APIs remain unchanged.
 
 ### Context-Aware Applicability
 
@@ -760,6 +846,24 @@ brain = Aura("./secret_data", password="my-secure-password")
 brain.store("Top secret information")
 assert brain.is_encrypted()  # ChaCha20-Poly1305 + Argon2id
 ```
+
+Password protection now covers the cognitive journal and snapshots, audit entries,
+derived cognitive state, recall replay history, and stored embeddings. Reopening
+requires the correct password and the original `memory.key` file. Back up that
+wrapped key separately: portable containers intentionally exclude key material.
+
+Use a new, empty directory when enabling encryption. Adding a password to an
+existing store is rejected because its journals, snapshots, and backups may
+already contain plaintext. Existing unencrypted stores remain readable without a
+password; moving them to encrypted storage requires an explicit migration. Older
+password-created stores did not protect all cognitive data and must also be
+migrated. Explicit JSON exports return plaintext to the caller.
+
+Externally supplied embeddings persist across restart. Re-register a Python
+embedding callback after reopening to compute query vectors with the same model.
+Embedding writes reject empty, non-finite, or incompatible-dimensional vectors;
+Rust callers should handle the returned `Result` from `store_embedding` and
+`remove_embedding`.
 
 ### Semantic Memory Types
 

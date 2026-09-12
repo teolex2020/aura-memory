@@ -25,12 +25,14 @@ use crate::background_brain::{
 use crate::belief::Belief;
 use crate::causal::CausalPattern;
 use crate::concept::{ConceptCandidate, SurfacedConcept};
+use crate::context_capsule::{CompactedContextCapsule, ContextCapsule};
 use crate::epistemic_runtime::{
     BeliefInstabilitySummary, ContradictionCluster, PolicyLifecycleSummary, PolicyPressureArea,
 };
 use crate::levels::Level;
 use crate::policy::{PolicyHint, SurfacedPolicyHint};
 use crate::record::Record;
+use crate::retrieval_episode::{MemoryIntent, MemoryRoute, RetrievalEpisode};
 
 #[derive(Clone, Copy)]
 pub struct MemoryApi<'a> {
@@ -108,6 +110,42 @@ impl<'a> MemoryApi<'a> {
             session_id,
             namespaces,
         )
+    }
+
+    /// Build the unchanged deterministic context-capsule projection.
+    pub fn context_capsule(
+        &self,
+        namespace: Option<&str>,
+        purpose: &str,
+        token_budget: usize,
+    ) -> Result<ContextCapsule> {
+        self.aura
+            .build_context_capsule(namespace, purpose, token_budget)
+    }
+
+    /// Build an opt-in loss-aware capsule while preserving stored records.
+    pub fn compacted_context_capsule(
+        &self,
+        namespace: Option<&str>,
+        purpose: &str,
+        token_budget: usize,
+    ) -> Result<CompactedContextCapsule> {
+        self.aura
+            .build_compacted_context_capsule(namespace, purpose, token_budget)
+    }
+
+    pub fn suggest_memory_intent(&self, query: &str) -> MemoryIntent {
+        self.aura.suggest_memory_intent(query)
+    }
+
+    pub fn start_retrieval_episode(
+        &self,
+        query: &str,
+        candidate_ids: Vec<String>,
+        routes: Option<Vec<MemoryRoute>>,
+    ) -> Result<RetrievalEpisode> {
+        self.aura
+            .start_retrieval_episode(query, candidate_ids, routes)
     }
 
     pub fn evaluate_applicability(

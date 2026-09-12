@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Deferred recall flushes hold the record snapshot lock through the durable append, preventing concurrent updates or deletions from being overwritten on reopen. Failed flushes retain pending IDs for retry.
+- Equal embedding scores use record IDs as stable tie-breakers before top-k selection.
+- Opt-in context compaction preserves case-sensitive text distinctions and excludes typed source-code payloads from natural-language rewriting.
+- Password-protected Aura stores now persist a wrapped key and authenticate on reopen. Cognitive journals, snapshots, audit entries, derived stores, replay state, and embeddings use authenticated encryption. Enabling encryption on existing plaintext history requires explicit migration into a new directory.
+- Recall caches preserve namespace case and distinguish token budgets, exact strength thresholds, and connection expansion. Session recalls bypass result caching so activation still runs.
+- Causal previews enforce namespace, validity, and default ACL checks; full-recall fallback applies the same ACL gate. New causal parents must exist in the same namespace.
+- Ingest deduplication merges only exact compatible records, preserving negations and changed numbers or versions.
+- Explicit graph connections persist both endpoints in one atomic journal frame before publishing either update.
+- Recall activation and coactivation changes are durably batched on explicit `flush()` or `close()`, so adaptive state survives a clean restart without adding a disk sync to every query.
+- Equal-score recall candidates use stable tie-breakers, keeping top-k rankings reproducible across reopen.
+- The rebuilt MinHash n-gram index now uses fixed, documented coefficients instead of a new random family on every process start.
+- Embeddings survive restart, reject invalid vectors, and invalidate recall caches after changes. Rust embedding mutations now return `Result`; callers must handle persistence errors. Portable containers include the embedding index; back up `memory.key` separately.
+
+### Added
+
+- **Opt-in loss-aware context capsules** — `build_compacted_context_capsule()` removes exact natural-language duplication and safe discourse prefixes before token-budget packing, allowing more relevant records to reach an agent without rewriting memory or requiring an LLM.
+- **Auditable compaction metrics** — results report baseline/output entry counts, additional entries, equivalent original tokens, saved tokens, reduction ratio, transformed entries, and safety-protected entries.
+- **Citation-locked retrieval episodes** — opt-in `RetrievalEpisode` receipts record which evidence was actually opened for one answer and require every declared atomic claim to be supported by opened, citable evidence.
+- **Conservative memory routing** — `suggest_memory_intent()` provides an advisory timeline/graph/documentary route while defaulting unknown memory queries to all representations.
+- **Rust and Python citation-lock APIs** — `start_retrieval_episode()`, `open_verified_evidence()`, and `finalize()` expose auditable `allow`, `abstain`, or `block` outcomes with structured rejection reasons.
+
+### Safety
+
+- Active goals and non-text payloads are excluded from compaction (ordinary final-entry budget truncation can still apply). Full originals stay in Aura and remain expandable by `record_id`; the existing `build_context_capsule()` API and behavior are unchanged.
+- Citation admission is recomputed from immutable document/span lineage and current source bytes; caller confidence cannot override failed integrity, superseded/contested status, or citation permission. Episodes are read-only and do not alter ordinary recall behavior.
+
 ## 1.59.0
 
 ### Added

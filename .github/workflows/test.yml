@@ -60,7 +60,17 @@ jobs:
       - name: Build library tests
         run: cargo test --lib --no-default-features --features "encryption,audit,capsule" --no-run 2>&1 | tail -5
       - name: Run library tests
-        run: cargo test --lib --no-default-features --features "encryption,audit,capsule" -- --test-threads=2
+        run: cargo test --lib --tests --no-default-features --features "encryption,audit,capsule" -- --test-threads=2
+
+  rust-minimal:
+    name: Rust Tests (no default features)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --lib --tests --no-default-features -- --test-threads=2
 
   rust-windows-smoke:
     name: Rust Smoke (Windows)
@@ -77,6 +87,8 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File .\scripts\cleanup_windows_test_lock.ps1
       - name: Run bounded Windows smoke test
         run: cargo test test_startup_validation_report_captures_recovery_fallbacks --lib --no-default-features --features "encryption,audit,capsule"
+      - name: Run storage and isolation regressions
+        run: cargo test --test audit_regressions --no-default-features --features "encryption,audit,capsule"
       - name: Cleanup stale Windows test locks (post)
         if: always()
         shell: powershell
@@ -123,6 +135,23 @@ jobs:
         if: runner.os != 'Windows'
       - name: Run Python smoke (Windows)
         run: .venv\Scripts\python scripts\python_release_smoke.py
+        if: runner.os == 'Windows'
+      - name: Run Python context and citation API smoke
+        if: runner.os != 'Windows'
+        run: |
+          .venv/bin/python tests/python_context_compaction_smoke.py
+          .venv/bin/python tests/python_retrieval_episode_smoke.py
+      - name: Run Python context and citation API smoke (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\python tests\python_context_compaction_smoke.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python tests\python_retrieval_episode_smoke.py
+      - name: Run Python storage regressions
+        run: .venv/bin/python scripts/python_audit_smoke.py
+        if: runner.os != 'Windows'
+      - name: Run Python storage regressions (Windows)
+        run: .venv\Scripts\python scripts\python_audit_smoke.py
         if: runner.os == 'Windows'
       - name: Cleanup stale Windows test locks (post)
         if: always() && runner.os == 'Windows'

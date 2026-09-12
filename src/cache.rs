@@ -138,10 +138,11 @@ impl StructuredRecallCache {
     ) -> String {
         let q = query.to_lowercase();
         let q = q.trim();
-        match namespaces {
-            Some(ns) => format!("{}|{}|{:.2}|{}", q, top_k, min_strength, ns.join(",")),
-            None => format!("{}|{}|{:.2}|default", q, top_k, min_strength),
-        }
+        let default_ns = [crate::record::DEFAULT_NAMESPACE];
+        let mut ns = namespaces.unwrap_or(&default_ns).to_vec();
+        ns.sort_unstable();
+        ns.dedup();
+        serde_json::to_string(&(q, top_k, min_strength.to_bits(), ns)).unwrap()
     }
 
     /// Get cached structured recall result.
@@ -212,6 +213,17 @@ mod tests {
     use super::*;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn structured_cache_keeps_precise_thresholds_and_namespace_boundaries() {
+        let cache = StructuredRecallCache::default();
+        cache.put("query", 5, 0.501, Some(&["TeamA"]), vec![]);
+        assert!(cache.get("query", 5, 0.501, Some(&["TeamA"])).is_some());
+        assert!(cache.get("query", 5, 0.502, Some(&["TeamA"])).is_none());
+        assert!(cache.get("query", 5, 0.501, Some(&["teama"])).is_none());
+        cache.put("query", 5, 0.0, Some(&["a,b"]), vec![]);
+        assert!(cache.get("query", 5, 0.0, Some(&["a", "b"])).is_none());
+    }
 
     #[test]
     fn test_cache_hit() {

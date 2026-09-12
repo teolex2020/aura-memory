@@ -2607,6 +2607,7 @@ fn collect_artifacts(root: &Path) -> Result<Vec<(String, PathBuf)>> {
         "temporal.bin",
         "brain.cog",
         "brain.snap",
+        "embeddings.cog",
         "beliefs.cog",
         "concepts.cog",
         "causal.cog",

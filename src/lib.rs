@@ -36,6 +36,7 @@ pub mod gates;
 pub mod index;
 pub mod learner;
 pub mod neuromorphic;
+mod persistence;
 pub mod rbac;
 mod salience;
 pub mod sdr;
@@ -162,6 +163,7 @@ pub mod recall;
 mod recall_service;
 pub mod record;
 pub mod retention;
+pub mod retrieval_episode;
 pub mod scheduler;
 pub mod semantic_learner;
 pub mod synonym;
@@ -228,7 +230,9 @@ pub use audit_graph::{
 pub use aura::Aura;
 pub use consequence::ConsequenceUnit;
 pub use context_capsule::{
-    build_context_capsule, ContextCapsule, ContextCapsuleEntry, ContextCategory,
+    build_compacted_context_capsule, build_compacted_context_capsule_at, build_context_capsule,
+    CompactedContextCapsule, ContextCapsule, ContextCapsuleEntry, ContextCategory,
+    ContextCompactionReport,
 };
 pub use evidence::{
     admission_decision, lint_claim, source_admission_decision, verify_lineage, AdmissionDecision,
@@ -237,6 +241,10 @@ pub use evidence::{
 };
 pub use levels::Level;
 pub use record::Record;
+pub use retrieval_episode::{
+    suggest_memory_intent, CitationLockDecision, CitationLockReport, EvidenceOpenResult,
+    MemoryIntent, MemoryRoute, OpenedEvidenceReceipt, RetrievalEpisode, RetrievalEpisodeError,
+};
 
 // Enforce license at module load
 #[ctor::ctor]
@@ -256,6 +264,7 @@ fn _core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<levels::Level>()?;
     m.add_class::<record::Record>()?;
     m.add_class::<record::RouteStateClass>()?;
+    m.add_class::<retrieval_episode::RetrievalEpisode>()?;
     m.add_class::<neighbor_mass::NeighborMassFootprint>()?;
     m.add_function(wrap_pyfunction!(
         neighbor_mass::py_neighbor_mass_role_similarity,

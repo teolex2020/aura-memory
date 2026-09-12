@@ -128,6 +128,21 @@ pub fn is_archive_protected(tags: &[String], taxonomy: &TagTaxonomy) -> bool {
         .any(|t| tag_set.contains(t.as_str()))
 }
 
+/// One lifecycle guard shared by decay, reflection, and archival paths.
+///
+/// Identity-level records remain anchored unless fix_memory_levels explicitly
+/// reclassifies them first. An operator pin survives that classification step.
+/// Records with a closed validity interval preserve bitemporal audit history;
+/// callers may still remove them through the explicit delete API.
+pub fn is_lifecycle_protected(record: &crate::record::Record, taxonomy: &TagTaxonomy) -> bool {
+    record.pinned
+        || record.level >= crate::levels::Level::Identity
+        || record.route_state_class() == crate::record::RouteStateClass::Refuted
+        || record.valid_until.is_some()
+        || record.superseded_at.is_some()
+        || is_archive_protected(&record.tags, taxonomy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -209,24 +209,28 @@ Aura also ships operator-facing and plasticity-facing surfaces:
 
 ## How Memory Works
 
-Aura organizes memories into 4 levels across 2 tiers. Important memories persist, trivial ones decay naturally:
+Aura organizes memories into four levels across two active tiers. Maintenance is
+event-driven: one maintenance call is one decay opportunity, not a calendar TTL.
+Importance, evidence state, explicit pins, and archival policy decide what stays
+active; wall-clock time is used only by configured age/completion rules.
 
 ```
-CORE TIER (slow decay — weeks to months)
-  Identity  [0.99]  Who the user is. Preferences. Personality.
-  Domain    [0.95]  Learned facts. Domain knowledge.
+CORE TIER
+  Identity  Anchored identity and operator-protected knowledge.
+  Domain    Learned facts and domain knowledge.
 
-COGNITIVE TIER (fast decay — hours to days)
-  Decisions [0.90]  Choices made. Action items.
-  Working   [0.80]  Current tasks. Recent context.
+COGNITIVE TIER
+  Decisions Choices made and action items.
+  Working   Current tasks and recent context.
 
-SEMANTIC TYPES (modulate decay & promotion)
-  fact          Default knowledge record.
-  decision      More persistent than a standard fact. Promotes earlier.
-  preference    Long-lived user or agent preference.
-  contradiction Preserved longer for conflict analysis.
-  trend         Time-sensitive pattern tracked over repeated activation.
-  serendipity   Cross-domain discovery record.
+CONSEQUENCE ROUTE STATE (maintenance retention)
+  candidate       Fastest decay while usefulness is still unverified.
+  evidence debt   Slower decay while an outcome remains unresolved.
+  confirmed       Longest ordinary retention after supporting outcomes.
+  refuted scar    No field decay; preserved against later positive noise.
+
+OPERATOR PIN
+  pinned          No field decay or automatic archival.
 ```
 
 One call runs the lifecycle — decay, promotion, consolidation, and archival:
@@ -234,6 +238,10 @@ One call runs the lifecycle — decay, promotion, consolidation, and archival:
 ```python
 report = brain.run_maintenance()  # background memory maintenance
 ```
+
+Weak records leave active RAM and fast indexes but keep a crash-safe journal
+trace. They stay cold after restart. Automatic text-query reactivation from the
+cold journal is not part of the current API.
 
 ---
 

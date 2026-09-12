@@ -680,6 +680,13 @@ pub fn fix_memory_levels(
             None => continue,
         };
 
+        // A pin is an explicit operator decision, so maintenance must not
+        // reinterpret it from tags, activation count, or current strength.
+        if rec.pinned {
+            *stats.get_mut("kept").unwrap() += 1;
+            continue;
+        }
+
         let rec_tags: HashSet<&str> = rec.tags.iter().map(|s| s.as_str()).collect();
 
         // Keep if has identity-specific tags
@@ -857,7 +864,7 @@ pub fn update_epistemic_state(records: &mut HashMap<String, Record>) -> Epistemi
 /// strength.
 pub fn guarded_reflect(
     records: &mut HashMap<String, Record>,
-    _taxonomy: &TagTaxonomy,
+    taxonomy: &TagTaxonomy,
 ) -> ReflectReport {
     let mut blocked_conflict = 0usize;
     let mut blocked_volatility = 0usize;
@@ -897,7 +904,7 @@ pub fn guarded_reflect(
     // Archive dead
     let dead: Vec<String> = records
         .values()
-        .filter(|r| !r.is_alive())
+        .filter(|r| !r.is_alive() && !crate::guards::is_lifecycle_protected(r, taxonomy))
         .map(|r| r.id.clone())
         .collect();
     let archived = dead.len();
@@ -1042,6 +1049,24 @@ pub fn check_scheduled_tasks(records: &HashMap<String, Record>, task_tag: &str) 
     reminders.into_iter().map(|(_, _, text)| text).collect()
 }
 
+fn record_lifecycle_time(record: &Record, metadata_keys: &[&str]) -> chrono::DateTime<chrono::Utc> {
+    for key in metadata_keys {
+        if let Some(value) = record.metadata.get(*key) {
+            if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(value) {
+                return parsed.with_timezone(&chrono::Utc);
+            }
+        }
+    }
+
+    // Record::created_at is the canonical creation instant. Falling back to it
+    // prevents a missing optional metadata string from making a fresh record
+    // appear infinitely old.
+    let seconds = record.created_at.floor() as i64;
+    let nanos =
+        ((record.created_at - seconds as f64).clamp(0.0, 0.999_999_999) * 1_000_000_000.0) as u32;
+    chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, nanos).unwrap_or_else(chrono::Utc::now)
+}
+
 /// Phase 7: Archive old transient records.
 pub fn archive_old_records(
     records: &mut HashMap<String, Record>,
@@ -1053,48 +1078,40 @@ pub fn archive_old_records(
 
     // Strategy 1: Age-based deletion
     for rule in &config.archival_rules {
-        let mut matching: Vec<(String, String)> = records
+        let mut by_namespace: HashMap<String, Vec<(String, chrono::DateTime<chrono::Utc>)>> =
+            HashMap::new();
+        for record in records
             .values()
-            .filter(|r| r.tags.contains(&rule.tag) && r.is_alive())
-            .map(|r| {
-                let ts = r
-                    .metadata
-                    .get("timestamp")
-                    .or_else(|| r.metadata.get("created_at"))
-                    .cloned()
-                    .unwrap_or_default();
-                (r.id.clone(), ts)
-            })
-            .collect();
-
-        if matching.len() <= rule.keep_recent {
-            continue;
+            .filter(|record| record.tags.contains(&rule.tag) && record.is_alive())
+        {
+            by_namespace
+                .entry(record.namespace.clone())
+                .or_default()
+                .push((
+                    record.id.clone(),
+                    record_lifecycle_time(record, &["timestamp", "created_at"]),
+                ));
         }
 
-        // Sort by timestamp descending (newest first)
-        matching.sort_by(|a, b| b.1.cmp(&a.1));
+        let cutoff = now - chrono::Duration::days(rule.max_age_days as i64);
+        for mut matching in by_namespace.into_values() {
+            if matching.len() <= rule.keep_recent {
+                continue;
+            }
 
-        let cutoff = (now - chrono::Duration::days(rule.max_age_days as i64)).to_rfc3339();
-
-        // Skip keep_recent newest records
-        let candidates = &matching[rule.keep_recent..];
-        for (id, ts) in candidates {
-            if ts.is_empty() || ts.as_str() < cutoff.as_str() {
-                // Check archive protection
-                if let Some(rec) = records.get(id) {
-                    if rec.salience >= 0.70 {
-                        continue;
-                    }
-                    // Scar protection: a Refuted consequence scar is never
-                    // archived/deleted — it outranks any archival rule (the
-                    // gaslight guard applies to age-based archival too).
-                    if rec.route_state_class() == crate::record::RouteStateClass::Refuted {
-                        continue;
-                    }
-                    if !crate::guards::is_archive_protected(&rec.tags, taxonomy) {
-                        records.remove(id);
-                        total_archived += 1;
-                    }
+            // Retention quotas belong to one namespace. Timestamp parsing uses
+            // real instants, so equivalent RFC3339 offsets sort consistently.
+            matching.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            for (id, timestamp) in matching.into_iter().skip(rule.keep_recent) {
+                if timestamp >= cutoff {
+                    continue;
+                }
+                let protected = records.get(&id).is_some_and(|record| {
+                    record.salience >= 0.70
+                        || crate::guards::is_lifecycle_protected(record, taxonomy)
+                });
+                if !protected && records.remove(&id).is_some() {
+                    total_archived += 1;
                 }
             }
         }
@@ -1102,7 +1119,7 @@ pub fn archive_old_records(
 
     // Strategy 2: Completion-based deletion
     for rule in &config.completed_archival_rules {
-        let cutoff = (now - chrono::Duration::days(rule.max_age_days as i64)).to_rfc3339();
+        let cutoff = now - chrono::Duration::days(rule.max_age_days as i64);
 
         let to_delete: Vec<String> = records
             .values()
@@ -1114,18 +1131,10 @@ pub fn archive_old_records(
                     )
             })
             .filter(|r| {
-                let completed_at = r
-                    .metadata
-                    .get("completed_at")
-                    .or_else(|| r.metadata.get("timestamp"))
-                    .or_else(|| r.metadata.get("created_at"))
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-                completed_at.is_empty() || completed_at < cutoff.as_str()
+                record_lifecycle_time(r, &["completed_at", "timestamp", "created_at"]) < cutoff
             })
             .filter(|r| r.salience < 0.70)
-            // Scar protection: never delete a Refuted consequence scar.
-            .filter(|r| r.route_state_class() != crate::record::RouteStateClass::Refuted)
+            .filter(|r| !crate::guards::is_lifecycle_protected(r, taxonomy))
             .map(|r| r.id.clone())
             .collect();
 
@@ -1453,6 +1462,142 @@ mod tests {
         let archived = archive_old_records(&mut records, &config, &taxonomy);
         assert_eq!(archived, 0);
         assert_eq!(records.len(), 1);
+    }
+
+    #[test]
+    fn archival_keep_recent_is_isolated_per_namespace() {
+        let config = MaintenanceConfig {
+            archival_rules: vec![ArchivalRule {
+                tag: "transient".into(),
+                max_age_days: 1,
+                keep_recent: 1,
+            }],
+            completed_archival_rules: Vec::new(),
+            ..MaintenanceConfig::default()
+        };
+        let taxonomy = TagTaxonomy::default();
+        let mut records = HashMap::new();
+
+        for (namespace, timestamp) in [
+            ("tenant-a", "2020-02-01T00:00:00Z"),
+            ("tenant-a", "2020-01-01T00:00:00Z"),
+            ("tenant-b", "2019-01-01T00:00:00Z"),
+        ] {
+            let mut record = Record::new("transient memory".into(), Level::Working);
+            record.namespace = namespace.into();
+            record.tags.push("transient".into());
+            record.metadata.insert("timestamp".into(), timestamp.into());
+            records.insert(record.id.clone(), record);
+        }
+
+        let archived = archive_old_records(&mut records, &config, &taxonomy);
+        assert_eq!(archived, 1);
+        assert_eq!(
+            records
+                .values()
+                .filter(|record| record.namespace == "tenant-a")
+                .count(),
+            1
+        );
+        assert_eq!(
+            records
+                .values()
+                .filter(|record| record.namespace == "tenant-b")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn archival_uses_created_at_when_optional_timestamp_is_missing() {
+        let config = MaintenanceConfig {
+            archival_rules: vec![ArchivalRule {
+                tag: "transient".into(),
+                max_age_days: 30,
+                keep_recent: 0,
+            }],
+            completed_archival_rules: Vec::new(),
+            ..MaintenanceConfig::default()
+        };
+        let taxonomy = TagTaxonomy::default();
+        let mut records = HashMap::new();
+        let mut fresh = Record::new("fresh transient memory".into(), Level::Working);
+        fresh.tags.push("transient".into());
+        let id = fresh.id.clone();
+        records.insert(id.clone(), fresh);
+
+        let archived = archive_old_records(&mut records, &config, &taxonomy);
+        assert_eq!(archived, 0);
+        assert!(records.contains_key(&id));
+    }
+
+    #[test]
+    fn archival_orders_rfc3339_offsets_by_instant() {
+        let config = MaintenanceConfig {
+            archival_rules: vec![ArchivalRule {
+                tag: "transient".into(),
+                max_age_days: 1,
+                keep_recent: 1,
+            }],
+            completed_archival_rules: Vec::new(),
+            ..MaintenanceConfig::default()
+        };
+        let taxonomy = TagTaxonomy::default();
+        let mut older = Record::new("older by instant".into(), Level::Working);
+        older.tags.push("transient".into());
+        older
+            .metadata
+            .insert("timestamp".into(), "2020-01-01T00:30:00+01:00".into());
+        let older_id = older.id.clone();
+        let mut newer = Record::new("newer by instant".into(), Level::Working);
+        newer.tags.push("transient".into());
+        newer
+            .metadata
+            .insert("timestamp".into(), "2019-12-31T23:45:00Z".into());
+        let newer_id = newer.id.clone();
+        let mut records = HashMap::from([(older_id.clone(), older), (newer_id.clone(), newer)]);
+
+        let archived = archive_old_records(&mut records, &config, &taxonomy);
+        assert_eq!(archived, 1);
+        assert!(!records.contains_key(&older_id));
+        assert!(records.contains_key(&newer_id));
+    }
+
+    #[test]
+    fn pinned_record_survives_level_fix_reflection_and_archival() {
+        let config = MaintenanceConfig {
+            archival_rules: vec![ArchivalRule {
+                tag: "transient".into(),
+                max_age_days: 1,
+                keep_recent: 0,
+            }],
+            completed_archival_rules: vec![CompletedArchivalRule {
+                tag: "completed-item".into(),
+                max_age_days: 1,
+            }],
+            ..MaintenanceConfig::default()
+        };
+        let taxonomy = TagTaxonomy::default();
+        let mut pinned = Record::new("operator anchor".into(), Level::Identity);
+        pinned.pinned = true;
+        pinned.strength = 0.0;
+        pinned.tags.push("transient".into());
+        pinned.tags.push("completed-item".into());
+        pinned
+            .metadata
+            .insert("timestamp".into(), "2020-01-01T00:00:00Z".into());
+        pinned.metadata.insert("status".into(), "completed".into());
+        let id = pinned.id.clone();
+        let mut records = HashMap::from([(id.clone(), pinned)]);
+
+        let level_report = fix_memory_levels(&mut records, &taxonomy);
+        let reflect_report = guarded_reflect(&mut records, &taxonomy);
+        let archived = archive_old_records(&mut records, &config, &taxonomy);
+
+        assert_eq!(*level_report.get("kept").unwrap(), 1);
+        assert_eq!(reflect_report.archived, 0);
+        assert_eq!(archived, 0);
+        assert_eq!(records[&id].level, Level::Identity);
     }
 
     #[test]

@@ -731,11 +731,24 @@ impl Aura {
         // but should match the stored source_type for non-"recorded" records.
         let mut migrated_ids: Vec<String> = Vec::new();
         for rec in loaded_records.values_mut() {
+            // pin historically lived only in the lower storage layer. Recover
+            // it once into the cognitive record so every lifecycle path and
+            // future reopen observes the same operator instruction.
+            let legacy_pinned = storage.has_anchor(&rec.id)
+                || storage
+                    .get_header(&rec.id)
+                    .is_some_and(|header| header.stability() >= 100.0);
+            if !rec.pinned && legacy_pinned {
+                rec.pinned = true;
+                migrated_ids.push(rec.id.clone());
+            }
             let expected = Record::default_confidence_for_source(&rec.source_type);
             // Only fix if confidence is at the default 0.90 and source_type disagrees
             if (rec.confidence - 0.90).abs() < 0.001 && (expected - 0.90).abs() > 0.001 {
                 rec.confidence = expected;
-                migrated_ids.push(rec.id.clone());
+                if !migrated_ids.contains(&rec.id) {
+                    migrated_ids.push(rec.id.clone());
+                }
             }
         }
         // Recover version replacements written by pre-transaction releases.
@@ -837,6 +850,28 @@ impl Aura {
                 count = migrated_ids.len(),
                 "Migrated legacy record defaults"
             );
+        }
+
+        // The cognitive journal is the durable source of truth for both hot and
+        // cold records. Reopen must not silently promote a demoted weak record
+        // back into the active RAM/index surface. Lifecycle-protected records
+        // remain active even if an older release persisted a low strength.
+        let startup_taxonomy = TagTaxonomy::default();
+        let durable_record_count = loaded_records.len();
+        loaded_records.retain(|_, record| {
+            record.is_alive() || crate::guards::is_lifecycle_protected(record, &startup_taxonomy)
+        });
+        let cold_record_count = durable_record_count.saturating_sub(loaded_records.len());
+        if cold_record_count > 0 {
+            startup_events.push(startup_event(
+                "cold_records",
+                path_buf.join("brain.cog").display().to_string(),
+                "excluded_from_active_indexes",
+                Some(format!(
+                    "kept {cold_record_count} demoted records in the durable journal"
+                )),
+                false,
+            ));
         }
 
         // Build indexes from loaded records
@@ -1494,6 +1529,7 @@ impl Aura {
             if let Some(id) = existing_id {
                 let mut existing = records[&id].clone();
                 existing.activate();
+                existing.pinned |= pin;
                 for tag in &tags {
                     if !existing.tags.contains(tag) {
                         existing.tags.push(tag.clone());
@@ -1532,6 +1568,7 @@ impl Aura {
 
         // Create record
         let mut rec = Record::new(content.to_string(), effective_level);
+        rec.pinned = pin;
         rec.tags = tags;
         rec.content_type = content_type.to_string();
         rec.source_type = source_type.to_string();
@@ -4296,10 +4333,58 @@ impl Aura {
 
     // ── Maintenance Operations ──
 
+    fn remove_from_active_indexes(&self, removed_ids: &[String], delete_backing: bool) {
+        if removed_ids.is_empty() {
+            return;
+        }
+        let removed: HashSet<&str> = removed_ids.iter().map(String::as_str).collect();
+
+        {
+            let mut ngram = self.ngram_index.write();
+            for id in removed_ids {
+                ngram.remove(id);
+            }
+        }
+        {
+            let mut lexical = self.lexical_index.write();
+            for id in removed_ids {
+                lexical.remove(id);
+            }
+        }
+        {
+            let mut tags = self.tag_index.write();
+            tags.retain(|_, ids| {
+                ids.retain(|id| !removed.contains(id.as_str()));
+                !ids.is_empty()
+            });
+        }
+        self.aura_index
+            .write()
+            .retain(|_, record_id| !removed.contains(record_id.as_str()));
+        {
+            let mut cache = self.runtime.sdr_lookup_cache.write();
+            for id in removed_ids {
+                cache.remove(id);
+            }
+        }
+
+        for id in removed_ids {
+            if let Err(error) = self.embedding_store.remove(id) {
+                tracing::warn!(%error, record_id = %id, "failed to remove stale embedding");
+            }
+            if delete_backing {
+                self.storage.delete(id);
+                self.index.remove(id);
+            }
+        }
+    }
+
     /// Apply decay to all records.
     #[instrument(skip(self))]
     pub fn decay(&self) -> Result<(usize, usize)> {
+        let taxonomy = self.config.taxonomy.read().clone();
         let mut records = self.records.write();
+        let records_before = records.clone();
         let mut decayed = 0;
         let mut to_archive = Vec::new();
 
@@ -4311,9 +4396,7 @@ impl Aura {
             // an identity-anchored record, even via this standalone decay() (which
             // is exposed to Python as aura.decay()). Mirrors the guard in the
             // maintenance loop so the gaslight invariant holds on every decay path.
-            let is_scar = rec.route_state_class() == crate::record::RouteStateClass::Refuted;
-            let anchored = rec.level >= crate::levels::Level::Identity;
-            if !rec.is_alive() && !is_scar && !anchored {
+            if !rec.is_alive() && !crate::guards::is_lifecycle_protected(rec, &taxonomy) {
                 to_archive.push(rec.id.clone());
             }
         }
@@ -4323,7 +4406,7 @@ impl Aura {
             let weak_conns: Vec<String> = rec
                 .connections
                 .iter()
-                .filter(|(_, w)| **w < 0.05)
+                .filter(|(id, w)| **w < 0.05 || to_archive.contains(id))
                 .map(|(id, _)| id.clone())
                 .collect();
 
@@ -4341,13 +4424,28 @@ impl Aura {
         let archived = to_archive.len();
         for id in &to_archive {
             records.remove(id);
-            self.lexical_index.write().remove(id);
-            self.cognitive_store.append_delete(id)?;
         }
+
+        let upserts: Vec<Record> = records
+            .iter()
+            .filter(|(id, record)| records_before.get(*id) != Some(*record))
+            .map(|(_, record)| record.clone())
+            .collect();
+        if let Err(error) = self
+            .cognitive_store
+            .append_atomic_mutations(&upserts, &to_archive)
+        {
+            *records = records_before;
+            return Err(error);
+        }
+        drop(records);
+        self.remove_from_active_indexes(&to_archive, true);
+        self.runtime.clear_recall_caches();
 
         // Compact if many dead entries
         if archived > 100 {
-            self.cognitive_store.compact(&records)?;
+            let durable_records = self.cognitive_store.load_all()?;
+            self.cognitive_store.compact(&durable_records)?;
         }
 
         Ok((decayed, archived))
@@ -4364,46 +4462,63 @@ impl Aura {
     ///     its access counter — a never-confirmed candidate decays fastest even
     ///     if it was accessed a hundred times;
     ///   * a `Refuted` scar (and identity-anchored records) never field-decays;
-    ///   * weak records are **demoted to the cold tier** (archived to disk,
-    ///     provenance preserved) rather than removed — except scars, which are
-    ///     never demoted, and which a later contradiction alone can clear.
+    ///   * weak records are **demoted to the cold tier** (kept in the cognitive
+    ///     journal, excluded from active indexes) rather than deleted; scars are
+    ///     never demoted and only an explicit contradiction can clear them.
     ///
-    /// Returns `(decayed, demoted)`. A demoted record leaves the active field but
-    /// its on-disk trace is kept, so a future query can reactivate it.
+    /// Returns `(decayed, demoted)`. A demoted record leaves the active field and
+    /// stays out after reopen. Its journal trace is retained for audit and a
+    /// future explicit cold-recall API; arbitrary query reactivation is not yet
+    /// part of this method's contract.
     pub fn decay_by_route_state(&self) -> Result<(usize, usize)> {
-        use crate::record::RouteStateClass;
+        let taxonomy = self.config.taxonomy.read().clone();
         let mut records = self.records.write();
+        let records_before = records.clone();
         let mut decayed = 0;
         let mut to_demote = Vec::new();
 
         for rec in records.values_mut() {
-            let class = rec.route_state_class();
             rec.apply_route_state_decay();
             decayed += 1;
 
             // Demote (not delete) weak records — but NEVER a scar and never an
             // identity-anchored record. A confirmed/debt record may demote to
             // cold once its field strength falls; a refuted scar is retained.
-            let scar = class == RouteStateClass::Refuted;
-            let anchored = rec.level >= Level::Identity;
-            if !rec.is_alive() && !scar && !anchored {
+            if !rec.is_alive() && !crate::guards::is_lifecycle_protected(rec, &taxonomy) {
                 to_demote.push(rec.id.clone());
             }
         }
 
-        // Demotion = leave the active in-memory field, but DO NOT delete the
-        // on-disk trace. The record was already persisted via append at write
-        // time; we simply update its (decayed) strength on disk and drop it from
-        // the active map. A later query can reload and reactivate it — this is
-        // demotion to cold, not the deletion that ordinary `decay` performs.
+        for rec in records.values_mut() {
+            for id in &to_demote {
+                rec.connections.remove(id);
+                rec.connection_types.remove(id);
+            }
+        }
+
+        let durable_upserts: Vec<Record> = records
+            .iter()
+            .filter(|(id, record)| records_before.get(*id) != Some(*record))
+            .map(|(_, record)| record.clone())
+            .collect();
+
+        // Demotion removes the record from the active in-memory field and every
+        // fast derived index. The authoritative cognitive journal keeps its
+        // decayed record; no deletion tombstone is written for this transition.
         let demoted = to_demote.len();
         for id in &to_demote {
-            if let Some(rec) = records.get(id) {
-                self.cognitive_store.append_update(rec)?;
-            }
             records.remove(id);
-            self.lexical_index.write().remove(id);
         }
+        if let Err(error) = self
+            .cognitive_store
+            .append_atomic_mutations(&durable_upserts, &[])
+        {
+            *records = records_before;
+            return Err(error);
+        }
+        drop(records);
+        self.remove_from_active_indexes(&to_demote, true);
+        self.runtime.clear_recall_caches();
 
         Ok((decayed, demoted))
     }
@@ -4433,34 +4548,10 @@ impl Aura {
     /// Reflect — promote, archive, detect conflicts.
     #[instrument(skip(self))]
     pub fn reflect(&self) -> Result<HashMap<String, usize>> {
+        let taxonomy = self.config.taxonomy.read().clone();
         let mut records = self.records.write();
-        let epistemic_before: HashMap<String, (u32, u32, u32)> = records
-            .iter()
-            .map(|(id, record)| {
-                (
-                    id.clone(),
-                    (
-                        record.support_mass,
-                        record.conflict_mass,
-                        record.volatility.to_bits(),
-                    ),
-                )
-            })
-            .collect();
+        let records_before = records.clone();
         let epistemic = background_brain::update_epistemic_state(&mut records);
-        for (id, record) in records.iter() {
-            let current = (
-                record.support_mass,
-                record.conflict_mass,
-                record.volatility.to_bits(),
-            );
-            if epistemic_before
-                .get(id)
-                .is_some_and(|before| *before != current)
-            {
-                self.cognitive_store.append_update(record)?;
-            }
-        }
 
         let now = now_secs_f64();
         let mut promoted = 0;
@@ -4500,7 +4591,6 @@ impl Aura {
             if let Some(rec) = records.get_mut(id) {
                 if rec.promote() {
                     promoted += 1;
-                    self.cognitive_store.append_update(rec)?;
                 }
             }
         }
@@ -4509,20 +4599,41 @@ impl Aura {
         // second promotion bypass. Repeated co-recall is not independent truth
         // evidence and must not make a conflicted rule permanent.
 
-        // Archive dead records — uniform threshold regardless of semantic_type.
-        // Level decay rates (Identity=0.99 .. Working=0.80) already protect important records.
+        // Archive dead records through the same lifecycle guard used by every
+        // maintenance entry point.
         let dead: Vec<String> = records
             .values()
-            .filter(|r| !r.is_alive()) // strength < 0.05
+            .filter(|record| {
+                !record.is_alive() && !crate::guards::is_lifecycle_protected(record, &taxonomy)
+            })
             .map(|r| r.id.clone())
             .collect();
 
         let archived = dead.len();
         for id in &dead {
             records.remove(id);
-            self.lexical_index.write().remove(id);
-            self.cognitive_store.append_delete(id)?;
         }
+        for record in records.values_mut() {
+            for id in &dead {
+                record.connections.remove(id);
+                record.connection_types.remove(id);
+            }
+        }
+        let upserts: Vec<Record> = records
+            .iter()
+            .filter(|(id, record)| records_before.get(*id) != Some(*record))
+            .map(|(_, record)| record.clone())
+            .collect();
+        if let Err(error) = self
+            .cognitive_store
+            .append_atomic_mutations(&upserts, &dead)
+        {
+            *records = records_before;
+            return Err(error);
+        }
+        drop(records);
+        self.remove_from_active_indexes(&dead, true);
+        self.runtime.clear_recall_caches();
 
         let mut stats = HashMap::new();
         stats.insert("promoted".to_string(), promoted);
@@ -5135,6 +5246,8 @@ impl Aura {
             &mut timings,
             &mut hotspots,
         );
+        let initial_removed_ids = initial.removed_ids;
+        self.remove_from_active_indexes(&initial_removed_ids, true);
         let total_records = initial.total_records;
         let decay = initial.decay;
         let reflect = initial.reflect;
@@ -5227,6 +5340,7 @@ impl Aura {
         let cross_connections = post_discovery.cross_connections;
         let task_reminders = post_discovery.task_reminders;
         let records_archived = post_discovery.records_archived;
+        self.remove_from_active_indexes(&post_discovery.removed_ids, true);
 
         // Persist changes
         let _ = self.flush();
@@ -24517,6 +24631,304 @@ mod tests {
         );
 
         aura.close()?;
+        drop(aura);
+
+        let reopened = Aura::open(dir.path().to_str().unwrap())?;
+        assert!(
+            !reopened.records.read().contains_key(&junk.id),
+            "cold memory must not be promoted back into active RAM on reopen"
+        );
+        let durable = reopened.cognitive_store.load_all()?;
+        assert!(
+            durable.contains_key(&junk.id),
+            "demotion must preserve the authoritative journal trace"
+        );
+        reopened.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn standalone_decay_strength_survives_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_str().unwrap();
+        let record_id;
+        let strength_after_decay;
+        {
+            let aura = Aura::open(root)?;
+            let record = aura.store(
+                "durable decay marker",
+                Some(Level::Working),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                None,
+                None,
+            )?;
+            record_id = record.id;
+            aura.decay()?;
+            strength_after_decay = aura.get(&record_id).unwrap().strength;
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(root)?;
+        assert_eq!(
+            reopened.get(&record_id).unwrap().strength,
+            strength_after_decay
+        );
+        reopened.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn failed_decay_transaction_restores_ram_and_disk_state() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_str().unwrap();
+        let record_id;
+        {
+            let aura = Aura::open(root)?;
+            record_id = aura
+                .store(
+                    "failed decay transaction marker",
+                    Some(Level::Working),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(false),
+                    None,
+                    None,
+                    None,
+                )?
+                .id;
+            aura.cognitive_store.fail_next_atomic_upsert_for_test();
+            assert!(aura.decay().is_err());
+            assert_eq!(aura.get(&record_id).unwrap().strength, 1.0);
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(root)?;
+        assert_eq!(reopened.get(&record_id).unwrap().strength, 1.0);
+        reopened.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn failed_maintenance_transaction_reports_no_decay_and_restores_ram() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let record_id = aura
+            .store(
+                "failed maintenance transaction marker",
+                Some(Level::Working),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                None,
+                None,
+            )?
+            .id;
+        let mut config = aura.get_maintenance_config();
+        config.consolidation_enabled = false;
+        config.archival_enabled = false;
+        config.insights_enabled = false;
+        config.synthesis_enabled = false;
+        aura.configure_maintenance(config);
+
+        aura.cognitive_store.fail_next_atomic_upsert_for_test();
+        let report = aura.run_maintenance();
+        assert_eq!(report.decay.decayed, 0);
+        assert_eq!(aura.get(&record_id).unwrap().strength, 1.0);
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn maintenance_decay_and_pin_survive_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_str().unwrap();
+        let ordinary_id;
+        let pinned_id;
+        let ordinary_strength;
+        {
+            let aura = Aura::open(root)?;
+            ordinary_id = aura
+                .store(
+                    "maintenance durability marker",
+                    Some(Level::Working),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(false),
+                    None,
+                    None,
+                    None,
+                )?
+                .id;
+            pinned_id = aura
+                .store(
+                    "operator pinned marker",
+                    Some(Level::Working),
+                    None,
+                    Some(true),
+                    None,
+                    None,
+                    None,
+                    Some(false),
+                    None,
+                    None,
+                    None,
+                )?
+                .id;
+
+            let mut config = aura.get_maintenance_config();
+            config.consolidation_enabled = false;
+            config.archival_enabled = false;
+            config.insights_enabled = false;
+            config.synthesis_enabled = false;
+            aura.configure_maintenance(config);
+            aura.run_maintenance();
+            ordinary_strength = aura.get(&ordinary_id).unwrap().strength;
+            assert_eq!(aura.get(&pinned_id).unwrap().strength, 1.0);
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(root)?;
+        assert_eq!(
+            reopened.get(&ordinary_id).unwrap().strength,
+            ordinary_strength
+        );
+        let pinned = reopened.get(&pinned_id).unwrap();
+        assert!(pinned.pinned);
+        assert_eq!(pinned.strength, 1.0);
+        reopened.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_storage_anchor_migrates_to_cognitive_pin() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_str().unwrap();
+        let record_id;
+        {
+            let aura = Aura::open(root)?;
+            let record = aura.store(
+                "legacy anchor migration marker",
+                Some(Level::Working),
+                None,
+                Some(true),
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                None,
+                None,
+            )?;
+            record_id = record.id.clone();
+
+            let mut legacy_record = record;
+            legacy_record.pinned = false;
+            aura.cognitive_store.append_update(&legacy_record)?;
+            aura.records
+                .write()
+                .insert(record_id.clone(), legacy_record);
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(root)?;
+        assert!(reopened.get(&record_id).unwrap().pinned);
+        reopened.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn exact_dedup_can_pin_an_existing_record() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let content = "existing memory becomes explicitly pinned";
+        let first = aura.store(
+            content,
+            Some(Level::Working),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+        )?;
+        let second = aura.store(
+            content,
+            Some(Level::Working),
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+        )?;
+
+        assert_eq!(first.id, second.id);
+        assert!(second.pinned);
+        for _ in 0..20 {
+            aura.decay_by_route_state()?;
+        }
+        assert!(aura.get(&first.id).unwrap().pinned);
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn route_state_demotion_invalidates_recall_cache() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let record = aura.store(
+            "ephemeral cache marker",
+            Some(Level::Working),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )?;
+
+        let recalled = aura.recall(
+            "ephemeral cache marker",
+            Some(5),
+            Some(0.0),
+            Some(false),
+            None,
+            None,
+        )?;
+        assert!(!recalled.is_empty());
+        assert!(!aura.runtime.recall_cache.is_empty());
+        aura.records.write().get_mut(&record.id).unwrap().strength = 0.06;
+
+        let (_, demoted) = aura.decay_by_route_state()?;
+        assert_eq!(demoted, 1);
+        assert!(aura.runtime.recall_cache.is_empty());
+        assert!(!aura.records.read().contains_key(&record.id));
+        aura.close()?;
         Ok(())
     }
 
@@ -24720,6 +25132,99 @@ mod tests {
         let (v, ..) = aura.consequence_verdict("deploy", "ship without tests", None);
         assert_eq!(v, ConsequencePolarity::Refutes);
         aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn standalone_reflect_never_deletes_a_scar_and_persists_it() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_str().unwrap();
+        let record_id;
+        {
+            let aura = Aura::open(root)?;
+            let record = aura.store(
+                "standalone reflection scar",
+                Some(Level::Working),
+                Some(vec![crate::consequence::CONSEQUENCE_REFUTE_TAG.into()]),
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                None,
+                None,
+            )?;
+            record_id = record.id;
+            aura.update(&record_id, None, None, None, Some(0.04), None, None)?;
+            let report = aura.reflect()?;
+            assert_eq!(report["archived"], 0);
+            assert!(aura.get(&record_id).is_some());
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(root)?;
+        assert!(reopened.get(&record_id).is_some());
+        reopened.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn historical_temporal_record_survives_maintenance_and_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_str().unwrap();
+        let record_id;
+        {
+            let aura = Aura::open(root)?;
+            record_id = aura
+                .store(
+                    "historical deployment approval",
+                    Some(Level::Working),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(false),
+                    None,
+                    Some("audit"),
+                    None,
+                )?
+                .id;
+            aura.set_temporal_validity(&record_id, Some(100.0), Some(200.0))?;
+            aura.update(&record_id, None, None, None, Some(0.04), None, None)?;
+            aura.run_maintenance();
+            assert_eq!(
+                aura.recall_as_of(
+                    "historical deployment approval",
+                    150.0,
+                    Some(5),
+                    Some(0.0),
+                    Some(false),
+                    Some(&["audit"]),
+                )?
+                .len(),
+                1
+            );
+            aura.close()?;
+        }
+
+        let reopened = Aura::open(root)?;
+        assert!(reopened.get(&record_id).is_some());
+        assert_eq!(
+            reopened
+                .recall_as_of(
+                    "historical deployment approval",
+                    150.0,
+                    Some(5),
+                    Some(0.0),
+                    Some(false),
+                    Some(&["audit"]),
+                )?
+                .len(),
+            1
+        );
+        reopened.close()?;
         Ok(())
     }
 

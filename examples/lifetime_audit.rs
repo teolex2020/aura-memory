@@ -235,7 +235,8 @@ fn main() -> Result<()> {
         out.insert(
             "cold_trace_after_compaction".into(),
             json!({"unrelated_deleted":deleted,
-            "cold_record_exists_after_reopen":b.get(&r.id).is_some()}),
+            "cold_record_active_after_reopen":b.get(&r.id).is_some(),
+            "expected_active_after_reopen":false}),
         );
         b.close()?;
     }

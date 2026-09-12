@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Decay, reflection, and archival now commit strength updates, graph cleanup, and tombstones as one crash-safe lifecycle frame. Failed writes restore the previous RAM state, and demoted records stay outside active indexes after reopen.
+- Operator pins are stored in cognitive records, migrated from legacy anchors, and respected by decay, level correction, reflection, and both archival strategies. Closed temporal versions are also retained for bitemporal recall until explicitly deleted.
+- Age retention is scoped per namespace, parses RFC3339 timestamps as instants, and falls back to the record creation time instead of treating missing optional metadata as infinitely old.
+- Lifecycle changes invalidate recall caches and remove stale n-gram, lexical, tag, aura, SDR, embedding, and lower-store index entries.
 - Deferred recall flushes hold the record snapshot lock through the durable append, preventing concurrent updates or deletions from being overwritten on reopen. Failed flushes retain pending IDs for retry.
 - Equal embedding scores use record IDs as stable tie-breakers before top-k selection.
 - Opt-in context compaction preserves case-sensitive text distinctions and excludes typed source-code payloads from natural-language rewriting.

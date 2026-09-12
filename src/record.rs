@@ -30,7 +30,7 @@ pub enum RouteStateClass {
 }
 
 /// A single cognitive memory record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass)]
 pub struct Record {
     /// Unique identifier (12-char hex).
@@ -39,6 +39,10 @@ pub struct Record {
     pub content: String,
     /// Cognitive hierarchy level.
     pub level: Level,
+    /// Explicit operator pin. Unlike a high level or salience score, this is a
+    /// durable lifecycle instruction and is never inferred from access frequency.
+    #[serde(default)]
+    pub pinned: bool,
     /// Activation strength (0.0–1.0). Decays over time.
     pub strength: f32,
     /// Number of times this record has been activated (recalled).
@@ -214,6 +218,7 @@ impl Record {
             id,
             content,
             level,
+            pinned: false,
             strength: 1.0,
             activation_count: 0,
             created_at: now,
@@ -334,6 +339,9 @@ impl Record {
     /// semantic_type does not influence decay — Level already encodes information importance.
     /// Salience adds only a bounded retention bias.
     pub fn apply_decay(&mut self) {
+        if self.pinned {
+            return;
+        }
         let base_rate = self.level.decay_rate();
         let ceiling_factor = (self.activation_count as f32 / 10.0).min(1.0);
         let activation_rate = (base_rate + (0.999 - base_rate) * ceiling_factor).min(0.999);
@@ -388,6 +396,7 @@ impl Record {
     /// tier/archival machinery; the key change is *what* sets the rate.
     pub fn apply_route_state_decay(&mut self) {
         let retention = match self.route_state_class() {
+            _ if self.pinned => 1.0,
             // identity is structurally anchored; refuted is an eternal scar.
             _ if self.level >= Level::Identity => 1.0,
             RouteStateClass::Refuted => 1.0,
@@ -624,6 +633,10 @@ impl Record {
     #[getter]
     fn get_level(&self) -> Level {
         self.level
+    }
+    #[getter]
+    fn get_pinned(&self) -> bool {
+        self.pinned
     }
     #[getter]
     fn get_strength(&self) -> f32 {

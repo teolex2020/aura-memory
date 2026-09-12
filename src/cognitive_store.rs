@@ -30,6 +30,10 @@ const OP_ATOMIC_UPSERTS: u8 = 0x04;
 /// Compact atomic patches for reserved metadata and typed connections. This
 /// avoids rewriting an entire record when a small audit edge is appended.
 const OP_ATOMIC_RECORD_PATCHES: u8 = 0x05;
+/// One CRC-protected frame containing a complete lifecycle transition. Replay
+/// applies every upsert and deletion together, so maintenance cannot expose a
+/// partially persisted decay/archive decision after restart.
+const OP_ATOMIC_MUTATIONS: u8 = 0x06;
 
 const SNAP_MAGIC: &[u8; 4] = b"CSN1";
 
@@ -51,6 +55,14 @@ pub(crate) struct RecordPatch {
     pub metadata_upserts: HashMap<String, String>,
     #[serde(rename = "c", default, skip_serializing_if = "Vec::is_empty")]
     pub typed_connection_upserts: Vec<TypedConnectionPatch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct CognitiveMutationBatch {
+    #[serde(rename = "u", default, skip_serializing_if = "Vec::is_empty")]
+    upserts: Vec<Record>,
+    #[serde(rename = "d", default, skip_serializing_if = "Vec::is_empty")]
+    deletes: Vec<String>,
 }
 
 /// Append-only cognitive record storage with snapshot-accelerated loading.
@@ -270,6 +282,21 @@ impl CognitiveStore {
                         }
                     }
                 }
+                OP_ATOMIC_MUTATIONS => {
+                    match serde_json::from_slice::<CognitiveMutationBatch>(&payload) {
+                        Ok(batch) => {
+                            for id in batch.deletes {
+                                records.remove(&id);
+                            }
+                            for rec in batch.upserts {
+                                records.insert(rec.id.clone(), rec);
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "Invalid atomic cognitive mutation batch, skipping frame");
+                        }
+                    }
+                }
                 _ => {
                     tracing::warn!("Unknown op code {} in cognitive log", op);
                 }
@@ -317,6 +344,28 @@ impl CognitiveStore {
 
         let payload = serde_json::to_vec(records)?;
         self.append_entry_internal(OP_ATOMIC_UPSERTS, &payload, true)
+    }
+
+    /// Atomically persist one lifecycle transition containing record updates and
+    /// tombstones. The complete frame is validated before replay mutates state.
+    pub(crate) fn append_atomic_mutations(
+        &self,
+        upserts: &[Record],
+        deletes: &[String],
+    ) -> Result<()> {
+        if upserts.is_empty() && deletes.is_empty() {
+            return Ok(());
+        }
+        #[cfg(test)]
+        if self.fail_next_atomic_upsert.swap(false, Ordering::SeqCst) {
+            anyhow::bail!("injected atomic cognitive mutation failure");
+        }
+        let batch = CognitiveMutationBatch {
+            upserts: upserts.to_vec(),
+            deletes: deletes.to_vec(),
+        };
+        let payload = serde_json::to_vec(&batch)?;
+        self.append_entry_internal(OP_ATOMIC_MUTATIONS, &payload, true)
     }
 
     /// Atomically append compact metadata/connection changes.
@@ -533,6 +582,62 @@ mod tests {
             loaded[&successor.id].caused_by_id.as_deref(),
             Some(old.id.as_str())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn atomic_mutation_frame_replays_updates_and_deletes_together() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = CognitiveStore::new(dir.path())?;
+
+        let mut retained = Record::new("retained memory".into(), Level::Working);
+        let removed = Record::new("forgotten memory".into(), Level::Working);
+        store.append_atomic_upserts(&[retained.clone(), removed.clone()])?;
+
+        retained.strength = 0.8;
+        store.append_atomic_mutations(&[retained.clone()], std::slice::from_ref(&removed.id))?;
+        store.close()?;
+        drop(store);
+
+        let reopened = CognitiveStore::new(dir.path())?;
+        let loaded = reopened.load_all()?;
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[&retained.id].strength, 0.8);
+        assert!(!loaded.contains_key(&removed.id));
+        Ok(())
+    }
+
+    #[test]
+    fn truncated_atomic_mutation_tail_changes_nothing() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut retained = Record::new("original retained memory".into(), Level::Working);
+        let removed = Record::new("original removable memory".into(), Level::Working);
+        {
+            let store = CognitiveStore::new(dir.path())?;
+            store.append_atomic_upserts(&[retained.clone(), removed.clone()])?;
+            store.close()?;
+        }
+
+        retained.strength = 0.8;
+        let payload = serde_json::to_vec(&CognitiveMutationBatch {
+            upserts: vec![retained.clone()],
+            deletes: vec![removed.id.clone()],
+        })?;
+        let mut log = OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("brain.cog"))?;
+        log.write_u8(OP_ATOMIC_MUTATIONS)?;
+        log.write_u32::<LittleEndian>(payload.len() as u32)?;
+        log.write_u32::<LittleEndian>(crc32fast::hash(&payload))?;
+        log.write_all(&payload[..payload.len() / 2])?;
+        log.sync_all()?;
+        drop(log);
+
+        let reopened = CognitiveStore::new(dir.path())?;
+        let loaded = reopened.load_all()?;
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[&retained.id].strength, 1.0);
+        assert!(loaded.contains_key(&removed.id));
         Ok(())
     }
 

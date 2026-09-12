@@ -39,6 +39,7 @@ pub(crate) struct InitialMaintenancePhaseResult {
     pub(crate) reflect: background_brain::ReflectReport,
     pub(crate) epistemic: background_brain::EpistemicPhaseReport,
     pub(crate) insights_found: usize,
+    pub(crate) removed_ids: Vec<String>,
 }
 
 pub(crate) struct DiscoveryPhaseResult {
@@ -54,6 +55,7 @@ pub(crate) struct PostDiscoveryPhaseResult {
     pub(crate) cross_connections: usize,
     pub(crate) task_reminders: Vec<String>,
     pub(crate) records_archived: usize,
+    pub(crate) removed_ids: Vec<String>,
 }
 
 pub(crate) struct ConceptSurfaceCounters<'a> {
@@ -83,6 +85,7 @@ impl MaintenanceService {
         hotspots: &mut background_brain::MaintenanceHotspots,
     ) -> InitialMaintenancePhaseResult {
         let total_records = records.len();
+        let records_before = records.clone();
         hotspots.records_before_cycle = total_records;
 
         let t0 = std::time::Instant::now();
@@ -109,9 +112,7 @@ impl MaintenanceService {
                 // applied to the live maintenance loop (it previously deleted any
                 // record whose frequency-driven strength fell below the floor,
                 // scar or not).
-                let is_scar = rec.route_state_class() == crate::record::RouteStateClass::Refuted;
-                let anchored = rec.level >= crate::levels::Level::Identity;
-                if !rec.is_alive() && !is_scar && !anchored {
+                if !rec.is_alive() && !crate::guards::is_lifecycle_protected(rec, taxonomy) {
                     to_archive.push(rec.id.clone());
                 }
             }
@@ -120,7 +121,7 @@ impl MaintenanceService {
                 let weak: Vec<String> = rec
                     .connections
                     .iter()
-                    .filter(|(_, w)| **w < 0.05)
+                    .filter(|(id, w)| **w < 0.05 || to_archive.contains(id))
                     .map(|(id, _)| id.clone())
                     .collect();
                 for id in &weak {
@@ -135,7 +136,6 @@ impl MaintenanceService {
             let archived = to_archive.len();
             for id in &to_archive {
                 records.remove(id);
-                let _ = cognitive_store.append_delete(id);
             }
 
             background_brain::DecayReport { decayed, archived }
@@ -167,12 +167,37 @@ impl MaintenanceService {
         };
         timings.insights_ms = t3.elapsed().as_secs_f64() * 1000.0;
 
+        let removed_ids: Vec<String> = records_before
+            .keys()
+            .filter(|id| !records.contains_key(*id))
+            .cloned()
+            .collect();
+        let upserts: Vec<Record> = records
+            .iter()
+            .filter(|(id, record)| records_before.get(*id) != Some(*record))
+            .map(|(_, record)| record.clone())
+            .collect();
+
+        if let Err(error) = cognitive_store.append_atomic_mutations(&upserts, &removed_ids) {
+            tracing::error!(%error, "maintenance lifecycle transaction failed; restoring in-memory records");
+            *records = records_before;
+            return InitialMaintenancePhaseResult {
+                total_records,
+                decay: background_brain::DecayReport::default(),
+                reflect: background_brain::ReflectReport::default(),
+                epistemic: background_brain::EpistemicPhaseReport::default(),
+                insights_found: 0,
+                removed_ids: Vec::new(),
+            };
+        }
+
         InitialMaintenancePhaseResult {
             total_records,
             decay,
             reflect,
             epistemic,
             insights_found,
+            removed_ids,
         }
     }
 
@@ -547,11 +572,34 @@ impl MaintenanceService {
         let task_reminders = background_brain::check_scheduled_tasks(&records, &config.task_tag);
         hotspots.task_reminders_found = task_reminders.len();
 
-        let records_archived = if config.archival_enabled {
+        let records_before_archive = records.clone();
+        let mut records_archived = if config.archival_enabled {
             background_brain::archive_old_records(&mut records, config, taxonomy)
         } else {
             0
         };
+        let mut removed_ids: Vec<String> = records_before_archive
+            .keys()
+            .filter(|id| !records.contains_key(*id))
+            .cloned()
+            .collect();
+        for record in records.values_mut() {
+            for id in &removed_ids {
+                record.connections.remove(id);
+                record.connection_types.remove(id);
+            }
+        }
+        let upserts: Vec<Record> = records
+            .iter()
+            .filter(|(id, record)| records_before_archive.get(*id) != Some(*record))
+            .map(|(_, record)| record.clone())
+            .collect();
+        if let Err(error) = cognitive_store.append_atomic_mutations(&upserts, &removed_ids) {
+            tracing::error!(%error, "maintenance archival transaction failed; restoring records");
+            *records = records_before_archive;
+            records_archived = 0;
+            removed_ids.clear();
+        }
         hotspots.records_after_cycle = records.len();
         timings.tasks_archival_ms = t67.elapsed().as_secs_f64() * 1000.0;
 
@@ -560,6 +608,7 @@ impl MaintenanceService {
             cross_connections,
             task_reminders,
             records_archived,
+            removed_ids,
         }
     }
 

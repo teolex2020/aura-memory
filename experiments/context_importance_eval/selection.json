@@ -1,0 +1,1553 @@
+{
+  "baseline": {
+    "attenuation": 1.0,
+    "kind": "route_decay"
+  },
+  "input_sha256": "60792ca90cf13c34fdf43946b94a69dcbb35bf80b289478cd1420714bc819028",
+  "protocol": "context-importance-v1",
+  "selected": {
+    "attenuation": 0.25,
+    "kind": "context_utility"
+  },
+  "validation": [
+    {
+      "cells": [
+        {
+          "accuracy": 0.8226264923251848,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.8287514318442154,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1447,
+            "predicted": 1746,
+            "scored": 1759
+          },
+          "coverage": 0.992609437180216,
+          "dataset": "helpdesk",
+          "dropped_feedback": 45,
+          "evictions": 3005,
+          "peak_slots": 18,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "route_decay"
+          },
+          "policy_ns_per_event": 98.05132162840054,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.8226264923251848,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.8287514318442154,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1447,
+            "predicted": 1746,
+            "scored": 1759
+          },
+          "coverage": 0.992609437180216,
+          "dataset": "helpdesk",
+          "dropped_feedback": 45,
+          "evictions": 3005,
+          "peak_slots": 18,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "route_decay"
+          },
+          "policy_ns_per_event": 81.28497009453984,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.8226264923251848,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.8287514318442154,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1447,
+            "predicted": 1746,
+            "scored": 1759
+          },
+          "coverage": 0.992609437180216,
+          "dataset": "helpdesk",
+          "dropped_feedback": 45,
+          "evictions": 3005,
+          "peak_slots": 18,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "route_decay"
+          },
+          "policy_ns_per_event": 81.78661007138723,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.5964114687518943,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.3902261123267688,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.6135569967572961,
+          "counts": {
+            "changed_correct": 1605,
+            "changed_scored": 4113,
+            "correct": 9839,
+            "predicted": 16036,
+            "scored": 16497
+          },
+          "coverage": 0.9720555252470147,
+          "dataset": "incident",
+          "dropped_feedback": 17301,
+          "evictions": 68624,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "route_decay"
+          },
+          "policy_ns_per_event": 130.1910204453349,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.5964114687518943,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.3902261123267688,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.6135569967572961,
+          "counts": {
+            "changed_correct": 1605,
+            "changed_scored": 4113,
+            "correct": 9839,
+            "predicted": 16036,
+            "scored": 16497
+          },
+          "coverage": 0.9720555252470147,
+          "dataset": "incident",
+          "dropped_feedback": 17301,
+          "evictions": 68616,
+          "peak_slots": 30,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "route_decay"
+          },
+          "policy_ns_per_event": 128.492554983835,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.5964114687518943,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.3902261123267688,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.6135569967572961,
+          "counts": {
+            "changed_correct": 1605,
+            "changed_scored": 4113,
+            "correct": 9839,
+            "predicted": 16036,
+            "scored": 16497
+          },
+          "coverage": 0.9720555252470147,
+          "dataset": "incident",
+          "dropped_feedback": 17301,
+          "evictions": 68616,
+          "peak_slots": 30,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "route_decay"
+          },
+          "policy_ns_per_event": 128.9467692728018,
+          "rejected": 0
+        }
+      ],
+      "macro_accuracy": 0.7095189805385397,
+      "policy": {
+        "attenuation": 1.0,
+        "kind": "route_decay"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.816941444002274,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.816941444002274,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1437,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 151,
+          "evictions": 83,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "no_decay"
+          },
+          "policy_ns_per_event": 129.45205479452054,
+          "rejected": 2824
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "no_decay"
+          },
+          "policy_ns_per_event": 72.96932278603126,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "no_decay"
+          },
+          "policy_ns_per_event": 79.16264711557014,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.07880220646178093,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.023583758813518114,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.6820566631689402,
+          "counts": {
+            "changed_correct": 97,
+            "changed_scored": 4113,
+            "correct": 1300,
+            "predicted": 1906,
+            "scored": 16497
+          },
+          "coverage": 0.11553615808934958,
+          "dataset": "incident",
+          "dropped_feedback": 3082,
+          "evictions": 1694,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "no_decay"
+          },
+          "policy_ns_per_event": 344.4367287464141,
+          "rejected": 124694
+        },
+        {
+          "accuracy": 0.09116809116809117,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.029905178701677606,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.6924493554327809,
+          "counts": {
+            "changed_correct": 123,
+            "changed_scored": 4113,
+            "correct": 1504,
+            "predicted": 2172,
+            "scored": 16497
+          },
+          "coverage": 0.13166030187306782,
+          "dataset": "incident",
+          "dropped_feedback": 4603,
+          "evictions": 2348,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "no_decay"
+          },
+          "policy_ns_per_event": 701.1213059514594,
+          "rejected": 122522
+        },
+        {
+          "accuracy": 0.3485482208886464,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.0863116946267931,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.8759902498476538,
+          "counts": {
+            "changed_correct": 355,
+            "changed_scored": 4113,
+            "correct": 5750,
+            "predicted": 6564,
+            "scored": 16497
+          },
+          "coverage": 0.3978905255501,
+          "dataset": "incident",
+          "dropped_feedback": 4974,
+          "evictions": 3156,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "no_decay"
+          },
+          "policy_ns_per_event": 1235.6916807067073,
+          "rejected": 100368
+        }
+      ],
+      "macro_accuracy": 0.4785933365618793,
+      "policy": {
+        "attenuation": 1.0,
+        "kind": "no_decay"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 12,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "frequency"
+          },
+          "policy_ns_per_event": 140.72930735095505,
+          "rejected": 3403
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "frequency"
+          },
+          "policy_ns_per_event": 72.72814972023924,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "frequency"
+          },
+          "policy_ns_per_event": 73.49990353077368,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.20458265139116202,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.3610503282275711,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.31824611032531824,
+          "counts": {
+            "changed_correct": 1485,
+            "changed_scored": 4113,
+            "correct": 3375,
+            "predicted": 10605,
+            "scored": 16497
+          },
+          "coverage": 0.6428441534824514,
+          "dataset": "incident",
+          "dropped_feedback": 0,
+          "evictions": 21,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "frequency"
+          },
+          "policy_ns_per_event": 316.6283411502208,
+          "rejected": 104058
+        },
+        {
+          "accuracy": 0.21409953324846942,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.36080719669341116,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.23124263454235958,
+          "counts": {
+            "changed_correct": 1484,
+            "changed_scored": 4113,
+            "correct": 3532,
+            "predicted": 15274,
+            "scored": 16497
+          },
+          "coverage": 0.9258653088440323,
+          "dataset": "incident",
+          "dropped_feedback": 0,
+          "evictions": 52,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "frequency"
+          },
+          "policy_ns_per_event": 667.9408952233505,
+          "rejected": 102266
+        },
+        {
+          "accuracy": 0.5280960174577196,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.4162411864818867,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.5291866609973881,
+          "counts": {
+            "changed_correct": 1712,
+            "changed_scored": 4113,
+            "correct": 8712,
+            "predicted": 16463,
+            "scored": 16497
+          },
+          "coverage": 0.997939019215615,
+          "dataset": "incident",
+          "dropped_feedback": 0,
+          "evictions": 128,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "frequency"
+          },
+          "policy_ns_per_event": 1014.0305541642002,
+          "rejected": 77166
+        }
+      ],
+      "macro_accuracy": 0.541821381228846,
+      "policy": {
+        "attenuation": 1.0,
+        "kind": "frequency"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.7669130187606594,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.767349260523322,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1349,
+            "predicted": 1758,
+            "scored": 1759
+          },
+          "coverage": 0.9994314951677089,
+          "dataset": "helpdesk",
+          "dropped_feedback": 1,
+          "evictions": 125,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "recency"
+          },
+          "policy_ns_per_event": 76.99208952344202,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "recency"
+          },
+          "policy_ns_per_event": 74.34883272236156,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "recency"
+          },
+          "policy_ns_per_event": 74.42600810341501,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.5774383221191732,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.4072453197179674,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.6005169261804199,
+          "counts": {
+            "changed_correct": 1675,
+            "changed_scored": 4113,
+            "correct": 9526,
+            "predicted": 15863,
+            "scored": 16497
+          },
+          "coverage": 0.9615687700794083,
+          "dataset": "incident",
+          "dropped_feedback": 41566,
+          "evictions": 62680,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "recency"
+          },
+          "policy_ns_per_event": 256.0869268248258,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.630114566284779,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.43082907853148555,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.6350030543677458,
+          "counts": {
+            "changed_correct": 1772,
+            "changed_scored": 4113,
+            "correct": 10395,
+            "predicted": 16370,
+            "scored": 16497
+          },
+          "coverage": 0.9923016305995029,
+          "dataset": "incident",
+          "dropped_feedback": 30733,
+          "evictions": 51665,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "recency"
+          },
+          "policy_ns_per_event": 351.33532170666183,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.6426016851548766,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.4646243617797228,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.6446336272423229,
+          "counts": {
+            "changed_correct": 1911,
+            "changed_scored": 4113,
+            "correct": 10601,
+            "predicted": 16445,
+            "scored": 16497
+          },
+          "coverage": 0.9968479117415288,
+          "dataset": "incident",
+          "dropped_feedback": 25901,
+          "evictions": 41913,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "recency"
+          },
+          "policy_ns_per_event": 520.5398205910477,
+          "rejected": 0
+        }
+      ],
+      "macro_accuracy": 0.6921946081949953,
+      "policy": {
+        "attenuation": 1.0,
+        "kind": "recency"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.8192154633314384,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.8192154633314384,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1441,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 100,
+          "evictions": 62,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "utility"
+          },
+          "policy_ns_per_event": 702.5564344973953,
+          "rejected": 3222
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "utility"
+          },
+          "policy_ns_per_event": 73.86648659077754,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "utility"
+          },
+          "policy_ns_per_event": 73.69284198340729,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.08074195308237861,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.019936785801118406,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.691948051948052,
+          "counts": {
+            "changed_correct": 82,
+            "changed_scored": 4113,
+            "correct": 1332,
+            "predicted": 1925,
+            "scored": 16497
+          },
+          "coverage": 0.11668788264532945,
+          "dataset": "incident",
+          "dropped_feedback": 3798,
+          "evictions": 2277,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "utility"
+          },
+          "policy_ns_per_event": 2819.5494285323985,
+          "rejected": 124583
+        },
+        {
+          "accuracy": 0.10492816875795599,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.025528811086797956,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7306880540312368,
+          "counts": {
+            "changed_correct": 105,
+            "changed_scored": 4113,
+            "correct": 1731,
+            "predicted": 2369,
+            "scored": 16497
+          },
+          "coverage": 0.14360186700612232,
+          "dataset": "incident",
+          "dropped_feedback": 4643,
+          "evictions": 2996,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "utility"
+          },
+          "policy_ns_per_event": 5839.268475934611,
+          "rejected": 121730
+        },
+        {
+          "accuracy": 0.1108686427835364,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.031850230974957455,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7289756875249104,
+          "counts": {
+            "changed_correct": 131,
+            "changed_scored": 4113,
+            "correct": 1829,
+            "predicted": 2509,
+            "scored": 16497
+          },
+          "coverage": 0.1520882584712372,
+          "dataset": "incident",
+          "dropped_feedback": 5870,
+          "evictions": 3915,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "utility"
+          },
+          "policy_ns_per_event": 12181.40112016757,
+          "rejected": 119061
+        }
+      ],
+      "macro_accuracy": 0.4419757141342988,
+      "policy": {
+        "attenuation": 1.0,
+        "kind": "utility"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.8192154633314384,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.8192154633314384,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1441,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 100,
+          "evictions": 62,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 686.6872467682809,
+          "rejected": 3222
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 74.6768280918387,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 76.32645186185607,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.07443777656543614,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.021638706540238268,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.6868008948545862,
+          "counts": {
+            "changed_correct": 89,
+            "changed_scored": 4113,
+            "correct": 1228,
+            "predicted": 1788,
+            "scored": 16497
+          },
+          "coverage": 0.10838334242589562,
+          "dataset": "incident",
+          "dropped_feedback": 3800,
+          "evictions": 2465,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 2842.206639041938,
+          "rejected": 124416
+        },
+        {
+          "accuracy": 0.09898769473237558,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.028689521030877706,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7313031795790417,
+          "counts": {
+            "changed_correct": 118,
+            "changed_scored": 4113,
+            "correct": 1633,
+            "predicted": 2233,
+            "scored": 16497
+          },
+          "coverage": 0.13535794386858216,
+          "dataset": "incident",
+          "dropped_feedback": 4671,
+          "evictions": 3106,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 5847.439779609307,
+          "rejected": 121502
+        },
+        {
+          "accuracy": 0.11838516093835243,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.040846097738876735,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7386535552193646,
+          "counts": {
+            "changed_correct": 168,
+            "changed_scored": 4113,
+            "correct": 1953,
+            "predicted": 2644,
+            "scored": 16497
+          },
+          "coverage": 0.16027156452688368,
+          "dataset": "incident",
+          "dropped_feedback": 5723,
+          "evictions": 3991,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 12099.957879877966,
+          "rejected": 118679
+        }
+      ],
+      "macro_accuracy": 0.44118769206968095,
+      "policy": {
+        "attenuation": 0.0,
+        "kind": "context_utility"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.8192154633314384,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.8192154633314384,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1441,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 100,
+          "evictions": 62,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.25,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 672.4773297318155,
+          "rejected": 3222
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.25,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 74.54177117499518,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.25,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 74.93729500289407,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.08346972176759411,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.02212496960855823,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.7050691244239631,
+          "counts": {
+            "changed_correct": 91,
+            "changed_scored": 4113,
+            "correct": 1377,
+            "predicted": 1953,
+            "scored": 16497
+          },
+          "coverage": 0.11838516093835243,
+          "dataset": "incident",
+          "dropped_feedback": 3676,
+          "evictions": 2263,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.25,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 2870.2870998588405,
+          "rejected": 124803
+        },
+        {
+          "accuracy": 0.1073528520337031,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.028446389496717725,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.738840216937839,
+          "counts": {
+            "changed_correct": 117,
+            "changed_scored": 4113,
+            "correct": 1771,
+            "predicted": 2397,
+            "scored": 16497
+          },
+          "coverage": 0.1452991452991453,
+          "dataset": "incident",
+          "dropped_feedback": 4473,
+          "evictions": 2988,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.25,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 5837.762396976458,
+          "rejected": 121701
+        },
+        {
+          "accuracy": 0.11505122143420016,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.034038414782397275,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7314065510597303,
+          "counts": {
+            "changed_correct": 140,
+            "changed_scored": 4113,
+            "correct": 1898,
+            "predicted": 2595,
+            "scored": 16497
+          },
+          "coverage": 0.15730132751409348,
+          "dataset": "incident",
+          "dropped_feedback": 5629,
+          "evictions": 3895,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.25,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 11982.541778607532,
+          "rejected": 118944
+        }
+      ],
+      "macro_accuracy": 0.44353155256956983,
+      "policy": {
+        "attenuation": 0.25,
+        "kind": "context_utility"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.8192154633314384,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.8192154633314384,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1441,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 100,
+          "evictions": 62,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.5,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 672.0239243681266,
+          "rejected": 3222
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.5,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 72.73779664287092,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.5,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 74.00154350762107,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.08037825059101655,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.019450522732798445,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.6920668058455115,
+          "counts": {
+            "changed_correct": 80,
+            "changed_scored": 4113,
+            "correct": 1326,
+            "predicted": 1916,
+            "scored": 16497
+          },
+          "coverage": 0.11614232890828635,
+          "dataset": "incident",
+          "dropped_feedback": 3655,
+          "evictions": 2248,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.5,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 2803.6826647238286,
+          "rejected": 124762
+        },
+        {
+          "accuracy": 0.09316845487058253,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.024556284950158037,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.71355617455896,
+          "counts": {
+            "changed_correct": 101,
+            "changed_scored": 4113,
+            "correct": 1537,
+            "predicted": 2154,
+            "scored": 16497
+          },
+          "coverage": 0.13056919439898163,
+          "dataset": "incident",
+          "dropped_feedback": 4387,
+          "evictions": 2952,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.5,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 5972.5581713036745,
+          "rejected": 122124
+        },
+        {
+          "accuracy": 0.11117172819300479,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.030634573304157548,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7272006344171292,
+          "counts": {
+            "changed_correct": 126,
+            "changed_scored": 4113,
+            "correct": 1834,
+            "predicted": 2522,
+            "scored": 16497
+          },
+          "coverage": 0.152876280535855,
+          "dataset": "incident",
+          "dropped_feedback": 5681,
+          "evictions": 3870,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 0.5,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 12155.759072901963,
+          "rejected": 119099
+        }
+      ],
+      "macro_accuracy": 0.4400056589727542,
+      "policy": {
+        "attenuation": 0.5,
+        "kind": "context_utility"
+      }
+    },
+    {
+      "cells": [
+        {
+          "accuracy": 0.8192154633314384,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": null,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.8192154633314384,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1441,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 100,
+          "evictions": 62,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 703.5404206058267,
+          "rejected": 3222
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": null,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 76.27821724869767,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.7680500284252416,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": null,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7680500284252416,
+          "counts": {
+            "changed_correct": 0,
+            "changed_scored": 0,
+            "correct": 1351,
+            "predicted": 1759,
+            "scored": 1759
+          },
+          "coverage": 1.0,
+          "dataset": "helpdesk",
+          "dropped_feedback": 0,
+          "evictions": 0,
+          "peak_slots": 42,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 76.15280725448582,
+          "rejected": 0
+        },
+        {
+          "accuracy": 0.08074195308237861,
+          "budget": 2048,
+          "capacity": 23,
+          "changed_accuracy": 0.019936785801118406,
+          "charged_bytes": 2024,
+          "conditional_accuracy": 0.691948051948052,
+          "counts": {
+            "changed_correct": 82,
+            "changed_scored": 4113,
+            "correct": 1332,
+            "predicted": 1925,
+            "scored": 16497
+          },
+          "coverage": 0.11668788264532945,
+          "dataset": "incident",
+          "dropped_feedback": 3798,
+          "evictions": 2277,
+          "peak_slots": 23,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 2901.854423751195,
+          "rejected": 124583
+        },
+        {
+          "accuracy": 0.10492816875795599,
+          "budget": 4096,
+          "capacity": 48,
+          "changed_accuracy": 0.025528811086797956,
+          "charged_bytes": 4024,
+          "conditional_accuracy": 0.7306880540312368,
+          "counts": {
+            "changed_correct": 105,
+            "changed_scored": 4113,
+            "correct": 1731,
+            "predicted": 2369,
+            "scored": 16497
+          },
+          "coverage": 0.14360186700612232,
+          "dataset": "incident",
+          "dropped_feedback": 4643,
+          "evictions": 2996,
+          "peak_slots": 48,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 5985.041664769364,
+          "rejected": 121730
+        },
+        {
+          "accuracy": 0.1108686427835364,
+          "budget": 8192,
+          "capacity": 100,
+          "changed_accuracy": 0.031850230974957455,
+          "charged_bytes": 8184,
+          "conditional_accuracy": 0.7289756875249104,
+          "counts": {
+            "changed_correct": 131,
+            "changed_scored": 4113,
+            "correct": 1829,
+            "predicted": 2509,
+            "scored": 16497
+          },
+          "coverage": 0.1520882584712372,
+          "dataset": "incident",
+          "dropped_feedback": 5870,
+          "evictions": 3915,
+          "peak_slots": 100,
+          "permuted": false,
+          "policy": {
+            "attenuation": 1.0,
+            "kind": "context_utility"
+          },
+          "policy_ns_per_event": 12263.327034288057,
+          "rejected": 119061
+        }
+      ],
+      "macro_accuracy": 0.4419757141342988,
+      "policy": {
+        "attenuation": 1.0,
+        "kind": "context_utility"
+      }
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "schema": "context-importance-source-v1",
+  "sources": [
+    {
+      "name": "helpdesk",
+      "path": "D:\\Aura-clean\\artifacts\\real_data\\helpdesk_process_logs\\helpdesk.csv",
+      "sha256": "1306e06414481a1debd845ea760b5ce8331d087ddc67d7f7ec300b4bea3f41b7",
+      "raw_rows": 13710,
+      "events": 12958,
+      "cases": 3804,
+      "contexts": 1,
+      "first_time": "2010-01-13T17:40:25",
+      "last_time": "2012-11-06T01:41:28",
+      "train_end": 7774,
+      "validation_end": 10366
+    },
+    {
+      "name": "incident",
+      "path": "D:\\Aura-clean\\artifacts\\real_data\\helpdesk_process_logs\\uci_incident_management\\incident_event_log.csv",
+      "sha256": "fd184bbfd62329cfe093e99da2ea7071905f2ead91900b448eb2635870821bef",
+      "raw_rows": 141712,
+      "events": 109805,
+      "cases": 24918,
+      "contexts": 1026,
+      "first_time": "2016-02-29T01:23:00",
+      "last_time": "2017-02-18T15:00:00",
+      "train_end": 65883,
+      "validation_end": 87844
+    }
+  ],
+  "export_sha256": "60792ca90cf13c34fdf43946b94a69dcbb35bf80b289478cd1420714bc819028",
+  "host_trace_qualification": {
+    "directory": "D:\\Aura-clean\\brain\\working_memory",
+    "files": [
+      {
+        "file": "answer_plan_3959690553538157856.jsonl",
+        "sha256": "de6f067d9d2d9e450e7e16ae35daf1439278c16b69d9bc59851f4015f5103df2",
+        "rows": 1
+      },
+      {
+        "file": "answer_plan_8916452949082499193.jsonl",
+        "sha256": "e8faf720f4ab19315166897b5ef36cb9e84dc55d51ef43b7f0d63b01ca06d18f",
+        "rows": 1
+      },
+      {
+        "file": "task_10871918097929024783.jsonl",
+        "sha256": "35562df4ab8405efaa5af5455f5b18652a6bb5a7f246a7b2a50016949760455f",
+        "rows": 1
+      },
+      {
+        "file": "task_10952852569047765211.jsonl",
+        "sha256": "f221c0a8746df2ec5aab50ad10e992ddf3caaaba3186eaf88b51b5cbfceb4761",
+        "rows": 8
+      },
+      {
+        "file": "task_11032878051276080000.jsonl",
+        "sha256": "537b65e3ff1e6833c07023b4ac5dfdea63cd83be4204395b1ef49455ed5fae12",
+        "rows": 8
+      },
+      {
+        "file": "task_12696108354047759426.jsonl",
+        "sha256": "0e3aeebda49e7624324d0289b6b7cfc87a3b99e10fc9c40749014b0223d507c9",
+        "rows": 9
+      },
+      {
+        "file": "task_13367136170346761850.jsonl",
+        "sha256": "1f36ce7854da1f65ae06966d48378a6754d0342477c78981a6d238aa85262298",
+        "rows": 8
+      },
+      {
+        "file": "task_14049973707770292915.jsonl",
+        "sha256": "add82e55ddad4eac80a30bcb13dbc36590733b3f8916809b066874986170b7f9",
+        "rows": 8
+      },
+      {
+        "file": "task_16567066507744229680.jsonl",
+        "sha256": "bd6ac7c0a00056dc5a7df4e934836d78b46a728778688b78637c5839331ed8d5",
+        "rows": 8
+      },
+      {
+        "file": "task_2320044212881316391.jsonl",
+        "sha256": "9e7210e2d02b14d3a7dd91f3218faf2cfc792a3bd50adec09af9924058a5faa9",
+        "rows": 3
+      },
+      {
+        "file": "task_2691981486416117516.jsonl",
+        "sha256": "9fdd1ae64cba3fd2fe6be1607f5ee390a1c56b8b493637091aef795c11366f7a",
+        "rows": 8
+      },
+      {
+        "file": "task_3159752081411969026.jsonl",
+        "sha256": "401e146c88bf9ae97950cb1a4f3226105ee378a5f1fc0164d748e44aabf14f69",
+        "rows": 8
+      },
+      {
+        "file": "task_3959690553538157856.jsonl",
+        "sha256": "6eb2616aee670631feef080f94413167238a9f8affcc7179cbce216efe97e324",
+        "rows": 5
+      },
+      {
+        "file": "task_4064334071476461521.jsonl",
+        "sha256": "f4620f7440d0c5501f3e949616ac4c1ee8ce9aef9b3ee111a166a4a581565b4d",
+        "rows": 8
+      },
+      {
+        "file": "task_4981055314548318713.jsonl",
+        "sha256": "3a48ddf51b69fdceb8640c0ae64a515c836f1fa048fcb93065daad76618fa0c9",
+        "rows": 7
+      },
+      {
+        "file": "task_584514437966005504.jsonl",
+        "sha256": "0f98b3eae08fcab6f89922fc902c16d0c470fc511581399503c4ca097d8a311e",
+        "rows": 8
+      },
+      {
+        "file": "task_8916452949082499193.jsonl",
+        "sha256": "6b35fbe63ebffae9de4186595fdd0665f8ff2e110ebf610debea237202c6e6f2",
+        "rows": 9
+      }
+    ],
+    "kinds": {
+      "plan_section": 2,
+      "task_open": 15,
+      "finding": 44,
+      "kernel_diagnostic_hypothesis": 24,
+      "kernel_diagnostic_affordance": 12,
+      "kernel_checkpoint": 11
+    },
+    "eligible_for_memory_task_utility_replay": false,
+    "reason": "Inspected records lack a sufficient joined stream of memory-use decisions and delayed task-utility outcomes; checkpoint receipts are not such labels."
+  }
+}

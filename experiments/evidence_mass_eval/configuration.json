@@ -1,0 +1,47 @@
+{
+  "alpha": 1,
+  "budgets": [
+    2048,
+    4096,
+    8192
+  ],
+  "evaluation_status": "exploratory_reused_data",
+  "half_life_events": 128,
+  "input_sha256": "60792ca90cf13c34fdf43946b94a69dcbb35bf80b289478cd1420714bc819028",
+  "parameter_search": false,
+  "policies": [
+    {
+      "attenuation": 1.0,
+      "kind": "route_decay"
+    },
+    {
+      "attenuation": 1.0,
+      "kind": "no_decay"
+    },
+    {
+      "attenuation": 1.0,
+      "kind": "frequency"
+    },
+    {
+      "attenuation": 1.0,
+      "kind": "recency"
+    },
+    {
+      "attenuation": 1.0,
+      "kind": "utility"
+    },
+    {
+      "attenuation": 0.25,
+      "kind": "context_utility"
+    },
+    {
+      "attenuation": 1.0,
+      "kind": "mass_utility"
+    },
+    {
+      "attenuation": 0.25,
+      "kind": "mass_context_utility"
+    }
+  ],
+  "protocol": "evidence-mass-v1"
+}

@@ -1,0 +1,10 @@
+[package]
+name = "aura-loss-aware-context-compaction-experiment"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+aura = { path = "../..", default-features = false }
+
+[workspace]

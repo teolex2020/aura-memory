@@ -1,0 +1,211 @@
+{
+  "non_timing_results_identical": true,
+  "historical_artifacts_unchanged": true,
+  "historical_sha256": {
+    "examples\\context_importance_eval.rs": "f6bf842d5b960b0c19b378ec7a55cf5455f9158bbecf60c87e8c5e9f5c771c9c",
+    "experiments\\context_importance_eval\\results.json": "ebcfe7e64c9a84e60184026e5dfcdb710849a7b24fe44bf4d0043475778e1c17",
+    "experiments\\context_importance_eval\\selection.json": "fefa729f15ce3372af83132d262fe1a94cbdc9538c65d85f9eeec24319627168",
+    "experiments\\context_importance_eval\\verification.json": "7b7c3147ce82cb9a4d6215b3d7de8a135d31d2a8267736ece7206aa4f9c09c75",
+    "experiments\\context_importance_eval\\PROTOCOL.md": "a2e8cd5ef54d94faebf8fc0fc550e5f3f2411bcaf68ad5fc52ebaab05a94c06b"
+  },
+  "source_sha256": {
+    "examples\\evidence_mass_eval.rs": "7b219f8d59d45d2c840f0459764c1a84b4e1fcbcd0fa95707a4ac31a78da0bdb",
+    "experiments\\evidence_mass_eval\\PROTOCOL.md": "82bb2ddca1f4e2f2103254ddf3c6a4c186a516434e2476469091104a71e2a1e0",
+    "experiments\\evidence_mass_eval\\verify_repeat.py": "df9a39d710df166c875b824493eaaa06fb6d277ca3e37c5a567c585c88db0809"
+  },
+  "two_run_policy_ns_per_event": {
+    "context_utility/helpdesk/2048": [
+      810.4645778669548,
+      799.5060966198488
+    ],
+    "context_utility/helpdesk/4096": [
+      78.53835468436488,
+      78.07532026547307
+    ],
+    "context_utility/helpdesk/8192": [
+      76.69393424911252,
+      75.99166538045995
+    ],
+    "context_utility/incident/2048": [
+      2892.350075133191,
+      2882.525385911388
+    ],
+    "context_utility/incident/4096": [
+      6038.460907973225,
+      6070.248167205501
+    ],
+    "context_utility/incident/8192": [
+      12473.066800236784,
+      12396.400892491234
+    ],
+    "frequency/helpdesk/2048": [
+      196.51180737768175,
+      153.4804753820034
+    ],
+    "frequency/helpdesk/4096": [
+      98.47198641765705,
+      76.68621700879766
+    ],
+    "frequency/helpdesk/8192": [
+      86.05494675104183,
+      76.44698255903688
+    ],
+    "frequency/incident/2048": [
+      319.60202176585767,
+      327.3849096124949
+    ],
+    "frequency/incident/4096": [
+      627.0716269750922,
+      623.7311597832521
+    ],
+    "frequency/incident/8192": [
+      983.6218751422977,
+      988.9686262009926
+    ],
+    "mass_context_utility/helpdesk/2048": [
+      919.3471214693626,
+      899.5678345423677
+    ],
+    "mass_context_utility/helpdesk/4096": [
+      90.2145392807532,
+      79.46442352214848
+    ],
+    "mass_context_utility/helpdesk/8192": [
+      82.75196789628029,
+      77.73576169161908
+    ],
+    "mass_context_utility/incident/2048": [
+      3389.8383498019216,
+      3582.294977460043
+    ],
+    "mass_context_utility/incident/4096": [
+      7057.928145348573,
+      7353.24165566231
+    ],
+    "mass_context_utility/incident/8192": [
+      14775.960111106051,
+      14650.556896316197
+    ],
+    "mass_utility/helpdesk/2048": [
+      904.2444821731749,
+      904.1981787312857
+    ],
+    "mass_utility/helpdesk/4096": [
+      78.12162370736225,
+      79.07856150640531
+    ],
+    "mass_utility/helpdesk/8192": [
+      76.73252045068683,
+      76.30035499305448
+    ],
+    "mass_utility/incident/2048": [
+      3398.628477756022,
+      3389.468603433359
+    ],
+    "mass_utility/incident/4096": [
+      7124.758435408224,
+      7222.312280861527
+    ],
+    "mass_utility/incident/8192": [
+      14588.450434861801,
+      14590.173489367515
+    ],
+    "no_decay/helpdesk/2048": [
+      162.28584658126255,
+      145.15357308226578
+    ],
+    "no_decay/helpdesk/4096": [
+      86.53341565056336,
+      77.00262386170705
+    ],
+    "no_decay/helpdesk/8192": [
+      77.86695477697175,
+      76.74795493131656
+    ],
+    "no_decay/incident/2048": [
+      362.1802285870407,
+      361.8942671098766
+    ],
+    "no_decay/incident/4096": [
+      717.2068667182733,
+      742.6820272300897
+    ],
+    "no_decay/incident/8192": [
+      1319.1566868539685,
+      1294.7698192249898
+    ],
+    "recency/helpdesk/2048": [
+      76.13057570612749,
+      78.46118228121624
+    ],
+    "recency/helpdesk/4096": [
+      80.29016823583886,
+      77.65087204815558
+    ],
+    "recency/helpdesk/8192": [
+      92.78438030560271,
+      76.90229973761383
+    ],
+    "recency/incident/2048": [
+      277.38172214380035,
+      264.19288739128456
+    ],
+    "recency/incident/4096": [
+      366.68913073175173,
+      365.0817358043805
+    ],
+    "recency/incident/8192": [
+      547.8238695869951,
+      548.4504348618004
+    ],
+    "route_decay/helpdesk/2048": [
+      85.09800895199876,
+      84.03302978854761
+    ],
+    "route_decay/helpdesk/4096": [
+      83.80151257910171,
+      83.20728507485723
+    ],
+    "route_decay/helpdesk/8192": [
+      84.46519524617996,
+      83.46967124556258
+    ],
+    "route_decay/incident/2048": [
+      146.200992668822,
+      133.13054961067346
+    ],
+    "route_decay/incident/4096": [
+      157.9955375438277,
+      131.48581576430945
+    ],
+    "route_decay/incident/8192": [
+      145.67005145485177,
+      131.4147807476891
+    ],
+    "utility/helpdesk/2048": [
+      803.781447754283,
+      803.102330606575
+    ],
+    "utility/helpdesk/4096": [
+      78.22966507177034,
+      78.22194783145547
+    ],
+    "utility/helpdesk/8192": [
+      76.53187220250038,
+      76.11514122549777
+    ],
+    "utility/incident/2048": [
+      2943.2348253722507,
+      2954.942853239834
+    ],
+    "utility/incident/4096": [
+      6065.030736305269,
+      6075.918218660352
+    ],
+    "utility/incident/8192": [
+      12836.991940257729,
+      12604.702882382406
+    ]
+  },
+  "limits": "Exploratory reused data; mean policy operation time excludes host bookkeeping and parsing."
+}

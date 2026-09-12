@@ -29,7 +29,14 @@ cargo run --example context_applicability_experiment
 
 # Maintenance cycle performance
 python benchmarks/bench_maintenance.py
+
+# Retrieval quality, multilingual/temporal/isolation slices, and restart parity
+cargo run --release --offline --manifest-path experiments/memory_quality_eval/Cargo.toml -- --strict
 ```
+
+Latency benchmarks and retrieval-quality evaluation are reported separately.
+See [`experiments/memory_quality_eval`](../experiments/memory_quality_eval/README.md)
+for the fixed dataset, baselines, gates, per-query result, and limitations.
 
 ## Output
 

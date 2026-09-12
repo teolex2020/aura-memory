@@ -1,0 +1,48 @@
+{
+  "always_wrong_after_100_queries": {
+    "fresh_importance": 0.4625000059604645,
+    "importance": 0.5525000095367432,
+    "strength": 0.8500000238418579
+  },
+  "continuous_negative_receipts": [
+    {
+      "decayed_benefit": -92.58270825063059,
+      "receipts": 128,
+      "score": 0.01151649342986183,
+      "utility_bonus": -0.5409835161068813
+    },
+    {
+      "decayed_benefit": -184.44211409305058,
+      "receipts": 1024,
+      "score": 0.38703343157358494,
+      "utility_bonus": -0.16546657796315825
+    },
+    {
+      "decayed_benefit": -185.16541650125586,
+      "receipts": 8192,
+      "score": 0.5301511742149922,
+      "utility_bonus": -0.02234883532175096
+    }
+  ],
+  "continuous_positive_receipts": [
+    {
+      "decayed_benefit": 92.58270825063059,
+      "receipts": 128,
+      "score": 1.1534835280278104,
+      "utility_bonus": 0.5409835161068813
+    },
+    {
+      "decayed_benefit": 184.44211409305058,
+      "receipts": 1024,
+      "score": 0.7779665898840872,
+      "utility_bonus": 0.16546657796315825
+    },
+    {
+      "decayed_benefit": 185.16541650125586,
+      "receipts": 8192,
+      "score": 0.6348488472426799,
+      "utility_bonus": 0.02234883532175096
+    }
+  ],
+  "scope": "Post-result mechanism probes, not held-out performance or policy selection"
+}

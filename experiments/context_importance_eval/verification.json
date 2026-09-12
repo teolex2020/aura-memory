@@ -1,0 +1,180 @@
+{
+  "non_timing_results_identical": true,
+  "includes_selection_and_bootstrap": true,
+  "source_sha256": {
+    "examples\\context_importance_eval.rs": "f6bf842d5b960b0c19b378ec7a55cf5455f9158bbecf60c87e8c5e9f5c771c9c",
+    "experiments\\context_importance_eval\\prepare.py": "535891287f22d214218aee0d10085d3b1de963274cad5eb226c9ee2bc8799868",
+    "experiments\\context_importance_eval\\PROTOCOL.md": "a2e8cd5ef54d94faebf8fc0fc550e5f3f2411bcaf68ad5fc52ebaab05a94c06b"
+  },
+  "two_run_policy_ns_per_event": {
+    "context_permuted/helpdesk/2048": [
+      772.7504244482174,
+      779.7036579719093
+    ],
+    "context_permuted/helpdesk/4096": [
+      81.23938879456706,
+      79.65735453002006
+    ],
+    "context_permuted/helpdesk/8192": [
+      87.04275351134434,
+      77.66630652878531
+    ],
+    "context_permuted/incident/2048": [
+      3020.4007103501663,
+      2937.1157961841445
+    ],
+    "context_permuted/incident/4096": [
+      6059.135740631119,
+      6096.277036564819
+    ],
+    "context_permuted/incident/8192": [
+      12621.05459678521,
+      12563.511679796002
+    ],
+    "context_utility/helpdesk/2048": [
+      832.3352369192777,
+      869.3394042290477
+    ],
+    "context_utility/helpdesk/4096": [
+      81.4863404846427,
+      86.24016051859854
+    ],
+    "context_utility/helpdesk/8192": [
+      79.24062355301744,
+      77.07979626485569
+    ],
+    "context_utility/incident/2048": [
+      2942.1255862665635,
+      2979.2768999590185
+    ],
+    "context_utility/incident/4096": [
+      6265.965119985429,
+      6089.664405081736
+    ],
+    "context_utility/incident/8192": [
+      12781.349665315787,
+      12704.008014207004
+    ],
+    "frequency/helpdesk/2048": [
+      159.81632968050624,
+      158.58928847044297
+    ],
+    "frequency/helpdesk/4096": [
+      79.20203735144312,
+      81.0618922673252
+    ],
+    "frequency/helpdesk/8192": [
+      78.870196017904,
+      77.80521685445285
+    ],
+    "frequency/incident/2048": [
+      335.02754883657394,
+      330.7399480897955
+    ],
+    "frequency/incident/4096": [
+      668.6061654751605,
+      659.6930922999863
+    ],
+    "frequency/incident/8192": [
+      1043.874140521834,
+      1029.5013888256456
+    ],
+    "no_decay/helpdesk/2048": [
+      148.78067603025158,
+      147.08288316098162
+    ],
+    "no_decay/helpdesk/4096": [
+      80.2592992745794,
+      84.04846426917734
+    ],
+    "no_decay/helpdesk/8192": [
+      81.39373360086434,
+      77.35761691619076
+    ],
+    "no_decay/incident/2048": [
+      358.009198123947,
+      367.34483857747824
+    ],
+    "no_decay/incident/4096": [
+      733.5604025317608,
+      750.4831291835527
+    ],
+    "no_decay/incident/8192": [
+      1305.2338235963755,
+      1315.6213287190928
+    ],
+    "recency/helpdesk/2048": [
+      78.80845809538509,
+      76.00709986108967
+    ],
+    "recency/helpdesk/4096": [
+      81.69470597314401,
+      77.69717549004476
+    ],
+    "recency/helpdesk/8192": [
+      80.35962339867264,
+      77.21098935020837
+    ],
+    "recency/incident/2048": [
+      265.4988388506899,
+      260.9280087427713
+    ],
+    "recency/incident/4096": [
+      367.6435499294203,
+      362.00719457219617
+    ],
+    "recency/incident/8192": [
+      550.2363280360639,
+      540.0382496243341
+    ],
+    "route_decay/helpdesk/2048": [
+      119.47059731440037,
+      114.60873591603642
+    ],
+    "route_decay/helpdesk/4096": [
+      102.50038586201575,
+      99.52924834079333
+    ],
+    "route_decay/helpdesk/8192": [
+      88.01512579101713,
+      86.440808766785
+    ],
+    "route_decay/incident/2048": [
+      137.32890123400574,
+      133.13601384272118
+    ],
+    "route_decay/incident/4096": [
+      134.5676426392241,
+      131.75538454533037
+    ],
+    "route_decay/incident/8192": [
+      134.29716315286188,
+      131.88106188242793
+    ],
+    "utility/helpdesk/2048": [
+      811.3134743015897,
+      823.2288933477389
+    ],
+    "utility/helpdesk/4096": [
+      82.6439265318722,
+      79.1634511498688
+    ],
+    "utility/helpdesk/8192": [
+      79.83485105726193,
+      77.50424448217318
+    ],
+    "utility/incident/2048": [
+      3025.842174764355,
+      3001.5618596603067
+    ],
+    "utility/incident/4096": [
+      6144.905058968171,
+      6072.377396293429
+    ],
+    "utility/incident/8192": [
+      12702.702062747598,
+      12900.713992987568
+    ]
+  },
+  "measurement_limit": "Mean policy operation time over full replay; excludes parsing and host state. Two runs, no production latency claim."
+}

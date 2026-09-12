@@ -1,0 +1,114 @@
+[
+  {
+    "bonus": 0.5409835161068813,
+    "correct": true,
+    "kind": "utility",
+    "mass": 92.58272552490234,
+    "receipts": 128
+  },
+  {
+    "bonus": 0.16546657796315825,
+    "correct": true,
+    "kind": "utility",
+    "mass": 184.4420928955078,
+    "receipts": 1024
+  },
+  {
+    "bonus": 0.02234883532175096,
+    "correct": true,
+    "kind": "utility",
+    "mass": 185.1640167236328,
+    "receipts": 8192
+  },
+  {
+    "bonus": 5.2034937128776126e-12,
+    "correct": true,
+    "idle_events": 4096,
+    "kind": "utility",
+    "receipts": 8192
+  },
+  {
+    "bonus": -0.5409835161068813,
+    "correct": false,
+    "kind": "utility",
+    "mass": 92.58272552490234,
+    "receipts": 128
+  },
+  {
+    "bonus": -0.16546657796315825,
+    "correct": false,
+    "kind": "utility",
+    "mass": 184.4420928955078,
+    "receipts": 1024
+  },
+  {
+    "bonus": -0.02234883532175096,
+    "correct": false,
+    "kind": "utility",
+    "mass": 185.1640167236328,
+    "receipts": 8192
+  },
+  {
+    "bonus": -5.2034937128776126e-12,
+    "correct": false,
+    "idle_events": 4096,
+    "kind": "utility",
+    "receipts": 8192
+  },
+  {
+    "bonus": 0.6877898972133674,
+    "correct": true,
+    "kind": "mass_utility",
+    "mass": 92.58272552490234,
+    "receipts": 128
+  },
+  {
+    "bonus": 0.6904473369391295,
+    "correct": true,
+    "kind": "mass_utility",
+    "mass": 184.4420928955078,
+    "receipts": 1024
+  },
+  {
+    "bonus": 0.6904615332899389,
+    "correct": true,
+    "kind": "mass_utility",
+    "mass": 185.1640167236328,
+    "receipts": 8192
+  },
+  {
+    "bonus": 4.311218031844799e-8,
+    "correct": true,
+    "idle_events": 4096,
+    "kind": "mass_utility",
+    "receipts": 8192
+  },
+  {
+    "bonus": -0.6877898972133674,
+    "correct": false,
+    "kind": "mass_utility",
+    "mass": 92.58272552490234,
+    "receipts": 128
+  },
+  {
+    "bonus": -0.6904473369391295,
+    "correct": false,
+    "kind": "mass_utility",
+    "mass": 184.4420928955078,
+    "receipts": 1024
+  },
+  {
+    "bonus": -0.6904615332899389,
+    "correct": false,
+    "kind": "mass_utility",
+    "mass": 185.1640167236328,
+    "receipts": 8192
+  },
+  {
+    "bonus": -4.311218031844799e-8,
+    "correct": false,
+    "idle_events": 4096,
+    "kind": "mass_utility",
+    "receipts": 8192
+  }
+]

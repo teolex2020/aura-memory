@@ -1,0 +1,197 @@
+{
+  "baseline_validation": [
+    [
+      {
+        "alpha": 0.0,
+        "half_life": 32.0,
+        "kind": "frequency"
+      },
+      0.5665758126388047
+    ],
+    [
+      {
+        "alpha": 0.0,
+        "half_life": 32.0,
+        "kind": "route_decay"
+      },
+      0.4675449222693317
+    ],
+    [
+      {
+        "alpha": 0.0,
+        "half_life": 32.0,
+        "kind": "no_decay"
+      },
+      0.37976983646274987
+    ],
+    [
+      {
+        "alpha": 0.0,
+        "half_life": 32.0,
+        "kind": "recency"
+      },
+      0.2774076317383404
+    ]
+  ],
+  "chosen": {
+    "alpha": 1.0,
+    "half_life": 128.0,
+    "kind": "utility"
+  },
+  "training_grid": [
+    [
+      {
+        "alpha": 2.0,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.5931758530183727
+    ],
+    [
+      {
+        "alpha": 1.0,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.586159903089037
+    ],
+    [
+      {
+        "alpha": 0.5,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.573490813648294
+    ],
+    [
+      {
+        "alpha": 2.0,
+        "half_life": 32.0,
+        "kind": "utility"
+      },
+      0.5579446799919241
+    ],
+    [
+      {
+        "alpha": 0.25,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.5400767211790833
+    ],
+    [
+      {
+        "alpha": 1.0,
+        "half_life": 32.0,
+        "kind": "utility"
+      },
+      0.5271047849788008
+    ],
+    [
+      {
+        "alpha": 0.5,
+        "half_life": 32.0,
+        "kind": "utility"
+      },
+      0.5
+    ],
+    [
+      {
+        "alpha": 0.25,
+        "half_life": 32.0,
+        "kind": "utility"
+      },
+      0.45891378962245105
+    ],
+    [
+      {
+        "alpha": 2.0,
+        "half_life": 8.0,
+        "kind": "utility"
+      },
+      0.45169594185342216
+    ],
+    [
+      {
+        "alpha": 1.0,
+        "half_life": 8.0,
+        "kind": "utility"
+      },
+      0.4403896628306077
+    ],
+    [
+      {
+        "alpha": 0.5,
+        "half_life": 8.0,
+        "kind": "utility"
+      },
+      0.4374621441550575
+    ],
+    [
+      {
+        "alpha": 0.25,
+        "half_life": 8.0,
+        "kind": "utility"
+      },
+      0.4093983444377145
+    ],
+    [
+      {
+        "alpha": 0.0,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.3525641025641026
+    ],
+    [
+      {
+        "alpha": 0.0,
+        "half_life": 32.0,
+        "kind": "utility"
+      },
+      0.3522107813446396
+    ],
+    [
+      {
+        "alpha": 0.0,
+        "half_life": 8.0,
+        "kind": "utility"
+      },
+      0.3520088835049465
+    ]
+  ],
+  "validation_baseline": {
+    "alpha": 0.0,
+    "half_life": 32.0,
+    "kind": "frequency"
+  },
+  "validation_shortlist": [
+    [
+      {
+        "alpha": 1.0,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.586159903089037,
+      0.597213809812235
+    ],
+    [
+      {
+        "alpha": 2.0,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.5931758530183727,
+      0.597213809812235
+    ],
+    [
+      {
+        "alpha": 0.5,
+        "half_life": 128.0,
+        "kind": "utility"
+      },
+      0.573490813648294,
+      0.5884312537855845
+    ]
+  ]
+}

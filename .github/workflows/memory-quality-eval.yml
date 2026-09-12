@@ -1,0 +1,39 @@
+name: Memory Quality Eval
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "experiments/memory_quality_eval/**"
+      - ".github/workflows/memory-quality-eval.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "experiments/memory_quality_eval/**"
+      - ".github/workflows/memory-quality-eval.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  retrieval-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run deterministic retrieval quality gate
+        run: cargo run --release --locked --manifest-path experiments/memory_quality_eval/Cargo.toml -- --quick --strict
+      - name: Upload per-query result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-quality-result
+          path: experiments/memory_quality_eval/results.json

@@ -1,0 +1,2937 @@
+{
+  "schema_version": 1,
+  "dataset_revision": "aura-memory-quality-v1",
+  "dataset_description": "Deterministic retrieval-only evaluation for durable operational memory. Synthetic facts are designed to expose multilingual, paraphrase, code, temporal, contradiction, multi-evidence and tenant-interference behavior.",
+  "generated_at_unix": 1788981781,
+  "configuration": {
+    "top_k": 5,
+    "same_tenant_distractors": 256,
+    "neighbor_distractors_per_query": 16,
+    "cache_latency_iterations": 200,
+    "quality_uses_read_only_as_of_recall": true
+  },
+  "corpus": {
+    "fixture_records": 24,
+    "same_tenant_distractors": 256,
+    "neighbor_distractors": 368,
+    "total_records": 648,
+    "query_count": 23
+  },
+  "ingestion": {
+    "samples": 648,
+    "mean": 0.6927665123456787,
+    "median": 0.6906,
+    "p95": 0.9449000000000001
+  },
+  "arms": {
+    "aura": {
+      "overall": {
+        "answerable_queries": 21,
+        "recall_at_k": 0.9523809523809523,
+        "mrr": 0.9285714285714286,
+        "ndcg_at_k": 0.934806178741498,
+        "evidence_precision_at_k": 0.5142857142857142,
+        "abstention_queries": 2,
+        "abstention_accuracy": 0.0,
+        "forbidden_exposure_rate": 0.0,
+        "namespace_contamination_rate": 0.0
+      },
+      "by_slice": {
+        "abstention": {
+          "answerable_queries": 0,
+          "recall_at_k": -0.0,
+          "mrr": -0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": -0.0,
+          "abstention_queries": 2,
+          "abstention_accuracy": 0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "code_identifier": {
+          "answerable_queries": 3,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.3,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "english_exact": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "english_paraphrase": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 0.75,
+          "ndcg_at_k": 0.8154648767857288,
+          "evidence_precision_at_k": 0.2,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "mixed_language": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "multi_evidence": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "negation": {
+          "answerable_queries": 1,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "temporal": {
+          "answerable_queries": 4,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.75,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "tenant_isolation": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "ukrainian_exact": {
+          "answerable_queries": 1,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "ukrainian_paraphrase": {
+          "answerable_queries": 2,
+          "recall_at_k": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_k": 0.5,
+          "evidence_precision_at_k": 0.25,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        }
+      },
+      "uncached_latency_ms": {
+        "samples": 23,
+        "mean": 11.868856521739131,
+        "median": 12.1944,
+        "p95": 15.5073
+      },
+      "cached_latency_ms": {
+        "samples": 200,
+        "mean": 0.02465649999999999,
+        "median": 0.0346,
+        "p95": 0.0414
+      },
+      "per_query": [
+        {
+          "id": "en_exact",
+          "slice": "english_exact",
+          "answerable": true,
+          "expected_keys": [
+            "en_checksum"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_checksum",
+              "score": 0.5949996113777161,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 0.5854028463363647,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0050",
+              "score": 0.1920369416475296,
+              "namespace": "project"
+            },
+            {
+              "key": "en_token_fix",
+              "score": 0.1920369416475296,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 0.18903633952140808,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 12.1944
+        },
+        {
+          "id": "en_paraphrase",
+          "slice": "english_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "en_token_fix"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_token_fix",
+              "score": 0.39666643738746643,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 0.19833321869373322,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0075",
+              "score": 0.19513429701328278,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 0.19513429701328278,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0005",
+              "score": 0.1920369416475296,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 10.6133
+        },
+        {
+          "id": "en_region",
+          "slice": "english_exact",
+          "answerable": true,
+          "expected_keys": [
+            "en_region"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_region",
+              "score": 0.5949996113777161,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 0.39026859402656555,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0050",
+              "score": 0.19513429701328278,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0095",
+              "score": 0.1920369416475296,
+              "namespace": "project"
+            },
+            {
+              "key": "mixed_deploy",
+              "score": 0.1920369416475296,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 10.2112
+        },
+        {
+          "id": "ua_exact",
+          "slice": "ukrainian_exact",
+          "answerable": true,
+          "expected_keys": [
+            "ua_backup"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "ua_backup",
+              "score": 0.5949996113777161,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0190",
+              "score": 0.19513429701328278,
+              "namespace": "project"
+            },
+            {
+              "key": "ua_cache_fix",
+              "score": 0.19513429701328278,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0070",
+              "score": 0.1920369416475296,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0015",
+              "score": 0.18903633952140808,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 9.229
+        },
+        {
+          "id": "ua_paraphrase",
+          "slice": "ukrainian_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "ua_cache_fix"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "ua_cache_fix",
+              "score": 0.5902013182640076,
+              "namespace": "project"
+            },
+            {
+              "key": "ua_backup",
+              "score": 0.2974998354911804,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 8.8003
+        },
+        {
+          "id": "mixed_language",
+          "slice": "mixed_language",
+          "answerable": true,
+          "expected_keys": [
+            "mixed_deploy"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "mixed_deploy",
+              "score": 0.5949996709823608,
+              "namespace": "project"
+            },
+            {
+              "key": "ua_backup",
+              "score": 0.29270145297050476,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 0.29270145297050476,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 0.288055419921875,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0035",
+              "score": 0.2835545539855957,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 8.941899999999999
+        },
+        {
+          "id": "code_symbol",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "code_function"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "code_function",
+              "score": 0.5918006896972656,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 0.19833321869373322,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 0.1920369416475296,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0035",
+              "score": 0.18903633952140808,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0050",
+              "score": 0.18612809479236603,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 9.7463
+        },
+        {
+          "id": "code_env",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "code_env"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "code_env",
+              "score": 0.5949995517730713,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 0.3871711492538452,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 0.1951342672109604,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0050",
+              "score": 0.1920369267463684,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0160",
+              "score": 0.1890363246202469,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 13.4255
+        },
+        {
+          "id": "negation_pair",
+          "slice": "negation",
+          "answerable": true,
+          "expected_keys": [
+            "neg_allowed",
+            "neg_denied"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "neg_denied",
+              "score": 0.5902012586593628,
+              "namespace": "policy"
+            },
+            {
+              "key": "neg_allowed",
+              "score": 0.29749980568885803,
+              "namespace": "policy"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 14.6511
+        },
+        {
+          "id": "multi_evidence_release",
+          "slice": "multi_evidence",
+          "answerable": true,
+          "expected_keys": [
+            "artifact_location",
+            "artifact_validation"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "artifact_validation",
+              "score": 0.5902012586593628,
+              "namespace": "release"
+            },
+            {
+              "key": "artifact_location",
+              "score": 0.5902012586593628,
+              "namespace": "release"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 19.3007
+        },
+        {
+          "id": "multi_evidence_incident",
+          "slice": "multi_evidence",
+          "answerable": true,
+          "expected_keys": [
+            "cause_symptom",
+            "cause_action"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "cause_action",
+              "score": 0.5949995517730713,
+              "namespace": "incident"
+            },
+            {
+              "key": "cause_symptom",
+              "score": 0.1951342672109604,
+              "namespace": "incident"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 15.5073
+        },
+        {
+          "id": "namespace_upper",
+          "slice": "tenant_isolation",
+          "answerable": true,
+          "expected_keys": [
+            "team_upper"
+          ],
+          "forbidden_keys": [
+            "team_lower"
+          ],
+          "retrieved": [
+            {
+              "key": "team_upper",
+              "score": 0.5949996113777161,
+              "namespace": "TeamA"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 15.068299999999999
+        },
+        {
+          "id": "namespace_lower",
+          "slice": "tenant_isolation",
+          "answerable": true,
+          "expected_keys": [
+            "team_lower"
+          ],
+          "forbidden_keys": [
+            "team_upper"
+          ],
+          "retrieved": [
+            {
+              "key": "team_lower",
+              "score": 0.5949996113777161,
+              "namespace": "teama"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 14.9559
+        },
+        {
+          "id": "temporal_port_old",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "port_old"
+          ],
+          "forbidden_keys": [
+            "port_new"
+          ],
+          "retrieved": [
+            {
+              "key": "port_old",
+              "score": 0.5949996113777161,
+              "namespace": "temporal"
+            },
+            {
+              "key": "owner_old",
+              "score": 0.2927014231681824,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 12.7503
+        },
+        {
+          "id": "temporal_port_new",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "port_new"
+          ],
+          "forbidden_keys": [
+            "port_old"
+          ],
+          "retrieved": [
+            {
+              "key": "port_new",
+              "score": 0.5949996113777161,
+              "namespace": "temporal"
+            },
+            {
+              "key": "owner_old",
+              "score": 0.2927014231681824,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 10.7766
+        },
+        {
+          "id": "temporal_owner_old",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "owner_old"
+          ],
+          "forbidden_keys": [
+            "owner_new"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_old",
+              "score": 0.5949995517730713,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 9.593
+        },
+        {
+          "id": "temporal_owner_new",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "owner_new"
+          ],
+          "forbidden_keys": [
+            "owner_old"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_new",
+              "score": 0.5949995517730713,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 9.1139
+        },
+        {
+          "id": "profile_preference",
+          "slice": "ukrainian_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "preference"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 7.9601
+        },
+        {
+          "id": "decision_reason",
+          "slice": "english_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "decision_reason"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "error_exact",
+              "score": 0.39346742630004883,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 0.19833317399024963,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0205",
+              "score": 0.19833317399024963,
+              "namespace": "project"
+            },
+            {
+              "key": "version_rule",
+              "score": 0.19203691184520721,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 0.1890363097190857,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 0.5,
+          "ndcg_at_k": 0.6309297535714575,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 12.421
+        },
+        {
+          "id": "error_code",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "error_exact"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "error_exact",
+              "score": 0.39666634798049927,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 0.19833317399024963,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 12.4075
+        },
+        {
+          "id": "versioned_backup",
+          "slice": "mixed_language",
+          "answerable": true,
+          "expected_keys": [
+            "version_rule"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "version_rule",
+              "score": 0.5949994921684265,
+              "namespace": "project"
+            },
+            {
+              "key": "ua_backup",
+              "score": 0.3871711194515228,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0135",
+              "score": 0.1951342523097992,
+              "namespace": "project"
+            },
+            {
+              "key": "mixed_deploy",
+              "score": 0.1951342523097992,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0220",
+              "score": 0.19203691184520721,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 13.256799999999998
+        },
+        {
+          "id": "unknown_oncall",
+          "slice": "abstention",
+          "answerable": false,
+          "expected_keys": [],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_region",
+              "score": 0.590201199054718,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 0.29749977588653564,
+              "namespace": "project"
+            },
+            {
+              "key": "en_token_fix",
+              "score": 0.2880553603172302,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 0.2835544943809509,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 0.27919211983680725,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": null,
+          "reciprocal_rank": null,
+          "ndcg_at_k": null,
+          "evidence_precision_at_k": null,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 9.296199999999999
+        },
+        {
+          "id": "unknown_invoice",
+          "slice": "abstention",
+          "answerable": false,
+          "expected_keys": [],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_token_fix",
+              "score": 0.5855551958084106,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 0.29749977588653564,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 0.29270139336586,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 0.2835544943809509,
+              "namespace": "project"
+            },
+            {
+              "key": "version_rule",
+              "score": 0.27919211983680725,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": null,
+          "reciprocal_rank": null,
+          "ndcg_at_k": null,
+          "evidence_precision_at_k": null,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 12.7631
+        }
+      ]
+    },
+    "recent_history": {
+      "overall": {
+        "answerable_queries": 21,
+        "recall_at_k": 0.47619047619047616,
+        "mrr": 0.42857142857142855,
+        "ndcg_at_k": 0.44104092891156743,
+        "evidence_precision_at_k": 0.38095238095238093,
+        "abstention_queries": 2,
+        "abstention_accuracy": 0.0,
+        "forbidden_exposure_rate": 0.0,
+        "namespace_contamination_rate": 0.0
+      },
+      "by_slice": {
+        "abstention": {
+          "answerable_queries": 0,
+          "recall_at_k": -0.0,
+          "mrr": -0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": -0.0,
+          "abstention_queries": 2,
+          "abstention_accuracy": 0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "code_identifier": {
+          "answerable_queries": 3,
+          "recall_at_k": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "english_exact": {
+          "answerable_queries": 2,
+          "recall_at_k": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "english_paraphrase": {
+          "answerable_queries": 2,
+          "recall_at_k": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "mixed_language": {
+          "answerable_queries": 2,
+          "recall_at_k": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "multi_evidence": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "negation": {
+          "answerable_queries": 1,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "temporal": {
+          "answerable_queries": 4,
+          "recall_at_k": 1.0,
+          "mrr": 0.75,
+          "ndcg_at_k": 0.8154648767857288,
+          "evidence_precision_at_k": 0.5,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "tenant_isolation": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "ukrainian_exact": {
+          "answerable_queries": 1,
+          "recall_at_k": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "ukrainian_paraphrase": {
+          "answerable_queries": 2,
+          "recall_at_k": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_k": 0.5,
+          "evidence_precision_at_k": 0.5,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        }
+      },
+      "uncached_latency_ms": {
+        "samples": 23,
+        "mean": 0.002560869565217391,
+        "median": 0.0019,
+        "p95": 0.0070999999999999995
+      },
+      "cached_latency_ms": null,
+      "per_query": [
+        {
+          "id": "en_exact",
+          "slice": "english_exact",
+          "answerable": true,
+          "expected_keys": [
+            "en_checksum"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0070999999999999995
+        },
+        {
+          "id": "en_paraphrase",
+          "slice": "english_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "en_token_fix"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0026
+        },
+        {
+          "id": "en_region",
+          "slice": "english_exact",
+          "answerable": true,
+          "expected_keys": [
+            "en_region"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0023
+        },
+        {
+          "id": "ua_exact",
+          "slice": "ukrainian_exact",
+          "answerable": true,
+          "expected_keys": [
+            "ua_backup"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0021
+        },
+        {
+          "id": "ua_paraphrase",
+          "slice": "ukrainian_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "ua_cache_fix"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0018
+        },
+        {
+          "id": "mixed_language",
+          "slice": "mixed_language",
+          "answerable": true,
+          "expected_keys": [
+            "mixed_deploy"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0025
+        },
+        {
+          "id": "code_symbol",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "code_function"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0019
+        },
+        {
+          "id": "code_env",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "code_env"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0015999999999999999
+        },
+        {
+          "id": "negation_pair",
+          "slice": "negation",
+          "answerable": true,
+          "expected_keys": [
+            "neg_allowed",
+            "neg_denied"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "neg_denied",
+              "score": 9.0,
+              "namespace": "policy"
+            },
+            {
+              "key": "neg_allowed",
+              "score": 8.0,
+              "namespace": "policy"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0015999999999999999
+        },
+        {
+          "id": "multi_evidence_release",
+          "slice": "multi_evidence",
+          "answerable": true,
+          "expected_keys": [
+            "artifact_location",
+            "artifact_validation"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "artifact_validation",
+              "score": 11.0,
+              "namespace": "release"
+            },
+            {
+              "key": "artifact_location",
+              "score": 10.0,
+              "namespace": "release"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0017000000000000001
+        },
+        {
+          "id": "multi_evidence_incident",
+          "slice": "multi_evidence",
+          "answerable": true,
+          "expected_keys": [
+            "cause_symptom",
+            "cause_action"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "cause_action",
+              "score": 13.0,
+              "namespace": "incident"
+            },
+            {
+              "key": "cause_symptom",
+              "score": 12.0,
+              "namespace": "incident"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.014
+        },
+        {
+          "id": "namespace_upper",
+          "slice": "tenant_isolation",
+          "answerable": true,
+          "expected_keys": [
+            "team_upper"
+          ],
+          "forbidden_keys": [
+            "team_lower"
+          ],
+          "retrieved": [
+            {
+              "key": "team_upper",
+              "score": 14.0,
+              "namespace": "TeamA"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.001
+        },
+        {
+          "id": "namespace_lower",
+          "slice": "tenant_isolation",
+          "answerable": true,
+          "expected_keys": [
+            "team_lower"
+          ],
+          "forbidden_keys": [
+            "team_upper"
+          ],
+          "retrieved": [
+            {
+              "key": "team_lower",
+              "score": 15.0,
+              "namespace": "teama"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0009
+        },
+        {
+          "id": "temporal_port_old",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "port_old"
+          ],
+          "forbidden_keys": [
+            "port_new"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_old",
+              "score": 18.0,
+              "namespace": "temporal"
+            },
+            {
+              "key": "port_old",
+              "score": 16.0,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 0.5,
+          "ndcg_at_k": 0.6309297535714575,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0021
+        },
+        {
+          "id": "temporal_port_new",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "port_new"
+          ],
+          "forbidden_keys": [
+            "port_old"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_old",
+              "score": 18.0,
+              "namespace": "temporal"
+            },
+            {
+              "key": "port_new",
+              "score": 17.0,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 0.5,
+          "ndcg_at_k": 0.6309297535714575,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0019
+        },
+        {
+          "id": "temporal_owner_old",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "owner_old"
+          ],
+          "forbidden_keys": [
+            "owner_new"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_old",
+              "score": 18.0,
+              "namespace": "temporal"
+            },
+            {
+              "key": "port_new",
+              "score": 17.0,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0015999999999999999
+        },
+        {
+          "id": "temporal_owner_new",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "owner_new"
+          ],
+          "forbidden_keys": [
+            "owner_old"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_new",
+              "score": 19.0,
+              "namespace": "temporal"
+            },
+            {
+              "key": "port_new",
+              "score": 17.0,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0019
+        },
+        {
+          "id": "profile_preference",
+          "slice": "ukrainian_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "preference"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "preference",
+              "score": 20.0,
+              "namespace": "profile"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0009
+        },
+        {
+          "id": "decision_reason",
+          "slice": "english_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "decision_reason"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0023
+        },
+        {
+          "id": "error_code",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "error_exact"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0019
+        },
+        {
+          "id": "versioned_backup",
+          "slice": "mixed_language",
+          "answerable": true,
+          "expected_keys": [
+            "version_rule"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0022
+        },
+        {
+          "id": "unknown_oncall",
+          "slice": "abstention",
+          "answerable": false,
+          "expected_keys": [],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": null,
+          "reciprocal_rank": null,
+          "ndcg_at_k": null,
+          "evidence_precision_at_k": null,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0015999999999999999
+        },
+        {
+          "id": "unknown_invoice",
+          "slice": "abstention",
+          "answerable": false,
+          "expected_keys": [],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "same_noise_0255",
+              "score": 279.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0250",
+              "score": 274.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0245",
+              "score": 269.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0240",
+              "score": 264.0,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0235",
+              "score": 259.0,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": null,
+          "reciprocal_rank": null,
+          "ndcg_at_k": null,
+          "evidence_precision_at_k": null,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0014
+        }
+      ]
+    },
+    "token_overlap": {
+      "overall": {
+        "answerable_queries": 21,
+        "recall_at_k": 0.9523809523809523,
+        "mrr": 0.9285714285714286,
+        "ndcg_at_k": 0.934806178741498,
+        "evidence_precision_at_k": 0.6087301587301587,
+        "abstention_queries": 2,
+        "abstention_accuracy": 0.0,
+        "forbidden_exposure_rate": 0.0,
+        "namespace_contamination_rate": 0.0
+      },
+      "by_slice": {
+        "abstention": {
+          "answerable_queries": 0,
+          "recall_at_k": -0.0,
+          "mrr": -0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": -0.0,
+          "abstention_queries": 2,
+          "abstention_accuracy": 0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "code_identifier": {
+          "answerable_queries": 3,
+          "recall_at_k": 1.0,
+          "mrr": 0.8333333333333334,
+          "ndcg_at_k": 0.8769765845238192,
+          "evidence_precision_at_k": 0.48333333333333334,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "english_exact": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "english_paraphrase": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "mixed_language": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.26666666666666666,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "multi_evidence": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "negation": {
+          "answerable_queries": 1,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "temporal": {
+          "answerable_queries": 4,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.75,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "tenant_isolation": {
+          "answerable_queries": 2,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "ukrainian_exact": {
+          "answerable_queries": 1,
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        },
+        "ukrainian_paraphrase": {
+          "answerable_queries": 2,
+          "recall_at_k": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_k": 0.5,
+          "evidence_precision_at_k": 0.5,
+          "abstention_queries": 0,
+          "abstention_accuracy": -0.0,
+          "forbidden_exposure_rate": 0.0,
+          "namespace_contamination_rate": 0.0
+        }
+      },
+      "uncached_latency_ms": {
+        "samples": 23,
+        "mean": 23.722713043478258,
+        "median": 32.6654,
+        "p95": 50.5479
+      },
+      "cached_latency_ms": null,
+      "per_query": [
+        {
+          "id": "en_exact",
+          "slice": "english_exact",
+          "answerable": true,
+          "expected_keys": [
+            "en_checksum"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_checksum",
+              "score": 14.061580637296725,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 6.801753394262763,
+              "namespace": "project"
+            },
+            {
+              "key": "en_token_fix",
+              "score": 2.638786948652557,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 2.554122383244793,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 2.4747217915840767,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 32.6654
+        },
+        {
+          "id": "en_paraphrase",
+          "slice": "english_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "en_token_fix"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_token_fix",
+              "score": 10.710445925656444,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 2.9301772758180977,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 2.554122383244793,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 2.4747217915840767,
+              "namespace": "project"
+            },
+            {
+              "key": "version_rule",
+              "score": 2.400109048000744,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 50.4399
+        },
+        {
+          "id": "en_region",
+          "slice": "english_exact",
+          "answerable": true,
+          "expected_keys": [
+            "en_region"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_region",
+              "score": 19.636308401415,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 4.179240261283926,
+              "namespace": "project"
+            },
+            {
+              "key": "mixed_deploy",
+              "score": 3.7341280150598983,
+              "namespace": "project"
+            },
+            {
+              "key": "en_token_fix",
+              "score": 2.638786948652557,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 2.554122383244793,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 36.554700000000004
+        },
+        {
+          "id": "ua_exact",
+          "slice": "ukrainian_exact",
+          "answerable": true,
+          "expected_keys": [
+            "ua_backup"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "ua_backup",
+              "score": 25.934329747977863,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 35.8917
+        },
+        {
+          "id": "ua_paraphrase",
+          "slice": "ukrainian_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "ua_cache_fix"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "ua_cache_fix",
+              "score": 8.962978888707573,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 46.8368
+        },
+        {
+          "id": "mixed_language",
+          "slice": "mixed_language",
+          "answerable": true,
+          "expected_keys": [
+            "mixed_deploy"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "mixed_deploy",
+              "score": 8.241556088748267,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 3.8715761184446653,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 0.20709673188866076,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0000",
+              "score": 0.15714507944545306,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0005",
+              "score": 0.15714507944545306,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 50.007200000000005
+        },
+        {
+          "id": "code_symbol",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "code_function"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_checksum",
+              "score": 4.837621822062069,
+              "namespace": "project"
+            },
+            {
+              "key": "code_function",
+              "score": 4.092843825906063,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 3.7849039640783886,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0000",
+              "score": 0.1752564442511018,
+              "namespace": "project"
+            },
+            {
+              "key": "same_noise_0005",
+              "score": 0.1752564442511018,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 0.5,
+          "ndcg_at_k": 0.6309297535714575,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 57.189099999999996
+        },
+        {
+          "id": "code_env",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "code_env"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "code_env",
+              "score": 9.675243644124137,
+              "namespace": "project"
+            },
+            {
+              "key": "en_checksum",
+              "score": 4.837621822062069,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 3.7849039640783886,
+              "namespace": "project"
+            },
+            {
+              "key": "version_rule",
+              "score": 3.670789290695828,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.25,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 36.4923
+        },
+        {
+          "id": "negation_pair",
+          "slice": "negation",
+          "answerable": true,
+          "expected_keys": [
+            "neg_allowed",
+            "neg_denied"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "neg_allowed",
+              "score": 0.37188767875852996,
+              "namespace": "policy"
+            },
+            {
+              "key": "neg_denied",
+              "score": 0.35767541078049697,
+              "namespace": "policy"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0478
+        },
+        {
+          "id": "multi_evidence_release",
+          "slice": "multi_evidence",
+          "answerable": true,
+          "expected_keys": [
+            "artifact_location",
+            "artifact_validation"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "artifact_location",
+              "score": 1.2401118509418092,
+              "namespace": "release"
+            },
+            {
+              "key": "artifact_validation",
+              "score": 1.2401118509418092,
+              "namespace": "release"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0698
+        },
+        {
+          "id": "multi_evidence_incident",
+          "slice": "multi_evidence",
+          "answerable": true,
+          "expected_keys": [
+            "cause_symptom",
+            "cause_action"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "cause_action",
+              "score": 1.489155074042037,
+              "namespace": "incident"
+            },
+            {
+              "key": "cause_symptom",
+              "score": 0.19259855477607735,
+              "namespace": "incident"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.122
+        },
+        {
+          "id": "namespace_upper",
+          "slice": "tenant_isolation",
+          "answerable": true,
+          "expected_keys": [
+            "team_upper"
+          ],
+          "forbidden_keys": [
+            "team_lower"
+          ],
+          "retrieved": [
+            {
+              "key": "team_upper",
+              "score": 0.8630462173553426,
+              "namespace": "TeamA"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.015000000000000001
+        },
+        {
+          "id": "namespace_lower",
+          "slice": "tenant_isolation",
+          "answerable": true,
+          "expected_keys": [
+            "team_lower"
+          ],
+          "forbidden_keys": [
+            "team_upper"
+          ],
+          "retrieved": [
+            {
+              "key": "team_lower",
+              "score": 0.8630462173553426,
+              "namespace": "teama"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0141
+        },
+        {
+          "id": "temporal_port_old",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "port_old"
+          ],
+          "forbidden_keys": [
+            "port_new"
+          ],
+          "retrieved": [
+            {
+              "key": "port_old",
+              "score": 2.1927601564864547,
+              "namespace": "temporal"
+            },
+            {
+              "key": "owner_old",
+              "score": 0.18824536188834304,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0901
+        },
+        {
+          "id": "temporal_port_new",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "port_new"
+          ],
+          "forbidden_keys": [
+            "port_old"
+          ],
+          "retrieved": [
+            {
+              "key": "port_new",
+              "score": 2.1927601564864547,
+              "namespace": "temporal"
+            },
+            {
+              "key": "owner_old",
+              "score": 0.18824536188834304,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.5,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0839
+        },
+        {
+          "id": "temporal_owner_old",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "owner_old"
+          ],
+          "forbidden_keys": [
+            "owner_new"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_old",
+              "score": 2.1470046242614913,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.0523
+        },
+        {
+          "id": "temporal_owner_new",
+          "slice": "temporal",
+          "answerable": true,
+          "expected_keys": [
+            "owner_new"
+          ],
+          "forbidden_keys": [
+            "owner_old"
+          ],
+          "retrieved": [
+            {
+              "key": "owner_new",
+              "score": 2.1470046242614913,
+              "namespace": "temporal"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.051199999999999996
+        },
+        {
+          "id": "profile_preference",
+          "slice": "ukrainian_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "preference"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [],
+          "recall_at_k": 0.0,
+          "reciprocal_rank": 0.0,
+          "ndcg_at_k": -0.0,
+          "evidence_precision_at_k": 0.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 0.028
+        },
+        {
+          "id": "decision_reason",
+          "slice": "english_paraphrase",
+          "answerable": true,
+          "expected_keys": [
+            "decision_reason"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "decision_reason",
+              "score": 6.460463680258471,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 6.259625755662466,
+              "namespace": "project"
+            },
+            {
+              "key": "version_rule",
+              "score": 6.070898338696572,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 2.9301772758180977,
+              "namespace": "project"
+            },
+            {
+              "key": "en_token_fix",
+              "score": 2.638786948652557,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.2,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 44.9408
+        },
+        {
+          "id": "error_code",
+          "slice": "code_identifier",
+          "answerable": true,
+          "expected_keys": [
+            "error_exact"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "error_exact",
+              "score": 7.569807928156777,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 1.0,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 25.6685
+        },
+        {
+          "id": "versioned_backup",
+          "slice": "mixed_language",
+          "answerable": true,
+          "expected_keys": [
+            "version_rule"
+          ],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "version_rule",
+              "score": 11.012367872087484,
+              "namespace": "project"
+            },
+            {
+              "key": "mixed_deploy",
+              "score": 4.322388291329643,
+              "namespace": "project"
+            },
+            {
+              "key": "ua_backup",
+              "score": 4.322388291329643,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": 1.0,
+          "reciprocal_rank": 1.0,
+          "ndcg_at_k": 1.0,
+          "evidence_precision_at_k": 0.3333333333333333,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 50.5479
+        },
+        {
+          "id": "unknown_oncall",
+          "slice": "abstention",
+          "answerable": false,
+          "expected_keys": [],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "en_checksum",
+              "score": 4.837621822062069,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 2.9301772758180977,
+              "namespace": "project"
+            },
+            {
+              "key": "en_token_fix",
+              "score": 2.638786948652557,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 2.554122383244793,
+              "namespace": "project"
+            },
+            {
+              "key": "error_exact",
+              "score": 2.4747217915840767,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": null,
+          "reciprocal_rank": null,
+          "ndcg_at_k": null,
+          "evidence_precision_at_k": null,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 33.0488
+        },
+        {
+          "id": "unknown_invoice",
+          "slice": "abstention",
+          "answerable": false,
+          "expected_keys": [],
+          "forbidden_keys": [],
+          "retrieved": [
+            {
+              "key": "error_exact",
+              "score": 6.259625755662466,
+              "namespace": "project"
+            },
+            {
+              "key": "en_region",
+              "score": 2.9301772758180977,
+              "namespace": "project"
+            },
+            {
+              "key": "en_token_fix",
+              "score": 2.638786948652557,
+              "namespace": "project"
+            },
+            {
+              "key": "decision_reason",
+              "score": 2.554122383244793,
+              "namespace": "project"
+            },
+            {
+              "key": "version_rule",
+              "score": 2.400109048000744,
+              "namespace": "project"
+            }
+          ],
+          "recall_at_k": null,
+          "reciprocal_rank": null,
+          "ndcg_at_k": null,
+          "evidence_precision_at_k": null,
+          "abstained": false,
+          "forbidden_exposed": false,
+          "namespace_contaminated": false,
+          "latency_ms": 44.765100000000004
+        }
+      ]
+    }
+  },
+  "tenant_interference": {
+    "before_neighbor_recall_at_k": 0.9523809523809523,
+    "after_neighbor_recall_at_k": 0.9523809523809523,
+    "recall_delta": 0.0,
+    "queries_with_expected_rank_loss": 0,
+    "max_expected_rank_loss": 0
+  },
+  "restart_consistency": {
+    "compared_queries": 23,
+    "identical_rankings": 23,
+    "identical_top_k_sets": 23,
+    "identical_expected_evidence": 23,
+    "consistency_rate": 1.0,
+    "set_consistency_rate": 1.0,
+    "evidence_consistency_rate": 1.0
+  },
+  "acceptance": {
+    "passed": true,
+    "checks": {
+      "aura_recall_at_5_at_least_token_overlap": true,
+      "forbidden_exposure_is_zero": true,
+      "namespace_contamination_is_zero": true,
+      "neighbor_recall_drop_at_most_5pp": true,
+      "restart_expected_evidence_is_identical": true,
+      "restart_top_k_sets_are_identical": true
+    },
+    "informational": [
+      "Abstention accuracy is reported but not gated until a confidence policy is specified.",
+      "This v1 corpus is synthetic and must not be presented as a competitor benchmark.",
+      "Aura quality uses read-only recall_as_of to prevent query-order activation from changing ranking."
+    ]
+  }
+}

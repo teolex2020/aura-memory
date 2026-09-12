@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.60.0
 
 ### Fixed
 

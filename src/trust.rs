@@ -228,17 +228,39 @@ pub fn stamp_provenance(
 ) {
     let prov = get_provenance(channel, trust_config);
 
-    metadata.entry("source".into()).or_insert(prov.source);
-    metadata
-        .entry("verified".into())
-        .or_insert(prov.verified.to_string());
-    metadata
-        .entry("trust_score".into())
-        .or_insert(format!("{:.2}", prov.trust_score));
+    // Provenance is computed from the write channel, never taken from the
+    // caller: a claimed `source`/`verified`/`trust_score` is kept only under a
+    // `claimed_` prefix so recall trust cannot be forged through metadata.
+    let computed = [
+        ("source", prov.source),
+        ("verified", prov.verified.to_string()),
+        ("trust_score", format!("{:.2}", prov.trust_score)),
+    ];
+    for (key, value) in computed {
+        if let Some(claimed) = metadata.insert(key.to_string(), value.clone()) {
+            if claimed != value {
+                metadata.insert(
+                    format!("{}{}", crate::ingress::CLAIMED_PREFIX, key),
+                    claimed,
+                );
+            }
+        }
+    }
     metadata
         .entry("volatility".into())
         .or_insert_with(|| infer_volatility(tags, taxonomy).to_string());
-    metadata.entry("timestamp".into()).or_insert(prov.timestamp);
+    // A caller-supplied timestamp may describe event time, but a future one
+    // would earn an unbounded recency boost; clamp it to now.
+    let future_timestamp = metadata.get("timestamp").is_some_and(|value| {
+        chrono::DateTime::parse_from_rfc3339(value)
+            .map(|at| at.with_timezone(&chrono::Utc) > chrono::Utc::now())
+            .unwrap_or(false)
+    });
+    if future_timestamp {
+        metadata.insert("timestamp".into(), prov.timestamp);
+    } else {
+        metadata.entry("timestamp".into()).or_insert(prov.timestamp);
+    }
 }
 
 /// Compute effective trust score at recall time.

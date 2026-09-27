@@ -1475,6 +1475,7 @@ impl Aura {
             semantic_type,
             None,
             None,
+            crate::ingress::WriteAuthority::External,
         )
     }
 
@@ -1508,6 +1509,7 @@ impl Aura {
             None,
             valid_from,
             valid_until,
+            crate::ingress::WriteAuthority::External,
         )
     }
 
@@ -1531,6 +1533,7 @@ impl Aura {
         semantic_type: Option<&str>,
         valid_from: Option<f64>,
         valid_until: Option<f64>,
+        authority: crate::ingress::WriteAuthority,
     ) -> Result<Record> {
         // Validation
         if content.is_empty() {
@@ -1553,6 +1556,9 @@ impl Aura {
         let mut tags = tags.unwrap_or_default();
         if tags.len() > MAX_TAGS {
             return Err(anyhow::anyhow!("Maximum {} tags allowed", MAX_TAGS));
+        }
+        if authority == crate::ingress::WriteAuthority::External {
+            crate::ingress::check_external_fields(&tags, metadata.as_ref())?;
         }
 
         let pin = pin.unwrap_or(false);
@@ -1854,7 +1860,9 @@ impl Aura {
             now_secs_f64(),
         );
 
-        let record = self.store(
+        // The only write path allowed to set consequence tags and `cu_*`
+        // metadata; generic stores reject them (see `ingress`).
+        let record = self.store_with_channel_and_validity(
             &unit.to_content(),
             Some(Level::Decisions),
             Some(unit.to_tags()),
@@ -1864,8 +1872,13 @@ impl Aura {
             Some(unit.to_metadata()),
             Some(false),
             None,
+            None,
+            None,
             Some(namespace),
             Some("decision"),
+            None,
+            None,
+            crate::ingress::WriteAuthority::TrustedCapture,
         )?;
 
         unit.record_id = record.id.clone();
@@ -4365,11 +4378,25 @@ impl Aura {
         }) {
             anyhow::bail!("aura.audit.v1.* metadata is reserved; use the audit entity APIs");
         }
+        if let Some(tags) = &tags {
+            crate::ingress::check_external_fields(tags, None)?;
+        }
+        crate::ingress::check_external_fields(&[], metadata.as_ref())?;
         let mut records = self.records.write();
         let rec = match records.get_mut(record_id) {
             Some(r) => r,
             None => return Ok(None),
         };
+        if let Some(st) = source_type {
+            // Re-labelling cannot launder a record into a more trusted class.
+            anyhow::ensure!(
+                crate::ingress::source_type_rank(st)
+                    <= crate::ingress::source_type_rank(&rec.source_type),
+                "cannot raise source_type from {:?} to {:?} via update",
+                rec.source_type,
+                st
+            );
+        }
 
         if let Some(c) = content {
             rec.content = c.to_string();
@@ -4382,17 +4409,44 @@ impl Aura {
         if let Some(l) = level {
             rec.level = l;
         }
-        if let Some(t) = tags {
+        if let Some(mut t) = tags {
+            // Captured consequence tags survive tag replacement.
+            for tag in rec
+                .tags
+                .iter()
+                .filter(|tag| crate::ingress::is_reserved_tag(tag))
+            {
+                if !t.contains(tag) {
+                    t.push(tag.clone());
+                }
+            }
             rec.tags = t;
         }
         if let Some(s) = strength {
             rec.strength = s.clamp(0.0, 1.0);
         }
-        if let Some(m) = metadata {
+        if let Some(mut m) = metadata {
+            // Audit, consequence and provenance fields are not caller-editable:
+            // keep the stored values and preserve any claim as `claimed_*`.
+            for key in crate::ingress::PROVENANCE_KEYS {
+                if let Some(claimed) = m.remove(key) {
+                    if rec.metadata.get(key) != Some(&claimed) {
+                        m.insert(
+                            format!("{}{}", crate::ingress::CLAIMED_PREFIX, key),
+                            claimed,
+                        );
+                    }
+                }
+            }
             let reserved = rec
                 .metadata
                 .iter()
-                .filter(|(key, _)| is_reserved_audit_metadata_key(key))
+                .filter(|(key, value)| {
+                    is_reserved_audit_metadata_key(key)
+                        || crate::ingress::is_reserved_metadata(key, value)
+                        || crate::ingress::PROVENANCE_KEYS.contains(&key.as_str())
+                        || key.as_str() == "timestamp"
+                })
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect::<HashMap<_, _>>();
             rec.metadata = m;
@@ -4926,6 +4980,12 @@ impl Aura {
             &mut aura_idx,
             &self.cognitive_store,
         );
+        drop(records);
+        drop(ngram);
+        drop(tag_idx);
+        drop(aura_idx);
+        self.remove_from_active_indexes(&result.merged_ids, true);
+        self.runtime.clear_recall_caches();
 
         let mut stats = HashMap::new();
         stats.insert("merged".to_string(), result.merged);
@@ -10939,6 +10999,9 @@ impl Aura {
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default();
             metadata.insert("trust_external".into(), "true".into());
+            // Shared fragments are external data: drop consequence fields
+            // rather than rejecting the whole import.
+            crate::ingress::strip_reserved(&mut tags, &mut metadata);
 
             // Store with reduced strength (source_type=retrieved for external data)
             let rec = self.store_with_channel(
@@ -14700,6 +14763,7 @@ impl Aura {
                     semantic_type,
                     valid_from,
                     valid_until,
+                    crate::ingress::WriteAuthority::External,
                 )
             })
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -25717,20 +25781,17 @@ mod tests {
         let record_id;
         {
             let aura = Aura::open(root)?;
-            let record = aura.store(
-                "standalone reflection scar",
-                Some(Level::Working),
-                Some(vec![crate::consequence::CONSEQUENCE_REFUTE_TAG.into()]),
+            let unit = aura.capture_consequence(
+                "standalone reflection",
+                "reuse the stale plan",
+                "refuted",
+                -1,
                 None,
-                None,
-                None,
-                None,
-                Some(false),
                 None,
                 None,
                 None,
             )?;
-            record_id = record.id;
+            record_id = unit.record_id;
             aura.update(&record_id, None, None, None, Some(0.04), None, None)?;
             let report = aura.reflect()?;
             assert_eq!(report["archived"], 0);

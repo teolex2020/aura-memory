@@ -393,7 +393,6 @@ impl AuraStorage {
     }
 
     fn lock_directory(path: &Path) -> Result<File> {
-        use fs2::FileExt;
         let lock_path = path.join("brain.lock");
         let file = OpenOptions::new()
             .create(true)
@@ -401,7 +400,7 @@ impl AuraStorage {
             .write(true)
             .truncate(false)
             .open(&lock_path)?;
-        file.try_lock_exclusive().map_err(|error| {
+        try_lock_exclusive(&file).map_err(|error| {
             anyhow!(
                 "Aura brain at {} is already open in another process or handle ({}).                  Close it first or use a separate directory.",
                 path.display(),
@@ -1174,6 +1173,16 @@ mod tests {
     }
 
     #[test]
+    fn lock_file_of_open_brain_stays_readable() -> Result<()> {
+        let dir = tempdir()?;
+        let storage = AuraStorage::new(dir.path())?;
+        // Copying an open brain directory must not fail on the lock file.
+        std::fs::read(dir.path().join("brain.lock"))?;
+        drop(storage);
+        Ok(())
+    }
+
+    #[test]
     fn second_open_of_same_directory_is_rejected_until_close() -> Result<()> {
         let dir = tempdir()?;
         let storage = AuraStorage::new(dir.path())?;
@@ -1362,4 +1371,69 @@ fn read_index_entry<R: Read + Seek>(file: &mut R, len: u64) -> std::io::Result<I
         encrypted,
         text_bytes,
     })
+}
+
+/// Take an exclusive, non-blocking inter-process lock on `brain.lock`.
+///
+/// On Windows, byte-range locks are mandatory: locking the whole file would
+/// make every read of `brain.lock` fail, which breaks copying an open brain
+/// directory. Lock a single byte far beyond the end of the empty file instead;
+/// processes still exclude each other, and the file stays readable.
+#[cfg(windows)]
+fn try_lock_exclusive(file: &File) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: *mut std::ffi::c_void,
+    }
+
+    extern "system" {
+        fn LockFileEx(
+            file: *mut std::ffi::c_void,
+            flags: u32,
+            reserved: u32,
+            bytes_low: u32,
+            bytes_high: u32,
+            overlapped: *mut Overlapped,
+        ) -> i32;
+    }
+
+    const LOCKFILE_FAIL_IMMEDIATELY: u32 = 0x1;
+    const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x2;
+    let mut overlapped = Overlapped {
+        internal: 0,
+        internal_high: 0,
+        offset: 0,
+        offset_high: 0x4000_0000,
+        event: std::ptr::null_mut(),
+    };
+    // SAFETY: the handle is valid for the lifetime of `file`, and
+    // `overlapped` outlives this synchronous call. The lock is released when
+    // the handle is closed.
+    let locked = unsafe {
+        LockFileEx(
+            file.as_raw_handle(),
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            1,
+            0,
+            &mut overlapped,
+        )
+    };
+    if locked == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Take an exclusive, non-blocking inter-process lock on `brain.lock`.
+/// POSIX `flock` locks are advisory, so the file stays readable.
+#[cfg(not(windows))]
+fn try_lock_exclusive(file: &File) -> std::io::Result<()> {
+    fs2::FileExt::try_lock_exclusive(file)
 }

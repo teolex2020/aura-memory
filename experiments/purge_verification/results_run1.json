@@ -1,0 +1,402 @@
+{
+  "arms": [
+    {
+      "after_maintenance": {
+        "bytes": {
+          "id_file_count": 6,
+          "id_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain/embeddings.cog": 7,
+            "brain/index/index_manifest.json": 7,
+            "brain_snapshot_before_repair.json": 8
+          },
+          "marker_file_count": 4,
+          "marker_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain_snapshot_before_repair.json": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 2,
+          "missing": 38,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 0,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 0
+        },
+        "logical": {
+          "benign_edges_to_poison": 0,
+          "embedding": 0,
+          "get": 0,
+          "recall": 0,
+          "search": 0,
+          "total": 0
+        }
+      },
+      "after_reopen": {
+        "bytes": {
+          "id_file_count": 6,
+          "id_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain/embeddings.cog": 7,
+            "brain/index/index_manifest.json": 7,
+            "brain_snapshot_before_repair.json": 8
+          },
+          "marker_file_count": 4,
+          "marker_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain_snapshot_before_repair.json": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 2,
+          "missing": 38,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 0,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 0
+        },
+        "logical": {
+          "benign_edges_to_poison": 0,
+          "embedding": 0,
+          "get": 0,
+          "recall": 0,
+          "search": 0,
+          "total": 0
+        }
+      },
+      "arm": "delete",
+      "baseline_benign_hits_at5": 40,
+      "before": {
+        "bytes": {
+          "id_file_count": 6,
+          "id_files": {
+            "brain/beliefs.cog": 1,
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain/embeddings.cog": 8,
+            "brain_snapshot_before_repair.json": 8
+          },
+          "marker_file_count": 4,
+          "marker_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain_snapshot_before_repair.json": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 2,
+          "missing": 38,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 1,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 1
+        },
+        "logical": {
+          "benign_edges_to_poison": 2,
+          "embedding": 0,
+          "get": 1,
+          "recall": 1,
+          "search": 1,
+          "total": 5
+        }
+      },
+      "fault_probe": {
+        "absent_in_ram": false,
+        "error": "Cognitive store is closed",
+        "pass": true,
+        "present_after_reopen": true,
+        "ram_disk_split": false,
+        "reported_success": false
+      },
+      "gates": {
+        "G1_logical": true,
+        "G2_derived": true,
+        "G3_content_bytes": false,
+        "G4_id_bytes": false,
+        "G5_rollback": false,
+        "G6_collateral": false,
+        "G7_receipt": false,
+        "G8_fault": true
+      },
+      "immediate": {
+        "bytes": {
+          "id_file_count": 5,
+          "id_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain/embeddings.cog": 7,
+            "brain_snapshot_before_repair.json": 8
+          },
+          "marker_file_count": 4,
+          "marker_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain_snapshot_before_repair.json": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 2,
+          "missing": 38,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 0,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 0
+        },
+        "logical": {
+          "benign_edges_to_poison": 0,
+          "embedding": 0,
+          "get": 0,
+          "recall": 0,
+          "search": 0,
+          "total": 0
+        }
+      },
+      "poisons_restored_by_rollback": 8,
+      "receipts": [],
+      "rollback_count": 48
+    },
+    {
+      "after_maintenance": {
+        "bytes": {
+          "id_file_count": 2,
+          "id_files": {
+            "brain/embeddings.cog": 7,
+            "brain/index/index_manifest.json": 7
+          },
+          "marker_file_count": 1,
+          "marker_files": {
+            "brain/brain.audit": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 1,
+          "missing": 39,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 0,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 0
+        },
+        "logical": {
+          "benign_edges_to_poison": 0,
+          "embedding": 0,
+          "get": 0,
+          "recall": 0,
+          "search": 0,
+          "total": 0
+        }
+      },
+      "after_reopen": {
+        "bytes": {
+          "id_file_count": 2,
+          "id_files": {
+            "brain/embeddings.cog": 7,
+            "brain/index/index_manifest.json": 7
+          },
+          "marker_file_count": 1,
+          "marker_files": {
+            "brain/brain.audit": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 1,
+          "missing": 39,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 0,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 0
+        },
+        "logical": {
+          "benign_edges_to_poison": 0,
+          "embedding": 0,
+          "get": 0,
+          "recall": 0,
+          "search": 0,
+          "total": 0
+        }
+      },
+      "arm": "purge_history",
+      "baseline_benign_hits_at5": 40,
+      "before": {
+        "bytes": {
+          "id_file_count": 6,
+          "id_files": {
+            "brain/beliefs.cog": 1,
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain/embeddings.cog": 8,
+            "brain_snapshot_before_repair.json": 8
+          },
+          "marker_file_count": 4,
+          "marker_files": {
+            "brain/brain.audit": 8,
+            "brain/brain.aura": 8,
+            "brain/brain.cog": 8,
+            "brain_snapshot_before_repair.json": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 1,
+          "missing": 39,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 1,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 1
+        },
+        "logical": {
+          "benign_edges_to_poison": 1,
+          "embedding": 0,
+          "get": 1,
+          "recall": 1,
+          "search": 1,
+          "total": 4
+        }
+      },
+      "fault_probe": {
+        "absent_in_ram": false,
+        "error": "Cognitive store is closed",
+        "pass": true,
+        "present_after_reopen": true,
+        "ram_disk_split": false,
+        "reported_success": false
+      },
+      "gates": {
+        "G1_logical": true,
+        "G2_derived": true,
+        "G3_content_bytes": false,
+        "G4_id_bytes": false,
+        "G5_rollback": true,
+        "G6_collateral": false,
+        "G7_receipt": true,
+        "G8_fault": true
+      },
+      "immediate": {
+        "bytes": {
+          "id_file_count": 1,
+          "id_files": {
+            "brain/embeddings.cog": 7
+          },
+          "marker_file_count": 1,
+          "marker_files": {
+            "brain/brain.audit": 8
+          }
+        },
+        "collateral": {
+          "changed": 0,
+          "hits_at5": 1,
+          "missing": 39,
+          "ring_edges_lost": 40
+        },
+        "derived": {
+          "beliefs": 0,
+          "causal": 0,
+          "concepts": 0,
+          "policy": 0,
+          "total": 0
+        },
+        "logical": {
+          "benign_edges_to_poison": 0,
+          "embedding": 0,
+          "get": 0,
+          "recall": 0,
+          "search": 0,
+          "total": 0
+        }
+      },
+      "poisons_restored_by_rollback": 0,
+      "receipts": [
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        },
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        },
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        },
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        },
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        },
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        },
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        },
+        {
+          "contains_marker": false,
+          "contains_raw_id": false,
+          "digest_matches": true
+        }
+      ],
+      "rollback_count": 40
+    }
+  ],
+  "protocol": "PROTOCOL.md (frozen 2026-09-27)",
+  "schema": "purge-verification-v1"
+}

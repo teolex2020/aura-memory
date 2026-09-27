@@ -157,6 +157,7 @@ pub mod circuit_breaker;
 pub mod credibility;
 pub mod guards;
 pub mod identity;
+pub mod ingress;
 pub mod relation;
 pub mod research;
 pub mod trust;

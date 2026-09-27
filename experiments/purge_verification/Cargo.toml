@@ -1,0 +1,15 @@
+[package]
+name = "aura-purge-verification"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+aura = { path = "../..", default-features = false, features = ["encryption", "audit", "capsule"] }
+anyhow = "1"
+hex = "0.4"
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+
+[workspace]

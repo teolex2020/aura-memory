@@ -13,6 +13,8 @@
 
 ### Security
 
+- Generic writes can no longer forge authority. `store`, `update`, MCP/HTTP tools and imports reject consequence tags (`consequence-*`) and `cu_*`/`kind=consequence_unit` metadata; only `capture_consequence` sets them. Provenance (`source`, `verified`, `trust_score`) is always computed from the write channel, and caller-supplied values are kept as `claimed_*`. Future `timestamp`s are clamped. `update` keeps captured consequence tags, cannot edit provenance, and cannot raise `source_type` to a more trusted class. `import_context` strips reserved fields from shared fragments.
+
 - `aura serve` binds `127.0.0.1` by default, refuses non-loopback hosts without an API key (`--api-key` / `AURA_API_KEY`), checks `Authorization: Bearer` or `X-API-Key` in constant time, and no longer sends permissive CORS headers. Cross-origin access is opt-in through `AURA_CORS_ORIGINS`. SSE sessions and queues are bounded, and the lazy brain singleton is created under a lock.
 - The Rust dashboard no longer allows `Origin: null` by default, refuses non-loopback binds without `AURA_API_KEY`, rejects non-localhost `Host` headers when no key is set (DNS rebinding), and compares tokens in constant time.
 
@@ -26,6 +28,8 @@
 - An exclusive `brain.lock` prevents two processes (or handles) from opening the same brain directory; `close()` releases it.
 - SDR and n-gram candidate pools widen when namespace filtering discards out-of-scope candidates, so in-namespace results are no longer silently dropped in busy multi-namespace stores.
 - SDR index and temporal-chain files are written atomically with fsync; maintenance logs persistence failures instead of ignoring them.
+- **Consolidation no longer destroys distinct facts.** MinHash similarity ≥ 0.85 merged records that differed only by an identifier, number or negation, keeping one record's text and silently losing the rest (40 distinct facts collapsed into 1 in one maintenance run). A merge now happens only when the removed record's words, numbers and identifiers are all present in the kept one and negations agree. Merged-away records are also removed from SDR, lexical and embedding indexes and the binary store.
+- Audit history purge also removes retrieve entries whose query quotes the purged content or names one of its identifier-like tokens.
 - Managed audit history purge filters every journal before rewriting any, stages all replacements, and swaps each with one atomic rename, so a decode error or crash can no longer leave the journal half-rewritten or missing.
 - Recall no longer clones the whole store on every query once any record has a validity window; a copy is built only when some record is currently outside its window.
 

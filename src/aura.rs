@@ -10506,9 +10506,10 @@ impl Aura {
         let mut new_rec = Record::new(new_content.to_string(), effective_level);
         new_rec.tags = effective_tags;
         new_rec.content_type = old_snapshot.content_type.clone();
-        new_rec.source_type = crate::record::DEFAULT_SOURCE_TYPE.to_string();
-        new_rec.confidence =
-            Record::default_confidence_for_source(crate::record::DEFAULT_SOURCE_TYPE);
+        // A new version keeps its predecessor's trust label; superseding must
+        // not upgrade retrieved or generated content to `recorded`.
+        new_rec.source_type = old_snapshot.source_type.clone();
+        new_rec.confidence = Record::default_confidence_for_source(&old_snapshot.source_type);
         new_rec.caused_by_id = Some(old_id.to_string());
         new_rec.namespace = effective_ns.to_string();
         new_rec.semantic_type = old_snapshot.semantic_type.clone();
@@ -21530,6 +21531,7 @@ mod tests {
                 policy_strength: 0.75,
                 state: crate::policy::PolicyState::Stable,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             };
             {
                 let mut engine = aura.policy_engine.write();
@@ -21716,6 +21718,7 @@ mod tests {
                     policy_strength: 0.88,
                     state: crate::policy::PolicyState::Stable,
                     last_updated: 1.0,
+                    evidence_source_floor: "recorded".to_string(),
                 },
                 crate::policy::PolicyHint {
                     id: "policy-health-suppressed".into(),
@@ -21735,6 +21738,7 @@ mod tests {
                     policy_strength: 0.66,
                     state: crate::policy::PolicyState::Suppressed,
                     last_updated: 1.0,
+                    evidence_source_floor: "recorded".to_string(),
                 },
             ] {
                 policy_engine
@@ -21938,6 +21942,7 @@ mod tests {
                 policy_strength: 0.7,
                 state: crate::policy::PolicyState::Stable,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             };
             {
                 let mut engine = aura.policy_engine.write();
@@ -22110,6 +22115,7 @@ mod tests {
             policy_strength: 0.71,
             state: crate::policy::PolicyState::Stable,
             last_updated: 1.0,
+            evidence_source_floor: "recorded".to_string(),
         };
         let hint_from_causal = crate::policy::PolicyHint {
             id: "policy-causal-review".to_string(),
@@ -22129,6 +22135,7 @@ mod tests {
             policy_strength: 0.76,
             state: crate::policy::PolicyState::Stable,
             last_updated: 1.0,
+            evidence_source_floor: "recorded".to_string(),
         };
         {
             let mut engine = aura.policy_engine.write();
@@ -22301,6 +22308,7 @@ mod tests {
             policy_strength: 0.77,
             state: crate::policy::PolicyState::Suppressed,
             last_updated: 1.0,
+            evidence_source_floor: "recorded".to_string(),
         };
         {
             let mut engine = aura.policy_engine.write();
@@ -22616,6 +22624,7 @@ mod tests {
                 policy_strength: 0.78,
                 state: crate::policy::PolicyState::Stable,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             };
             engine.key_index.insert(hint.key.clone(), hint.id.clone());
             engine.hints.insert(hint.id.clone(), hint);
@@ -23567,6 +23576,7 @@ mod tests {
                 policy_strength: 0.78,
                 state: crate::policy::PolicyState::Stable,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             };
             policy_engine
                 .key_index
@@ -23873,6 +23883,7 @@ mod tests {
                 policy_strength: 0.78,
                 state: crate::policy::PolicyState::Stable,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             };
             policy_engine
                 .key_index
@@ -23959,6 +23970,7 @@ mod tests {
                 policy_strength: 0.88,
                 state: crate::policy::PolicyState::Stable,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             },
             crate::policy::PolicyHint {
                 id: "policy-candidate-prefer".into(),
@@ -23978,6 +23990,7 @@ mod tests {
                 policy_strength: 0.73,
                 state: crate::policy::PolicyState::Candidate,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             },
             crate::policy::PolicyHint {
                 id: "policy-suppressed-verify".into(),
@@ -23997,6 +24010,7 @@ mod tests {
                 policy_strength: 0.64,
                 state: crate::policy::PolicyState::Suppressed,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             },
             crate::policy::PolicyHint {
                 id: "policy-rejected-warn".into(),
@@ -24016,6 +24030,7 @@ mod tests {
                 policy_strength: 0.42,
                 state: crate::policy::PolicyState::Rejected,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             },
         ];
 
@@ -24598,6 +24613,7 @@ mod tests {
                 policy_strength: 0.75,
                 state: crate::policy::PolicyState::Stable,
                 last_updated: 1.0,
+                evidence_source_floor: "recorded".to_string(),
             };
             policy_engine
                 .key_index

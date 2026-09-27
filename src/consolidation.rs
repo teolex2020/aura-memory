@@ -99,6 +99,18 @@ pub fn consolidate(
         // when the removed record adds no information to the kept one; flip the
         // direction when that preserves everything, otherwise keep both.
         let (keep_id, remove_id) = match (records.get(&keep_id), records.get(&remove_id)) {
+            // Equivalent content: keep the more trusted record so its label
+            // survives with the text.
+            (Some(keep), Some(remove))
+                if !scar_a
+                    && !scar_b
+                    && merge_preserves_content(keep, remove)
+                    && merge_preserves_content(remove, keep)
+                    && crate::ingress::source_type_rank(&remove.source_type)
+                        > crate::ingress::source_type_rank(&keep.source_type) =>
+            {
+                (remove_id, keep_id)
+            }
             (Some(keep), Some(remove)) if merge_preserves_content(keep, remove) => {
                 (keep_id, remove_id)
             }

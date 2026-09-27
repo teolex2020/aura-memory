@@ -13,6 +13,8 @@
 
 ### Security
 
+- **Untrusted evidence can no longer become trusted advice.** Policy hints now carry `evidence_source_floor`, the least trusted `source_type` among their supporting records. Hints resting on anything below `recorded` are capped at `verify` and surfaced with `untrusted_evidence = true` (new fields on `SurfacedPolicyHint`). Previously four `retrieved` records produced a stable `avoid` hint indistinguishable from one built on recorded evidence.
+- `supersede` keeps the predecessor's `source_type` instead of always writing `recorded`. Consolidation never changes the surviving record's label and keeps the more trusted record when texts are equivalent (previously the survivor adopted the higher label).
 - Generic writes can no longer forge authority. `store`, `update`, MCP/HTTP tools and imports reject consequence tags (`consequence-*`) and `cu_*`/`kind=consequence_unit` metadata; only `capture_consequence` sets them. Provenance (`source`, `verified`, `trust_score`) is always computed from the write channel, and caller-supplied values are kept as `claimed_*`. Future `timestamp`s are clamped. `update` keeps captured consequence tags, cannot edit provenance, and cannot raise `source_type` to a more trusted class. `import_context` strips reserved fields from shared fragments.
 
 - `aura serve` binds `127.0.0.1` by default, refuses non-loopback hosts without an API key (`--api-key` / `AURA_API_KEY`), checks `Authorization: Bearer` or `X-API-Key` in constant time, and no longer sends permissive CORS headers. Cross-origin access is opt-in through `AURA_CORS_ORIGINS`. SSE sessions and queues are bounded, and the lazy brain singleton is created under a lock.

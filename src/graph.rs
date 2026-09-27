@@ -296,7 +296,6 @@ pub fn merge_records(
         remove_strength,
         remove_level,
         remove_activation,
-        remove_source_type,
     ) = {
         if let Some(remove) = records.get(remove_id) {
             (
@@ -306,7 +305,6 @@ pub fn merge_records(
                 remove.strength,
                 remove.level,
                 remove.activation_count,
-                remove.source_type.clone(),
             )
         } else {
             return Ok(());
@@ -351,18 +349,9 @@ pub fn merge_records(
         keep.strength = (keep.strength + 0.3 * remove_strength).min(1.0);
         keep.activation_count += remove_activation;
 
-        // Preserve higher-authority source_type (recorded > retrieved > inferred > generated)
-        let rank = |st: &str| -> u8 {
-            match st {
-                "recorded" => 3,
-                "retrieved" => 2,
-                "inferred" => 1,
-                _ => 0,
-            }
-        };
-        if rank(&remove_source_type) > rank(&keep.source_type) {
-            keep.source_type = remove_source_type;
-        }
+        // The kept record's text is what survives, so it keeps its own
+        // `source_type`. Adopting the removed record's label would launder the
+        // kept text (upgrade) or demote a trusted fact (downgrade).
     }
 
     // Persist the merged survivor, every inbound-reference cleanup, and the

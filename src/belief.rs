@@ -2927,6 +2927,7 @@ mod tests {
                 policy_strength: 0.9,
                 state: PolicyState::Stable,
                 last_updated: 0.0,
+                evidence_source_floor: "recorded".to_string(),
             },
         );
 

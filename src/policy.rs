@@ -160,6 +160,19 @@ pub struct PolicyHint {
     pub state: PolicyState,
     /// Timestamp of last rebuild.
     pub last_updated: f64,
+    /// Least trusted `source_type` among the records behind this hint.
+    /// Anything below `recorded` means the hint rests on untrusted evidence.
+    #[serde(default = "default_evidence_source_floor")]
+    pub evidence_source_floor: String,
+}
+
+fn default_evidence_source_floor() -> String {
+    "recorded".to_string()
+}
+
+/// True when a hint's evidence includes a source less trusted than `recorded`.
+pub fn is_untrusted_evidence(floor: &str) -> bool {
+    crate::ingress::source_type_rank(floor) < crate::ingress::source_type_rank("recorded")
 }
 
 // ── PolicyReport ──
@@ -565,15 +578,6 @@ impl PolicyEngine {
         // Build domain from tags of cause records
         let domain = self.extract_domain(pattern, records);
 
-        // Stable key from namespace + action_kind + causal pattern key
-        let key = format!(
-            "{}:{}:{}",
-            pattern.namespace,
-            action_kind_str(action_kind),
-            pattern.key
-        );
-        let id = deterministic_id(&key);
-
         // Collect concept IDs via belief → concept mapping
         let mut concept_ids = Vec::new();
         for bid in pattern
@@ -605,6 +609,30 @@ impl PolicyEngine {
                 record_ids.push(rid.clone());
             }
         }
+
+        // Untrusted evidence can raise caution but never grant authority:
+        // any Prefer/Recommend/Avoid/Warn resting on sources below `recorded`
+        // is capped at VerifyFirst.
+        let evidence_source_floor = record_ids
+            .iter()
+            .filter_map(|rid| records.get(rid))
+            .map(|r| r.source_type.as_str())
+            .min_by_key(|st| crate::ingress::source_type_rank(st))
+            .unwrap_or("generated")
+            .to_string();
+        let action_kind = if is_untrusted_evidence(&evidence_source_floor) {
+            PolicyActionKind::VerifyFirst
+        } else {
+            action_kind
+        };
+        // Stable key from namespace + action_kind + causal pattern key
+        let key = format!(
+            "{}:{}:{}",
+            pattern.namespace,
+            action_kind_str(action_kind),
+            pattern.key
+        );
+        let id = deterministic_id(&key);
 
         // Scoring
         let causal_strength = pattern.causal_strength;
@@ -667,6 +695,7 @@ impl PolicyEngine {
             policy_strength,
             state: PolicyState::Candidate, // classified later
             last_updated: now,
+            evidence_source_floor,
         }
     }
 
@@ -970,6 +999,11 @@ pub struct SurfacedPolicyHint {
     pub trigger_belief_ids: Vec<String>,
     /// Record IDs (transitive provenance).
     pub supporting_record_ids: Vec<String>,
+    /// Least trusted `source_type` among the records behind this hint.
+    pub evidence_source_floor: String,
+    /// True when the hint rests on evidence less trusted than `recorded`;
+    /// such hints are capped at `verify_first`.
+    pub untrusted_evidence: bool,
 }
 
 /// Surface filtering and sorting for policy hints.
@@ -1096,6 +1130,8 @@ pub fn surface_policy_hints_filtered(
             trigger_concept_ids: hint.trigger_concept_ids.clone(),
             trigger_belief_ids: hint.trigger_belief_ids.clone(),
             supporting_record_ids: hint.supporting_record_ids.clone(),
+            evidence_source_floor: hint.evidence_source_floor.clone(),
+            untrusted_evidence: is_untrusted_evidence(&hint.evidence_source_floor),
         });
     }
 
@@ -2021,6 +2057,7 @@ mod tests {
             policy_strength: strength,
             state,
             last_updated: 0.0,
+            evidence_source_floor: "recorded".to_string(),
         }
     }
 

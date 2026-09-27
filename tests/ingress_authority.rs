@@ -194,3 +194,71 @@ fn consolidation_removes_merged_records_from_embedding_index() {
     );
     assert!(text.contains(&survivor.id));
 }
+
+#[test]
+fn consolidation_never_changes_the_surviving_text_label() {
+    let (_dir, aura) = open();
+    let text = "Production deploys require a passing staging run and health gate";
+    let put = |content: &str, source_type: &str| {
+        aura.store(
+            content,
+            Some(Level::Domain),
+            None,
+            None,
+            None,
+            Some(source_type),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    };
+    // Equivalent text: the trusted record must be the survivor.
+    let trusted = put(text, "recorded");
+    let copy = put(&format!("{text}!"), "retrieved");
+    aura.consolidate().unwrap();
+    let survivor = aura.get(&trusted.id).expect("trusted record kept");
+    assert_eq!(survivor.source_type, "recorded");
+    assert!(aura.get(&copy.id).is_none());
+
+    // Untrusted superset: its text survives, and so does its own label.
+    let (_dir2, aura2) = open();
+    let put2 = |content: &str, source_type: &str| {
+        aura2
+            .store(
+                content,
+                Some(Level::Domain),
+                None,
+                None,
+                None,
+                Some(source_type),
+                None,
+                Some(false),
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+    };
+    let base = put2(
+        "Deploys need a passing staging run before production release today",
+        "recorded",
+    );
+    let superset = put2(
+        "Deploys need a passing staging run before production release today now",
+        "retrieved",
+    );
+    aura2.consolidate().unwrap();
+    for id in [&base.id, &superset.id] {
+        if let Some(record) = aura2.get(id) {
+            if record.content.ends_with("now") {
+                assert_eq!(
+                    record.source_type, "retrieved",
+                    "untrusted text was relabelled"
+                );
+            }
+        }
+    }
+}

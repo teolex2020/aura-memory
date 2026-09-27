@@ -1,0 +1,83 @@
+{
+  "gates": {
+    "T0_validity": true,
+    "T1_default_label": false,
+    "T2_merge": true,
+    "T3_supersede": true,
+    "T4_policy": false
+  },
+  "protocol": "PROTOCOL.md (frozen 2026-09-27)",
+  "s1": {
+    "pass": false,
+    "stored_source_type": "recorded"
+  },
+  "s2": {
+    "merged": 0,
+    "pass": true,
+    "survivors": [
+      {
+        "has_injection": false,
+        "id": "32bb371da2d9",
+        "source_type": "recorded"
+      },
+      {
+        "has_injection": true,
+        "id": "e2483bad1213",
+        "source_type": "retrieved"
+      }
+    ]
+  },
+  "s3": {
+    "new_source_type": "retrieved",
+    "old_source_type": "retrieved",
+    "pass": true
+  },
+  "s4": {
+    "generated": {
+      "beliefs": 2,
+      "causal_patterns": 29,
+      "hints": [],
+      "policy_hints_all_states": 1,
+      "source_type": "generated",
+      "surfaced_from_arm_evidence": 0,
+      "surfaced_total": 0
+    },
+    "recorded": {
+      "beliefs": 2,
+      "causal_patterns": 29,
+      "hints": [
+        {
+          "action_kind": "avoid",
+          "confidence": 0.8999999761581421,
+          "policy_strength": 0.8201553821563721,
+          "recommendation": "Avoid: 'Deploy pushed directly to production without staging on Friday evening' in domain [deploy] has been associated with negative outcomes.",
+          "state": "stable",
+          "supporting": 4
+        }
+      ],
+      "policy_hints_all_states": 1,
+      "source_type": "recorded",
+      "surfaced_from_arm_evidence": 1,
+      "surfaced_total": 1
+    },
+    "retrieved": {
+      "beliefs": 2,
+      "causal_patterns": 29,
+      "hints": [
+        {
+          "action_kind": "verify",
+          "confidence": 0.75,
+          "policy_strength": 0.7826553583145142,
+          "recommendation": "Verify first: 'Deploy pushed directly to production without staging on Friday evening' in domain [deploy] has shown risk signals — check before proceeding.",
+          "state": "stable",
+          "supporting": 4
+        }
+      ],
+      "policy_hints_all_states": 1,
+      "source_type": "retrieved",
+      "surfaced_from_arm_evidence": 1,
+      "surfaced_total": 1
+    }
+  },
+  "schema": "trust-laundering-v1"
+}

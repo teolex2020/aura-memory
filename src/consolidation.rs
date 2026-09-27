@@ -18,6 +18,8 @@ pub const CONSOLIDATION_SOFT_THRESHOLD: f32 = 0.5;
 pub struct ConsolidationResult {
     pub merged: usize,
     pub checked: usize,
+    /// Records merged away; callers must drop them from derived indexes.
+    pub merged_ids: Vec<String>,
 }
 
 /// Run hard-merge consolidation (MinHash >= 0.85).
@@ -92,6 +94,22 @@ pub fn consolidate(
             (id_b.clone(), id_a.clone())
         };
 
+        // MinHash similarity is not equivalence: two facts that differ only by
+        // an identifier, number or negation look near-identical. Merge only
+        // when the removed record adds no information to the kept one; flip the
+        // direction when that preserves everything, otherwise keep both.
+        let (keep_id, remove_id) = match (records.get(&keep_id), records.get(&remove_id)) {
+            (Some(keep), Some(remove)) if merge_preserves_content(keep, remove) => {
+                (keep_id, remove_id)
+            }
+            (Some(keep), Some(remove))
+                if !scar_a && !scar_b && merge_preserves_content(remove, keep) =>
+            {
+                (remove_id, keep_id)
+            }
+            _ => continue,
+        };
+
         graph::merge_records(
             &keep_id,
             &remove_id,
@@ -102,11 +120,40 @@ pub fn consolidate(
             store,
         );
 
+        result.merged_ids.push(remove_id.clone());
         removed.insert(remove_id);
         result.merged += 1;
     }
 
     result
+}
+
+const NEGATIONS: &[&str] = &[
+    "not", "no", "never", "none", "nothing", "without", "cannot", "nor", "dont", "don", "doesnt",
+    "doesn", "didnt", "didn", "isnt", "isn", "arent", "aren", "wasnt", "wasn", "werent", "weren",
+    "wont", "won", "shouldnt", "shouldn", "mustnt", "mustn", "cant",
+];
+
+fn content_tokens(text: &str) -> HashSet<String> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|token| !token.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// True when merging `remove` into `keep` loses no words, numbers or
+/// identifiers, and both records agree on negation.
+fn merge_preserves_content(keep: &Record, remove: &Record) -> bool {
+    let keep_tokens = content_tokens(&keep.content);
+    let remove_tokens = content_tokens(&remove.content);
+    let negations = |tokens: &HashSet<String>| -> HashSet<String> {
+        tokens
+            .iter()
+            .filter(|token| NEGATIONS.contains(&token.as_str()))
+            .cloned()
+            .collect()
+    };
+    remove_tokens.is_subset(&keep_tokens) && negations(&keep_tokens) == negations(&remove_tokens)
 }
 
 fn records_are_explicitly_conflicting(
@@ -141,6 +188,54 @@ mod tests {
     fn test_consolidation_threshold() {
         assert!(CONSOLIDATION_THRESHOLD > CONSOLIDATION_SOFT_THRESHOLD);
         assert!(CONSOLIDATION_THRESHOLD <= 1.0);
+    }
+
+    #[test]
+    fn merge_requires_that_no_content_is_lost() {
+        let fact = |text: &str| Record::new(text.into(), Level::Domain);
+        let a = fact("Rollback plan 12 for BENIGN_12_TOKEN is reviewed before rollout.");
+        let b = fact("Rollback plan 13 for BENIGN_13_TOKEN is reviewed before rollout.");
+        assert!(!merge_preserves_content(&a, &b));
+        assert!(!merge_preserves_content(&b, &a));
+
+        let short = fact("User prefers dark mode");
+        let long = fact("The user prefers dark mode.");
+        assert!(merge_preserves_content(&long, &short));
+        assert!(!merge_preserves_content(&short, &long));
+
+        let positive = fact("Deploy on Friday after staging");
+        let negative = fact("Do not deploy on Friday after staging");
+        assert!(!merge_preserves_content(&negative, &positive));
+    }
+
+    #[test]
+    fn distinct_facts_with_shared_wording_survive_consolidation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CognitiveStore::new(dir.path()).unwrap();
+        let mut records = HashMap::new();
+        let mut ngram = NGramIndex::new(None, None);
+        let mut tag_index = HashMap::new();
+        let mut aura_index = HashMap::new();
+        for i in 0..20 {
+            let rec = Record::new(
+                format!(
+                    "Deployment runbook fact BENIGN_{i}_TOKEN: staging checks pass before production rollout, health gate stays enabled, rollback plan {i} is reviewed."
+                ),
+                Level::Domain,
+            );
+            ngram.add(&rec.id, &rec.content);
+            store.append_store(&rec).unwrap();
+            records.insert(rec.id.clone(), rec);
+        }
+        let result = consolidate(
+            &mut records,
+            &mut ngram,
+            &mut tag_index,
+            &mut aura_index,
+            &store,
+        );
+        assert_eq!(result.merged, 0);
+        assert_eq!(records.len(), 20);
     }
 
     #[test]

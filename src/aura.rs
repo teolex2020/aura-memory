@@ -4538,6 +4538,12 @@ impl Aura {
             &mut aura_idx,
             &self.cognitive_store,
         );
+        drop(records);
+        drop(ngram);
+        drop(tag_idx);
+        drop(aura_idx);
+        self.remove_from_active_indexes(&result.merged_ids, true);
+        self.runtime.clear_recall_caches();
 
         let mut stats = HashMap::new();
         stats.insert("merged".to_string(), result.merged);

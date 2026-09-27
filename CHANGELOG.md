@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.60.1
+
+### Fixed
+
+- **Maintenance no longer destroys distinct memories.** Consolidation merged any same-namespace pair with MinHash similarity ≥ 0.85 and kept only one record's text, so facts that differed only by an identifier, number or negation were silently lost (in a 40-fact test, one `run_maintenance()` left a single record). A merge now happens only when every word, number and identifier of the removed record is present in the kept one and both agree on negation. Records that do not qualify are kept.
+- Merged-away records are removed from the SDR, lexical and embedding indexes and the binary store, instead of lingering as stale index entries.
+
 ## 1.60.0
 
 ### Fixed

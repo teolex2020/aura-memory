@@ -528,6 +528,7 @@ impl MaintenanceService {
         hotspots: &mut background_brain::MaintenanceHotspots,
     ) -> PostDiscoveryPhaseResult {
         let t4 = std::time::Instant::now();
+        let mut merged_ids = Vec::new();
         let consolidation = if config.consolidation_enabled {
             let mut records = records_lock.write();
             let mut ngram = ngram_index.write();
@@ -541,6 +542,7 @@ impl MaintenanceService {
                 &mut aura_idx,
                 cognitive_store,
             );
+            merged_ids = result.merged_ids;
 
             background_brain::ConsolidationReport {
                 native_merged: result.merged,
@@ -602,6 +604,10 @@ impl MaintenanceService {
         }
         hotspots.records_after_cycle = records.len();
         timings.tasks_archival_ms = t67.elapsed().as_secs_f64() * 1000.0;
+
+        // Merged-away records leave the SDR/lexical/embedding indexes and the
+        // binary store exactly like archived ones.
+        removed_ids.extend(merged_ids);
 
         PostDiscoveryPhaseResult {
             consolidation,

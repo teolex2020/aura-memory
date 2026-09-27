@@ -504,6 +504,42 @@ impl CausalEngine {
         }
     }
 
+    /// Drop causal patterns whose scores or labels used deleted provenance.
+    pub fn remove_record_provenance(
+        &mut self,
+        record_id: &str,
+        removed_belief_ids: &[String],
+    ) -> Vec<String> {
+        let removed_beliefs: std::collections::HashSet<&str> =
+            removed_belief_ids.iter().map(String::as_str).collect();
+        let removed_ids: Vec<String> = self
+            .patterns
+            .values()
+            .filter(|pattern| {
+                pattern.cause_record_ids.iter().any(|id| id == record_id)
+                    || pattern.effect_record_ids.iter().any(|id| id == record_id)
+                    || pattern
+                        .cause_belief_ids
+                        .iter()
+                        .any(|id| removed_beliefs.contains(id.as_str()))
+                    || pattern
+                        .effect_belief_ids
+                        .iter()
+                        .any(|id| removed_beliefs.contains(id.as_str()))
+            })
+            .map(|pattern| pattern.id.clone())
+            .collect();
+        for id in &removed_ids {
+            if let Some(pattern) = self.patterns.remove(id) {
+                self.key_index.remove(&pattern.key);
+            }
+        }
+        if !removed_ids.is_empty() {
+            self.last_corpus_fingerprint = 0;
+        }
+        removed_ids
+    }
+
     /// Attach a learned-weight topology used as the preferred source of
     /// edge weights during discovery. Pass the topology that `recall`
     /// reinforces and maintenance decays; edge extraction will read

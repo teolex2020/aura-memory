@@ -50,7 +50,6 @@ pub(super) struct DeleteResponse {
 #[derive(Serialize, ToSchema)]
 pub(super) struct StatsResponse {
     pub(super) total_memories: usize,
-    pub(super) license: String,
     pub(super) version: String,
     pub(super) phantom_count: usize,
 }
@@ -334,58 +333,4 @@ pub(super) struct SurpriseRequest {
 #[derive(Serialize, ToSchema)]
 pub(super) struct SurpriseResponse {
     pub(super) surprise: f32,
-}
-
-#[cfg(feature = "sync")]
-#[derive(Deserialize)]
-pub(super) struct ExportSdrRequest {
-    #[serde(default)]
-    pub(super) filter_dna: Option<String>,
-    #[serde(default)]
-    pub(super) apply_noise: bool,
-    #[serde(default)]
-    pub(super) drop_bits: usize,
-    #[serde(default)]
-    pub(super) add_bits: usize,
-}
-
-#[cfg(feature = "sync")]
-#[derive(Serialize)]
-pub(super) struct ExportSdrResponse {
-    pub(super) fingerprints: Vec<SdrFingerprintDTO>,
-    pub(super) count: usize,
-}
-
-#[cfg(feature = "sync")]
-#[derive(Serialize)]
-pub(super) struct SdrFingerprintDTO {
-    pub(super) id: String,
-    pub(super) sdr_indices: Vec<u16>,
-    pub(super) timestamp: f64,
-    pub(super) source_dna: String,
-    pub(super) intensity: f32,
-    pub(super) origin_node: String,
-}
-
-#[cfg(feature = "sync")]
-#[derive(Deserialize)]
-pub(super) struct ImportSdrRequest {
-    pub(super) fingerprints: Vec<ImportSdrFingerprint>,
-}
-
-#[cfg(feature = "sync")]
-#[derive(Deserialize)]
-pub(super) struct ImportSdrFingerprint {
-    pub(super) id: String,
-    pub(super) sdr_indices: Vec<u16>,
-    pub(super) timestamp: f64,
-    pub(super) source_dna: String,
-    pub(super) intensity: f32,
-    pub(super) origin_node: String,
-}
-
-#[cfg(feature = "sync")]
-#[derive(Serialize)]
-pub(super) struct ImportSdrResponse {
-    pub(super) imported: usize,
 }

@@ -9,11 +9,16 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import sys
 from typing import Any
 
 from aura import Aura, Level, __version__
+
+
+SUPPORTED_PROTOCOL_VERSION = "2025-06-18"
 
 
 def _parse_level(s: str) -> Level:
@@ -161,7 +166,7 @@ class AuraMcpServer:
         },
         {
             "name": "store",
-            "description": "Store a new memory. Levels: working (hours), decisions (days), domain (weeks), identity (months+).",
+            "description": "Store a new memory. Omit level to let Aura route and adapt it; set working, decisions, domain, or identity only as an explicit policy hint.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -273,10 +278,8 @@ class AuraMcpServer:
         params = msg.get("params", {})
 
         if method == "initialize":
-            # Echo back the client's requested protocol version
-            client_version = params.get("protocolVersion", "2024-11-05")
             return self._result(msg_id, {
-                "protocolVersion": client_version,
+                "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {
                     "name": "aura",
@@ -285,8 +288,8 @@ class AuraMcpServer:
                 "instructions": (
                     "Aura is a cognitive memory layer for AI agents. "
                     "Use 'recall' before answering to check existing context. "
-                    "Use 'store' to remember facts, decisions, and patterns. "
-                    "Levels: working (hours), decisions (days), domain (weeks), identity (months+)."
+                    "Use 'store' for durable facts, decisions, and useful patterns. "
+                    "Usually omit level so Aura can route and adapt the memory itself."
                 ),
             })
 
@@ -354,6 +357,10 @@ class AuraMcpServer:
 
         self.brain.close()
 
+    def close(self):
+        """Close the underlying Aura store."""
+        self.brain.close()
+
     def _read_message(self) -> bytes | None:
         """Read a JSON-RPC message.
 
@@ -399,7 +406,83 @@ class AuraMcpServer:
 
 
 
+def check_mcp(path: str = "./aura_brain", password: str = None) -> dict:
+    """Open Aura and validate the MCP initialize and tool-list contracts."""
+    server = AuraMcpServer(path, password)
+    try:
+        initialized = server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2026-07-28"},
+        })
+        listed = server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {},
+        })
+        tools = listed["result"]["tools"]
+        names = [tool["name"] for tool in tools]
+        if len(names) != len(set(names)):
+            raise RuntimeError("MCP tool names are not unique")
+        if set(names) != set(server.TOOL_MAP):
+            raise RuntimeError("MCP tool definitions and handlers are out of sync")
+        return {
+            "ok": True,
+            "server": initialized["result"]["serverInfo"],
+            "protocol_version": initialized["result"]["protocolVersion"],
+            "tools": len(tools),
+            "brain_path": str(path),
+        }
+    finally:
+        server.close()
+
+
 def run_mcp(path: str = "./aura_brain", password: str = None):
     """Entry point for MCP server."""
     server = AuraMcpServer(path, password)
     server.run_stdio()
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Console entry point installed as ``aura-mcp``."""
+    parser = argparse.ArgumentParser(
+        prog="aura-mcp",
+        description="Run or validate the Aura MCP stdio server.",
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=os.environ.get("AURA_BRAIN_PATH", "./aura_brain"),
+        help="Path to the Aura brain (default: AURA_BRAIN_PATH or ./aura_brain)",
+    )
+    parser.add_argument(
+        "--password",
+        default=os.environ.get("AURA_PASSWORD"),
+        help="Encryption password (prefer AURA_PASSWORD in client configuration)",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate initialization and tool discovery, then exit",
+    )
+    parser.add_argument(
+        "--print-config",
+        choices=("claude", "cursor", "vscode", "generic"),
+        metavar="CLIENT",
+        help="Print a ready-to-paste client configuration, then exit",
+    )
+    args = parser.parse_args(argv)
+
+    if args.print_config:
+        from aura.mcp_config import build_mcp_config
+
+        print(json.dumps(build_mcp_config(args.print_config, args.path), indent=2))
+        return
+
+    if args.check:
+        print(json.dumps(check_mcp(args.path, args.password), indent=2))
+        return
+
+    run_mcp(args.path, args.password)

@@ -129,12 +129,31 @@ impl CognitiveStore {
 
     /// Load all records from snapshot + log replay.
     pub fn load_all(&self) -> Result<HashMap<String, Record>> {
+        let (records, snap_end_pos) = self.load_from_disk()?;
+        *self.log_position.lock() = snap_end_pos;
+        Ok(records)
+    }
+
+    fn load_from_disk(&self) -> Result<(HashMap<String, Record>, u64)> {
+        const LOG_START: u64 = 5; // magic(4) + version(1)
         let mut records = HashMap::new();
+        let log_len = fs::metadata(&self.log_path)?.len();
 
         // 1. Load snapshot if exists
         let snap_end_pos = if self.snap_path.exists() {
             match self.load_snapshot(&mut records) {
-                Ok(pos) => pos,
+                // A snapshot pointing past the end of the log belongs to a
+                // different log generation; trust the log instead.
+                Ok(pos) if pos <= log_len => pos,
+                Ok(pos) => {
+                    tracing::warn!(
+                        "Cognitive snapshot position {} exceeds log length {}. Replaying log from start.",
+                        pos,
+                        log_len
+                    );
+                    records.clear();
+                    LOG_START
+                }
                 Err(err) => {
                     tracing::warn!(
                         "Failed to load cognitive snapshot from {:?}: {}. Falling back to log replay from start.",
@@ -142,19 +161,17 @@ impl CognitiveStore {
                         err
                     );
                     records.clear();
-                    5 // Skip log magic(4) + version(1)
+                    LOG_START
                 }
             }
         } else {
-            5 // Skip magic(4) + version(1)
+            LOG_START
         };
 
         // 2. Replay log entries after snapshot position
         self.replay_log(&mut records, snap_end_pos)?;
 
-        *self.log_position.lock() = snap_end_pos;
-
-        Ok(records)
+        Ok((records, snap_end_pos))
     }
 
     /// Load records from snapshot file.
@@ -324,7 +341,7 @@ impl CognitiveStore {
         let src = record_id.as_bytes();
         let len = src.len().min(12);
         id_bytes[..len].copy_from_slice(&src[..len]);
-        self.append_entry(OP_DELETE, &id_bytes)
+        self.append_entry_internal(OP_DELETE, &id_bytes, true)
     }
 
     /// Atomically append several record upserts as one durable journal frame.
@@ -437,16 +454,41 @@ impl CognitiveStore {
             writer.get_ref().sync_all()?;
         }
         fs::rename(&temp_path, &self.snap_path)?;
+        sync_parent_dir(&self.snap_path);
         Ok(())
     }
 
     /// Compact: rewrite log with only live records + write snapshot.
     pub fn compact(&self, records: &HashMap<String, Record>) -> Result<()> {
-        // Close writer
-        {
-            let mut writer = self.writer.lock();
-            *writer = None;
+        let mut writer = self.writer.lock();
+        self.compact_locked(&mut writer, records)
+    }
+
+    /// Reload the durable corpus and compact it, optionally dropping one record.
+    ///
+    /// The writer lock is held from reload to reopen, so records appended
+    /// concurrently cannot be lost between reading the corpus and rewriting it.
+    pub fn compact_durable(&self, exclude: Option<&str>) -> Result<HashMap<String, Record>> {
+        let mut writer = self.writer.lock();
+        if let Some(w) = writer.as_mut() {
+            w.flush()?;
+            w.get_ref().sync_all()?;
         }
+        let (mut records, _) = self.load_from_disk()?;
+        if let Some(id) = exclude {
+            records.remove(id);
+        }
+        self.compact_locked(&mut writer, &records)?;
+        Ok(records)
+    }
+
+    fn compact_locked(
+        &self,
+        writer: &mut Option<BufWriter<File>>,
+        records: &HashMap<String, Record>,
+    ) -> Result<()> {
+        // Close writer
+        *writer = None;
 
         // Rewrite log
         let temp_path = self.log_path.with_extension("tmp");
@@ -472,17 +514,22 @@ impl CognitiveStore {
             f.sync_all()?;
         }
 
+        // Drop the old snapshot before swapping logs. Its log offset refers to
+        // the old log, so a crash after the swap must not pair it with the new
+        // log. Without a snapshot, either log replays completely and correctly.
+        if self.snap_path.exists() {
+            fs::remove_file(&self.snap_path)?;
+        }
         fs::rename(&temp_path, &self.log_path)?;
+        sync_parent_dir(&self.log_path);
 
         // Write snapshot at end of new log
         self.write_snapshot(records)?;
+        *self.log_position.lock() = fs::metadata(&self.log_path)?.len();
 
         // Reopen writer
-        {
-            let file = OpenOptions::new().append(true).open(&self.log_path)?;
-            let mut writer = self.writer.lock();
-            *writer = Some(BufWriter::new(file));
-        }
+        let file = OpenOptions::new().append(true).open(&self.log_path)?;
+        *writer = Some(BufWriter::new(file));
 
         Ok(())
     }
@@ -516,6 +563,18 @@ impl CognitiveStore {
         let rec: Record = serde_json::from_slice(data)?;
         Ok(rec)
     }
+}
+
+/// Persist a rename by syncing the parent directory (POSIX only).
+fn sync_parent_dir(path: &Path) {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 #[cfg(test)]
@@ -796,6 +855,54 @@ mod tests {
         let loaded = reopened.load_all()?;
         assert_eq!(loaded[&left.id].content, left.content);
         assert_eq!(loaded[&right.id].content, right.content);
+        Ok(())
+    }
+
+    #[test]
+    fn compact_durable_keeps_records_appended_after_caller_snapshot() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = CognitiveStore::new(dir.path())?;
+        let kept = Record::new("kept".into(), Level::Working);
+        let purged = Record::new("purged".into(), Level::Working);
+        store.append_store(&kept)?;
+        store.append_store(&purged)?;
+        store.write_snapshot(&store.load_all()?)?;
+        let late = Record::new("appended later".into(), Level::Working);
+        store.append_store(&late)?;
+
+        store.compact_durable(Some(&purged.id))?;
+
+        let reloaded = store.load_all()?;
+        assert!(reloaded.contains_key(&kept.id));
+        assert!(reloaded.contains_key(&late.id));
+        assert!(!reloaded.contains_key(&purged.id));
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_past_end_of_log_falls_back_to_full_replay() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = CognitiveStore::new(dir.path())?;
+        let mut records = HashMap::new();
+        for i in 0..5 {
+            let rec = Record::new(format!("record {i}"), Level::Working);
+            store.append_store(&rec)?;
+            records.insert(rec.id.clone(), rec);
+        }
+        // Simulate a crash that left a snapshot from a longer, older log
+        // generation next to a freshly compacted log.
+        store.write_snapshot(&records)?;
+        let stale_snapshot = std::fs::read(dir.path().join("brain.snap"))?;
+        let survivor = records.values().next().unwrap().clone();
+        let only = HashMap::from([(survivor.id.clone(), survivor.clone())]);
+        store.compact(&only)?;
+        let mut stale = stale_snapshot;
+        stale[5..13].copy_from_slice(&u64::MAX.to_le_bytes());
+        std::fs::write(dir.path().join("brain.snap"), stale)?;
+
+        let reloaded = store.load_all()?;
+        assert_eq!(reloaded.len(), 1);
+        assert!(reloaded.contains_key(&survivor.id));
         Ok(())
     }
 

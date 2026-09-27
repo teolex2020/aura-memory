@@ -92,7 +92,7 @@ pub fn consolidate(
             (id_b.clone(), id_a.clone())
         };
 
-        graph::merge_records(
+        match graph::merge_records(
             &keep_id,
             &remove_id,
             records,
@@ -100,10 +100,19 @@ pub fn consolidate(
             tag_index,
             aura_index,
             store,
-        );
-
-        removed.insert(remove_id);
-        result.merged += 1;
+        ) {
+            Ok(()) => {
+                removed.insert(remove_id);
+                result.merged += 1;
+            }
+            Err(error) => {
+                tracing::error!(
+                    record_id = %remove_id,
+                    %error,
+                    "consolidation merge tombstone failed; record remains visible"
+                );
+            }
+        }
     }
 
     result

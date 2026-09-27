@@ -9,7 +9,8 @@
 //! - Optional HMAC signing for integrity
 //! - Automatic log rotation
 
-use anyhow::Result;
+use crate::outcome_receipt::{OutcomeReceipt, OutcomeReceiptDraft};
+use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
@@ -32,6 +33,12 @@ pub enum AuditAction {
     },
     /// Memory deleted
     Delete { id: String },
+    /// Content-free receipt proving an explicit purge completed.
+    Purge {
+        record_digest: String,
+        scope: String,
+        removed_surfaces: Vec<String>,
+    },
     /// Memory updated
     Update { id: String },
     /// Anchor crystallized
@@ -48,6 +55,8 @@ pub enum AuditAction {
         operation: String,
         reason: String,
     },
+    /// Content-free observational outcome evidence.
+    OutcomeReceipt { receipt: OutcomeReceipt },
     /// Data flushed to disk
     Flush,
     /// Memory closed
@@ -104,6 +113,47 @@ impl AuditEntry {
     }
 }
 
+fn audit_entry_references_record(entry: &AuditEntry, id: &str, content_preview: &str) -> bool {
+    let action_match = match &entry.action {
+        AuditAction::Store { id: entry_id, .. }
+        | AuditAction::Delete { id: entry_id }
+        | AuditAction::Update { id: entry_id }
+        | AuditAction::Crystallize { id: entry_id, .. } => entry_id == id,
+        AuditAction::Synthesize {
+            source_ids,
+            result_id,
+        } => result_id == id || source_ids.iter().any(|source_id| source_id == id),
+        AuditAction::Correction { target_id, .. } => target_id == id,
+        AuditAction::OutcomeReceipt { receipt } => {
+            receipt
+                .candidate_record_ids
+                .iter()
+                .any(|record_id| record_id == id)
+                || receipt
+                    .selected_record_ids
+                    .iter()
+                    .any(|record_id| record_id == id)
+        }
+        AuditAction::Retrieve { query_preview, .. } => {
+            !content_preview.is_empty()
+                && (query_preview == content_preview
+                    || (content_preview.chars().count() >= 12
+                        && query_preview.contains(content_preview)))
+        }
+        AuditAction::Purge { .. }
+        | AuditAction::Open
+        | AuditAction::Flush
+        | AuditAction::Close
+        | AuditAction::EncryptionEnabled
+        | AuditAction::IntegrityCheck { .. } => false,
+    };
+    action_match
+        || entry.context.as_ref().is_some_and(|context| {
+            context.contains(id)
+                || (!content_preview.is_empty() && context.contains(content_preview))
+        })
+}
+
 /// Audit trail logger
 pub struct AuditLog {
     path: PathBuf,
@@ -112,6 +162,7 @@ pub struct AuditLog {
     enabled: bool,
     max_size_bytes: u64,
     codec: crate::persistence::PersistenceCodec,
+    outcome_receipt_lock: Mutex<()>,
 }
 
 impl AuditLog {
@@ -148,6 +199,7 @@ impl AuditLog {
             enabled: true,
             max_size_bytes: 10 * 1024 * 1024, // 10MB default
             codec,
+            outcome_receipt_lock: Mutex::new(()),
         })
     }
 
@@ -160,6 +212,7 @@ impl AuditLog {
             enabled: false,
             max_size_bytes: 0,
             codec: crate::persistence::PersistenceCodec::default(),
+            outcome_receipt_lock: Mutex::new(()),
         }
     }
 
@@ -183,10 +236,11 @@ impl AuditLog {
         };
 
         let mut guard = self.writer.lock();
-        if let Some(writer) = guard.as_mut() {
-            writeln!(writer, "{}", json)?;
-            writer.flush()?;
-        }
+        let writer = guard
+            .as_mut()
+            .context("audit writer is temporarily unavailable")?;
+        writeln!(writer, "{}", json)?;
+        writer.flush()?;
 
         // Check for rotation
         drop(guard);
@@ -224,6 +278,229 @@ impl AuditLog {
         self.log(AuditAction::Delete { id: id.to_string() }, None)
     }
 
+    /// Log a content-free purge receipt.
+    pub fn log_purge(
+        &self,
+        record_digest: &str,
+        scope: &str,
+        removed_surfaces: Vec<String>,
+    ) -> Result<()> {
+        self.log(
+            AuditAction::Purge {
+                record_digest: record_digest.to_string(),
+                scope: scope.to_string(),
+                removed_surfaces,
+            },
+            None,
+        )
+    }
+
+    /// Remove entries that contain a record's identifier or content preview
+    /// from the current and rotated managed audit logs.
+    pub fn purge_record_history(&self, id: &str, content: &str) -> Result<usize> {
+        if !self.enabled {
+            return Ok(0);
+        }
+        let _receipt_guard = self.outcome_receipt_lock.lock();
+        self.flush()?;
+        self.writer.lock().take();
+
+        let result = (|| -> Result<usize> {
+            let directory = self.path.parent().unwrap_or_else(|| Path::new("."));
+            let mut paths = Vec::new();
+            for entry in fs::read_dir(directory)? {
+                let entry = entry?;
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name == "brain.audit" || name.starts_with("brain.audit.") {
+                    paths.push(entry.path());
+                }
+            }
+
+            let content_preview: String = content.chars().take(50).collect();
+            let mut removed = 0usize;
+
+            // Phase 1: filter every file before touching any, so a decode
+            // error aborts without leaving the journal half-rewritten.
+            let mut rewrites = Vec::new();
+            for path in paths {
+                let file = File::open(&path)?;
+                let mut retained = Vec::new();
+                let mut changed = false;
+                for line in BufReader::new(file).lines() {
+                    let raw = line?;
+                    let decoded = if let Some(encoded) = raw.strip_prefix("AEF1:") {
+                        String::from_utf8(self.codec.decode(&hex::decode(encoded)?)?)?
+                    } else {
+                        raw.clone()
+                    };
+                    let should_remove = serde_json::from_str::<AuditEntry>(&decoded)
+                        .map(|entry| {
+                            audit_entry_references_record(&entry, id, content_preview.as_str())
+                        })
+                        .unwrap_or(false);
+                    if should_remove {
+                        removed += 1;
+                        changed = true;
+                    } else {
+                        retained.push(raw);
+                    }
+                }
+                if changed {
+                    rewrites.push((path, retained));
+                }
+            }
+
+            // Phase 2: stage and sync every replacement.
+            let mut staged = Vec::new();
+            for (path, retained) in rewrites {
+                let temporary =
+                    path.with_extension(format!("audit.{}.purge.tmp", uuid::Uuid::new_v4()));
+                let write = (|| -> Result<()> {
+                    let mut writer = BufWriter::new(File::create(&temporary)?);
+                    for line in retained {
+                        writeln!(writer, "{}", line)?;
+                    }
+                    writer.flush()?;
+                    writer.get_ref().sync_all()?;
+                    Ok(())
+                })();
+                if let Err(error) = write {
+                    let _ = fs::remove_file(&temporary);
+                    for (_, staged_temporary) in &staged {
+                        let _ = fs::remove_file(staged_temporary);
+                    }
+                    return Err(error);
+                }
+                staged.push((path, temporary));
+            }
+
+            // Phase 3: atomically replace each file; there is never a moment
+            // without an audit file at its path.
+            for (path, temporary) in staged {
+                fs::rename(&temporary, &path)?;
+            }
+            Ok(removed)
+        })();
+
+        let reopen = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map(|file| {
+                *self.writer.lock() = Some(BufWriter::new(file));
+            });
+        match (result, reopen) {
+            (Ok(count), Ok(())) => Ok(count),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error.into()),
+        }
+    }
+
+    /// Append an observational receipt after validating idempotency and
+    /// supersession against the complete managed audit history.
+    pub fn capture_outcome_receipt(&self, draft: OutcomeReceiptDraft) -> Result<OutcomeReceipt> {
+        anyhow::ensure!(self.enabled, "audit journal is disabled");
+        draft.validate()?;
+        let _capture_guard = self.outcome_receipt_lock.lock();
+        let receipts = self.read_outcome_receipts()?;
+
+        if let Some(existing) = receipts.iter().find(|receipt| {
+            receipt.namespace == draft.namespace
+                && receipt.task_id == draft.task_id
+                && receipt.attempt_id == draft.attempt_id
+        }) {
+            anyhow::ensure!(
+                existing.matches_draft(&draft),
+                "conflicting outcome receipt for namespace/task/attempt"
+            );
+            return Ok(existing.clone());
+        }
+
+        if let Some(parent_id) = &draft.supersedes_receipt_id {
+            let parent = receipts
+                .iter()
+                .find(|receipt| &receipt.receipt_id == parent_id)
+                .context("superseded outcome receipt does not exist")?;
+            anyhow::ensure!(
+                parent.namespace == draft.namespace && parent.lineage_id == draft.lineage_id,
+                "outcome receipt supersession must stay inside namespace and lineage"
+            );
+        }
+
+        let receipt = OutcomeReceipt::from_draft(draft)?;
+        self.log(
+            AuditAction::OutcomeReceipt {
+                receipt: receipt.clone(),
+            },
+            None,
+        )?;
+        Ok(receipt)
+    }
+
+    /// Read and verify outcome receipts from current and rotated managed logs.
+    pub fn read_outcome_receipts(&self) -> Result<Vec<OutcomeReceipt>> {
+        let mut receipts = Vec::new();
+        for entry in self.read_managed_entries()? {
+            if let AuditAction::OutcomeReceipt { receipt } = entry.action {
+                receipt.verify_integrity()?;
+                receipts.push(receipt);
+            }
+        }
+        receipts.sort_by(|left, right| {
+            left.recorded_at_ms
+                .cmp(&right.recorded_at_ms)
+                .then_with(|| left.receipt_id.cmp(&right.receipt_id))
+        });
+        Ok(receipts)
+    }
+
+    fn read_managed_entries(&self) -> Result<Vec<AuditEntry>> {
+        if !self.enabled || !self.path.exists() {
+            return Ok(Vec::new());
+        }
+        self.flush()?;
+        let directory = self.path.parent().unwrap_or_else(|| Path::new("."));
+        let mut rotated = Vec::new();
+        let mut current = None;
+        for entry in fs::read_dir(directory)? {
+            let path = entry?.path();
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name == "brain.audit" {
+                current = Some(path);
+            } else if name.strip_prefix("brain.audit.").is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit())
+            }) {
+                rotated.push(path);
+            }
+        }
+        rotated.sort();
+        if let Some(path) = current {
+            rotated.push(path);
+        }
+
+        let mut entries = Vec::new();
+        for path in rotated {
+            let reader = BufReader::new(File::open(path)?);
+            for line in reader.lines() {
+                let line = line?;
+                let decoded = if let Some(encoded) = line.strip_prefix("AEF1:") {
+                    String::from_utf8(self.codec.decode(&hex::decode(encoded)?)?)?
+                } else {
+                    anyhow::ensure!(
+                        !self.codec.is_encrypted(),
+                        "plaintext audit entry in encrypted memory"
+                    );
+                    line
+                };
+                if let Ok(entry) = serde_json::from_str::<AuditEntry>(&decoded) {
+                    entries.push(entry);
+                }
+            }
+        }
+        Ok(entries)
+    }
     /// Log a crystallization
     pub fn log_crystallize(&self, id: &str, trigger: &str) -> Result<()> {
         self.log(

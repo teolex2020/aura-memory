@@ -45,6 +45,12 @@ pub fn start_server(port: u16, storage_path: &str) -> anyhow::Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], port)));
+    if !bind_addr.ip().is_loopback() && api_key.is_none() {
+        anyhow::bail!(
+            "refusing to bind {} without AURA_API_KEY; set a key or bind a loopback address",
+            bind_addr
+        );
+    }
 
     let cors_layer = match std::env::var("AURA_CORS_ORIGINS").ok() {
         Some(val) if val == "*" => {
@@ -67,11 +73,9 @@ pub fn start_server(port: u16, storage_path: &str) -> anyhow::Result<()> {
                 .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         }
         _ => {
+            // No allowed origins: browsers only get same-origin access.
             println!("[CORS] Same-origin only (set AURA_CORS_ORIGINS to configure)");
             CorsLayer::new()
-                .allow_origin(AllowOrigin::exact("null".parse().unwrap()))
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
-                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         }
     };
 
@@ -185,11 +189,6 @@ pub fn start_server(port: u16, storage_path: &str) -> anyhow::Result<()> {
             .route("/ingest-batch", post(handlers::ingest_batch))
             .route("/predict", post(handlers::predict))
             .route("/surprise", post(handlers::surprise_handler));
-
-        #[cfg(feature = "sync")]
-        let api = api
-            .route("/export-sdr", post(handlers::export_sdr))
-            .route("/import-sdr", post(handlers::import_sdr));
 
         let api = api
             .layer(axum_middleware::from_fn_with_state(

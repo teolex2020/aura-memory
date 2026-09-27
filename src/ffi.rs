@@ -12,6 +12,11 @@
 //! - Strings returned by `aura_*` functions must be freed with `aura_free_string`.
 //! - The `AuraHandle` must be freed with `aura_close` then `aura_free`.
 //! - `out_error` parameters are set on failure; caller frees with `aura_free_string`.
+//!
+//! # Safety
+//! Every exported function is `unsafe`: pointers must be null or valid for
+//! the documented use, handles must come from `aura_open*` and must not be
+//! used after `aura_free`, and strings must be valid NUL-terminated UTF-8.
 
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
@@ -55,7 +60,7 @@ fn level_from_u8(v: u8) -> Option<Level> {
 ///
 /// Returns an opaque handle, or NULL on error (check `out_error`).
 #[no_mangle]
-pub extern "C" fn aura_open(path: *const c_char, out_error: *mut *mut c_char) -> AuraHandle {
+pub unsafe extern "C" fn aura_open(path: *const c_char, out_error: *mut *mut c_char) -> AuraHandle {
     let path_str = match cstr_to_str(path) {
         Some(s) => s,
         None => {
@@ -74,7 +79,7 @@ pub extern "C" fn aura_open(path: *const c_char, out_error: *mut *mut c_char) ->
 
 /// Open an encrypted Aura brain.
 #[no_mangle]
-pub extern "C" fn aura_open_encrypted(
+pub unsafe extern "C" fn aura_open_encrypted(
     path: *const c_char,
     password: *const c_char,
     out_error: *mut *mut c_char,
@@ -104,7 +109,7 @@ pub extern "C" fn aura_open_encrypted(
 
 /// Close and flush the Aura instance. Returns 0 on success, -1 on error.
 #[no_mangle]
-pub extern "C" fn aura_close(handle: AuraHandle, out_error: *mut *mut c_char) -> i32 {
+pub unsafe extern "C" fn aura_close(handle: AuraHandle, out_error: *mut *mut c_char) -> i32 {
     if handle.is_null() {
         set_error(out_error, "handle is null");
         return -1;
@@ -121,7 +126,7 @@ pub extern "C" fn aura_close(handle: AuraHandle, out_error: *mut *mut c_char) ->
 
 /// Free the Aura handle. Call after aura_close.
 #[no_mangle]
-pub extern "C" fn aura_free(handle: AuraHandle) {
+pub unsafe extern "C" fn aura_free(handle: AuraHandle) {
     if !handle.is_null() {
         unsafe { drop(Box::from_raw(handle)) };
     }
@@ -129,7 +134,7 @@ pub extern "C" fn aura_free(handle: AuraHandle) {
 
 /// Free a string returned by any aura_* function.
 #[no_mangle]
-pub extern "C" fn aura_free_string(s: *mut c_char) {
+pub unsafe extern "C" fn aura_free_string(s: *mut c_char) {
     if !s.is_null() {
         unsafe { drop(CString::from_raw(s)) };
     }
@@ -143,7 +148,7 @@ pub extern "C" fn aura_free_string(s: *mut c_char) {
 /// - `tags_json`: JSON array of strings, e.g. `["tag1","tag2"]`. NULL = no tags.
 /// - `namespace`: namespace string. NULL = "default".
 #[no_mangle]
-pub extern "C" fn aura_store(
+pub unsafe extern "C" fn aura_store(
     handle: AuraHandle,
     content: *const c_char,
     level: u8,
@@ -212,7 +217,7 @@ pub extern "C" fn aura_store(
 /// Returns a C string (caller frees). NULL on error.
 /// `token_budget`: 0 = default (2048).
 #[no_mangle]
-pub extern "C" fn aura_recall(
+pub unsafe extern "C" fn aura_recall(
     handle: AuraHandle,
     query: *const c_char,
     token_budget: i32,
@@ -258,7 +263,7 @@ pub extern "C" fn aura_recall(
 /// Returns JSON: `[{"id":"...","content":"...","score":0.95,"level":"Domain",...}, ...]`
 /// `top_k`: 0 = default (20).
 #[no_mangle]
-pub extern "C" fn aura_recall_structured(
+pub unsafe extern "C" fn aura_recall_structured(
     handle: AuraHandle,
     query: *const c_char,
     top_k: i32,
@@ -327,7 +332,10 @@ pub extern "C" fn aura_recall_structured(
 
 /// Run a full maintenance cycle. Returns 0 on success, -1 on error.
 #[no_mangle]
-pub extern "C" fn aura_run_maintenance(handle: AuraHandle, out_error: *mut *mut c_char) -> i32 {
+pub unsafe extern "C" fn aura_run_maintenance(
+    handle: AuraHandle,
+    out_error: *mut *mut c_char,
+) -> i32 {
     if handle.is_null() {
         set_error(out_error, "handle is null");
         return -1;
@@ -341,7 +349,7 @@ pub extern "C" fn aura_run_maintenance(handle: AuraHandle, out_error: *mut *mut 
 
 /// Get record count. Returns -1 on error.
 #[no_mangle]
-pub extern "C" fn aura_count(handle: AuraHandle) -> i64 {
+pub unsafe extern "C" fn aura_count(handle: AuraHandle) -> i64 {
     if handle.is_null() {
         return -1;
     }

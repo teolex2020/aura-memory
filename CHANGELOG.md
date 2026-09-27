@@ -1,10 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Aura is plain MIT with no additional patent or commercial-licensing terms. The `PATENT` notice, the license-enforcement module that ran at library load (`ctor`), and the `ctor`/`base64` dependencies are removed. The dashboard `/stats` response no longer has a `license` field and reports the real package version.
+- Python `set_belief_rerank_mode`, `set_concept_surface_mode`, `set_causal_rerank_mode`, `set_policy_rerank_mode`, and `set_causal_evidence_mode` raise `ValueError` for unknown modes instead of silently switching the feature off.
+- `recall_with_embedding` uses the canonical recall path: temporal validity filtering, belief suppression in limited mode, audit logging, and topology reinforcement now apply.
+- C FFI exports are declared `unsafe extern "C"` (the C ABI is unchanged).
+- Removed the unimplemented `sync` feature, its `crdts` dependency, and the code gated behind it, which did not compile.
+- `Cargo.lock` is committed for reproducible binary builds.
+
+### Security
+
+- `aura serve` binds `127.0.0.1` by default, refuses non-loopback hosts without an API key (`--api-key` / `AURA_API_KEY`), checks `Authorization: Bearer` or `X-API-Key` in constant time, and no longer sends permissive CORS headers. Cross-origin access is opt-in through `AURA_CORS_ORIGINS`. SSE sessions and queues are bounded, and the lazy brain singleton is created under a lock.
+- The Rust dashboard no longer allows `Origin: null` by default, refuses non-loopback binds without `AURA_API_KEY`, rejects non-localhost `Host` headers when no key is set (DNS rebinding), and compares tokens in constant time.
+
+### Fixed
+
+- Fixed deadlocks between concurrent recall and writes: SDR index search vs. store, bounded reranking vs. delete, lexical index guards held into recall activation, and binary-store reads vs. appends. A multi-threaded stress test now covers recall, store, update, delete, and maintenance together.
+- Python embedding callbacks now run before any store lock is taken and without holding the callback lock, preventing GIL deadlocks; callback errors are logged instead of silently dropped.
+- `compact_active` holds the writer lock throughout, replaces `brain.aura` with one atomic rename (no window without a file), and keeps temporal links.
+- Cognitive log compaction reloads the corpus under the writer lock, so concurrent appends are no longer lost, and removes the old snapshot before swapping logs so a crash cannot pair a stale snapshot with the new log. Snapshots pointing past the end of the log fall back to full replay.
+- A torn record at the end of `brain.aura` (crash mid-append) is truncated on open instead of preventing the brain from opening; record lengths are validated before allocating.
+- An exclusive `brain.lock` prevents two processes (or handles) from opening the same brain directory; `close()` releases it.
+- SDR and n-gram candidate pools widen when namespace filtering discards out-of-scope candidates, so in-namespace results are no longer silently dropped in busy multi-namespace stores.
+- SDR index and temporal-chain files are written atomically with fsync; maintenance logs persistence failures instead of ignoring them.
+- Managed audit history purge filters every journal before rewriting any, stages all replacements, and swaps each with one atomic rename, so a decode error or crash can no longer leave the journal half-rewritten or missing.
+- Recall no longer clones the whole store on every query once any record has a validity window; a copy is built only when some record is currently outside its window.
+
 ## 1.60.0
 
 ### Fixed
 
 - Decay, reflection, and archival now commit strength updates, graph cleanup, and tombstones as one crash-safe lifecycle frame. Failed writes restore the previous RAM state, and demoted records stay outside active indexes after reopen.
+- Explicit `delete` is durable before the record disappears from active state, propagates tombstone failures, removes inbound graph links, and invalidates dependent beliefs, concepts, causal patterns, policies, topology, reflection summaries, and recall replay baselines.
 - Operator pins are stored in cognitive records, migrated from legacy anchors, and respected by decay, level correction, reflection, and both archival strategies. Closed temporal versions are also retained for bitemporal recall until explicitly deleted.
 - Age retention is scoped per namespace, parses RFC3339 timestamps as instants, and falls back to the record creation time instead of treating missing optional metadata as infinitely old.
 - Lifecycle changes invalidate recall caches and remove stale n-gram, lexical, tag, aura, SDR, embedding, and lower-store index entries.
@@ -23,6 +53,10 @@
 
 ### Added
 
+- **Portable MCP onboarding** — the wheel installs `aura` and `aura-mcp`, can validate the stdio server with `--check`, and generates ready-to-paste Claude, Cursor, VS Code, or generic client configuration with `--print-config`. MCP storage defaults preserve adaptive routing by treating `level` as an optional policy hint.
+- **Observational outcome receipts** — Rust and Python can durably capture candidate IDs, selected IDs, and helpful, unhelpful, or inconclusive task outcomes in the managed audit journal. Receipts are idempotent, integrity-checked, namespace-safe, purge-aware, and never enter recall or retention.
+- **Optional outcome evaluation evidence** — schema-v2 receipts can integrity-protect an exact selected-set logging probability and explicit per-candidate verifier verdicts for future offline policy evaluation. Receipts without these fields remain schema v1.
+- **Scoped record purge** - Rust and Python expose `purge_record(record_id, scope)` with cumulative `active`, `derived`, `current_storage`, and `history` boundaries. Full managed-history purge rewrites current journals, the legacy binary store, audit rotations, and named snapshots, then keeps only a SHA-256 receipt without record content or raw ID.
 - **Opt-in loss-aware context capsules** — `build_compacted_context_capsule()` removes exact natural-language duplication and safe discourse prefixes before token-budget packing, allowing more relevant records to reach an agent without rewriting memory or requiring an LLM.
 - **Auditable compaction metrics** — results report baseline/output entry counts, additional entries, equivalent original tokens, saved tokens, reduction ratio, transformed entries, and safety-protected entries.
 - **Citation-locked retrieval episodes** — opt-in `RetrievalEpisode` receipts record which evidence was actually opened for one answer and require every declared atomic claim to be supported by opened, citable evidence.
@@ -31,6 +65,7 @@
 
 ### Safety
 
+- Outcome receipts and their optional evaluation evidence are observational only. They do not change recall scores, importance, strength, decay, retention, consolidation, or forgetting; adaptive use remains gated on a lived temporal holdout.
 - Active goals and non-text payloads are excluded from compaction (ordinary final-entry budget truncation can still apply). Full originals stay in Aura and remain expandable by `record_id`; the existing `build_context_capsule()` API and behavior are unchanged.
 - Citation admission is recomputed from immutable document/span lineage and current source bytes; caller confidence cannot override failed integrity, superseded/contested status, or citation permission. Episodes are read-only and do not alter ordinary recall behavior.
 

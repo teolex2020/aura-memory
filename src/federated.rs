@@ -18,10 +18,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-#[cfg(feature = "sync")]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-#[cfg(feature = "sync")]
-use tokio::net::{TcpListener, TcpStream};
 
 /// Differential privacy parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -503,84 +499,6 @@ impl SecureAggregation {
 //                                  NETWORKING LAYER (TCP Direct)
 // =========================================================================================
 
-#[cfg(feature = "sync")]
-pub struct SimpleTcpNode {
-    port: u16,
-    peers: Vec<String>,
-}
-
-#[cfg(feature = "sync")]
-impl SimpleTcpNode {
-    pub fn new(port: u16, peers: Vec<String>) -> Self {
-        Self { port, peers }
-    }
-
-    pub async fn start_server(&self) -> Result<()> {
-        let addr = format!("0.0.0.0:{}", self.port);
-        let listener = TcpListener::bind(&addr).await?;
-        tracing::info!("Aura Sync listening on {}", addr);
-
-        loop {
-            let (mut socket, peer_addr) = listener.accept().await?;
-            tracing::info!("Accepted connection from {}", peer_addr);
-
-            tokio::spawn(async move {
-                let mut buffer = [0u8; 4096]; // Larger buffer for gradients
-                loop {
-                    match socket.read(&mut buffer).await {
-                        Ok(n) if n > 0 => {
-                            let msg = String::from_utf8_lossy(&buffer[..n]);
-                            if msg.starts_with("GRADIENT_PUSH") {
-                                // Simple extraction for demo
-                                let json_part = msg.trim_start_matches("GRADIENT_PUSH ");
-                                if let Ok(gradient) =
-                                    serde_json::from_str::<LocalGradient>(json_part)
-                                {
-                                    tracing::info!(
-                                        "Only-Private Gradient received from {}",
-                                        gradient.device_id
-                                    );
-                                    // In a real system, we'd aggregated this.
-                                    // For demo, we just log it.
-                                }
-                            }
-
-                            if let Err(e) = socket.write_all(b"ACK").await {
-                                tracing::error!("Failed to send ACK: {}", e);
-                                break;
-                            }
-                        }
-                        Ok(_) => break, // EOF
-                        Err(e) => {
-                            tracing::error!("Socket error: {}", e);
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    pub async fn broadcast_gradient(&self, gradient: &LocalGradient) -> Result<()> {
-        let json = serde_json::to_string(gradient)?;
-        let payload = format!("GRADIENT_PUSH {}", json);
-
-        for peer in &self.peers {
-            match TcpStream::connect(peer).await {
-                Ok(mut stream) => {
-                    tracing::info!("Sending gradient to {}", peer);
-                    stream.write_all(payload.as_bytes()).await?;
-                    // Wait for ACK? For UDP-like speed we might skip, but let's read it.
-                    let mut ack_buf = [0u8; 3];
-                    let _ = stream.read(&mut ack_buf).await;
-                }
-                Err(e) => tracing::warn!("Failed to connect to {}: {}", peer, e),
-            }
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,37 +678,5 @@ mod tests {
 
         assert!(strong.epsilon < moderate.epsilon);
         assert!(moderate.epsilon < weak.epsilon);
-    }
-
-    #[cfg(feature = "sync")]
-    #[tokio::test]
-    async fn test_tcp_direct_sync() {
-        // Node A listening on 9001
-        let node_a = SimpleTcpNode::new(9001, vec![]);
-        let _server_a = tokio::spawn(async move {
-            node_a.start_server().await.unwrap();
-        });
-
-        // Give A time to start
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // Node B sending to 9001
-        let node_b = SimpleTcpNode::new(9002, vec!["127.0.0.1:9001".to_string()]);
-
-        let gradient = LocalGradient {
-            device_id: "NodeB".to_string(),
-            timestamp: 12345,
-            sdr_deltas: std::collections::HashMap::from([(1, 0.5)]),
-            salience_weights: SalienceGradient::default(),
-            sample_count: 10,
-            is_private: true,
-        };
-
-        // Broadcast from B -> A
-        node_b.broadcast_gradient(&gradient).await.unwrap();
-
-        // In a real test, we would verify A received it.
-        // For now, we just ensure no panic/error during sending.
-        // Use manual verification (grep logs) if needed, or add shared state to verify.
     }
 }

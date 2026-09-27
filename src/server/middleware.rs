@@ -18,7 +18,10 @@ pub(super) async fn auth_middleware(
 ) -> Response {
     let expected = match state.api_key.as_deref() {
         Some(k) => k,
-        None => return next.run(req).await,
+        // Without a key the server is only safe when reached as localhost;
+        // rejecting other Host values blocks DNS-rebinding attacks.
+        None if is_loopback_host(&req) => return next.run(req).await,
+        None => return StatusCode::FORBIDDEN.into_response(),
     };
 
     let path = req.uri().path().to_string();
@@ -36,7 +39,7 @@ pub(super) async fn auth_middleware(
     match auth_header {
         Some(value) if value.starts_with("Bearer ") => {
             let token = &value[7..];
-            if token == expected {
+            if constant_time_eq(token.as_bytes(), expected.as_bytes()) {
                 next.run(req).await
             } else {
                 StatusCode::UNAUTHORIZED.into_response()
@@ -44,6 +47,36 @@ pub(super) async fn auth_middleware(
         }
         _ => StatusCode::UNAUTHORIZED.into_response(),
     }
+}
+
+fn is_loopback_host(req: &Request) -> bool {
+    let Some(host) = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    let name = if let Some(rest) = host.strip_prefix('[') {
+        rest.split(']').next().unwrap_or_default()
+    } else {
+        host.rsplit_once(':').map_or(host, |(name, _port)| name)
+    };
+    name.eq_ignore_ascii_case("localhost")
+        || name
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
 }
 
 pub(super) async fn rate_limit_middleware(
@@ -91,4 +124,40 @@ pub(super) async fn metrics_middleware(req: Request, next: Next) -> Response {
         .record(duration);
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+
+    fn request_with_host(host: &str) -> Request {
+        Request::builder()
+            .uri("/")
+            .header(header::HOST, host)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[test]
+    fn loopback_hosts_are_accepted_and_rebinding_hosts_rejected() {
+        for host in [
+            "localhost",
+            "localhost:8000",
+            "127.0.0.1:8000",
+            "[::1]:8000",
+        ] {
+            assert!(is_loopback_host(&request_with_host(host)), "{host}");
+        }
+        for host in ["evil.example", "evil.example:8000", "192.168.1.5:8000"] {
+            assert!(!is_loopback_host(&request_with_host(host)), "{host}");
+        }
+    }
+
+    #[test]
+    fn constant_time_eq_matches_only_identical_tokens() {
+        assert!(constant_time_eq(b"secret", b"secret"));
+        assert!(!constant_time_eq(b"secret", b"secreT"));
+        assert!(!constant_time_eq(b"secret", b"secret2"));
+    }
 }

@@ -22,6 +22,28 @@ jobs:
           python-version: "3.12"
       - run: python scripts/check_release_version.py
 
+  rust-lint:
+    name: Rust Lint and Feature Builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Clippy (correctness and suspicious lints)
+        run: cargo clippy --all-targets --no-default-features --features "encryption,audit,capsule,server,mcp" -- -A clippy::all -D clippy::correctness -D clippy::suspicious
+      - name: Feature builds
+        run: |
+          cargo check --all-targets --no-default-features --features "encryption,ffi"
+          cargo check --all-targets --no-default-features --features "telemetry"
+          cargo check --bins --features "mcp"
+
   rust-checks:
     name: Rust Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -102,7 +124,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.9", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -113,12 +135,12 @@ jobs:
       - name: Create venv and install deps
         run: |
           python -m venv .venv
-          .venv/bin/pip install maturin pytest pytest-timeout
+          .venv/bin/pip install maturin pytest pytest-timeout fastapi httpx
         if: runner.os != 'Windows'
       - name: Create venv and install deps (Windows)
         run: |
           python -m venv .venv
-          .venv\Scripts\pip install maturin pytest pytest-timeout
+          .venv\Scripts\pip install maturin pytest pytest-timeout fastapi httpx
         if: runner.os == 'Windows'
       - name: Cleanup stale Windows test locks
         if: runner.os == 'Windows'
@@ -141,12 +163,21 @@ jobs:
         run: |
           .venv/bin/python tests/python_context_compaction_smoke.py
           .venv/bin/python tests/python_retrieval_episode_smoke.py
+          .venv/bin/python tests/python_outcome_receipt_smoke.py
+          .venv/bin/python tests/python_concurrency_smoke.py
+          .venv/bin/python tests/python_http_security_smoke.py
       - name: Run Python context and citation API smoke (Windows)
         if: runner.os == 'Windows'
         run: |
           .venv\Scripts\python tests\python_context_compaction_smoke.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .venv\Scripts\python tests\python_retrieval_episode_smoke.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python tests\python_outcome_receipt_smoke.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python tests\python_concurrency_smoke.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python tests\python_http_security_smoke.py
       - name: Run Python storage regressions
         run: .venv/bin/python scripts/python_audit_smoke.py
         if: runner.os != 'Windows'

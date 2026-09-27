@@ -83,6 +83,10 @@ pub struct RecallTraceResult {
 
 // ── Signal Collection ──
 
+/// Upper bound on how far candidate pools grow (as a multiple of `top_k`)
+/// when namespace filtering discards out-of-scope candidates.
+const MAX_NAMESPACE_WIDENING: usize = 256;
+
 /// Collect SDR similarity results from aura-memory engine.
 #[instrument(skip_all, fields(top_k))]
 pub fn collect_sdr(
@@ -101,37 +105,48 @@ pub fn collect_sdr(
         return vec![];
     }
 
-    // Search inverted index
-    let candidates = index.search(&query_sdr, top_k * 2, 1);
-
-    let mut results = Vec::new();
     let cache = storage.header_cache.read();
+    let mut results = Vec::new();
+    let mut pool = top_k.max(1) * 2;
 
-    for (aura_id, _overlap) in candidates {
-        // Map aura_id → record_id
-        let record_id = if let Some(rid) = aura_index.get(&aura_id) {
-            rid.clone()
-        } else {
-            // Fallback: try direct match
-            if records.contains_key(&aura_id) {
-                aura_id.clone()
+    // Namespace filtering happens after the index search, so widen the
+    // candidate pool when other namespaces crowd out in-scope records.
+    loop {
+        results.clear();
+        let candidates = index.search(&query_sdr, pool, 1);
+        let exhausted = candidates.len() < pool;
+
+        for (aura_id, _overlap) in candidates {
+            // Map aura_id → record_id
+            let record_id = if let Some(rid) = aura_index.get(&aura_id) {
+                rid.clone()
             } else {
-                continue;
-            }
-        };
+                // Fallback: try direct match
+                if records.contains_key(&aura_id) {
+                    aura_id.clone()
+                } else {
+                    continue;
+                }
+            };
 
-        match records.get(&record_id) {
-            Some(rec) if in_namespace(rec, namespaces) => {}
-            _ => continue,
+            match records.get(&record_id) {
+                Some(rec) if in_namespace(rec, namespaces) => {}
+                _ => continue,
+            }
+
+            // Compute Tanimoto similarity
+            if let Some(header) = cache.get(&aura_id) {
+                let score = sdr.tanimoto_sparse(&query_sdr, &header.sdr_indices);
+                if score > 0.0 {
+                    results.push((record_id, score));
+                }
+            }
         }
 
-        // Compute Tanimoto similarity
-        if let Some(header) = cache.get(&aura_id) {
-            let score = sdr.tanimoto_sparse(&query_sdr, &header.sdr_indices);
-            if score > 0.0 {
-                results.push((record_id, score));
-            }
+        if results.len() >= top_k || exhausted || pool >= top_k.max(1) * MAX_NAMESPACE_WIDENING {
+            break;
         }
+        pool *= 4;
     }
 
     results.sort_by(|a, b| {
@@ -152,17 +167,25 @@ pub fn collect_ngram(
     top_k: usize,
     namespaces: &[&str],
 ) -> Vec<(String, f32)> {
-    ngram_index
-        .query(query, top_k * 4)
-        .into_iter()
-        .filter(|(_, rid)| {
-            records
-                .get(rid)
-                .is_some_and(|r| in_namespace(r, namespaces))
-        })
-        .take(top_k)
-        .map(|(sim, rid)| (rid, sim))
-        .collect()
+    let mut pool = top_k.max(1) * 4;
+    loop {
+        let candidates = ngram_index.query(query, pool);
+        let exhausted = candidates.len() < pool;
+        let results: Vec<(String, f32)> = candidates
+            .into_iter()
+            .filter(|(_, rid)| {
+                records
+                    .get(rid)
+                    .is_some_and(|r| in_namespace(r, namespaces))
+            })
+            .take(top_k)
+            .map(|(sim, rid)| (rid, sim))
+            .collect();
+        if results.len() >= top_k || exhausted || pool >= top_k.max(1) * MAX_NAMESPACE_WIDENING {
+            return results;
+        }
+        pool *= 4;
+    }
 }
 
 /// Collect exact lexical BM25 results, filtered before fusion.

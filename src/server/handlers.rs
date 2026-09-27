@@ -9,8 +9,6 @@ use metrics::{counter, gauge, histogram};
 use rust_embed::RustEmbed;
 use utoipa::OpenApi;
 
-use crate::license;
-
 use super::dto::*;
 use super::state::ServerState;
 
@@ -99,12 +97,6 @@ pub(super) async fn health() -> impl IntoResponse {
 pub(super) async fn stats(State(state): State<ServerState>) -> impl IntoResponse {
     let mem = state.memory.as_ref();
     let count = mem.count(None);
-    let license_info = license::get_license_info();
-    let license_str = if license_info.hardware_bound {
-        "Hardware Locked"
-    } else {
-        "Unlocked"
-    };
     let phantoms = mem.phantom_count();
 
     gauge!("aura_record_count").set(count as f64);
@@ -114,8 +106,7 @@ pub(super) async fn stats(State(state): State<ServerState>) -> impl IntoResponse
         StatusCode::OK,
         Json(StatsResponse {
             total_memories: count,
-            license: license_str.to_string(),
-            version: "v2.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             phantom_count: phantoms,
         }),
     )
@@ -891,65 +882,6 @@ pub(super) async fn surprise_handler(
             Json(SurpriseResponse { surprise: -1.0 }),
         ),
     }
-}
-
-#[cfg(feature = "sync")]
-pub(super) async fn export_sdr(
-    State(state): State<ServerState>,
-    Json(payload): Json<ExportSdrRequest>,
-) -> impl IntoResponse {
-    use crate::sync::SdrPrivacyConfig;
-
-    let mem = state.memory.as_ref();
-    let config = SdrPrivacyConfig {
-        apply_noise: payload.apply_noise,
-        drop_bits: payload.drop_bits,
-        add_bits: payload.add_bits,
-    };
-    let fps = mem.export_sdr_fingerprints(payload.filter_dna.as_deref(), &config);
-    let count = fps.len();
-    let dtos: Vec<SdrFingerprintDTO> = fps
-        .into_iter()
-        .map(|fp| SdrFingerprintDTO {
-            id: fp.id,
-            sdr_indices: fp.sdr_indices,
-            timestamp: fp.timestamp,
-            source_dna: fp.source_dna,
-            intensity: fp.intensity,
-            origin_node: fp.origin_node,
-        })
-        .collect();
-    (
-        StatusCode::OK,
-        Json(ExportSdrResponse {
-            fingerprints: dtos,
-            count,
-        }),
-    )
-}
-
-#[cfg(feature = "sync")]
-pub(super) async fn import_sdr(
-    State(state): State<ServerState>,
-    Json(payload): Json<ImportSdrRequest>,
-) -> impl IntoResponse {
-    use crate::sync::SdrFingerprint;
-
-    let mem = state.memory.as_ref();
-    let fps: Vec<SdrFingerprint> = payload
-        .fingerprints
-        .into_iter()
-        .map(|f| SdrFingerprint {
-            id: f.id,
-            sdr_indices: f.sdr_indices,
-            timestamp: f.timestamp,
-            source_dna: f.source_dna,
-            intensity: f.intensity,
-            origin_node: f.origin_node,
-        })
-        .collect();
-    let imported = mem.import_sdr_fingerprints(fps);
-    (StatusCode::OK, Json(ImportSdrResponse { imported }))
 }
 
 #[derive(OpenApi)]

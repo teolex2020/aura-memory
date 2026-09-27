@@ -25,6 +25,13 @@ Homepage = "https://aurasdk.dev"
 Repository = "https://github.com/teolex2020/aura-memory"
 Documentation = "https://github.com/teolex2020/aura-memory/blob/main/README.md"
 
+[project.scripts]
+aura = "aura.__main__:main"
+aura-mcp = "aura.mcp_server:main"
+
+[project.optional-dependencies]
+http = ["fastapi>=0.100,<1", "uvicorn>=0.23,<1"]
+
 [tool.maturin]
 features = ["pyo3/extension-module", "encryption", "capsule"]
 python-source = "python"

@@ -187,7 +187,6 @@ async function loadDashboardStats() {
         document.getElementById('stat-plasticity-decays').textContent = stats.plasticity_decays.toLocaleString();
         document.getElementById('stat-phantoms').textContent = stats.phantom_count.toLocaleString();
         
-        document.getElementById('license-info').textContent = stats.license;
         document.getElementById('version-badge').textContent = stats.version;
         
         // Update Analytics details

@@ -1,7 +1,7 @@
 {
   "name": "aura-memory",
-  "version": "1.5.2",
-  "description": "Cognitive memory layer for AI agents. Gives Claude persistent, self-organizing memory with hierarchical decay, belief formation, and causal reasoning. Zero LLM calls, sub-millisecond recall.",
+  "version": "1.60.0",
+  "description": "Cognitive memory layer for AI agents. Gives Claude persistent, self-organizing memory with hierarchical decay, belief formation, and causal reasoning. Local memory operations need no LLM call; uncached recall latency depends on corpus and query.",
   "author": "Alexander Tepliuk",
   "license": "MIT",
   "homepage": "https://github.com/teolex2020/aura-memory",
@@ -12,8 +12,8 @@
     "pip": "pip install aura-memory"
   },
   "run": {
-    "command": "python",
-    "args": ["-m", "aura", "mcp", "{brainPath}"]
+    "command": "aura-mcp",
+    "args": ["{brainPath}"]
   },
   "tools": [
     {
@@ -26,7 +26,7 @@
     },
     {
       "name": "store",
-      "description": "Store a new memory. Levels: working (hours), decisions (days), domain (weeks), identity (months+)."
+      "description": "Store a new memory. Omit level to let Aura route and adapt it; set working, decisions, domain, or identity only as an explicit policy hint."
     },
     {
       "name": "store_code",
@@ -82,20 +82,32 @@
       "config": {
         "mcpServers": {
           "aura": {
-            "command": "python",
-            "args": ["-m", "aura", "mcp", "C:\\Users\\YOUR_NAME\\aura_brain"]
+            "command": "aura-mcp",
+            "args": ["C:\\Users\\YOUR_NAME\\aura_brain"]
           }
         }
       }
     },
     {
-      "title": "Cursor / VS Code",
-      "description": "Add to .cursor/mcp.json or .vscode/mcp.json",
+      "title": "Cursor",
+      "description": "Add to .cursor/mcp.json",
+      "config": {
+        "mcpServers": {
+          "aura": {
+            "command": "aura-mcp",
+            "args": ["./aura_brain"]
+          }
+        }
+      }
+    },
+    {
+      "title": "VS Code",
+      "description": "Add to .vscode/mcp.json",
       "config": {
         "servers": {
           "aura": {
-            "command": "python",
-            "args": ["-m", "aura", "mcp", "./aura_brain"],
+            "command": "aura-mcp",
+            "args": ["./aura_brain"],
             "type": "stdio"
           }
         }

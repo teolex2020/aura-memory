@@ -232,6 +232,49 @@ impl PolicyEngine {
         }
     }
 
+    /// Drop policy hints whose recommendation used deleted provenance.
+    pub fn remove_record_provenance(
+        &mut self,
+        record_id: &str,
+        removed_belief_ids: &[String],
+        removed_concept_ids: &[String],
+        removed_causal_ids: &[String],
+    ) -> Vec<String> {
+        let removed_beliefs: std::collections::HashSet<&str> =
+            removed_belief_ids.iter().map(String::as_str).collect();
+        let removed_concepts: std::collections::HashSet<&str> =
+            removed_concept_ids.iter().map(String::as_str).collect();
+        let removed_causal: std::collections::HashSet<&str> =
+            removed_causal_ids.iter().map(String::as_str).collect();
+        let removed_ids: Vec<String> = self
+            .hints
+            .values()
+            .filter(|hint| {
+                hint.supporting_record_ids.iter().any(|id| id == record_id)
+                    || hint.cause_record_ids.iter().any(|id| id == record_id)
+                    || hint
+                        .trigger_belief_ids
+                        .iter()
+                        .any(|id| removed_beliefs.contains(id.as_str()))
+                    || hint
+                        .trigger_concept_ids
+                        .iter()
+                        .any(|id| removed_concepts.contains(id.as_str()))
+                    || hint
+                        .trigger_causal_ids
+                        .iter()
+                        .any(|id| removed_causal.contains(id.as_str()))
+            })
+            .map(|hint| hint.id.clone())
+            .collect();
+        for id in &removed_ids {
+            if let Some(hint) = self.hints.remove(id) {
+                self.key_index.remove(&hint.key);
+            }
+        }
+        removed_ids
+    }
+
     /// Remove a single policy hint from the persisted engine state.
     pub fn retract_hint(&mut self, hint_id: &str) -> bool {
         let Some(hint) = self.hints.remove(hint_id) else {

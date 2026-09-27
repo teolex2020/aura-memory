@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -165,6 +168,87 @@ def main() -> None:
         trusted_restored = Aura(str(trusted_restore_path))
         assert trusted_restored.recall("safe release", namespace="release-check")
         trusted_restored.close()
+
+        mcp_path = root / "mcp-brain"
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2026-07-28"},
+            },
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "store",
+                    "arguments": {"content": "MCP integration smoke memory"},
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "recall",
+                    "arguments": {"query": "integration smoke"},
+                },
+            },
+        ]
+        wire_input = "".join(json.dumps(request) + "\n" for request in requests)
+        completed = subprocess.run(
+            [sys.executable, "-m", "aura", "mcp", str(mcp_path)],
+            input=wire_input,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        responses = [json.loads(line) for line in completed.stdout.splitlines() if line]
+        assert len(responses) == 4, completed.stderr
+        assert responses[0]["result"]["serverInfo"]["version"] == __version__
+        assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
+        tools = responses[1]["result"]["tools"]
+        assert len(tools) == len(mcp_server.AuraMcpServer.TOOL_MAP)
+        store_tool = next(tool for tool in tools if tool["name"] == "store")
+        assert store_tool["inputSchema"]["required"] == ["content"]
+        assert "Omit level" in store_tool["description"]
+        assert responses[2]["result"]["isError"] is False
+        assert responses[3]["result"]["isError"] is False
+        assert "MCP integration smoke memory" in responses[3]["result"]["content"][0]["text"]
+
+        checked = subprocess.run(
+            [sys.executable, "-m", "aura", "mcp", str(mcp_path), "--check"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        check_result = json.loads(checked.stdout)
+        assert check_result["ok"] is True
+        assert check_result["tools"] == len(tools)
+
+        configured = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "aura",
+                "mcp",
+                str(mcp_path),
+                "--print-config",
+                "vscode",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        config = json.loads(configured.stdout)
+        assert config["servers"]["aura"]["command"] == str(Path(sys.executable).resolve())
+        assert config["servers"]["aura"]["type"] == "stdio"
+        assert config["servers"]["aura"]["args"][-1] == str(mcp_path.resolve())
 
     print(f"aura-memory public API smoke passed: {__version__}")
 

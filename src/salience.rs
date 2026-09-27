@@ -8,7 +8,7 @@ use std::collections::HashMap;
 /// - Information entropy/stability (S)
 /// - Cross-context resonance (R)
 ///
-/// # Math (Patent Claim 8)
+/// # Math
 /// ```text
 /// Salience Ψ = α×I + β×S + γ×R
 /// ```

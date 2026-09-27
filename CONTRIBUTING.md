@@ -14,17 +14,18 @@ Thanks for your interest in contributing! Aura is a solo-developer project built
 
 ```bash
 git clone https://github.com/teolex2020/aura-memory.git
-cd AuraSDK
+cd aura-memory
 
 # Rust tests
-cargo test --no-default-features --features "encryption,audit"
+cargo test --no-default-features --features "encryption,audit,capsule"
 
 # Python setup
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install maturin pytest
-maturin develop --features "pyo3/extension-module,encryption"
-pytest tests/ -v
+pip install maturin fastapi httpx
+maturin develop --features "pyo3/extension-module,encryption,capsule"
+python scripts/python_release_smoke.py
+for f in tests/python_*_smoke.py; do python "$f"; done
 ```
 
 ### Build Notes
@@ -56,9 +57,10 @@ Use the [Feature Request template](https://github.com/teolex2020/aura-memory/iss
 4. Add tests (Rust in `src/`, Python in `tests/`)
 5. Run the full test suite:
    ```bash
-   cargo test --no-default-features --features "encryption,audit"
-   cargo clippy --no-default-features --features "encryption,audit" -- -D warnings
-   pytest tests/ -v
+   cargo fmt --check
+   cargo test --no-default-features --features "encryption,audit,capsule"
+   cargo clippy --all-targets --no-default-features --features "encryption,audit,capsule,server,mcp" -- -A clippy::all -D clippy::correctness -D clippy::suspicious
+   for f in tests/python_*_smoke.py; do python "$f"; done
    ```
 6. Commit with a clear message
 7. Open a PR against `main`
@@ -81,9 +83,9 @@ Do not include internal architecture commentary, unpublished benchmark methodolo
 - Tests go in `#[cfg(test)] mod tests` at the bottom of each module
 
 ### Python
-- Tests use `pytest` with fixtures from `tests/conftest.py`
-- Each test file focuses on one feature area
-- Use `tmp_path` fixture for brain directories (auto-cleanup)
+- Python checks are standalone smoke scripts: `tests/python_<area>_smoke.py`
+- Each script focuses on one feature area and exits non-zero on failure
+- Use `tempfile.TemporaryDirectory()` for brain directories and `close()` the brain before reopening it (a brain directory is exclusively locked while open)
 
 ## Project Structure
 
@@ -107,5 +109,3 @@ Public documentation is intentionally kept lightweight. Internal design notes, r
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
-
-Note: The core cognitive architecture is Patent Pending (US 63/969,703). Contributions to the open-source SDK remain MIT-licensed. See [PATENT](PATENT) for details.

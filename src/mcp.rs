@@ -20,7 +20,7 @@ use rmcp::{
         CallToolResult, Content, Implementation, InitializeResult, ProtocolVersion,
         ServerCapabilities, ServerInfo,
     },
-    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+    tool, tool_router, ErrorData as McpError, ServerHandler,
 };
 use serde::Deserialize;
 
@@ -53,7 +53,7 @@ pub struct RecallStructuredParams {
 pub struct StoreParams {
     /// The text content to store.
     content: String,
-    /// Memory level: working, decisions, domain, or identity.
+    /// Optional policy hint: working, decisions, domain, or identity. Omit for adaptive routing.
     level: Option<String>,
     /// Tags for categorization.
     tags: Option<Vec<String>>,
@@ -312,7 +312,7 @@ impl AuraMcpServer {
     }
 
     #[tool(
-        description = "Store a new memory. Levels: working (hours), decisions (days), domain (weeks), identity (months+). Auto-detects novel info and boosts level."
+        description = "Store a new memory. Omit level to let Aura route and adapt it; provide working, decisions, domain, or identity only as an explicit policy hint."
     )]
     async fn store(
         &self,
@@ -697,8 +697,27 @@ impl AuraMcpServer {
     }
 }
 
-#[tool_handler]
 impl ServerHandler for AuraMcpServer {
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParam,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let tool_context =
+            rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.tool_router.call(tool_context).await
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParam>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, McpError> {
+        let mut tools = self.tool_router.list_all();
+        tools.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(rmcp::model::ListToolsResult::with_all_items(tools))
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: ProtocolVersion::V_2025_06_18,
@@ -712,10 +731,10 @@ impl ServerHandler for AuraMcpServer {
             },
             instructions: Some(
                 "Aura is a cognitive memory layer for AI agents. \
-                 It provides hierarchical memory with 4 levels: \
-                 working (hours), decisions (days), domain (weeks), identity (months+). \
+                 It provides adaptive hierarchical memory with 4 internal routes. \
                  Use 'recall' before answering to check existing context. \
-                 Use 'store' to remember facts, decisions, and patterns. \
+                 Use 'store' for durable facts, decisions, and useful patterns; \
+                 usually omit level so Aura can route the memory itself. \
                  Use 'store_code' for code snippets. \
                  Use 'store_decision' for decisions with reasoning. \
                  Use 'insights' to check memory health."

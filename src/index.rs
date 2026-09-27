@@ -172,6 +172,11 @@ impl InvertedIndex {
             candidates
         });
 
+        // Lock order is id_map -> reverse_map -> next_doc_id -> bit_index (see
+        // add/remove). Release bit_index before taking reverse_map below.
+        drop(bitmaps);
+        drop(bit_index);
+
         if result.is_empty() {
             return vec![];
         }
@@ -197,26 +202,49 @@ impl InvertedIndex {
     }
 
     pub fn save(&self) -> Result<()> {
+        use byteorder::{LittleEndian, WriteBytesExt};
+        use std::io::Write;
+
         std::fs::create_dir_all(&self.path)?;
-        let manifest = IndexManifest {
-            next_doc_id: *self.next_doc_id.read(),
-            id_map: self.id_map.read().clone(),
-        };
-        serde_json::to_writer(
-            BufWriter::new(File::create(self.path.join("index_manifest.json"))?),
-            &manifest,
-        )?;
-        let mut writer = BufWriter::new(File::create(self.path.join("sdr.idx"))?);
+        // Take read locks in the same order as add/remove so the manifest and
+        // bitmap file describe one consistent snapshot without deadlocking.
+        let id_map = self.id_map.read();
+        let next_doc_id = self.next_doc_id.read();
         let bit_index = self.bit_index.read();
-        for (bit, bitmap) in bit_index.iter() {
-            use byteorder::{LittleEndian, WriteBytesExt};
-            writer.write_u16::<LittleEndian>(*bit)?;
-            let mut buf = Vec::new();
-            bitmap.serialize_into(&mut buf)?;
-            writer.write_u64::<LittleEndian>(buf.len() as u64)?;
-            use std::io::Write;
-            writer.write_all(&buf)?;
+
+        let manifest = IndexManifest {
+            next_doc_id: *next_doc_id,
+            id_map: id_map.clone(),
+        };
+        let manifest_path = self.path.join("index_manifest.json");
+        let manifest_tmp = manifest_path.with_extension("json.tmp");
+        {
+            let mut writer = BufWriter::new(File::create(&manifest_tmp)?);
+            serde_json::to_writer(&mut writer, &manifest)?;
+            writer.flush()?;
+            writer.get_ref().sync_all()?;
         }
+
+        let index_path = self.path.join("sdr.idx");
+        let index_tmp = index_path.with_extension("idx.tmp");
+        {
+            let mut writer = BufWriter::new(File::create(&index_tmp)?);
+            for (bit, bitmap) in bit_index.iter() {
+                writer.write_u16::<LittleEndian>(*bit)?;
+                let mut buf = Vec::new();
+                bitmap.serialize_into(&mut buf)?;
+                writer.write_u64::<LittleEndian>(buf.len() as u64)?;
+                writer.write_all(&buf)?;
+            }
+            writer.flush()?;
+            writer.get_ref().sync_all()?;
+        }
+        drop(bit_index);
+        drop(next_doc_id);
+        drop(id_map);
+
+        std::fs::rename(&index_tmp, &index_path)?;
+        std::fs::rename(&manifest_tmp, &manifest_path)?;
         Ok(())
     }
 

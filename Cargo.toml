@@ -31,7 +31,6 @@ python = ["pyo3"]
 encryption = ["chacha20poly1305", "argon2", "zeroize"]
 server = ["axum", "tower-http", "utoipa", "utoipa-swagger-ui", "metrics", "metrics-exporter-prometheus", "axum-server", "rust-embed", "mime_guess"]
 audit = []
-sync = ["crdts"]
 mcp = ["rmcp", "schemars"]
 embedded = ["encryption"]
 lite = []
@@ -87,10 +86,8 @@ lazy_static = "1.4"
 rayon = "1"
 zstd = { version = "0.13", optional = true }
 
-# License
-ctor = "0.2"
+# Capsule manifest signatures
 ed25519-dalek = { version = "2.1", features = ["std"] }
-base64 = "0.21"
 
 # Numerics (replaces numpy for SDR operations)
 ndarray = "0.15"
@@ -121,8 +118,6 @@ chacha20poly1305 = { version = "0.10", optional = true }
 argon2 = { version = "0.5", optional = true }
 zeroize = { version = "1.7", features = ["derive"], optional = true }
 
-# P2P Sync
-crdts = { version = "7.3", optional = true }
 
 # Telemetry (OpenTelemetry)
 opentelemetry = { version = "0.27", optional = true }

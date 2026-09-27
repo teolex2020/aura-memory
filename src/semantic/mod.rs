@@ -8,10 +8,10 @@
 //! - `concepts`: Hierarchical bit inheritance (IS-A relations)
 //! - `temporal`: Time-relative SDR encoding
 //!
-//! # Patent Claims Supported
-//! - Claim 5: Synaptic Synthesis (T ≥ 0.75)
-//! - Claim 7: O(k) SDR search complexity
-//! - Claim 8: Entropy-weighted stability
+//! # Properties
+//! - Synaptic synthesis threshold (T ≥ 0.75)
+//! - O(k) SDR search complexity
+//! - Entropy-weighted stability
 
 pub mod concepts;
 pub mod synonym;

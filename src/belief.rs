@@ -549,6 +549,48 @@ impl BeliefEngine {
         }
     }
 
+    /// Invalidate every belief whose provenance contains `record_id`.
+    ///
+    /// Belief scores aggregate evidence. Removing only the identifier would
+    /// preserve confidence/support values computed from evidence that no longer
+    /// exists, so the complete dependent belief is discarded and can be
+    /// rebuilt from the remaining corpus during maintenance.
+    pub fn remove_record_provenance(&mut self, record_id: &str) -> Vec<String> {
+        let affected_beliefs: std::collections::HashSet<String> = self
+            .hypotheses
+            .values()
+            .filter(|hypothesis| {
+                hypothesis
+                    .prototype_record_ids
+                    .iter()
+                    .any(|id| id == record_id)
+            })
+            .map(|hypothesis| hypothesis.belief_id.clone())
+            .collect();
+
+        for belief_id in &affected_beliefs {
+            if let Some(belief) = self.beliefs.remove(belief_id) {
+                self.key_index.remove(&belief.key);
+                for hypothesis_id in belief.hypothesis_ids {
+                    self.hypotheses.remove(&hypothesis_id);
+                }
+            }
+        }
+
+        self.hypotheses
+            .retain(|_, hypothesis| !affected_beliefs.contains(&hypothesis.belief_id));
+        self.record_index.clear();
+        for hypothesis in self.hypotheses.values() {
+            for id in &hypothesis.prototype_record_ids {
+                self.record_index.insert(id.clone(), hypothesis.id.clone());
+            }
+        }
+
+        let mut removed: Vec<String> = affected_beliefs.into_iter().collect();
+        removed.sort();
+        removed
+    }
+
     /// Create a new engine with the specified coarse key mode.
     pub fn with_coarse_key_mode(mode: CoarseKeyMode) -> Self {
         let mut engine = Self::new();
@@ -1311,7 +1353,11 @@ impl BeliefEngine {
         }
 
         // Prune beliefs for groups that no longer exist
-        let active_keys: std::collections::HashSet<&String> = groups.keys().collect();
+        let active_keys: std::collections::HashSet<&String> = groups
+            .iter()
+            .filter(|(_, records)| records.len() >= 2)
+            .map(|(key, _)| key)
+            .collect();
         let stale_keys: Vec<String> = self
             .key_index
             .keys()

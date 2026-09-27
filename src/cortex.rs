@@ -26,7 +26,7 @@
 //! └─────────────────────────────────────────────────┘
 //! ```
 //!
-//! ## Patent Alignment
+//! ## Design
 //!
 //! This implements the "hierarchical cognitive memory" concept:
 //! - L1 (Active Cortex): Crystallized reflexes for motor control

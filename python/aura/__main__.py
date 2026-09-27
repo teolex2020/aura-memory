@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import json
+import os
 import signal
 import sys
 import time
@@ -148,7 +149,20 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_mcp(args: argparse.Namespace) -> None:
     """Run Aura as an MCP server over stdio."""
+    if args.print_config:
+        from aura.mcp_config import build_mcp_config
+
+        print(json.dumps(build_mcp_config(args.print_config, args.path), indent=2))
+        return
+
+    if args.check:
+        from aura.mcp_server import check_mcp
+
+        print(json.dumps(check_mcp(args.path, args.password), indent=2))
+        return
+
     from aura.mcp_server import run_mcp
+
     run_mcp(path=args.path, password=args.password)
 
 
@@ -235,7 +249,7 @@ def cmd_shell(args: argparse.Namespace) -> None:
 def main():
     parser = argparse.ArgumentParser(
         prog="aura",
-        description="Aura — Cognitive Memory for AI Agents",
+        description="Aura - Cognitive Memory for AI Agents",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -256,17 +270,38 @@ def main():
 
     # mcp
     p_mcp = subparsers.add_parser("mcp", help="Run MCP server (stdio)")
-    p_mcp.add_argument("path", nargs="?", default="./aura_brain",
-                        help="Path to brain data directory (default: ./aura_brain)")
-    p_mcp.add_argument("--password", help="Encryption password")
+    p_mcp.add_argument(
+        "path",
+        nargs="?",
+        default=os.environ.get("AURA_BRAIN_PATH", "./aura_brain"),
+        help="Path to brain data directory (default: AURA_BRAIN_PATH or ./aura_brain)",
+    )
+    p_mcp.add_argument(
+        "--password",
+        default=os.environ.get("AURA_PASSWORD"),
+        help="Encryption password (prefer AURA_PASSWORD in client configuration)",
+    )
+    p_mcp.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate MCP initialization and tool discovery, then exit",
+    )
+    p_mcp.add_argument(
+        "--print-config",
+        choices=("claude", "cursor", "vscode", "generic"),
+        metavar="CLIENT",
+        help="Print a ready-to-paste client configuration, then exit",
+    )
 
     # serve
-    p_serve = subparsers.add_parser("serve", help="Run MCP HTTP+SSE server (Make.com, n8n, remote)")
+    p_serve = subparsers.add_parser("serve", help="Run legacy HTTP+SSE and REST server")
     p_serve.add_argument("path", nargs="?", default="./aura_brain",
                           help="Path to brain data directory (default: ./aura_brain)")
-    p_serve.add_argument("--host", default="0.0.0.0", help="Host to bind (default: 0.0.0.0)")
+    p_serve.add_argument("--host", default="127.0.0.1",
+                          help="Host to bind (default: 127.0.0.1; other hosts require an API key)")
     p_serve.add_argument("--port", type=int, default=8080, help="Port (default: 8080)")
     p_serve.add_argument("--password", help="Encryption password")
+    p_serve.add_argument("--api-key", help="Require this bearer token (or set AURA_API_KEY)")
 
     args = parser.parse_args()
 
@@ -280,7 +315,8 @@ def main():
         cmd_mcp(args)
     elif args.command == "serve":
         from aura.mcp_http import run_http
-        run_http(path=args.path, host=args.host, port=args.port, password=args.password)
+        run_http(path=args.path, host=args.host, port=args.port, password=args.password,
+                 api_key=args.api_key)
     else:
         parser.print_help()
         sys.exit(1)

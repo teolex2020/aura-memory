@@ -311,6 +311,9 @@ pub struct AuraStorage {
     encryption_key: Option<EncryptionKey>,
     // Path to temporal link storage
     temporal_path: PathBuf,
+    // Exclusive OS lock on `brain.lock`; held for the lifetime of the storage so
+    // two processes cannot append to and compact the same brain concurrently.
+    dir_lock: Mutex<Option<File>>,
 }
 
 impl AuraStorage {
@@ -330,6 +333,7 @@ impl AuraStorage {
     ) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         std::fs::create_dir_all(&path)?;
+        let dir_lock = Self::lock_directory(&path)?;
         let file_path = path.join("brain.aura");
         let temporal_path = path.join("temporal.bin");
 
@@ -364,6 +368,7 @@ impl AuraStorage {
             header_cache: RwLock::new(HashMap::new()),
             encryption_key,
             temporal_path,
+            dir_lock: Mutex::new(Some(dir_lock)),
         };
 
         if exists {
@@ -385,6 +390,25 @@ impl AuraStorage {
         }
 
         Ok(storage)
+    }
+
+    fn lock_directory(path: &Path) -> Result<File> {
+        use fs2::FileExt;
+        let lock_path = path.join("brain.lock");
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)?;
+        file.try_lock_exclusive().map_err(|error| {
+            anyhow!(
+                "Aura brain at {} is already open in another process or handle ({}).                  Close it first or use a separate directory.",
+                path.display(),
+                error
+            )
+        })?;
+        Ok(file)
     }
 
     /// Check if encryption is enabled
@@ -445,57 +469,40 @@ impl AuraStorage {
         let mut count = 0;
         let len = file.get_ref().metadata()?.len();
         let enc_key = self.encryption_key.as_ref();
+        let mut torn_at: Option<u64> = None;
 
         while file.stream_position()? < len {
             let offset = file.stream_position()?;
 
-            // 1. Read ID
-            let mut id_bytes = [0u8; 32];
-            if file.read_exact(&mut id_bytes).is_err() {
-                break; // EOF
-            }
-            let id = String::from_utf8_lossy(&id_bytes)
-                .trim_matches('\0')
-                .to_string();
-
-            // 2. Read DNA
-            let mut dna_bytes = [0u8; 16];
-            file.read_exact(&mut dna_bytes)?;
-            let dna = String::from_utf8_lossy(&dna_bytes)
-                .trim_matches('\0')
-                .to_string();
+            // A record that cannot be read completely is a torn tail left by a
+            // crash mid-append. Stop there instead of refusing to open.
+            let entry = match read_index_entry(&mut file, len) {
+                Ok(entry) => entry,
+                Err(error) => {
+                    tracing::warn!(offset, %error, "Truncating torn record at end of brain.aura");
+                    torn_at = Some(offset);
+                    break;
+                }
+            };
+            let IndexEntry {
+                id,
+                dna,
+                timestamp,
+                intensity,
+                stability,
+                decay_velocity,
+                entropy,
+                sdr_indices,
+                encrypted,
+                text_bytes,
+            } = entry;
 
             if dna == "user_core" {
                 anchors.insert(id.clone());
             }
 
-            // 3. Read Metadata (24 bytes)
-            let timestamp = file.read_f64::<LittleEndian>()?;
-            let intensity = file.read_f32::<LittleEndian>()?;
-            let stability = file.read_f32::<LittleEndian>()?;
-            let decay_velocity = file.read_f32::<LittleEndian>()?;
-            let entropy = file.read_f32::<LittleEndian>()?;
-
-            let sdr_count = file.read_u16::<LittleEndian>()?;
-            let text_len = file.read_u32::<LittleEndian>()?;
-
-            // Read encryption flag (new in V4)
-            let encrypted_flag = file.read_u8().unwrap_or(0);
-
-            // 4. Read SDR Indices
-            let mut sdr_indices = Vec::with_capacity(sdr_count as usize);
-            for _ in 0..sdr_count {
-                sdr_indices.push(file.read_u16::<LittleEndian>()?);
-            }
-
-            // 5. Read Text (possibly encrypted)
-            let mut text_bytes = vec![0u8; text_len as usize];
-            if file.read_exact(&mut text_bytes).is_err() {
-                break;
-            }
-
-            // 6. Decrypt if needed
-            let text = if encrypted_flag == 0x01 {
+            // Decrypt if needed
+            let text = if encrypted {
                 if let Some(key) = enc_key {
                     match decrypt_data(&text_bytes, key) {
                         Ok(decrypted) => String::from_utf8(decrypted).unwrap_or_default(),
@@ -508,7 +515,7 @@ impl AuraStorage {
                 String::from_utf8(text_bytes).unwrap_or_default()
             };
 
-            // 7. Populate Cache
+            // Populate Cache
             header_cache.insert(
                 id.clone(),
                 Arc::new(StoredHeader {
@@ -528,6 +535,14 @@ impl AuraStorage {
             // Store offset
             offsets.insert(id, offset);
             count += 1;
+        }
+
+        // Cut the torn bytes so later appends are not written after garbage.
+        if let Some(offset) = torn_at {
+            let file = OpenOptions::new().write(true).open(&self.file_path)?;
+            file.set_len(offset)?;
+            file.sync_all()?;
+            *self.dirty_header.lock() = true;
         }
 
         *self.record_count.write() = count;
@@ -679,17 +694,16 @@ impl AuraStorage {
             }
         };
 
-        // Ensure any pending writes are flushed before reading from a fresh handle
-        {
-            let mut needs = self.needs_flush.lock();
-            if *needs {
-                let mut writer = self.writer.lock();
-                let writer = writer
-                    .as_mut()
-                    .ok_or_else(|| anyhow!("Storage is closed"))?;
-                writer.flush()?;
-                *needs = false;
-            }
+        // Ensure any pending writes are flushed before reading from a fresh handle.
+        // Lock order is writer -> needs_flush everywhere (see append/flush).
+        let pending = *self.needs_flush.lock();
+        if pending {
+            let mut writer = self.writer.lock();
+            let writer = writer
+                .as_mut()
+                .ok_or_else(|| anyhow!("Storage is closed"))?;
+            writer.flush()?;
+            *self.needs_flush.lock() = false;
         }
 
         // For reading, we use a persistent handle to avoid exhaustion
@@ -725,10 +739,12 @@ impl AuraStorage {
 
     /// Iterate over all active records.
     pub fn iter_all(&self) -> Result<Vec<StoredRecord>> {
-        let offsets = self.offsets.read();
-        let mut records = Vec::with_capacity(offsets.len());
+        // Snapshot the ids first: read() may take the writer lock, and append()
+        // takes offsets while holding the writer.
+        let ids: Vec<String> = self.offsets.read().keys().cloned().collect();
+        let mut records = Vec::with_capacity(ids.len());
 
-        for (id, _) in offsets.iter() {
+        for id in &ids {
             if let Some(record) = self.read(id)? {
                 records.push(record);
             }
@@ -750,21 +766,154 @@ impl AuraStorage {
     }
 
     /// Soft-delete a record by removing it from the offset index.
-    /// The data remains on disk but is no longer accessible.
+    /// The data remains on disk until `compact_active` rewrites the container.
     pub fn delete(&self, id: &str) -> bool {
         let mut offsets = self.offsets.write();
         let mut anchors = self.anchor_ids.write();
         if offsets.remove(id).is_some() {
             anchors.remove(id);
-            self.header_cache.write().remove(id);
+            let mut headers = self.header_cache.write();
+            headers.remove(id);
+            for header in headers.values() {
+                let mut next = header.next_id.write();
+                if next.as_deref() == Some(id) {
+                    *next = None;
+                }
+            }
             let mut count = self.record_count.write();
             if *count > 0 {
                 *count -= 1;
             }
+            *self.dirty_header.lock() = true;
             tracing::debug!("Soft-deleted record: {}", id);
             true
         } else {
             false
+        }
+    }
+
+    /// Rewrite the binary container with active records only.
+    ///
+    /// The writer lock is held for the whole operation so concurrent appends
+    /// cannot be lost. The replacement is staged and synced, then atomically
+    /// renamed over the live file, so a crash leaves either the old or the new
+    /// container in place. A hard-linked backup allows rollback if the new
+    /// container cannot be indexed.
+    pub fn compact_active(&self) -> Result<usize> {
+        self.flush()?;
+        let mut writer_slot = self.writer.lock();
+        if let Some(writer) = writer_slot.as_mut() {
+            writer.flush()?;
+            writer.get_ref().sync_all()?;
+        }
+        *self.needs_flush.lock() = false;
+
+        let records = self.iter_all()?;
+        let links = self.temporal_links();
+        let temporary = self
+            .file_path
+            .with_extension(format!("aura.{}.purge.tmp", uuid::Uuid::new_v4()));
+        let backup = self
+            .file_path
+            .with_extension(format!("aura.{}.purge.bak", uuid::Uuid::new_v4()));
+
+        let write_result = (|| -> Result<()> {
+            Self::write_initial_header(&temporary)?;
+            let file = OpenOptions::new().read(true).write(true).open(&temporary)?;
+            let mut writer = BufWriter::new(file);
+            writer.seek(SeekFrom::End(0))?;
+            for record in &records {
+                record.write_to_encrypted(&mut writer, self.encryption_key.as_ref())?;
+            }
+            writer.seek(SeekFrom::Start(8))?;
+            writer.write_u64::<LittleEndian>(records.len() as u64)?;
+            writer.flush()?;
+            writer.get_ref().sync_all()?;
+            Ok(())
+        })();
+        if let Err(error) = write_result {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(error);
+        }
+
+        self.reader.lock().take();
+        writer_slot.take();
+
+        let swap_result = (|| -> Result<()> {
+            if std::fs::hard_link(&self.file_path, &backup).is_err() {
+                std::fs::copy(&self.file_path, &backup)?;
+            }
+            // `rename` replaces the destination atomically on both POSIX and
+            // Windows (MoveFileExW with MOVEFILE_REPLACE_EXISTING).
+            std::fs::rename(&temporary, &self.file_path)?;
+            sync_parent_dir(&self.file_path);
+            Ok(())
+        })();
+
+        if let Err(error) = swap_result {
+            let _ = std::fs::remove_file(&temporary);
+            let _ = std::fs::remove_file(&backup);
+            self.reopen_handles_into(&mut writer_slot)?;
+            return Err(error);
+        }
+
+        let reopen = self
+            .reopen_handles_into(&mut writer_slot)
+            .and_then(|_| self.rebuild_index());
+        if let Err(error) = reopen {
+            self.reader.lock().take();
+            writer_slot.take();
+            std::fs::rename(&backup, &self.file_path)?;
+            self.reopen_handles_into(&mut writer_slot)?;
+            self.rebuild_index()?;
+            self.restore_temporal_links(&links);
+            return Err(error);
+        }
+
+        let _ = std::fs::remove_file(&backup);
+        *self.dirty_header.lock() = false;
+        *self.needs_flush.lock() = false;
+        drop(writer_slot);
+        self.restore_temporal_links(&links);
+        self.save_temporal_chain()?;
+        Ok(records.len())
+    }
+
+    fn reopen_handles_into(&self, writer_slot: &mut Option<BufWriter<File>>) -> Result<()> {
+        let reader = File::open(&self.file_path)?;
+        let writer = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.file_path)?;
+        *self.reader.lock() = Some(reader);
+        *writer_slot = Some(BufWriter::new(writer));
+        Ok(())
+    }
+
+    /// Snapshot the RAM-only temporal chain (`next_id` links).
+    fn temporal_links(&self) -> HashMap<String, String> {
+        self.header_cache
+            .read()
+            .iter()
+            .filter_map(|(id, header)| {
+                header
+                    .next_id
+                    .read()
+                    .as_ref()
+                    .map(|next| (id.clone(), next.clone()))
+            })
+            .collect()
+    }
+
+    /// Reapply temporal links whose endpoints are still present.
+    fn restore_temporal_links(&self, links: &HashMap<String, String>) {
+        let headers = self.header_cache.read();
+        for (from, to) in links {
+            if headers.contains_key(to) {
+                if let Some(header) = headers.get(from) {
+                    *header.next_id.write() = Some(to.clone());
+                }
+            }
         }
     }
 
@@ -833,7 +982,10 @@ impl AuraStorage {
         writer.write_all(b"TPL1")?;
         writer.write_u8(1)?;
 
-        bincode::serialize_into(writer, &links)?;
+        bincode::serialize_into(&mut writer, &links)?;
+        writer.flush()?;
+        writer.get_ref().sync_all()?;
+        drop(writer);
         std::fs::rename(temp_path, &self.temporal_path)?;
 
         tracing::debug!(
@@ -905,6 +1057,9 @@ impl AuraStorage {
         let mut writer = self.writer.lock();
         writer.take();
 
+        // Dropping the handle releases the OS lock so the brain can be reopened.
+        self.dir_lock.lock().take();
+
         Ok(())
     }
 }
@@ -963,6 +1118,7 @@ mod tests {
         assert_eq!(content[4], 1); // Version
 
         // 3. Load into FRESH storage
+        drop(storage);
         let storage2 = AuraStorage::new(dir.path())?;
         // Need to simulate "rebuild_index" or manually populate headers for load to work
         {
@@ -1018,6 +1174,80 @@ mod tests {
     }
 
     #[test]
+    fn second_open_of_same_directory_is_rejected_until_close() -> Result<()> {
+        let dir = tempdir()?;
+        let storage = AuraStorage::new(dir.path())?;
+        assert!(AuraStorage::new(dir.path()).is_err());
+        storage.close()?;
+        let reopened = AuraStorage::new(dir.path())?;
+        drop(reopened);
+        Ok(())
+    }
+
+    #[test]
+    fn torn_tail_is_truncated_and_later_appends_survive_reopen() -> Result<()> {
+        let dir = tempdir()?;
+        {
+            let storage = AuraStorage::new(dir.path())?;
+            storage.append(&mock_record("A"))?;
+            storage.append(&mock_record("B"))?;
+            storage.close()?;
+        }
+        // Simulate a crash mid-append: chop the last record in half.
+        let path = dir.path().join("brain.aura");
+        let len = std::fs::metadata(&path)?.len();
+        let file = OpenOptions::new().write(true).open(&path)?;
+        file.set_len(len - 10)?;
+        drop(file);
+
+        {
+            let storage = AuraStorage::new(dir.path())?;
+            assert!(storage.read("A")?.is_some());
+            assert!(storage.read("B")?.is_none());
+            storage.append(&mock_record("C"))?;
+            storage.close()?;
+        }
+
+        let storage = AuraStorage::new(dir.path())?;
+        assert!(storage.read("A")?.is_some());
+        assert!(storage.read("C")?.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn compact_active_preserves_records_and_temporal_links() -> Result<()> {
+        let dir = tempdir()?;
+        let storage = AuraStorage::new(dir.path())?;
+        for id in ["A", "B", "C"] {
+            storage.append(&mock_record(id))?;
+        }
+        storage.set_next_id("A", "B");
+        storage.set_next_id("B", "C");
+        storage.delete("C");
+
+        assert_eq!(storage.compact_active()?, 2);
+        assert!(storage.read("A")?.is_some());
+        assert!(storage.read("C")?.is_none());
+        assert_eq!(
+            storage.get_prediction("A").map(|h| h.id.clone()),
+            Some("B".into())
+        );
+        storage.close()?;
+
+        let reopened = AuraStorage::new(dir.path())?;
+        assert_eq!(
+            reopened.get_prediction("A").map(|h| h.id.clone()),
+            Some("B".into())
+        );
+        let leftovers = std::fs::read_dir(dir.path())?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".purge."))
+            .count();
+        assert_eq!(leftovers, 0);
+        Ok(())
+    }
+
+    #[test]
     fn test_storage_cycle() -> Result<()> {
         let dir = tempdir()?;
         let storage = AuraStorage::new(dir.path())?;
@@ -1046,4 +1276,90 @@ mod tests {
 
         Ok(())
     }
+}
+
+/// Persist a rename by syncing the parent directory (POSIX only; Windows
+/// has no directory handle to sync and MoveFileEx is durable on NTFS).
+fn sync_parent_dir(path: &Path) {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+struct IndexEntry {
+    id: String,
+    dna: String,
+    timestamp: f64,
+    intensity: f32,
+    stability: f32,
+    decay_velocity: f32,
+    entropy: f32,
+    sdr_indices: Vec<u16>,
+    encrypted: bool,
+    text_bytes: Vec<u8>,
+}
+
+/// Read one record header and its text for index rebuilding.
+///
+/// Returns an error for any incomplete or implausible record so the caller can
+/// treat it as a torn tail. Lengths are checked against the bytes remaining in
+/// the file before allocating.
+fn read_index_entry<R: Read + Seek>(file: &mut R, len: u64) -> std::io::Result<IndexEntry> {
+    let mut id_bytes = [0u8; 32];
+    file.read_exact(&mut id_bytes)?;
+    let id = String::from_utf8_lossy(&id_bytes)
+        .trim_matches('\0')
+        .to_string();
+
+    let mut dna_bytes = [0u8; 16];
+    file.read_exact(&mut dna_bytes)?;
+    let dna = String::from_utf8_lossy(&dna_bytes)
+        .trim_matches('\0')
+        .to_string();
+
+    let timestamp = file.read_f64::<LittleEndian>()?;
+    let intensity = file.read_f32::<LittleEndian>()?;
+    let stability = file.read_f32::<LittleEndian>()?;
+    let decay_velocity = file.read_f32::<LittleEndian>()?;
+    let entropy = file.read_f32::<LittleEndian>()?;
+
+    let sdr_count = file.read_u16::<LittleEndian>()?;
+    let text_len = file.read_u32::<LittleEndian>()?;
+
+    // Encryption flag (V4)
+    let encrypted = file.read_u8()? == 0x01;
+
+    let remaining = len.saturating_sub(file.stream_position()?);
+    if u64::from(sdr_count) * 2 + u64::from(text_len) > remaining {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "record extends past end of file",
+        ));
+    }
+
+    let mut sdr_indices = Vec::with_capacity(sdr_count as usize);
+    for _ in 0..sdr_count {
+        sdr_indices.push(file.read_u16::<LittleEndian>()?);
+    }
+
+    let mut text_bytes = vec![0u8; text_len as usize];
+    file.read_exact(&mut text_bytes)?;
+
+    Ok(IndexEntry {
+        id,
+        dna,
+        timestamp,
+        intensity,
+        stability,
+        decay_velocity,
+        entropy,
+        sdr_indices,
+        encrypted,
+        text_bytes,
+    })
 }

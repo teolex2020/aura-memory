@@ -49,6 +49,7 @@ pub mod versioning;
 pub mod consequence;
 pub mod evidence;
 pub mod experience;
+pub mod outcome_receipt;
 
 #[cfg(feature = "encryption")]
 pub mod crypto;
@@ -96,22 +97,6 @@ pub mod audit_graph;
 mod aura_state;
 pub mod tenant;
 
-pub mod sync {
-    //! Sync stub for builds without sync feature
-    use anyhow::{anyhow, Result};
-
-    #[derive(Clone, Debug, Default)]
-    pub struct SyncConfig;
-
-    pub struct SyncManager;
-
-    impl SyncManager {
-        pub async fn new(_: &str, _: SyncConfig) -> Result<Self> {
-            Err(anyhow!("Sync not enabled - rebuild with 'sync' feature"))
-        }
-    }
-}
-
 #[cfg(feature = "server")]
 pub mod server;
 
@@ -147,8 +132,6 @@ pub mod telemetry {
 
     pub fn shutdown_telemetry(_: TracerProvider) {}
 }
-
-pub mod license;
 
 // ── FROM aura-cognitive (rewritten to Rust) ──
 pub mod cognitive_store;
@@ -227,7 +210,7 @@ pub use audit_graph::{
     AuditConflict, AuditEdge, AuditEntityKind, AuditEntityStatus, AuditEvidenceTrace, AuditGraph,
     AuditNode, AuditRelationKind, ClaimEvidenceTrace, DecisionAuditExplanation,
 };
-pub use aura::Aura;
+pub use aura::{Aura, PurgeReceipt, PurgeScope};
 pub use consequence::ConsequenceUnit;
 pub use context_capsule::{
     build_compacted_context_capsule, build_compacted_context_capsule_at, build_context_capsule,
@@ -240,17 +223,15 @@ pub use evidence::{
     SourceDocument, SourceSpan, VerificationStatus,
 };
 pub use levels::Level;
+pub use outcome_receipt::{
+    CandidateOutcomeVerdict, OutcomeEvaluationEvidence, OutcomeKind, OutcomeReceipt,
+    OutcomeReceiptDraft,
+};
 pub use record::Record;
 pub use retrieval_episode::{
     suggest_memory_intent, CitationLockDecision, CitationLockReport, EvidenceOpenResult,
     MemoryIntent, MemoryRoute, OpenedEvidenceReceipt, RetrievalEpisode, RetrievalEpisodeError,
 };
-
-// Enforce license at module load
-#[ctor::ctor]
-fn init_license_check() {
-    license::enforce_license();
-}
 
 // ============= PYTHON BINDINGS =============
 #[cfg(feature = "python")]
@@ -261,6 +242,10 @@ fn _core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<consequence::ConsequencePolarity>()?;
     m.add_class::<consequence::ConsequenceUnit>()?;
     m.add_class::<consequence::ConsequencePolicyHint>()?;
+    m.add_class::<outcome_receipt::OutcomeKind>()?;
+    m.add_class::<outcome_receipt::OutcomeReceipt>()?;
+    m.add_class::<outcome_receipt::CandidateOutcomeVerdict>()?;
+    m.add_class::<outcome_receipt::OutcomeEvaluationEvidence>()?;
     m.add_class::<levels::Level>()?;
     m.add_class::<record::Record>()?;
     m.add_class::<record::RouteStateClass>()?;

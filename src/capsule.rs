@@ -95,6 +95,7 @@ fn acquire_mutation_lock(container: &Path, timeout: Duration) -> Result<CapsuleM
     }
     let file = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&lock_path)

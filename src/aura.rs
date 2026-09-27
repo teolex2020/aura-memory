@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -49,6 +49,9 @@ use crate::levels::Level;
 use crate::lexical::LexicalIndex;
 use crate::maintenance_service::MaintenanceService;
 use crate::ngram::NGramIndex;
+#[cfg(feature = "python")]
+use crate::outcome_receipt::{CandidateOutcomeVerdict, OutcomeEvaluationEvidence, OutcomeKind};
+use crate::outcome_receipt::{OutcomeReceipt, OutcomeReceiptDraft};
 use crate::recall;
 use crate::recall_service::{RecallPipelineView, RecallRerankView, RecallService};
 use crate::record::Record;
@@ -102,6 +105,81 @@ const RECORD_SALIENCE_MARKED_AT_KEY: &str = "salience_marked_at";
 const CONTRADICTION_REVIEW_PRIORITY_MAX: f32 = 10.0;
 const MAX_RECALL_REPLAY_BASELINES: usize = 128;
 
+/// Cumulative boundary for an explicit record purge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PurgeScope {
+    /// Remove the active record through the normal durable delete path.
+    Active,
+    /// Also invalidate all managed cognitive provenance derived from it.
+    Derived,
+    /// Also rewrite current Aura storage so deleted bytes are absent.
+    CurrentStorage,
+    /// Also rewrite managed audit rotations and named snapshots.
+    History,
+}
+
+impl PurgeScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Derived => "derived",
+            Self::CurrentStorage => "current_storage",
+            Self::History => "history",
+        }
+    }
+
+    fn includes_current_storage(self) -> bool {
+        matches!(self, Self::CurrentStorage | Self::History)
+    }
+
+    fn includes_history(self) -> bool {
+        matches!(self, Self::History)
+    }
+}
+
+impl std::str::FromStr for PurgeScope {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        match value {
+            "active" => Ok(Self::Active),
+            "derived" => Ok(Self::Derived),
+            "current_storage" => Ok(Self::CurrentStorage),
+            "history" => Ok(Self::History),
+            _ => anyhow::bail!(
+                "invalid purge scope '{}'; expected active, derived, current_storage, or history",
+                value
+            ),
+        }
+    }
+}
+
+/// Content-free result of an explicit purge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurgeReceipt {
+    pub record_digest: String,
+    pub scope: PurgeScope,
+    pub active_record_removed: bool,
+    pub beliefs_removed: usize,
+    pub concepts_removed: usize,
+    pub causal_patterns_removed: usize,
+    pub policy_hints_removed: usize,
+    pub topology_removed: bool,
+    pub snapshots_rewritten: usize,
+    pub audit_entries_removed: usize,
+    pub removed_surfaces: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DerivedRemoval {
+    beliefs: usize,
+    concepts: usize,
+    causal_patterns: usize,
+    policy_hints: usize,
+    topology: bool,
+}
+
 /// Unified cognitive memory for AI agents.
 #[cfg_attr(feature = "python", pyclass)]
 pub struct Aura {
@@ -132,6 +210,7 @@ pub struct Aura {
     encryption_key: Option<EncryptionKey>,
     persistence: crate::persistence::PersistenceCodec,
     audit_log: Option<AuditLog>,
+    outcome_receipt_guard: Mutex<()>,
 
     // ── Bridge: aura_id → record_id ──
     aura_index: RwLock<HashMap<String, String>>,
@@ -173,7 +252,7 @@ pub struct Aura {
     // ── Optional Embedding Support ──
     embedding_store: EmbeddingStore,
     #[cfg(feature = "python")]
-    embedding_fn: RwLock<Option<PyObject>>,
+    embedding_fn: RwLock<Option<Arc<PyObject>>>,
     #[cfg(feature = "capsule")]
     capsule_retention_scheduler:
         parking_lot::Mutex<Option<crate::capsule::CapsuleRetentionScheduler>>,
@@ -975,6 +1054,7 @@ impl Aura {
             encryption_key,
             persistence,
             audit_log,
+            outcome_receipt_guard: Mutex::new(()),
             aura_index: RwLock::new(aura_index),
             research_engine: ResearchEngine::new(),
             config: AuraConfigState::new(path_buf.clone()),
@@ -1703,22 +1783,12 @@ impl Aura {
         }
 
         // Compute embedding if embedding_fn is set (Python only)
-        #[cfg(feature = "python")]
-        {
-            let embedding_fn = self.embedding_fn.read();
-            if let Some(ref py_fn) = *embedding_fn {
-                let emb: Option<Vec<f32>> = Python::with_gil(|py| {
-                    let result = py_fn.call1(py, (content,)).ok()?;
-                    result.extract::<Vec<f32>>(py).ok()
-                });
-                if let Some(embedding) = emb {
-                    // The authoritative record is already committed. Optional
-                    // indexing must not report a failed store for that record
-                    // or skip cache invalidation and the remaining bookkeeping.
-                    if let Err(error) = self.embedding_store.insert(&rec.id, embedding) {
-                        tracing::warn!(record_id = %rec.id, %error, "Optional embedding was not stored");
-                    }
-                }
+        if let Some(embedding) = self.embed_text(content) {
+            // The authoritative record is already committed. Optional
+            // indexing must not report a failed store for that record
+            // or skip cache invalidation and the remaining bookkeeping.
+            if let Err(error) = self.embedding_store.insert(&rec.id, embedding) {
+                tracing::warn!(record_id = %rec.id, %error, "Optional embedding was not stored");
             }
         }
 
@@ -1816,6 +1886,81 @@ impl Aura {
         Ok(unit)
     }
 
+    /// Persist a content-free, observational outcome receipt.
+    ///
+    /// This API never stores a memory record and never changes recall scores,
+    /// strength, retention, consolidation, or forgetting. It records exact
+    /// candidate/selection identities so a later, separately gated experiment
+    /// can evaluate whether outcomes carry useful signal.
+    pub fn capture_outcome_receipt(&self, draft: OutcomeReceiptDraft) -> Result<OutcomeReceipt> {
+        let _receipt_guard = self.outcome_receipt_guard.lock();
+        draft.validate()?;
+        crate::record::Record::validate_namespace(&draft.namespace).map_err(anyhow::Error::msg)?;
+
+        let active_namespaces: HashMap<String, String> = {
+            let records = self.records.read();
+            draft
+                .candidate_record_ids
+                .iter()
+                .filter_map(|id| {
+                    records
+                        .get(id)
+                        .map(|record| (id.clone(), record.namespace.clone()))
+                })
+                .collect()
+        };
+        let needs_durable_lookup = active_namespaces.len() != draft.candidate_record_ids.len();
+        let durable_records = if needs_durable_lookup {
+            Some(self.cognitive_store.load_all()?)
+        } else {
+            None
+        };
+
+        for record_id in &draft.candidate_record_ids {
+            let namespace = active_namespaces
+                .get(record_id)
+                .map(String::as_str)
+                .or_else(|| {
+                    durable_records
+                        .as_ref()
+                        .and_then(|records| records.get(record_id))
+                        .map(|record| record.namespace.as_str())
+                })
+                .with_context(|| {
+                    format!("outcome receipt candidate record does not exist: {record_id}")
+                })?;
+            anyhow::ensure!(
+                namespace == draft.namespace,
+                "outcome receipt candidate {record_id} belongs to namespace {namespace}, not {}",
+                draft.namespace
+            );
+        }
+
+        self.audit_log
+            .as_ref()
+            .context("outcome receipt capture requires the audit journal")?
+            .capture_outcome_receipt(draft)
+    }
+
+    /// Return verified observational receipts without changing memory state.
+    pub fn outcome_receipts(
+        &self,
+        namespace: Option<&str>,
+        lineage_id: Option<&str>,
+    ) -> Result<Vec<OutcomeReceipt>> {
+        let receipts = self
+            .audit_log
+            .as_ref()
+            .context("outcome receipt lookup requires the audit journal")?
+            .read_outcome_receipts()?;
+        Ok(receipts
+            .into_iter()
+            .filter(|receipt| {
+                namespace.is_none_or(|value| receipt.namespace == value)
+                    && lineage_id.is_none_or(|value| receipt.lineage_id == value)
+            })
+            .collect())
+    }
     /// Apply a captured consequence to any linked belief or linked record's owning belief.
     ///
     /// This is the bridge from passive outcome memory into the epistemic layer:
@@ -2279,6 +2424,7 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<AclRecallResult> {
+        let query_embedding = self.query_embedding(query);
         let default_ns = [crate::record::DEFAULT_NAMESPACE];
         let namespace_list = namespaces.unwrap_or(&default_ns);
         let now = now_secs_f64();
@@ -2328,7 +2474,7 @@ impl Aura {
         let lexical = self.lexical_index.read();
         let tag_index = self.tag_index.read();
         let aura_index = self.aura_index.read();
-        let embedding_ranked = self.collect_embedding_signal(query, candidate_top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), candidate_top);
         let trust_config = self.config.trust_config.read();
         let mut scored = RecallService::raw(
             RecallPipelineView {
@@ -2474,6 +2620,7 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         if !timestamp.is_finite() {
             anyhow::bail!("timestamp must be a finite Unix timestamp");
         }
@@ -2486,7 +2633,7 @@ impl Aura {
         let aura_idx = self.aura_index.read();
 
         let top = top_k.unwrap_or(20);
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let trust_config = self.config.trust_config.read();
 
         let scored = RecallService::recall_temporal(
@@ -2511,6 +2658,7 @@ impl Aura {
 
         drop(records);
         drop(ngram);
+        drop(lexical);
         drop(tag_idx);
         drop(aura_idx);
         drop(trust_config);
@@ -2534,6 +2682,7 @@ impl Aura {
         expand_connections: Option<bool>,
         namespaces: Option<&[&str]>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         if !timestamp.is_finite() {
             anyhow::bail!("timestamp must be a finite Unix timestamp");
         }
@@ -2544,7 +2693,7 @@ impl Aura {
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let top = top_k.unwrap_or(20);
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let trust_config = self.config.trust_config.read();
 
         Ok(RecallService::recall_temporal(
@@ -2841,18 +2990,42 @@ impl Aura {
         expand_connections: bool,
         namespaces: Option<&[&str]>,
     ) -> Vec<(f32, Record)> {
+        let query_embedding = self.query_embedding(query);
+        self.recall_raw_embedded(
+            query,
+            query_embedding.as_deref(),
+            top_k,
+            min_strength,
+            expand_connections,
+            namespaces,
+        )
+    }
+
+    /// Raw recall with a precomputed query embedding. Must be called without
+    /// holding store locks.
+    fn recall_raw_embedded(
+        &self,
+        query: &str,
+        query_embedding: Option<&[f32]>,
+        top_k: usize,
+        min_strength: f32,
+        expand_connections: bool,
+        namespaces: Option<&[&str]>,
+    ) -> Vec<(f32, Record)> {
         let records = self.records.read();
         let now = now_secs_f64();
+        // Only build a filtered copy when some record is actually outside its
+        // validity window right now; currently-valid temporal records need none.
         let temporal_records = records
             .values()
-            .any(|record| record.valid_from.is_some() || record.valid_until.is_some())
+            .any(|record| !record.is_valid_at(now))
             .then(|| Self::records_valid_at(&records, now));
         let recall_records = temporal_records.as_ref().unwrap_or(&*records);
         let ngram = self.ngram_index.read();
         let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top_k);
+        let embedding_ranked = self.embedding_signal(query_embedding, top_k);
         let trust_config = self.config.trust_config.read();
 
         RecallService::raw(
@@ -3055,6 +3228,12 @@ impl Aura {
             recall::suppress_resolved_losing_hypotheses(&mut scored, &belief_eng);
         }
         scored.truncate(top_k);
+        // recall_finalize takes records.write(); delete holds records.write()
+        // while updating the engines, so engine guards must be released first.
+        drop(belief_eng);
+        drop(concept_eng);
+        drop(causal_eng);
+        drop(policy_eng);
 
         self.recall_finalize(&scored, query, session_id);
         Ok(scored)
@@ -3088,6 +3267,7 @@ impl Aura {
         // Shadow scoring on raw baseline
         let belief_eng = self.belief_engine.read();
         let shadow_report = RecallService::shadow_report(&scored, &belief_eng, top);
+        drop(belief_eng);
 
         self.recall_finalize(&scored, query, session_id);
         Ok((scored, shadow_report))
@@ -3120,6 +3300,7 @@ impl Aura {
 
         let belief_eng = self.belief_engine.read();
         let report = RecallService::rerank_report(&mut scored, &belief_eng, top);
+        drop(belief_eng);
 
         self.recall_finalize(&scored, query, session_id);
         Ok((scored, report))
@@ -3148,6 +3329,7 @@ impl Aura {
         expand_connections: Option<bool>,
         namespaces: Option<&[&str]>,
     ) -> RecallExplanation {
+        let query_embedding = self.query_embedding(query);
         let started = std::time::Instant::now();
         let trace_id = format!("mem_{}", uuid::Uuid::new_v4().simple());
         tracing::Span::current().record("memory_trace_id", trace_id.as_str());
@@ -3172,7 +3354,7 @@ impl Aura {
         let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
-        let embedding_ranked = self.collect_embedding_signal(query, candidate_top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), candidate_top);
         let trust_config = self.config.trust_config.read();
         let traced = RecallService::raw_with_trace(
             RecallPipelineView {
@@ -4233,39 +4415,246 @@ impl Aura {
         Ok(Some(updated))
     }
 
-    /// Delete a record.
-    pub fn delete(&self, record_id: &str) -> Result<bool> {
-        let mut records = self.records.write();
-        if !records.contains_key(record_id) {
-            return Ok(false);
+    fn remove_derived_provenance(&self, record_id: &str) -> Result<DerivedRemoval> {
+        let mut belief = self.belief_engine.read().clone();
+        let removed_beliefs = belief.remove_record_provenance(record_id);
+
+        let mut concept = self.concept_engine.read().clone();
+        let removed_concepts = concept.remove_record_provenance(record_id, &removed_beliefs);
+
+        let mut causal = self.causal_engine.read().clone();
+        let removed_causal = causal.remove_record_provenance(record_id, &removed_beliefs);
+
+        let mut policy = self.policy_engine.read().clone();
+        let removed_policy = policy.remove_record_provenance(
+            record_id,
+            &removed_beliefs,
+            &removed_concepts,
+            &removed_causal,
+        );
+
+        let mut topology = self.topology.read().clone();
+        let topology_removed = topology.remove_node(crate::topology::node_id_for(record_id));
+
+        // Persist prepared derived state before publishing it in RAM. If any
+        // write fails, active record visibility is unchanged.
+        if !removed_beliefs.is_empty() {
+            self.belief_store.save(&belief)?;
+        }
+        if !removed_concepts.is_empty() {
+            self.concept_store.save(&concept)?;
+        }
+        if !removed_causal.is_empty() {
+            self.causal_store.save(&causal)?;
+        }
+        if !removed_policy.is_empty() {
+            self.policy_store.save(&policy)?;
+        }
+        if topology_removed {
+            self.topology_store.save(&topology)?;
         }
 
-        // A failed derived-index write must leave the authoritative record
-        // and its cached recall results intact.
+        let mut summaries = self.runtime.reflection_summaries.read().clone();
+        let summaries_before = summaries.len();
+        summaries.retain(|summary| {
+            !summary
+                .findings
+                .iter()
+                .any(|finding| finding.related_ids.iter().any(|id| id == record_id))
+        });
+        if summaries.len() != summaries_before {
+            save_reflection_summaries(&self.config.path, &self.persistence, &summaries)?;
+        }
+
+        let mut baselines = self.recall_replay_baselines.read().clone();
+        let baselines_before = baselines.len();
+        baselines.retain(|baseline| !baseline.ranked.iter().any(|(id, _)| id == record_id));
+        if baselines.len() != baselines_before {
+            save_recall_replay_baselines(&self.config.path, &self.persistence, &baselines)?;
+        }
+
+        *self.belief_engine.write() = belief;
+        *self.concept_engine.write() = concept;
+        *self.causal_engine.write() = causal;
+        *self.policy_engine.write() = policy;
+        *self.topology.write() = topology;
+        if summaries.len() != summaries_before {
+            *self.runtime.reflection_summaries.write() = summaries;
+        }
+        if baselines.len() != baselines_before {
+            *self.recall_replay_baselines.write() = baselines;
+        }
+
+        Ok(DerivedRemoval {
+            beliefs: removed_beliefs.len(),
+            concepts: removed_concepts.len(),
+            causal_patterns: removed_causal.len(),
+            policy_hints: removed_policy.len(),
+            topology: topology_removed,
+        })
+    }
+
+    /// Delete a record using a durable-before-visible lifecycle transition.
+    ///
+    /// Natural cognitive forgetting is unchanged. This method handles only an
+    /// explicit deletion request and invalidates conclusions that depended on
+    /// the deleted evidence.
+    pub fn delete(&self, record_id: &str) -> Result<bool> {
+        self.delete_with_derived(record_id)
+            .map(|(removed, _)| removed)
+    }
+
+    fn delete_with_derived(&self, record_id: &str) -> Result<(bool, DerivedRemoval)> {
+        let mut records = self.records.write();
+        let Some(target) = records.get(record_id).cloned() else {
+            return Ok((false, DerivedRemoval::default()));
+        };
+
+        // Derived writes are prepared before the authoritative tombstone. A
+        // failure here leaves the source record visible and recoverable.
         self.embedding_store.remove(record_id)?;
+        let derived = self.remove_derived_provenance(record_id)?;
+
+        // Persist every inbound reference cleanup in the same durable frame as
+        // the tombstone, so reopen cannot restore stale graph provenance.
+        let mut neighbor_updates = Vec::new();
+        for record in records.values() {
+            if record.id == record_id {
+                continue;
+            }
+            if record.connections.contains_key(record_id)
+                || record.connection_types.contains_key(record_id)
+                || record.caused_by_id.as_deref() == Some(record_id)
+            {
+                let mut updated = record.clone();
+                updated.connections.remove(record_id);
+                updated.connection_types.remove(record_id);
+                if updated.caused_by_id.as_deref() == Some(record_id) {
+                    updated.caused_by_id = None;
+                }
+                neighbor_updates.push(updated);
+            }
+        }
+        self.cognitive_store
+            .append_atomic_mutations(&neighbor_updates, &[record_id.to_string()])?;
 
         let mut ngram = self.ngram_index.write();
         let mut tag_idx = self.tag_index.write();
         let mut aura_idx = self.aura_index.write();
-
-        crate::graph::remove_record(
+        crate::graph::remove_record_in_memory(
             record_id,
             &mut records,
             &mut ngram,
             &mut tag_idx,
             &mut aura_idx,
-            &self.cognitive_store,
         );
+        for updated in neighbor_updates {
+            if let Some(record) = records.get_mut(&updated.id) {
+                *record = updated;
+            }
+        }
 
         self.storage.delete(record_id);
         self.index.remove(record_id);
         self.lexical_index.write().remove(record_id);
         self.runtime.sdr_lookup_cache.write().remove(record_id);
-
-        // Invalidate recall cache on write
         self.runtime.clear_recall_caches();
 
-        Ok(true)
+        if let Some(log) = &self.audit_log {
+            log.log_delete(&target.id)?;
+        }
+
+        Ok((true, derived))
+    }
+
+    /// Explicitly purge a record through a cumulative managed scope.
+    pub fn purge_record(&self, record_id: &str, scope: PurgeScope) -> Result<PurgeReceipt> {
+        let _receipt_guard = self.outcome_receipt_guard.lock();
+        use sha2::{Digest, Sha256};
+
+        let content = self
+            .records
+            .read()
+            .get(record_id)
+            .map(|record| record.content.clone())
+            .or_else(|| {
+                self.storage
+                    .read(record_id)
+                    .ok()
+                    .flatten()
+                    .map(|record| record.text)
+            })
+            .unwrap_or_default();
+
+        let (active_record_removed, mut derived) = self.delete_with_derived(record_id)?;
+        if !active_record_removed {
+            derived = self.remove_derived_provenance(record_id)?;
+        }
+
+        // The legacy binary layer can contain the record after a reopen even
+        // when the cognitive tombstone already made it logically invisible.
+        self.storage.delete(record_id);
+
+        let mut removed_surfaces = vec!["active".to_string(), "derived".to_string()];
+        let mut snapshots_rewritten = 0usize;
+        let mut audit_entries_removed = 0usize;
+
+        if scope.includes_current_storage() {
+            // Compact the complete durable corpus, not only the active RAM
+            // surface: cold demoted traces intentionally stay out of active
+            // indexes but must survive an unrelated record purge.
+            self.cognitive_store.compact_durable(Some(record_id))?;
+            self.storage.compact_active()?;
+            removed_surfaces.push("current_storage".to_string());
+        }
+
+        if scope.includes_history() {
+            for label in self.list_snapshots() {
+                let path = self.snapshot_path(&label);
+                let json = self.persistence.read_text(&path)?;
+                let mut snapshot: Vec<Record> = serde_json::from_str(&json)?;
+                let before = snapshot.len();
+                snapshot.retain(|record| record.id != record_id);
+                let mut changed = snapshot.len() != before;
+                for record in &mut snapshot {
+                    changed |= record.connections.remove(record_id).is_some();
+                    changed |= record.connection_types.remove(record_id).is_some();
+                    if record.caused_by_id.as_deref() == Some(record_id) {
+                        record.caused_by_id = None;
+                        changed = true;
+                    }
+                }
+                if changed {
+                    let json = serde_json::to_vec(&snapshot)?;
+                    self.persistence.write(&path, &json)?;
+                    snapshots_rewritten += 1;
+                }
+            }
+            if let Some(log) = &self.audit_log {
+                audit_entries_removed = log.purge_record_history(record_id, &content)?;
+            }
+            removed_surfaces.push("history".to_string());
+        }
+
+        let record_digest = hex::encode(Sha256::digest(record_id.as_bytes()));
+        let receipt = PurgeReceipt {
+            record_digest: record_digest.clone(),
+            scope,
+            active_record_removed,
+            beliefs_removed: derived.beliefs,
+            concepts_removed: derived.concepts,
+            causal_patterns_removed: derived.causal_patterns,
+            policy_hints_removed: derived.policy_hints,
+            topology_removed: derived.topology,
+            snapshots_rewritten,
+            audit_entries_removed,
+            removed_surfaces: removed_surfaces.clone(),
+        };
+
+        if let Some(log) = &self.audit_log {
+            log.log_purge(&record_digest, scope.as_str(), removed_surfaces)?;
+        }
+        Ok(receipt)
     }
 
     /// Connect two records with optional relationship type.
@@ -4444,8 +4833,7 @@ impl Aura {
 
         // Compact if many dead entries
         if archived > 100 {
-            let durable_records = self.cognitive_store.load_all()?;
-            self.cognitive_store.compact(&durable_records)?;
+            self.cognitive_store.compact_durable(None)?;
         }
 
         Ok((decayed, archived))
@@ -5046,32 +5434,52 @@ impl Aura {
         self.embedding_store.is_active()
     }
 
-    /// Collect embedding similarity signal for recall pipeline.
-    /// Returns None if no embeddings are stored or no query embedding is available.
+    /// Run the Python embedding callback, if one is set.
+    ///
+    /// Callers must not hold any store lock: the callback needs the GIL, and a
+    /// Python thread holding the GIL may be waiting on those same locks.
     #[allow(unused_variables)]
-    fn collect_embedding_signal(&self, _query: &str, top_k: usize) -> Option<Vec<(String, f32)>> {
+    fn embed_text(&self, text: &str) -> Option<Vec<f32>> {
+        #[cfg(feature = "python")]
+        {
+            // Clone the callback out so the RwLock is not held while waiting for the GIL.
+            let callback = self.embedding_fn.read().clone()?;
+            return Python::with_gil(|py| {
+                match callback
+                    .call1(py, (text,))
+                    .and_then(|value| value.extract::<Vec<f32>>(py))
+                {
+                    Ok(embedding) => Some(embedding),
+                    Err(error) => {
+                        tracing::warn!(%error, "embedding callback failed");
+                        None
+                    }
+                }
+            });
+        }
+        #[allow(unreachable_code)]
+        None
+    }
+
+    /// Compute the query embedding for recall. Must be called before taking store locks.
+    fn query_embedding(&self, query: &str) -> Option<Vec<f32>> {
         if !self.embedding_store.is_active() {
             return None;
         }
+        self.embed_text(query)
+    }
 
-        // In pure Rust mode, the user must provide query embeddings via
-        // recall_with_embedding(). In Python mode, the embedding_fn callback
-        // is used. This method is a no-op without explicit query embeddings.
-        #[cfg(feature = "python")]
-        {
-            let embedding_fn = self.embedding_fn.read();
-            if let Some(ref py_fn) = *embedding_fn {
-                let result: Option<Vec<f32>> = Python::with_gil(|py| {
-                    let result = py_fn.call1(py, (_query,)).ok()?;
-                    result.extract::<Vec<f32>>(py).ok()
-                });
-                if let Some(query_emb) = result {
-                    return Some(self.embedding_store.query(&query_emb, top_k));
-                }
-            }
+    /// Embedding similarity signal for the recall pipeline from a precomputed query embedding.
+    fn embedding_signal(
+        &self,
+        query_embedding: Option<&[f32]>,
+        top_k: usize,
+    ) -> Option<Vec<(String, f32)>> {
+        let query_embedding = query_embedding?;
+        if !self.embedding_store.is_active() {
+            return None;
         }
-
-        None
+        Some(self.embedding_store.query(query_embedding, top_k))
     }
 
     /// Recall with explicit query embedding (Rust API).
@@ -5086,46 +5494,26 @@ impl Aura {
         session_id: Option<&str>,
     ) -> Result<Vec<(f32, Record)>> {
         let top_k = top_k.unwrap_or(20);
-        let records = self.records.read();
-        let ngram = self.ngram_index.read();
-        let lexical = self.lexical_index.read();
-        let tag_idx = self.tag_index.read();
-        let aura_idx = self.aura_index.read();
-
-        // Get embedding signal
-        let embedding_ranked = Some(self.embedding_store.query(query_embedding, top_k));
-        let trust_config = self.config.trust_config.read();
-
-        let scored = recall::recall_pipeline(
+        // Same path as recall_raw (temporal validity, trust, namespace
+        // defaults), with the caller's embedding instead of the callback.
+        let mut scored = self.recall_raw_embedded(
             query,
+            Some(query_embedding),
             top_k,
             min_strength.unwrap_or(0.1),
             expand_connections.unwrap_or(true),
-            &self.sdr,
-            &self.index,
-            &self.storage,
-            &ngram,
-            &lexical,
-            &tag_idx,
-            &aura_idx,
-            &records,
-            embedding_ranked,
-            Some(&trust_config),
-            None, // default namespace
+            None,
         );
-
-        drop(records);
-        drop(ngram);
-        drop(tag_idx);
-        drop(aura_idx);
-        drop(trust_config);
-
-        {
-            let mut records = self.records.write();
-            let mut tracker = self.session_tracker.write();
-            recall::activate_and_strengthen(&scored, &mut records, &mut tracker, session_id);
+        let rerank_mode = recall::BeliefRerankMode::from_u8(
+            self.runtime
+                .belief_rerank_mode
+                .load(std::sync::atomic::Ordering::Relaxed),
+        );
+        if rerank_mode == recall::BeliefRerankMode::Limited {
+            let belief_eng = self.belief_engine.read();
+            recall::suppress_resolved_losing_hypotheses(&mut scored, &belief_eng);
         }
-        self.mark_recall_records_dirty(&scored);
+        self.recall_finalize(&scored, query, session_id);
 
         Ok(scored)
     }
@@ -5342,8 +5730,11 @@ impl Aura {
         let records_archived = post_discovery.records_archived;
         self.remove_from_active_indexes(&post_discovery.removed_ids, true);
 
-        // Persist changes
-        let _ = self.flush();
+        // Persist changes. Maintenance reports rather than fails, so surface
+        // persistence errors in the log instead of dropping them.
+        if let Err(error) = self.flush() {
+            tracing::error!(%error, "maintenance could not persist changes");
+        }
 
         // Invalidate cache after maintenance
         self.runtime.clear_recall_caches();
@@ -5380,7 +5771,11 @@ impl Aura {
                 previous_cumulative_corrections,
             );
             MaintenanceService::push_trend_snapshot(&mut history, snapshot);
-            let _ = save_maintenance_trends(&self.config.path, &self.persistence, &history);
+            if let Err(error) =
+                save_maintenance_trends(&self.config.path, &self.persistence, &history)
+            {
+                tracing::warn!(%error, "could not save maintenance trends");
+            }
             MaintenanceService::summarize_trends(&history)
         };
         let reflection = {
@@ -5398,7 +5793,11 @@ impl Aura {
 
             let mut history = self.runtime.reflection_summaries.write();
             MaintenanceService::push_reflection_summary(&mut history, summary.clone());
-            let _ = save_reflection_summaries(&self.config.path, &self.persistence, &history);
+            if let Err(error) =
+                save_reflection_summaries(&self.config.path, &self.persistence, &history)
+            {
+                tracing::warn!(%error, "could not save reflection summaries");
+            }
             summary
         };
 
@@ -7535,6 +7934,7 @@ impl Aura {
         session_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         let digest = self
             .get_relation_digest(record_id, limit)
             .ok_or_else(|| anyhow::anyhow!("Relation digest not found for {}", record_id))?;
@@ -7559,7 +7959,7 @@ impl Aura {
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let ns = [digest.namespace.as_str()];
 
         let scored = recall::recall_pipeline(
@@ -7581,6 +7981,7 @@ impl Aura {
         );
 
         drop(ngram);
+        drop(lexical);
         drop(tag_idx);
         drop(aura_idx);
         drop(trust_config);
@@ -7610,6 +8011,7 @@ impl Aura {
         session_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         let (namespace, mut scoped_records) = self
             .collect_entity_records(entity_id)
             .ok_or_else(|| anyhow::anyhow!("Entity {} not found", entity_id))?;
@@ -7629,7 +8031,7 @@ impl Aura {
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let ns = [namespace.as_str()];
 
         let scored = recall::recall_pipeline(
@@ -7651,6 +8053,7 @@ impl Aura {
         );
 
         drop(ngram);
+        drop(lexical);
         drop(tag_idx);
         drop(aura_idx);
         drop(trust_config);
@@ -7679,6 +8082,7 @@ impl Aura {
         expand_connections: Option<bool>,
         session_id: Option<&str>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         let (namespace, scoped_records) = self
             .collect_entity_records(entity_id)
             .ok_or_else(|| anyhow::anyhow!("Entity {} not found", entity_id))?;
@@ -7689,7 +8093,7 @@ impl Aura {
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let ns = [namespace.as_str()];
 
         let scored = recall::recall_pipeline(
@@ -7711,6 +8115,7 @@ impl Aura {
         );
 
         drop(ngram);
+        drop(lexical);
         drop(tag_idx);
         drop(aura_idx);
         drop(trust_config);
@@ -7844,6 +8249,7 @@ impl Aura {
         expand_connections: Option<bool>,
         session_id: Option<&str>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         let digest = self
             .get_person_digest(record_id)
             .ok_or_else(|| anyhow::anyhow!("Person digest not found for {}", record_id))?;
@@ -7866,7 +8272,7 @@ impl Aura {
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let ns = [digest.namespace.as_str()];
 
         let scored = recall::recall_pipeline(
@@ -7888,6 +8294,7 @@ impl Aura {
         );
 
         drop(ngram);
+        drop(lexical);
         drop(tag_idx);
         drop(aura_idx);
         drop(trust_config);
@@ -8164,6 +8571,7 @@ impl Aura {
         session_id: Option<&str>,
         namespace: Option<&str>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         let family_graph = self
             .get_family_graph(namespace)
             .ok_or_else(|| anyhow::anyhow!("Family graph not found"))?;
@@ -8188,7 +8596,7 @@ impl Aura {
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let ns = [family_graph.namespace.as_str()];
 
         let scored = recall::recall_pipeline(
@@ -8210,6 +8618,7 @@ impl Aura {
         );
 
         drop(ngram);
+        drop(lexical);
         drop(tag_idx);
         drop(aura_idx);
         drop(trust_config);
@@ -8238,6 +8647,7 @@ impl Aura {
         expand_connections: Option<bool>,
         session_id: Option<&str>,
     ) -> Result<Vec<(f32, Record)>> {
+        let query_embedding = self.query_embedding(query);
         let (project_anchor, project_records) = self
             .collect_project_records(project_id)
             .ok_or_else(|| anyhow::anyhow!("Project {} not found", project_id))?;
@@ -8248,7 +8658,7 @@ impl Aura {
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
         let trust_config = self.config.trust_config.read();
-        let embedding_ranked = self.collect_embedding_signal(query, top);
+        let embedding_ranked = self.embedding_signal(query_embedding.as_deref(), top);
         let ns = [project_anchor.namespace.as_str()];
 
         let scored = recall::recall_pipeline(
@@ -8270,6 +8680,7 @@ impl Aura {
         );
 
         drop(ngram);
+        drop(lexical);
         drop(tag_idx);
         drop(aura_idx);
         drop(trust_config);
@@ -13868,6 +14279,41 @@ fn consequence_unit_to_py(py: Python<'_>, unit: &ConsequenceUnit) -> PyResult<Py
     Ok(dict.unbind().into_any())
 }
 
+#[cfg(feature = "python")]
+fn outcome_receipt_to_py(py: Python<'_>, receipt: &OutcomeReceipt) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new_bound(py);
+    dict.set_item("schema_version", receipt.schema_version)?;
+    dict.set_item("receipt_id", &receipt.receipt_id)?;
+    dict.set_item("task_id", &receipt.task_id)?;
+    dict.set_item("lineage_id", &receipt.lineage_id)?;
+    dict.set_item("attempt_id", &receipt.attempt_id)?;
+    dict.set_item("candidate_record_ids", &receipt.candidate_record_ids)?;
+    dict.set_item("selected_record_ids", &receipt.selected_record_ids)?;
+    dict.set_item("outcome", receipt.outcome.as_str())?;
+    dict.set_item(
+        "supersedes_receipt_id",
+        receipt.supersedes_receipt_id.as_deref(),
+    )?;
+    dict.set_item("namespace", &receipt.namespace)?;
+    dict.set_item("provenance", &receipt.provenance)?;
+    dict.set_item("recorded_at_ms", receipt.recorded_at_ms)?;
+    dict.set_item("logging_policy_id", receipt.logging_policy_id.as_deref())?;
+    dict.set_item(
+        "selected_set_probability_bps",
+        receipt.selected_set_probability_bps,
+    )?;
+    let verdicts = pyo3::types::PyList::empty_bound(py);
+    for verdict in &receipt.candidate_verdicts {
+        let item = pyo3::types::PyDict::new_bound(py);
+        item.set_item("record_id", &verdict.record_id)?;
+        item.set_item("outcome", verdict.outcome.as_str())?;
+        verdicts.append(item)?;
+    }
+    dict.set_item("candidate_verdicts", verdicts)?;
+    dict.set_item("verifier_id", receipt.verifier_id.as_deref())?;
+    dict.set_item("integrity_digest", &receipt.integrity_digest)?;
+    Ok(dict.unbind().into_any())
+}
 #[cfg(all(feature = "python", feature = "capsule"))]
 fn capsule_toc_to_py(py: Python<'_>, toc: &crate::capsule::CapsuleToc) -> PyResult<PyObject> {
     let dict = pyo3::types::PyDict::new_bound(py);
@@ -14370,6 +14816,79 @@ impl Aura {
         audit_value_to_py(py, &conflicts)
     }
 
+    #[pyo3(name = "capture_outcome_receipt", signature = (task_id, lineage_id, attempt_id, candidate_record_ids, selected_record_ids, outcome, supersedes_receipt_id=None, namespace=None, provenance=None, logging_policy_id=None, selected_set_probability_bps=None, candidate_verdicts=None, verifier_id=None))]
+    fn py_capture_outcome_receipt(
+        &self,
+        py: Python<'_>,
+        task_id: &str,
+        lineage_id: &str,
+        attempt_id: &str,
+        candidate_record_ids: Vec<String>,
+        selected_record_ids: Vec<String>,
+        outcome: &str,
+        supersedes_receipt_id: Option<String>,
+        namespace: Option<&str>,
+        provenance: Option<Vec<String>>,
+        logging_policy_id: Option<String>,
+        selected_set_probability_bps: Option<u16>,
+        candidate_verdicts: Option<std::collections::HashMap<String, String>>,
+        verifier_id: Option<String>,
+    ) -> PyResult<PyObject> {
+        let outcome = outcome
+            .parse::<OutcomeKind>()
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        let mut draft = OutcomeReceiptDraft::new(
+            task_id,
+            lineage_id,
+            attempt_id,
+            candidate_record_ids,
+            selected_record_ids,
+            outcome,
+            supersedes_receipt_id,
+            namespace.unwrap_or(crate::record::DEFAULT_NAMESPACE),
+            provenance.unwrap_or_else(|| vec!["sdk:python".to_string()]),
+        );
+        let mut parsed_verdicts = candidate_verdicts
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(record_id, outcome)| {
+                outcome
+                    .parse::<OutcomeKind>()
+                    .map(|outcome| CandidateOutcomeVerdict::new(record_id, outcome))
+            })
+            .collect::<Result<Vec<_>>>()
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        parsed_verdicts.sort_by(|left, right| left.record_id.cmp(&right.record_id));
+        let evaluation = OutcomeEvaluationEvidence {
+            logging_policy_id,
+            selected_set_probability_bps,
+            candidate_verdicts: parsed_verdicts,
+            verifier_id,
+        };
+        if !evaluation.is_empty() {
+            draft = draft.with_evaluation(evaluation);
+        }
+        let receipt = py
+            .allow_threads(|| self.capture_outcome_receipt(draft))
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        outcome_receipt_to_py(py, &receipt)
+    }
+
+    #[pyo3(name = "outcome_receipts", signature = (namespace=None, lineage_id=None))]
+    fn py_outcome_receipts(
+        &self,
+        py: Python<'_>,
+        namespace: Option<&str>,
+        lineage_id: Option<&str>,
+    ) -> PyResult<Vec<PyObject>> {
+        let receipts = py
+            .allow_threads(|| self.outcome_receipts(namespace, lineage_id))
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        receipts
+            .iter()
+            .map(|receipt| outcome_receipt_to_py(py, receipt))
+            .collect()
+    }
     #[pyo3(name = "capture_consequence", signature = (situation, action, consequence, trust=0, scope=None, provenance=None, links=None, namespace=None))]
     fn py_capture_consequence(
         &self,
@@ -15141,6 +15660,29 @@ impl Aura {
     fn py_delete(&self, record_id: &str) -> PyResult<bool> {
         self.delete(record_id)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    #[pyo3(name = "purge_record")]
+    fn py_purge_record(&self, py: Python<'_>, record_id: &str, scope: &str) -> PyResult<PyObject> {
+        let scope = scope
+            .parse::<PurgeScope>()
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+        let receipt = self
+            .purge_record(record_id, scope)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("record_digest", receipt.record_digest)?;
+        dict.set_item("scope", receipt.scope.as_str())?;
+        dict.set_item("active_record_removed", receipt.active_record_removed)?;
+        dict.set_item("beliefs_removed", receipt.beliefs_removed)?;
+        dict.set_item("concepts_removed", receipt.concepts_removed)?;
+        dict.set_item("causal_patterns_removed", receipt.causal_patterns_removed)?;
+        dict.set_item("policy_hints_removed", receipt.policy_hints_removed)?;
+        dict.set_item("topology_removed", receipt.topology_removed)?;
+        dict.set_item("snapshots_rewritten", receipt.snapshots_rewritten)?;
+        dict.set_item("audit_entries_removed", receipt.audit_entries_removed)?;
+        dict.set_item("removed_surfaces", receipt.removed_surfaces)?;
+        Ok(dict.unbind().into_any())
     }
 
     #[pyo3(name = "explain_recall", signature = (query, top_k=None, min_strength=None, expand_connections=None, namespace=None))]
@@ -16258,27 +16800,39 @@ impl Aura {
     /// Set belief-aware recall reranking mode (Python binding).
     /// mode: "off" | "shadow" | "limited"
     #[pyo3(name = "set_belief_rerank_mode")]
-    fn py_set_belief_rerank_mode(&self, mode: &str) {
+    fn py_set_belief_rerank_mode(&self, mode: &str) -> PyResult<()> {
         use crate::recall::BeliefRerankMode;
         let m = match mode {
             "limited" => BeliefRerankMode::Limited,
             "shadow" => BeliefRerankMode::Shadow,
-            _ => BeliefRerankMode::Off,
+            "off" => BeliefRerankMode::Off,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown mode {other:?}; expected one of off, shadow, limited"
+                )))
+            }
         };
         self.set_belief_rerank_mode(m);
+        Ok(())
     }
 
     /// Set concept surface mode (Python binding).
     /// mode: "off" | "inspect" | "limited"
     #[pyo3(name = "set_concept_surface_mode")]
-    fn py_set_concept_surface_mode(&self, mode: &str) {
+    fn py_set_concept_surface_mode(&self, mode: &str) -> PyResult<()> {
         use crate::concept::ConceptSurfaceMode;
         let m = match mode {
             "limited" => ConceptSurfaceMode::Limited,
             "inspect" => ConceptSurfaceMode::Inspect,
-            _ => ConceptSurfaceMode::Off,
+            "off" => ConceptSurfaceMode::Off,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown mode {other:?}; expected one of off, inspect, limited"
+                )))
+            }
         };
         self.set_concept_surface_mode(m);
+        Ok(())
     }
 
     /// Set causal pattern recall reranking mode (Python binding).
@@ -16290,35 +16844,53 @@ impl Aura {
     /// link_records(). A single explicit link suffices for the repeated-evidence
     /// gate; the effect-variants gate is bypassed for consistent-polarity outcomes.
     #[pyo3(name = "set_causal_evidence_mode")]
-    fn py_set_causal_evidence_mode(&self, mode: &str) {
+    fn py_set_causal_evidence_mode(&self, mode: &str) -> PyResult<()> {
         let m = match mode {
             "explicit_trusted" => CausalEvidenceMode::ExplicitTrusted,
             "temporal_cluster_recovery" => CausalEvidenceMode::TemporalClusterRecovery,
-            _ => CausalEvidenceMode::StrictRepeatedWindows,
+            "strict" => CausalEvidenceMode::StrictRepeatedWindows,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown mode {other:?}; expected one of strict, temporal_cluster_recovery, explicit_trusted"
+                )))
+            }
         };
         self.set_causal_evidence_mode(m);
+        Ok(())
     }
 
     #[pyo3(name = "set_causal_rerank_mode")]
-    fn py_set_causal_rerank_mode(&self, mode: &str) {
+    fn py_set_causal_rerank_mode(&self, mode: &str) -> PyResult<()> {
         use crate::causal::CausalRerankMode;
         let m = match mode {
             "limited" => CausalRerankMode::Limited,
-            _ => CausalRerankMode::Off,
+            "off" => CausalRerankMode::Off,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown mode {other:?}; expected one of off, limited"
+                )))
+            }
         };
         self.set_causal_rerank_mode(m);
+        Ok(())
     }
 
     /// Set policy hint recall reranking mode (Python binding).
     /// mode: "off" | "limited"
     #[pyo3(name = "set_policy_rerank_mode")]
-    fn py_set_policy_rerank_mode(&self, mode: &str) {
+    fn py_set_policy_rerank_mode(&self, mode: &str) -> PyResult<()> {
         use crate::policy::PolicyRerankMode;
         let m = match mode {
             "limited" => PolicyRerankMode::Limited,
-            _ => PolicyRerankMode::Off,
+            "off" => PolicyRerankMode::Off,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown mode {other:?}; expected one of off, limited"
+                )))
+            }
         };
         self.set_policy_rerank_mode(m);
+        Ok(())
     }
 
     #[pyo3(name = "start_background", signature = (interval_secs=None))]
@@ -17445,7 +18017,7 @@ impl Aura {
     ///   brain.set_embedding_fn(lambda text: model.encode(text).tolist())
     #[pyo3(name = "set_embedding_fn")]
     fn py_set_embedding_fn(&self, func: PyObject) {
-        *self.embedding_fn.write() = Some(func);
+        *self.embedding_fn.write() = Some(Arc::new(func));
         self.runtime.clear_recall_caches();
     }
 
@@ -22145,7 +22717,7 @@ mod tests {
     }
 
     #[test]
-    fn recall_replay_reports_stable_and_drifted_rankings() -> Result<()> {
+    fn recall_replay_baseline_is_invalidated_when_ranked_record_is_deleted() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let aura = Aura::open(dir.path().to_str().unwrap())?;
         let first = aura.store(
@@ -22188,9 +22760,12 @@ mod tests {
         assert!(stable.removed_record_ids.is_empty());
 
         aura.delete(&first.id)?;
-        let drifted = aura.replay_recall(&original.trace_id)?;
-        assert!(!drifted.ranking_stable);
-        assert!(drifted.removed_record_ids.contains(&first.id));
+        let error = aura
+            .replay_recall(&original.trace_id)
+            .expect_err("delete must invalidate replay provenance containing the record");
+        assert!(error
+            .to_string()
+            .contains("Unknown or expired recall trace"));
         Ok(())
     }
 
@@ -25815,6 +26390,215 @@ mod tests {
         assert_eq!(migrated.superseded_at, Some(200.0));
         assert!(!migrated.is_valid_at(200.0));
         assert!(successor.is_valid_at(200.0));
+        Ok(())
+    }
+
+    #[test]
+    fn delete_tombstone_failure_keeps_record_visible_and_replayable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().to_str().unwrap();
+        let aura = Aura::open(path)?;
+        let record = aura.store(
+            "durable delete fault marker",
+            Some(Level::Working),
+            None,
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )?;
+
+        aura.cognitive_store.fail_next_atomic_upsert_for_test();
+        assert!(aura.delete(&record.id).is_err());
+        assert!(aura.get(&record.id).is_some());
+        aura.close()?;
+        drop(aura);
+
+        let reopened = Aura::open(path)?;
+        assert!(reopened.get(&record.id).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn delete_invalidates_stale_belief_immediately_and_after_reopen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().to_str().unwrap();
+        let aura = Aura::open(path)?;
+        let first = aura.store(
+            "Ibuprofen helps headache pain",
+            Some(Level::Domain),
+            Some(vec!["health".into(), "headache".into(), "ibuprofen".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            Some("default"),
+            Some("fact"),
+        )?;
+        let second = aura.store(
+            "Ibuprofen helps headache symptoms",
+            Some(Level::Domain),
+            Some(vec!["health".into(), "headache".into(), "ibuprofen".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            Some("default"),
+            Some("fact"),
+        )?;
+        let _ = aura.run_maintenance();
+        assert!(aura.get_belief_for_record(&first.id).is_some());
+
+        assert!(aura.delete(&first.id)?);
+        assert!(aura.get_belief_for_record(&first.id).is_none());
+        assert!(aura.get_belief_for_record(&second.id).is_none());
+        aura.close()?;
+        drop(aura);
+
+        let reopened = Aura::open(path)?;
+        assert!(reopened.get(&first.id).is_none());
+        assert!(reopened.get_belief_for_record(&first.id).is_none());
+        assert!(reopened.get_belief_for_record(&second.id).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn current_storage_purge_preserves_unrelated_cold_trace() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().to_str().unwrap();
+        let aura = Aura::open(path)?;
+        let cold = aura.store(
+            "cold trace must survive another record purge",
+            Some(Level::Working),
+            None,
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )?;
+        let target = aura.store(
+            "record selected for physical purge",
+            Some(Level::Working),
+            None,
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )?;
+
+        let cold_update = {
+            let mut records = aura.records.write();
+            let record = records.get_mut(&cold.id).unwrap();
+            record.strength = 0.0;
+            record.clone()
+        };
+        aura.cognitive_store.append_update(&cold_update)?;
+
+        aura.purge_record(&target.id, PurgeScope::CurrentStorage)?;
+        let durable = aura.cognitive_store.load_all()?;
+        assert!(durable.contains_key(&cold.id));
+        assert!(!durable.contains_key(&target.id));
+
+        aura.close()?;
+        drop(aura);
+        let reopened = Aura::open(path)?;
+        assert!(reopened.get(&cold.id).is_none());
+        let durable = reopened.cognitive_store.load_all()?;
+        assert!(durable.contains_key(&cold.id));
+        assert!(!durable.contains_key(&target.id));
+        Ok(())
+    }
+
+    #[test]
+    fn history_purge_removes_managed_content_and_leaves_content_free_receipt() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let brain = dir.path().join("brain");
+        let path = brain.to_str().unwrap();
+        let aura = Aura::open(path)?;
+        let marker = "PURGE_SECRET_MARKER_9f81c1";
+        let record = aura.store(
+            marker,
+            Some(Level::Working),
+            Some(vec!["purge-test".into()]),
+            None,
+            None,
+            Some("recorded"),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+        )?;
+        let snapshot_path = PathBuf::from(aura.snapshot("before-purge")?);
+
+        let receipt = aura.purge_record(&record.id, PurgeScope::History)?;
+        assert!(receipt.active_record_removed);
+        assert_eq!(receipt.scope, PurgeScope::History);
+        assert!(receipt
+            .removed_surfaces
+            .contains(&"current_storage".to_string()));
+        assert!(receipt.removed_surfaces.contains(&"history".to_string()));
+        assert_eq!(aura.rollback("before-purge")?, 0);
+        assert!(aura.get(&record.id).is_none());
+        aura.flush()?;
+
+        for file in [
+            brain.join("brain.cog"),
+            brain.join("brain.snap"),
+            brain.join("brain.aura"),
+            brain.join("brain.audit"),
+            snapshot_path,
+        ] {
+            let bytes = std::fs::read(&file)?;
+            assert!(
+                !bytes
+                    .windows(marker.len())
+                    .any(|window| window == marker.as_bytes()),
+                "{} retained purged content",
+                file.display()
+            );
+            assert!(
+                !bytes
+                    .windows(record.id.len())
+                    .any(|window| window == record.id.as_bytes()),
+                "{} retained purged record id",
+                file.display()
+            );
+        }
+
+        let entries = aura.audit_log.as_ref().unwrap().read_all()?;
+        let purge = entries.iter().find_map(|entry| match &entry.action {
+            crate::audit::AuditAction::Purge {
+                record_digest,
+                scope,
+                ..
+            } => Some((record_digest, scope)),
+            _ => None,
+        });
+        let (digest, scope) = purge.expect("content-free purge receipt");
+        assert_eq!(digest, &receipt.record_digest);
+        assert_eq!(scope, "history");
+
+        aura.close()?;
+        drop(aura);
+        let reopened = Aura::open(path)?;
+        assert!(reopened.get(&record.id).is_none());
         Ok(())
     }
 

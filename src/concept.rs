@@ -310,6 +310,34 @@ impl ConceptEngine {
         }
     }
 
+    /// Drop concepts that depended on deleted record or belief provenance.
+    pub fn remove_record_provenance(
+        &mut self,
+        record_id: &str,
+        removed_belief_ids: &[String],
+    ) -> Vec<String> {
+        let removed_beliefs: std::collections::HashSet<&str> =
+            removed_belief_ids.iter().map(String::as_str).collect();
+        let removed_ids: Vec<String> = self
+            .concepts
+            .values()
+            .filter(|concept| {
+                concept.record_ids.iter().any(|id| id == record_id)
+                    || concept
+                        .belief_ids
+                        .iter()
+                        .any(|id| removed_beliefs.contains(id.as_str()))
+            })
+            .map(|concept| concept.id.clone())
+            .collect();
+        for id in &removed_ids {
+            if let Some(concept) = self.concepts.remove(id) {
+                self.key_index.remove(&concept.key);
+            }
+        }
+        removed_ids
+    }
+
     /// Create a new engine with specified seed mode.
     pub fn with_seed_mode(mode: ConceptSeedMode) -> Self {
         Self {
@@ -2060,6 +2088,11 @@ mod tests {
 
         // Run belief engine to form beliefs
         let mut belief_engine = BeliefEngine::new();
+        // The fixture represents paraphrased repeated evidence. Use the
+        // engine's supported threshold override so each seed is backed by a
+        // real multi-record group rather than a stale singleton from an older
+        // cycle.
+        belief_engine.claim_similarity_override = Some(0.05);
         // Run multiple cycles to build stability
         for _ in 0..5 {
             belief_engine.update_with_sdr(&records, &sdr_lookup);

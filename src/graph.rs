@@ -219,6 +219,21 @@ pub fn remove_record(
     tag_index: &mut HashMap<String, HashSet<String>>,
     aura_index: &mut HashMap<String, String>,
     store: &CognitiveStore,
+) -> anyhow::Result<()> {
+    // The tombstone is durable before any visible in-memory state changes.
+    store.append_delete(rid)?;
+    remove_record_in_memory(rid, records, ngram_index, tag_index, aura_index);
+    Ok(())
+}
+
+/// Remove a record from live graph/index state after its lifecycle mutation has
+/// already been durably committed by the caller.
+pub(crate) fn remove_record_in_memory(
+    rid: &str,
+    records: &mut HashMap<String, Record>,
+    ngram_index: &mut NGramIndex,
+    tag_index: &mut HashMap<String, HashSet<String>>,
+    aura_index: &mut HashMap<String, String>,
 ) {
     // Remove from ngram index
     ngram_index.remove(rid);
@@ -246,11 +261,21 @@ pub fn remove_record(
         }
     }
 
+    // Remove any unidirectional or causal-parent references that were not
+    // represented in the target's own connection map.
+    for other in records.values_mut() {
+        if other.id == rid {
+            continue;
+        }
+        other.connections.remove(rid);
+        other.connection_types.remove(rid);
+        if other.caused_by_id.as_deref() == Some(rid) {
+            other.caused_by_id = None;
+        }
+    }
+
     // Remove from records
     records.remove(rid);
-
-    // Persist deletion
-    let _ = store.append_delete(rid);
 }
 
 /// Merge 'remove' record into 'keep' record.
@@ -262,7 +287,7 @@ pub fn merge_records(
     tag_index: &mut HashMap<String, HashSet<String>>,
     aura_index: &mut HashMap<String, String>,
     store: &CognitiveStore,
-) {
+) -> anyhow::Result<()> {
     // Get data from the record being removed
     let (
         remove_tags,
@@ -284,11 +309,16 @@ pub fn merge_records(
                 remove.source_type.clone(),
             )
         } else {
-            return;
+            return Ok(());
         }
     };
 
-    // Merge into keep
+    let Some(original_keep) = records.get(keep_id).cloned() else {
+        return Ok(());
+    };
+
+    // Merge into keep while the caller holds the records write lock. If the
+    // durable batch fails below, restore this exact pre-merge value.
     if let Some(keep) = records.get_mut(keep_id) {
         // Upgrade level
         if remove_level > keep.level {
@@ -335,20 +365,40 @@ pub fn merge_records(
         }
     }
 
-    // Delete the removed record
-    remove_record(
-        remove_id,
-        records,
-        ngram_index,
-        tag_index,
-        aura_index,
-        store,
-    );
-
-    // Persist the updated keep record
-    if let Some(keep) = records.get(keep_id) {
-        let _ = store.append_update(keep);
+    // Persist the merged survivor, every inbound-reference cleanup, and the
+    // removed record's tombstone as one durable frame before publishing the
+    // deletion to readers.
+    let mut upserts = Vec::new();
+    for record in records.values() {
+        if record.id == remove_id {
+            continue;
+        }
+        if record.id == keep_id
+            || record.connections.contains_key(remove_id)
+            || record.connection_types.contains_key(remove_id)
+            || record.caused_by_id.as_deref() == Some(remove_id)
+        {
+            let mut updated = record.clone();
+            updated.connections.remove(remove_id);
+            updated.connection_types.remove(remove_id);
+            if updated.caused_by_id.as_deref() == Some(remove_id) {
+                updated.caused_by_id = None;
+            }
+            upserts.push(updated);
+        }
     }
+    if let Err(error) = store.append_atomic_mutations(&upserts, &[remove_id.to_string()]) {
+        records.insert(keep_id.to_string(), original_keep);
+        return Err(error);
+    }
+
+    remove_record_in_memory(remove_id, records, ngram_index, tag_index, aura_index);
+    for updated in upserts {
+        if let Some(record) = records.get_mut(&updated.id) {
+            *record = updated;
+        }
+    }
+    Ok(())
 }
 
 fn now_secs() -> f64 {

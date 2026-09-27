@@ -12,7 +12,6 @@
   <a href="https://pypi.org/project/aura-memory/"><img src="https://img.shields.io/pypi/dm/aura-memory.svg" alt="Downloads"></a>
   <a href="https://github.com/teolex2020/aura-memory/stargazers"><img src="https://img.shields.io/github/stars/teolex2020/aura-memory?style=social" alt="GitHub stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://www.uspto.gov/"><img src="https://img.shields.io/badge/Patent_Pending-US_63%2F969%2C703-blue.svg" alt="Patent Pending"></a>
 </p>
 
 <p align="center">
@@ -44,9 +43,11 @@ brain.store("Staging deploy prevented 3 production incidents", level=Level.Domai
 # recall — local retrieval with optional bounded cognitive reranking
 context = brain.recall("deployment decision")  # local retrieval, no API call
 
-# inspect advisory hints produced from stored evidence
-hints = brain.get_surfaced_policy_hints()
-# → [{"action": "Prefer", "domain": "workflow", "description": "deploy to staging first"}]
+# advisory hints are derived during maintenance once enough evidence accumulates
+brain.run_maintenance()
+for hint in brain.get_surfaced_policy_hints():
+    print(hint.action_kind, hint.domain, hint.recommendation)
+# → prefer workflow deploy to staging first   (only after repeated, consistent evidence)
 ```
 
 No API keys. No embeddings required. No cloud. The model stays the same — the cognitive layer becomes more structured, more inspectable, and more useful over time.
@@ -57,23 +58,20 @@ No API keys. No embeddings required. No cloud. The model stays the same — the 
 
 ## Why Aura?
 
-| | **Aura** | Mem0 | Zep | Cognee | Letta/MemGPT |
-|---|---|---|---|---|---|
-| **Architecture** | **5-layer cognitive engine** | Vector + LLM | Vector + LLM | Graph + LLM | LLM orchestration |
-| **Derived cognitive layers without LLM** | **Yes — Belief→Concept→Causal→Policy** | No | No | No | No |
-| **Advisory policy hints from experience** | **Yes — bounded and non-executing** | No | No | No | No |
-| **Learns from agent's own responses** | **Yes — bounded, auditable, no fine-tuning** | No | No | No | No |
-| **Salience weighting** | **Yes — what matters persists longer** | No | No | No | No |
-| **Contradiction governance** | **Yes — explicit, operator-visible** | No | No | No | No |
-| **LLM required** | **No** | Yes | Yes | Yes | Yes |
-| **Recall latency** | **2.68 ms uncached / 8.2 µs formatted cache hit**<sup>1</sup> | Configuration-dependent | Service-dependent | Configuration-dependent | Model-dependent |
-| **Works offline** | **Fully** | Partial | No | No | With local LLM |
-| **Cost per operation** | **$0** | API billing | Credit-based | LLM + DB cost | LLM cost |
-| **Package size** | **2.77 MB Windows CPython 3.13 wheel**<sup>1</sup> | Varies | Cloud service | Varies | Varies |
-| **Memory decay & promotion** | **Built-in** | Via LLM | Via LLM | No | Via LLM |
-| **Trust & provenance** | **Built-in** | No | No | No | No |
-| **Encryption at rest** | **ChaCha20 + Argon2** | No | No | No | No |
-| **Language** | **Rust** | Python | Proprietary | Python | Python |
+| Property | Aura |
+|---|---|
+| Architecture | Five-layer cognitive engine, with Belief→Concept→Causal→Policy derivation |
+| Memory operations | Local Rust computation; no required LLM or embedding API |
+| Recall latency | 11.61 ms median, distinct uncached top-10 queries on 5K records; see [Performance](#performance) |
+| Offline use | Supported without a cloud service |
+| API fee for memory operations | None required; local compute and storage still have costs |
+| Package size | 2.77 MB Windows CPython 3.13 wheel<sup>1</sup> |
+| Lifecycle and governance | Built-in decay/promotion, provenance, contradiction controls, purge/freeze |
+| Encryption at rest | Optional ChaCha20-Poly1305 with Argon2id key derivation |
+
+We do not publish unmeasured speed, cost, or feature rankings against other
+memory products. Their deployment modes and search outputs differ; a meaningful
+comparison needs matched data, workload, and quality criteria.
 
 ### The Core Idea: Cheap Model + Aura > Expensive Model Alone
 
@@ -97,33 +95,40 @@ The model stays the same. The cognitive layer gets stronger. That's Aura.
 
 ### Performance
 
-Measured from the Aura `1.58.0` release wheel with 1,000 records on Windows 10,
-an AMD Ryzen 5 5600X, and CPython 3.13.14. These are observations from one
-local run, not latency guarantees; hardware, stored content, query shape, cache
-state, enabled features, and background load all affect the result.
+**Current local measurement (Aura `1.60.0`).** On Windows 10, AMD Ryzen 5
+5600X, and CPython 3.13.14, we stored the first 5,000 dialogue turns from
+LoCoMo (median 154 bytes per turn). Recall used 100 distinct natural-language
+questions, `recall_structured(top_k=10)`, and no repeated-query cache hits.
+One sequential local run, measured on 2026-09-25:
 
-| Operation | Mean | Median | P95 |
-|-----------|-----:|-------:|----:|
-| Store | 0.956 ms | 0.898 ms | 1.820 ms |
-| Structured recall, uncached | 2.680 ms | 2.483 ms | 4.035 ms |
-| Structured recall, cache hit | 0.101 ms | 0.097 ms | 0.163 ms |
-| Formatted recall, cache hit | 8.6 µs | 8.2 µs | 8.7 µs |
-| Repeated maintenance cycle | — | 25.68 ms | 32.62 ms |
+| Operation | Median | P95 |
+|-----------|-------:|----:|
+| Store one turn | 5.66 ms | 10.10 ms |
+| Structured recall, distinct uncached query | 11.61 ms | 18.95 ms |
+| Get record by known ID | 0.0033 ms | 0.0083 ms |
 
-The first maintenance cycle in this run took `487.09 ms` because it processed
-the newly populated store; repeated cycles had less pending work. Aura recall
-uses local computation and makes no required embedding or LLM API call. No
-cross-product speedup is claimed here because a valid comparison requires the
-same dataset, hardware, query workload, cache state, and quality target.
+Local MCP stdio added about 0.04 ms to mean recall time in a separate
+same-query round-trip comparison. This is not a network benchmark. A lexical
+SQLite FTS5 index on the same 5,000 turns searched in 1.13 ms median, but it
+does not provide the same cognitive functions. On the first 100 LoCoMo
+evidence questions, Aura found all annotated evidence for 36 questions and
+SQLite FTS5 for 39; this narrow slice does not establish a quality advantage
+for either system. Do not interpret fast `get(id)` or cache-hit times as
+uncached natural-language recall.
 
-Reproduce the table with:
+**Historical 1K measurement (Aura `1.58.0`).** The release wheel measured
+2.483 ms median / 4.035 ms p95 for uncached structured recall, and 8.2 µs
+median for a formatted cache hit, on the same CPU with 1,000 different
+records. See [`benchmarks/results.json`](benchmarks/results.json) and reproduce
+that historical test with `python benchmarks/bench_all.py 1000`. The 1K and
+5K runs use different content and questions, so they do **not** demonstrate
+a version-to-version slowdown.
 
-```bash
-python benchmarks/bench_all.py 1000
-```
-
-The complete machine-readable output is stored in
-[`benchmarks/results.json`](benchmarks/results.json).
+All figures are observations, not guarantees. Corpus size, query shape,
+cache state, enabled features, and background load affect latency. Aura recall
+uses local computation and needs no embedding or LLM API call. No
+cross-product speedup is claimed without matched data, deployment, and quality
+targets.
 
 Retrieval quality is measured separately from speed. The checked-in synthetic
 development evaluation compares recent history, token overlap, and Aura on a
@@ -134,9 +139,9 @@ Its current machine-readable result and limitations are documented in
 [`experiments/memory_quality_eval`](experiments/memory_quality_eval/README.md).
 This development set is not presented as a competitor benchmark.
 
-<sub><sup>1</sup> Values above are from the measured Windows build. The wheel was
-2,772,715 bytes; installed size and artifacts for other Python versions and
-platforms vary.</sub>
+<sub><sup>1</sup> The measured Aura 1.58 Windows CPython 3.13 wheel was
+2,772,715 bytes; installed size and artifacts for other Python versions,
+platforms, and releases vary.</sub>
 
 ---
 
@@ -283,6 +288,55 @@ The graph is rebuilt from reserved `aura.audit.v1.*` record metadata, while
 links are committed atomically with Aura's existing typed connections. Compact
 JSON export is available in Rust through `AuditGraph::to_compact_json()`.
 
+### Observational Outcome Receipts
+
+Aura can collect the exact evidence needed to evaluate future adaptive memory
+policies without changing memory behavior today. A receipt records candidate
+record IDs, selected IDs, and a categorical external outcome; it never stores
+the prompt, answer, task text, or memory payload:
+
+```python
+receipt = brain.capture_outcome_receipt(
+    task_id="deploy-184",
+    lineage_id="deploy-canary",
+    attempt_id="attempt-1",
+    candidate_record_ids=[runbook_id, incident_id],
+    selected_record_ids=[runbook_id],
+    outcome="helpful",
+    namespace="operations",
+    provenance=["host:task-runner"],
+    # Optional: exact evidence for later offline evaluation.
+    logging_policy_id="bounded-exploration-v1",
+    selected_set_probability_bps=2500,  # probability of the selected set
+    candidate_verdicts={
+        runbook_id: "helpful",
+        incident_id: "unhelpful",
+    },
+    verifier_id="terminal-check-v1",
+)
+
+history = brain.outcome_receipts(
+    namespace="operations",
+    lineage_id="deploy-canary",
+)
+```
+
+Omit the optional evaluation fields to keep the schema-v1 receipt. Supplying a
+logging policy and exact selected-set probability, explicit per-candidate verifier
+verdicts, or both creates a schema-v2 receipt. These fields are integrity-protected
+and observational: Aura does not use them for recall, importance, decay, retention,
+consolidation, or forgetting.
+
+The key `(namespace, task_id, attempt_id)` is idempotent; a conflicting retry is
+rejected. Candidate records must exist in the same namespace, selected IDs must
+be a subset, and persisted receipts carry an integrity digest. Receipts live in
+the managed audit journal, remain outside cognitive records, and have no effect
+on recall, strength, retention, consolidation, or forgetting. A full `history`
+purge removes receipts that reference the purged record.
+
+This API passed a frozen 96-case contract experiment. Using receipts to alter
+ranking or retention remains gated on a separate temporal holdout with real,
+verified outcomes.
 ### Immutable Evidence Lineage
 
 Aura's cognitive provenance explains how a memory was formed and used. The
@@ -867,6 +921,29 @@ password; moving them to encrypted storage requires an explicit migration. Older
 password-created stores did not protect all cognitive data and must also be
 migrated. Explicit JSON exports return plaintext to the caller.
 
+### Deletion and managed purge
+
+`delete(record_id)` is the ordinary explicit deletion path. Aura durably writes
+the tombstone before removing the record from active recall and invalidates
+beliefs, concepts, causal patterns, policy hints, topology, reflections, and
+replay baselines that depended on it. Natural cognitive forgetting is unchanged:
+cold traces and refuted consequence scars still follow the normal retention
+policy.
+
+Use `purge_record` when bytes must also be removed from managed storage. The
+scope is required and cumulative: `active`, `derived`, `current_storage`,
+or `history`. The `history` scope rewrites Aura's current stores, audit
+rotations, and named snapshots, and leaves a receipt containing only a SHA-256
+record digest and the completed surfaces.
+
+```python
+receipt = brain.purge_record(record_id, "history")
+print(receipt["record_digest"], receipt["removed_surfaces"])
+```
+
+Files exported or copied outside the Aura brain directory are not managed by
+this call and must be removed by their owner.
+
 Externally supplied embeddings persist across restart. Re-register a Python
 embedding callback after reopening to compute query vectors with the same model.
 Embedding writes reject empty, non-finite, or incompatible-dimensional vectors;
@@ -1026,47 +1103,32 @@ Identity persists. Tasks fade. Important patterns get promoted. Like a real brai
 
 ---
 
-## MCP Server — Claude Desktop · Cursor · Zed · VS Code
+## MCP Server — Claude Desktop · Cursor · VS Code · any MCP client
 
-Give any MCP-compatible AI persistent, self-organizing memory:
+Aura's local stdio server has no Python dependencies beyond `aura-memory`.
+Install it, validate it, then generate the client-specific JSON:
 
 ```bash
-pip install aura-memory
+python -m pip install --upgrade aura-memory
+python -m aura mcp ./aura_brain --check
+python -m aura mcp ./aura_brain --print-config claude
 ```
 
-**Claude Desktop** — Settings → Developer → Edit Config:
+Use `cursor`, `vscode`, or `generic` instead of `claude` for another
+client. The generator writes an absolute brain path and the exact Python
+interpreter that owns Aura, so desktop applications do not depend on their
+`PATH` configuration. Paste the printed JSON into the client configuration.
+For an encrypted brain, set `AURA_PASSWORD` in the client's environment rather
+than placing the password in command-line arguments.
 
-```json
-{
-  "mcpServers": {
-    "aura": {
-      "command": "python",
-      "args": ["-m", "aura", "mcp", "C:\\Users\\YOUR_NAME\\aura_brain"]
-    }
-  }
-}
-```
+The wheel also installs a direct command:
 
-**Cursor / VS Code** — `.cursor/mcp.json` or `.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "aura": {
-      "command": "python",
-      "args": ["-m", "aura", "mcp", "./aura_brain"],
-      "type": "stdio"
-    }
-  }
-}
-```
-
-**macOS / Linux path:**
 ```bash
-python -m aura mcp ~/aura_brain
+aura-mcp ./aura_brain --check
+aura-mcp ./aura_brain
 ```
 
-Once connected, Claude automatically has 11 tools:
+Once connected, the client receives 11 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -1082,7 +1144,19 @@ Once connected, Claude automatically has 11 tools:
 | `delete` | Remove a record by ID |
 | `maintain` | Run a full maintenance cycle |
 
-> After connecting, tell Claude: *"Before answering, always recall relevant context from memory. After our conversation, store key facts."*
+> After connecting, tell the agent: *"Before answering, recall relevant context
+> from Aura. Store only durable facts, decisions, and useful patterns."*
+
+For remote automation, `aura serve` exposes REST plus the legacy HTTP+SSE MCP
+transport. Install its optional dependencies with
+`python -m pip install "aura-memory[http]"`. New local MCP integrations should
+use stdio; the legacy HTTP+SSE transport is retained for existing Make.com and
+n8n workflows.
+
+`aura serve` binds `127.0.0.1` by default. To expose it on another interface,
+set an API key (`--api-key` or `AURA_API_KEY`); clients then send
+`Authorization: Bearer <key>`. Browser cross-origin access is off unless
+`AURA_CORS_ORIGINS` lists allowed origins.
 
 ### Windows test note
 
@@ -1171,11 +1245,9 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instruct
 
 ---
 
-## License & Intellectual Property
+## License
 
-- **Code License:** MIT — see [LICENSE](LICENSE).
-- **Patent Notice:** Core architectural concepts are **Patent Pending** (US Provisional Application No. **63/969,703**). See [PATENT](PATENT) for details. The SDK source code is available under MIT. Separate commercial licensing is available for organizations that want contractual rights around patented architecture, OEM embedding, enterprise deployment, or dedicated support.
-- **Commercial Licensing:** If you want to embed Aura's architecture into a commercial product, see [COMMERCIAL.md](COMMERCIAL.md).
+MIT — see [LICENSE](LICENSE). Free for any use, including commercial. For support or integration help, contact aura@aurasdk.dev.
 
 ---
 
@@ -1183,5 +1255,3 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instruct
   Built in Kyiv, Ukraine 🇺🇦 — including during power outages.<br>
   <sub>Solo developer project. If you find this useful, your star means more than you think.</sub>
 </p>
-
-

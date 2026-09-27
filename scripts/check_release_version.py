@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import tomllib
@@ -20,6 +21,7 @@ def read_toml(relative_path: str) -> dict:
 def declared_versions() -> dict[str, str]:
     cargo = read_toml("Cargo.toml")
     pyproject = read_toml("pyproject.toml")
+    mcp_manifest = json.loads((ROOT / "mcp.json").read_text(encoding="utf-8"))
     init_text = (ROOT / "python" / "aura" / "__init__.py").read_text(encoding="utf-8")
     init_match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_text, re.MULTILINE)
     if init_match is None:
@@ -29,6 +31,7 @@ def declared_versions() -> dict[str, str]:
         "Cargo.toml": cargo["package"]["version"],
         "pyproject.toml": pyproject["project"]["version"],
         "python/aura/__init__.py": init_match.group(1),
+        "mcp.json": mcp_manifest["version"],
     }
 
 
@@ -42,7 +45,7 @@ def main() -> int:
 
     try:
         versions = declared_versions()
-    except (KeyError, OSError, ValueError, tomllib.TOMLDecodeError) as error:
+    except (json.JSONDecodeError, KeyError, OSError, ValueError, tomllib.TOMLDecodeError) as error:
         print(f"release version check failed: {error}", file=sys.stderr)
         return 1
 

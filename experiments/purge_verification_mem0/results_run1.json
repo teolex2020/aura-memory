@@ -1,0 +1,124 @@
+{
+  "schema": "purge-verification-mem0-v1",
+  "protocol": "PROTOCOL.md (frozen 2026-09-27)",
+  "mem0_version": "2.2.1",
+  "baseline_benign_hits_at5": 38,
+  "delete_responses": [
+    {
+      "message": "Memory deleted successfully!"
+    },
+    {
+      "message": "Memory deleted successfully!"
+    },
+    {
+      "message": "Memory deleted successfully!"
+    },
+    {
+      "message": "Memory deleted successfully!"
+    },
+    {
+      "message": "Memory deleted successfully!"
+    },
+    {
+      "message": "Memory deleted successfully!"
+    },
+    {
+      "message": "Memory deleted successfully!"
+    },
+    {
+      "message": "Memory deleted successfully!"
+    }
+  ],
+  "receipt_contains_marker": false,
+  "before": {
+    "bytes": {
+      "marker_files": {
+        "history.db": 8,
+        "qdrant\\.lock (unreadable: [Errno 13] Permission denied)": -1,
+        "qdrant/collection/e1b/storage.sqlite": 8
+      },
+      "id_files": {
+        "history.db": 8,
+        "qdrant/collection/e1b/storage.sqlite": 8
+      },
+      "marker_file_count": 3,
+      "id_file_count": 2
+    },
+    "logical": {
+      "get": 8,
+      "get_all": 8,
+      "search": 8,
+      "total": 24
+    },
+    "history_api_returns_deleted_content": 8,
+    "collateral": {
+      "missing": 0,
+      "changed": 0,
+      "hits_at5": 38
+    }
+  },
+  "immediate": {
+    "bytes": {
+      "marker_files": {
+        "history.db": 8,
+        "qdrant\\.lock (unreadable: [Errno 13] Permission denied)": -1,
+        "qdrant/collection/e1b/storage.sqlite": 6
+      },
+      "id_files": {
+        "history.db": 8,
+        "qdrant/collection/e1b/storage.sqlite": 6
+      },
+      "marker_file_count": 3,
+      "id_file_count": 2
+    },
+    "logical": {
+      "get": 0,
+      "get_all": 0,
+      "search": 0,
+      "total": 0
+    },
+    "history_api_returns_deleted_content": 8,
+    "collateral": {
+      "missing": 0,
+      "changed": 0,
+      "hits_at5": 40
+    }
+  },
+  "after_reopen": {
+    "bytes": {
+      "marker_files": {
+        "history.db": 8,
+        "qdrant\\.lock (unreadable: [Errno 13] Permission denied)": -1,
+        "qdrant/collection/e1b/storage.sqlite": 6
+      },
+      "id_files": {
+        "history.db": 8,
+        "qdrant/collection/e1b/storage.sqlite": 6
+      },
+      "marker_file_count": 3,
+      "id_file_count": 2
+    },
+    "logical": {
+      "get": 0,
+      "get_all": 0,
+      "search": 0,
+      "total": 0
+    },
+    "history_api_returns_deleted_content": 8,
+    "collateral": {
+      "missing": 0,
+      "changed": 0,
+      "hits_at5": 40
+    }
+  },
+  "gates": {
+    "G1_logical": true,
+    "G2_derived": "n/a",
+    "G3_content_bytes": false,
+    "G4_id_bytes": false,
+    "G5_rollback": "n/a",
+    "G6_collateral": true,
+    "G7_receipt": false,
+    "G8_fault": "n/a"
+  }
+}

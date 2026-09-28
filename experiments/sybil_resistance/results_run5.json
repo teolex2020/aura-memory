@@ -1,0 +1,493 @@
+{
+  "gates": {
+    "Y1_user_in_top3": 24,
+    "Y2_user_above_copies": 18,
+    "Y3_copies_at_most_2": 20,
+    "Y4_control_rank1": 24,
+    "of_attack": 24,
+    "of_control": 24,
+    "user_in_user_section": 24
+  },
+  "rows": [
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 3,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 3,
+      "mode": "Off",
+      "n": 3,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 10,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Off",
+      "n": 10,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 2,
+      "mode": "Off",
+      "n": 3,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 3,
+      "mode": "Off",
+      "n": 3,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Off",
+      "n": 10,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Off",
+      "n": 10,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 3,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 3,
+      "mode": "Off",
+      "n": 3,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 5,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 10,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Off",
+      "n": 10,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 1,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 1,
+      "copies_in_top5": 1,
+      "mode": "Off",
+      "n": 1,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 1,
+      "copies_in_top5": 2,
+      "mode": "Off",
+      "n": 3,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 1,
+      "copies_in_top5": 3,
+      "mode": "Off",
+      "n": 3,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 3
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 1,
+      "copies_in_top5": 4,
+      "mode": "Off",
+      "n": 10,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 1,
+      "copies_in_top5": 5,
+      "mode": "Off",
+      "n": 10,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": null
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 3,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "meeting",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 2,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 3,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "pet",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 2,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 3,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 5,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 2,
+      "copies_in_top5": 4,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "allergy",
+      "user_in_user_section": true,
+      "user_rank": 1
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 1,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 1,
+      "copies_in_top5": 1,
+      "mode": "Limited",
+      "n": 1,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 1,
+      "copies_in_top5": 2,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 1,
+      "copies_in_top5": 3,
+      "mode": "Limited",
+      "n": 3,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 3
+    },
+    {
+      "arm": "attack",
+      "best_copy_rank": 1,
+      "copies_in_top5": 4,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": 2
+    },
+    {
+      "arm": "control",
+      "best_copy_rank": 1,
+      "copies_in_top5": 5,
+      "mode": "Limited",
+      "n": 10,
+      "tag": "address",
+      "user_in_user_section": true,
+      "user_rank": null
+    }
+  ]
+}

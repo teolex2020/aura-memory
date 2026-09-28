@@ -647,6 +647,168 @@ fn causal_walk_with_trace(
 
 // ── Recency-weighted scoring ──
 
+/// Weight of each further untrusted record from the same source group.
+pub const UNTRUSTED_REPEAT_DECAY: f32 = 0.5;
+
+/// Source group of an untrusted record (None for first-hand records).
+fn untrusted_group(rec: &Record) -> Option<String> {
+    if crate::certainty::effective_source_type(rec) == "recorded" {
+        return None;
+    }
+    let mut tags = rec.tags.clone();
+    tags.sort();
+    let channel = rec
+        .metadata
+        .get("channel")
+        .map(String::as_str)
+        .unwrap_or("");
+    Some(format!(
+        "{}|{}|{}|{}",
+        rec.namespace,
+        tags.join(","),
+        rec.source_type,
+        channel
+    ))
+}
+
+/// Topic of a record for competition between sources: its sorted tag set.
+fn topic_of(rec: &Record) -> String {
+    let mut tags = rec.tags.clone();
+    tags.sort();
+    format!("{}|{}", rec.namespace, tags.join(","))
+}
+
+/// Candidate pool multiplier used before untrusted groups are capped.
+pub const UNTRUSTED_POOL_FACTOR: usize = 3;
+/// Maximum candidates one untrusted source group keeps in a signal list.
+pub const UNTRUSTED_GROUP_CAP: usize = 2;
+
+/// Collect `top_k` candidates; only when one untrusted source group already
+/// holds more than `UNTRUSTED_GROUP_CAP` of them, re-collect a wider pool so
+/// first-hand records on the same topic can take the surplus slots. Ordinary
+/// data pays no extra cost.
+fn guarded_collect(
+    records: &HashMap<String, Record>,
+    top_k: usize,
+    collect: &dyn Fn(usize) -> Vec<(String, f32)>,
+) -> Vec<(String, f32)> {
+    let list = collect(top_k);
+    let mut per_group: HashMap<String, usize> = HashMap::new();
+    let crowded = list.iter().any(|(rid, _)| {
+        records
+            .get(rid)
+            .and_then(untrusted_group)
+            .is_some_and(|group| {
+                let count = per_group.entry(group).or_insert(0);
+                *count += 1;
+                *count > UNTRUSTED_GROUP_CAP
+            })
+    });
+    if !crowded {
+        return list;
+    }
+    let pool = top_k.saturating_mul(UNTRUSTED_POOL_FACTOR).max(top_k);
+    cap_untrusted_groups(records, collect(pool), top_k)
+}
+
+/// Take the top `top_k` of a candidate pool, but let first-hand records that
+/// fell just outside it displace surplus entries of an untrusted source group
+/// (members beyond `UNTRUSTED_GROUP_CAP`). Untrusted entries are only ever
+/// displaced to make room for first-hand facts, so several different facts
+/// from one untrusted source stay retrievable when nothing first-hand competes.
+fn cap_untrusted_groups(
+    records: &HashMap<String, Record>,
+    list: Vec<(String, f32)>,
+    top_k: usize,
+) -> Vec<(String, f32)> {
+    if list.len() <= top_k {
+        return list;
+    }
+    let (head, tail) = list.split_at(top_k);
+    let mut kept: Vec<(String, f32)> = head.to_vec();
+    let is_first_hand = |rid: &str| {
+        records
+            .get(rid)
+            .is_some_and(|r| untrusted_group(r).is_none())
+    };
+    for candidate in tail.iter().filter(|(rid, _)| is_first_hand(rid)) {
+        let Some(topic) = records.get(&candidate.0).map(topic_of) else {
+            continue;
+        };
+        // Find the lowest-ranked surplus member of an over-cap untrusted
+        // group on the same topic as the first-hand candidate.
+        let mut per_group: HashMap<String, usize> = HashMap::new();
+        let mut surplus = None;
+        for (position, (rid, _)) in kept.iter().enumerate() {
+            let Some(rec) = records.get(rid) else {
+                continue;
+            };
+            if topic_of(rec) != topic {
+                continue;
+            }
+            if let Some(group) = untrusted_group(rec) {
+                let count = per_group.entry(group).or_insert(0);
+                *count += 1;
+                if *count > UNTRUSTED_GROUP_CAP {
+                    surplus = Some(position);
+                }
+            }
+        }
+        match surplus {
+            Some(position) => {
+                kept.remove(position);
+                kept.push(candidate.clone());
+            }
+            None => continue,
+        }
+    }
+    kept
+}
+
+/// Repetition from one untrusted source is one piece of evidence.
+///
+/// Untrusted records (effective source below `recorded`) are grouped by
+/// namespace, tags and channel. Within a group, the k-th record by score is
+/// weighted by `UNTRUSTED_REPEAT_DECAY^k`, so flooding memory with copies of a
+/// claim cannot crowd out a first-hand user fact. Independent groups and
+/// first-hand records are unaffected. Language-independent: uses only
+/// structure, never words.
+pub fn discount_repeated_untrusted(matched: &mut [(f32, Record)]) {
+    let mut order: Vec<usize> = (0..matched.len()).collect();
+    order.sort_by(|&a, &b| {
+        matched[b]
+            .0
+            .partial_cmp(&matched[a].0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                Record::tie_key(&matched[a].1.content).cmp(&Record::tie_key(&matched[b].1.content))
+            })
+    });
+    // Only topics where a first-hand record competes: untrusted sources that
+    // have the topic to themselves keep their full weight.
+    let first_hand_topics: HashSet<String> = matched
+        .iter()
+        .filter(|(_, r)| untrusted_group(r).is_none())
+        .map(|(_, r)| topic_of(r))
+        .collect();
+    let mut seen: HashMap<String, i32> = HashMap::new();
+    for index in order {
+        let rec = &matched[index].1;
+        if !first_hand_topics.contains(&topic_of(rec)) {
+            continue;
+        }
+        let Some(group) = untrusted_group(rec) else {
+            continue;
+        };
+        let count = seen.entry(group).or_insert(0);
+        // The first UNTRUSTED_GROUP_CAP members keep full weight; only the
+        // surplus beyond it decays.
+        let surplus = (*count + 1 - UNTRUSTED_GROUP_CAP as i32).max(0);
+        matched[index].0 *= UNTRUSTED_REPEAT_DECAY.powi(surplus);
+        *count += 1;
+    }
+}
+
 /// Apply trust-aware recency weighting and sort.
 ///
 /// Uses `compute_effective_trust()` which factors in:
@@ -674,6 +836,7 @@ pub fn apply_recency_scoring(
             trust::compute_effective_trust(&rec.metadata, now_unix, config, &rec.source_type);
         *score = *score * rec.strength * effective_trust;
     }
+    discount_repeated_untrusted(matched);
 
     matched.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
@@ -982,19 +1145,26 @@ pub fn recall_pipeline(
     let ns = namespaces.unwrap_or(&default_ns);
 
     // 1. Collect signals
-    let sdr_ranked = collect_sdr(
-        sdr,
-        inverted_index,
-        storage,
-        aura_index,
-        records,
-        query,
-        top_k,
-        ns,
-    );
-    let bm25_ranked = collect_bm25(lexical_index, records, query, top_k, ns);
-    let ngram_ranked = collect_ngram(ngram_index, records, query, top_k, ns);
-    let tag_ranked = collect_tags(tag_index, records, query, top_k, ns);
+    // Collect a wider pool, then let each untrusted source group keep at most
+    // UNTRUSTED_GROUP_CAP entries before truncating: copies from one source
+    // must not fill a signal's candidate list and push first-hand facts out.
+    let guarded =
+        |collect: &dyn Fn(usize) -> Vec<(String, f32)>| guarded_collect(records, top_k, collect);
+    let sdr_ranked = guarded(&|k| {
+        collect_sdr(
+            sdr,
+            inverted_index,
+            storage,
+            aura_index,
+            records,
+            query,
+            k,
+            ns,
+        )
+    });
+    let bm25_ranked = guarded(&|k| collect_bm25(lexical_index, records, query, k, ns));
+    let ngram_ranked = guarded(&|k| collect_ngram(ngram_index, records, query, k, ns));
+    let tag_ranked = guarded(&|k| collect_tags(tag_index, records, query, k, ns));
 
     // 2. RRF Fuse (lists arranged by the configured fusion mode)
     let mode = trust_config
@@ -1052,19 +1222,26 @@ pub fn recall_pipeline_with_trace(
     let default_ns = [DEFAULT_NAMESPACE];
     let ns = namespaces.unwrap_or(&default_ns);
 
-    let sdr_ranked = collect_sdr(
-        sdr,
-        inverted_index,
-        storage,
-        aura_index,
-        records,
-        query,
-        top_k,
-        ns,
-    );
-    let bm25_ranked = collect_bm25(lexical_index, records, query, top_k, ns);
-    let ngram_ranked = collect_ngram(ngram_index, records, query, top_k, ns);
-    let tag_ranked = collect_tags(tag_index, records, query, top_k, ns);
+    // Collect a wider pool, then let each untrusted source group keep at most
+    // UNTRUSTED_GROUP_CAP entries before truncating: copies from one source
+    // must not fill a signal's candidate list and push first-hand facts out.
+    let guarded =
+        |collect: &dyn Fn(usize) -> Vec<(String, f32)>| guarded_collect(records, top_k, collect);
+    let sdr_ranked = guarded(&|k| {
+        collect_sdr(
+            sdr,
+            inverted_index,
+            storage,
+            aura_index,
+            records,
+            query,
+            k,
+            ns,
+        )
+    });
+    let bm25_ranked = guarded(&|k| collect_bm25(lexical_index, records, query, k, ns));
+    let ngram_ranked = guarded(&|k| collect_ngram(ngram_index, records, query, k, ns));
+    let tag_ranked = guarded(&|k| collect_tags(tag_index, records, query, k, ns));
 
     let mut named_lists: Vec<(&str, Vec<(String, f32)>)> = Vec::new();
     if !sdr_ranked.is_empty() {

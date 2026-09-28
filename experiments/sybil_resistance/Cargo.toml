@@ -1,0 +1,13 @@
+[package]
+name = "aura-sybil-resistance"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+aura = { path = "../..", default-features = false, features = ["encryption", "audit", "capsule"] }
+anyhow = "1"
+serde_json = "1"
+tempfile = "3"
+
+[workspace]

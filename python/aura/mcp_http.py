@@ -94,8 +94,9 @@ def get_brain() -> Aura:
         with _brain_lock:
             if _brain is None:
                 path = os.environ.get("AURA_BRAIN_PATH", "./aura_brain")
-                password = os.environ.get("AURA_PASSWORD")
-                _brain = Aura(path, password=password) if password else Aura(path)
+                password = os.environ.get("AURA_PASSWORD") or None
+                security = os.environ.get("AURA_SECURITY") or None
+                _brain = Aura(path, password=password, security=security)
     return _brain
 
 
@@ -376,6 +377,7 @@ def run_http(
     port: int = 8080,
     password: str | None = None,
     api_key: str | None = None,
+    security: str | None = None,
 ):
     import uvicorn
     if api_key:
@@ -388,4 +390,6 @@ def run_http(
     os.environ["AURA_BRAIN_PATH"] = path
     if password:
         os.environ["AURA_PASSWORD"] = password
+    if security:
+        os.environ["AURA_SECURITY"] = security
     uvicorn.run(app, host=host, port=port)

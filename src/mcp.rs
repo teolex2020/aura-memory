@@ -259,6 +259,9 @@ impl AuraMcpServer {
         } else {
             Aura::open(&path)?
         };
+        if let Ok(profile) = env::var("AURA_SECURITY") {
+            brain.set_security_profile(crate::security::SecurityProfile::parse(&profile)?);
+        }
         Ok(Self::new(Arc::new(brain)))
     }
 

@@ -651,7 +651,7 @@ fn causal_walk_with_trace(
 pub const UNTRUSTED_REPEAT_DECAY: f32 = 0.5;
 
 /// Source group of an untrusted record (None for first-hand records).
-fn untrusted_group(rec: &Record) -> Option<String> {
+pub(crate) fn untrusted_group(rec: &Record) -> Option<String> {
     if crate::certainty::effective_source_type(rec) == "recorded" {
         return None;
     }

@@ -46,11 +46,9 @@ def _parse_level(s: str) -> Level:
 
 
 class AuraMcpServer:
-    def __init__(self, path: str, password: str = None):
-        if password:
-            self.brain = Aura(path, password=password)
-        else:
-            self.brain = Aura(path)
+    def __init__(self, path: str, password: str = None, security: str = None):
+        security = security or os.environ.get("AURA_SECURITY")
+        self.brain = Aura(path, password=password or None, security=security or None)
 
     # ── MCP Tools ──
 
@@ -426,9 +424,9 @@ class AuraMcpServer:
 
 
 
-def check_mcp(path: str = "./aura_brain", password: str = None) -> dict:
+def check_mcp(path: str = "./aura_brain", password: str = None, security: str = None) -> dict:
     """Open Aura and validate the MCP initialize and tool-list contracts."""
-    server = AuraMcpServer(path, password)
+    server = AuraMcpServer(path, password, security)
     try:
         initialized = server.handle_request({
             "jsonrpc": "2.0",
@@ -454,14 +452,15 @@ def check_mcp(path: str = "./aura_brain", password: str = None) -> dict:
             "protocol_version": initialized["result"]["protocolVersion"],
             "tools": len(tools),
             "brain_path": str(path),
+            "security_profile": server.brain.security_profile,
         }
     finally:
         server.close()
 
 
-def run_mcp(path: str = "./aura_brain", password: str = None):
+def run_mcp(path: str = "./aura_brain", password: str = None, security: str = None):
     """Entry point for MCP server."""
-    server = AuraMcpServer(path, password)
+    server = AuraMcpServer(path, password, security)
     server.run_stdio()
 
 
@@ -483,6 +482,12 @@ def main(argv: list[str] | None = None) -> None:
         help="Encryption password (prefer AURA_PASSWORD in client configuration)",
     )
     parser.add_argument(
+        "--security",
+        choices=("balanced", "strict"),
+        default=os.environ.get("AURA_SECURITY"),
+        help="Security profile (default: AURA_SECURITY or balanced)",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="Validate initialization and tool discovery, then exit",
@@ -502,7 +507,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.check:
-        print(json.dumps(check_mcp(args.path, args.password), indent=2))
+        print(json.dumps(check_mcp(args.path, args.password, args.security), indent=2))
         return
 
-    run_mcp(args.path, args.password)
+    run_mcp(args.path, args.password, args.security)

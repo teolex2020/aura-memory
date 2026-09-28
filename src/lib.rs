@@ -162,6 +162,7 @@ pub mod ingress;
 pub mod outcome;
 pub mod relation;
 pub mod research;
+pub mod security;
 pub mod trust;
 
 // ── Optional Embedding Support ──

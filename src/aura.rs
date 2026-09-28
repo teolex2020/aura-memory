@@ -256,6 +256,7 @@ pub struct Aura {
     // ── Claim certainty ──
     claim_classifier: RwLock<Option<crate::certainty::ClaimClassifier>>,
     claim_rules_enabled: std::sync::atomic::AtomicBool,
+    security_profile: std::sync::atomic::AtomicU8,
     outcome_classifier: RwLock<Option<crate::outcome::OutcomeClassifier>>,
     #[cfg(feature = "capsule")]
     capsule_retention_scheduler:
@@ -1091,6 +1092,7 @@ impl Aura {
             // Phrase rules cover only Ukrainian and English, so they are
             // opt-in; the language-independent path is a host classifier.
             claim_rules_enabled: std::sync::atomic::AtomicBool::new(false),
+            security_profile: std::sync::atomic::AtomicU8::new(0),
             outcome_classifier: RwLock::new(None),
             #[cfg(feature = "capsule")]
             capsule_retention_scheduler: parking_lot::Mutex::new(None),
@@ -2292,6 +2294,36 @@ impl Aura {
     /// Recall memories (formatted string for LLM context).
     /// Uses in-memory cache — repeated queries return instantly.
     pub fn recall(
+        &self,
+        query: &str,
+        token_budget: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespaces: Option<&[&str]>,
+    ) -> Result<String> {
+        if self.security_profile() == crate::security::SecurityProfile::Strict {
+            return self.recall_provenance(
+                query,
+                token_budget,
+                min_strength,
+                expand_connections,
+                session_id,
+                namespaces,
+            );
+        }
+        self.recall_levels(
+            query,
+            token_budget,
+            min_strength,
+            expand_connections,
+            session_id,
+            namespaces,
+        )
+    }
+
+    /// Recall formatted as level-grouped context, whatever the profile.
+    pub fn recall_levels(
         &self,
         query: &str,
         token_budget: Option<usize>,
@@ -4657,7 +4689,20 @@ impl Aura {
     /// Natural cognitive forgetting is unchanged. This method handles only an
     /// explicit deletion request and invalidates conclusions that depended on
     /// the deleted evidence.
+    ///
+    /// Under the strict security profile this purges the record from storage,
+    /// snapshots and audit history (`purge_record` with `PurgeScope::History`).
     pub fn delete(&self, record_id: &str) -> Result<bool> {
+        if self.security_profile() == crate::security::SecurityProfile::Strict {
+            let exists = self.records.read().contains_key(record_id)
+                || self.storage.read(record_id).ok().flatten().is_some();
+            if !exists {
+                return Ok(false);
+            }
+            return self
+                .purge_record(record_id, PurgeScope::History)
+                .map(|receipt| receipt.active_record_removed);
+        }
         self.delete_with_derived(record_id)
             .map(|(removed, _)| removed)
     }
@@ -5610,6 +5655,39 @@ impl Aura {
     pub fn set_claim_rules_enabled(&self, enabled: bool) {
         self.claim_rules_enabled
             .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Choose the security profile (see `security::SecurityProfile`).
+    pub fn set_security_profile(&self, profile: crate::security::SecurityProfile) {
+        self.security_profile
+            .store(profile.to_u8(), std::sync::atomic::Ordering::Relaxed);
+        self.runtime.clear_recall_caches();
+    }
+
+    /// Current security profile.
+    pub fn security_profile(&self) -> crate::security::SecurityProfile {
+        crate::security::SecurityProfile::from_u8(
+            self.security_profile
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// Every protection with its state and evidence, what the store holds by
+    /// effective source, and warnings for protections that are off.
+    pub fn security_report(&self) -> crate::security::SecurityReport {
+        let stats = crate::security::stats(self.records.read().values());
+        crate::security::report(
+            crate::security::ReportInputs {
+                profile: self.security_profile(),
+                encrypted: self.is_encrypted(),
+                audit_log: self.audit_log.is_some(),
+                claim_classifier: self.claim_classifier.read().is_some(),
+                claim_rules: self
+                    .claim_rules_enabled
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            },
+            stats,
+        )
     }
 
     /// Set (or clear) a host outcome classifier. At write time it receives
@@ -14887,10 +14965,18 @@ fn capsule_generation_diff_to_py(
 #[pymethods]
 impl Aura {
     #[new]
-    #[pyo3(signature = (path, password=None))]
-    fn py_new(path: &str, password: Option<&str>) -> PyResult<Self> {
-        Self::open_with_password(path, password)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
+    #[pyo3(signature = (path, password=None, security=None))]
+    fn py_new(path: &str, password: Option<&str>, security: Option<&str>) -> PyResult<Self> {
+        let profile = security
+            .map(crate::security::SecurityProfile::parse)
+            .transpose()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let aura = Self::open_with_password(path, password)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        if let Some(profile) = profile {
+            aura.set_security_profile(profile);
+        }
+        Ok(aura)
     }
 
     #[pyo3(name = "store", signature = (content, level=None, tags=None, pin=None, content_type=None, source_type=None, metadata=None, deduplicate=None, caused_by_id=None, channel=None, auto_promote=None, namespace=None, semantic_type=None, valid_from=None, valid_until=None))]
@@ -15270,35 +15356,41 @@ impl Aura {
             .as_ref()
             .map(|v| v.iter().map(|s| s.as_str()).collect());
         let ns_slice: Option<&[&str]> = ns_refs.as_deref();
-        let provenance = match format.unwrap_or("levels") {
-            "levels" => false,
-            "provenance" => true,
-            other => {
+        let provenance = match format {
+            None => None,
+            Some("levels") => Some(false),
+            Some("provenance") => Some(true),
+            Some(other) => {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "unknown recall format {other:?}; expected levels or provenance"
                 )))
             }
         };
-        py.allow_threads(|| {
-            if provenance {
-                self.recall_provenance(
-                    query,
-                    token_budget,
-                    min_strength,
-                    expand_connections,
-                    session_id,
-                    ns_slice,
-                )
-            } else {
-                self.recall(
-                    query,
-                    token_budget,
-                    min_strength,
-                    expand_connections,
-                    session_id,
-                    ns_slice,
-                )
-            }
+        py.allow_threads(|| match provenance {
+            Some(true) => self.recall_provenance(
+                query,
+                token_budget,
+                min_strength,
+                expand_connections,
+                session_id,
+                ns_slice,
+            ),
+            Some(false) => self.recall_levels(
+                query,
+                token_budget,
+                min_strength,
+                expand_connections,
+                session_id,
+                ns_slice,
+            ),
+            None => self.recall(
+                query,
+                token_budget,
+                min_strength,
+                expand_connections,
+                session_id,
+                ns_slice,
+            ),
         })
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
@@ -18371,6 +18463,51 @@ impl Aura {
     }
 
     /// Enable or disable the built-in phrase rules for claim certainty.
+    /// Choose the security profile: "balanced" (default) or "strict".
+    #[pyo3(name = "set_security_profile")]
+    fn py_set_security_profile(&self, profile: &str) -> PyResult<()> {
+        let profile = crate::security::SecurityProfile::parse(profile)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        self.set_security_profile(profile);
+        Ok(())
+    }
+
+    /// Current security profile name.
+    #[getter(security_profile)]
+    fn py_security_profile(&self) -> &'static str {
+        self.security_profile().as_str()
+    }
+
+    /// Protections, their states and evidence, store statistics and warnings.
+    #[pyo3(name = "security_report")]
+    fn py_security_report(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let report = py.allow_threads(|| self.security_report());
+        let out = pyo3::types::PyDict::new_bound(py);
+        out.set_item("profile", report.profile.as_str())?;
+        let protections = pyo3::types::PyList::empty_bound(py);
+        for protection in &report.protections {
+            let item = pyo3::types::PyDict::new_bound(py);
+            item.set_item("name", protection.name)?;
+            item.set_item("state", protection.state)?;
+            item.set_item("evidence", protection.evidence)?;
+            item.set_item("detail", &protection.detail)?;
+            protections.append(item)?;
+        }
+        out.set_item("protections", protections)?;
+        let stats = pyo3::types::PyDict::new_bound(py);
+        let s = &report.stats;
+        stats.set_item("records", s.records)?;
+        stats.set_item("by_effective_source", s.by_effective_source.clone())?;
+        stats.set_item("relayed_by_model", s.relayed_by_model)?;
+        stats.set_item("hearsay_or_speculative", s.hearsay_or_speculative)?;
+        stats.set_item("restricted", s.restricted)?;
+        stats.set_item("untrusted_groups_over_cap", s.untrusted_groups_over_cap)?;
+        stats.set_item("records_in_groups_over_cap", s.records_in_groups_over_cap)?;
+        out.set_item("stats", stats)?;
+        out.set_item("warnings", report.warnings.clone())?;
+        Ok(out.into())
+    }
+
     #[pyo3(name = "set_claim_rules_enabled")]
     fn py_set_claim_rules_enabled(&self, enabled: bool) {
         self.set_claim_rules_enabled(enabled);

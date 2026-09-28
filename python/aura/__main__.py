@@ -158,12 +158,12 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     if args.check:
         from aura.mcp_server import check_mcp
 
-        print(json.dumps(check_mcp(args.path, args.password), indent=2))
+        print(json.dumps(check_mcp(args.path, args.password, args.security), indent=2))
         return
 
     from aura.mcp_server import run_mcp
 
-    run_mcp(path=args.path, password=args.password)
+    run_mcp(path=args.path, password=args.password, security=args.security)
 
 
 def cmd_shell(args: argparse.Namespace) -> None:
@@ -282,6 +282,12 @@ def main():
         help="Encryption password (prefer AURA_PASSWORD in client configuration)",
     )
     p_mcp.add_argument(
+        "--security",
+        choices=("balanced", "strict"),
+        default=os.environ.get("AURA_SECURITY"),
+        help="Security profile (default: AURA_SECURITY or balanced)",
+    )
+    p_mcp.add_argument(
         "--check",
         action="store_true",
         help="Validate MCP initialization and tool discovery, then exit",
@@ -302,6 +308,12 @@ def main():
     p_serve.add_argument("--port", type=int, default=8080, help="Port (default: 8080)")
     p_serve.add_argument("--password", help="Encryption password")
     p_serve.add_argument("--api-key", help="Require this bearer token (or set AURA_API_KEY)")
+    p_serve.add_argument(
+        "--security",
+        choices=("balanced", "strict"),
+        default=os.environ.get("AURA_SECURITY"),
+        help="Security profile (default: AURA_SECURITY or balanced)",
+    )
 
     args = parser.parse_args()
 
@@ -316,7 +328,7 @@ def main():
     elif args.command == "serve":
         from aura.mcp_http import run_http
         run_http(path=args.path, host=args.host, port=args.port, password=args.password,
-                 api_key=args.api_key)
+                 api_key=args.api_key, security=args.security)
     else:
         parser.print_help()
         sys.exit(1)

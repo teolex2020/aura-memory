@@ -1,0 +1,16 @@
+{
+  "checks": {
+    "valid_first_use": true,
+    "replay_same_process": false,
+    "replay_after_reopen": false,
+    "arg_substitution": false,
+    "tool_substitution": false,
+    "forged_other_key": false,
+    "forged_random_mac": false,
+    "no_permit": false,
+    "malformed_permit": false,
+    "fresh_after_rejections": true
+  },
+  "accepted_harmful": [],
+  "A3_pass": true
+}

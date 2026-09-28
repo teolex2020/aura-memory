@@ -26,6 +26,7 @@ fn store(aura: &Aura, text: &str) -> Record {
 fn host_classifier_wins_and_none_defers_to_rules() {
     let dir = tempfile::tempdir().unwrap();
     let aura = Aura::open(dir.path().to_str().unwrap()).unwrap();
+    aura.set_claim_rules_enabled(true);
     aura.set_claim_classifier(Some(Arc::new(|text: &str| {
         text.to_lowercase()
             .contains("per the manual")
@@ -41,10 +42,9 @@ fn host_classifier_wins_and_none_defers_to_rules() {
 }
 
 #[test]
-fn disabling_rules_leaves_unclassified_text_at_channel_trust() {
+fn rules_are_off_by_default_so_unclassified_text_keeps_channel_trust() {
     let dir = tempfile::tempdir().unwrap();
     let aura = Aura::open(dir.path().to_str().unwrap()).unwrap();
-    aura.set_claim_rules_enabled(false);
     let heard = store(&aura, "I heard the office is moving.");
     assert!(!heard.metadata.contains_key("claim_certainty"));
     assert_eq!(
@@ -57,6 +57,7 @@ fn disabling_rules_leaves_unclassified_text_at_channel_trust() {
 fn updating_text_reclassifies_it() {
     let dir = tempfile::tempdir().unwrap();
     let aura = Aura::open(dir.path().to_str().unwrap()).unwrap();
+    aura.set_claim_rules_enabled(true);
     let rec = store(&aura, "The release ships on Friday.");
     assert_eq!(rec.metadata["claim_certainty"], "asserted");
     let updated = aura

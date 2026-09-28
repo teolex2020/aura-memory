@@ -149,12 +149,6 @@ pub fn consolidate(
     result
 }
 
-const NEGATIONS: &[&str] = &[
-    "not", "no", "never", "none", "nothing", "without", "cannot", "nor", "dont", "don", "doesnt",
-    "doesn", "didnt", "didn", "isnt", "isn", "arent", "aren", "wasnt", "wasn", "werent", "weren",
-    "wont", "won", "shouldnt", "shouldn", "mustnt", "mustn", "cant",
-];
-
 fn content_tokens(text: &str) -> HashSet<String> {
     text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
         .filter(|token| !token.is_empty())
@@ -162,19 +156,14 @@ fn content_tokens(text: &str) -> HashSet<String> {
         .collect()
 }
 
-/// True when merging `remove` into `keep` loses no words, numbers or
-/// identifiers, and both records agree on negation.
+/// True when the two records contain exactly the same words, numbers and
+/// identifiers (ignoring case, punctuation and order).
+///
+/// Language-independent by design: any extra word on either side — a number,
+/// an identifier, or a negation in any language ("not", "не", "nicht", "pas")
+/// — blocks the merge, so no word list is needed.
 fn merge_preserves_content(keep: &Record, remove: &Record) -> bool {
-    let keep_tokens = content_tokens(&keep.content);
-    let remove_tokens = content_tokens(&remove.content);
-    let negations = |tokens: &HashSet<String>| -> HashSet<String> {
-        tokens
-            .iter()
-            .filter(|token| NEGATIONS.contains(&token.as_str()))
-            .cloned()
-            .collect()
-    };
-    remove_tokens.is_subset(&keep_tokens) && negations(&keep_tokens) == negations(&remove_tokens)
+    content_tokens(&keep.content) == content_tokens(&remove.content)
 }
 
 fn records_are_explicitly_conflicting(
@@ -219,14 +208,21 @@ mod tests {
         assert!(!merge_preserves_content(&a, &b));
         assert!(!merge_preserves_content(&b, &a));
 
-        let short = fact("User prefers dark mode");
-        let long = fact("The user prefers dark mode.");
-        assert!(merge_preserves_content(&long, &short));
-        assert!(!merge_preserves_content(&short, &long));
+        let same = fact("User prefers dark mode");
+        let punctuated = fact("user prefers dark mode!");
+        assert!(merge_preserves_content(&same, &punctuated));
 
+        // Any extra word blocks the merge, whatever the language.
+        let long = fact("The user prefers dark mode.");
+        assert!(!merge_preserves_content(&long, &same));
         let positive = fact("Deploy on Friday after staging");
-        let negative = fact("Do not deploy on Friday after staging");
-        assert!(!merge_preserves_content(&negative, &positive));
+        for negative in [
+            "Do not deploy on Friday after staging",
+            "Не deploy on Friday after staging",
+            "Deploy nicht on Friday after staging",
+        ] {
+            assert!(!merge_preserves_content(&fact(negative), &positive));
+        }
     }
 
     #[test]

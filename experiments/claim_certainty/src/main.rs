@@ -66,6 +66,9 @@ fn put(aura: &Aura, text: &str, source_type: Option<&str>, caused_by: Option<&st
 fn integration() -> Result<Value> {
     let dir = tempfile::tempdir()?;
     let aura = Aura::open(dir.path().join("b").to_str().unwrap())?;
+    // The integration gates measure the built-in rules, which are opt-in
+    // since 2026-09-28 (off by default).
+    aura.set_claim_rules_enabled(true);
 
     // I1: first-hand identity fact.
     let birth = put(&aura, "Я народився 12 травня 1988 року в Житомирі.", Some("recorded"), None, &["me"])?;

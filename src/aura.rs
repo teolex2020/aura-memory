@@ -1087,7 +1087,9 @@ impl Aura {
             #[cfg(feature = "python")]
             embedding_fn: RwLock::new(None),
             claim_classifier: RwLock::new(None),
-            claim_rules_enabled: std::sync::atomic::AtomicBool::new(true),
+            // Phrase rules cover only Ukrainian and English, so they are
+            // opt-in; the language-independent path is a host classifier.
+            claim_rules_enabled: std::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "capsule")]
             capsule_retention_scheduler: parking_lot::Mutex::new(None),
         })
@@ -5562,7 +5564,8 @@ impl Aura {
     }
 
     /// Enable or disable the built-in phrase rules used when no classifier
-    /// answers. Disabled rules leave unclassified text at its channel trust.
+    /// answers. They cover Ukrainian and English only and are off by default;
+    /// unclassified text stays at its channel trust.
     pub fn set_claim_rules_enabled(&self, enabled: bool) {
         self.claim_rules_enabled
             .store(enabled, std::sync::atomic::Ordering::Relaxed);

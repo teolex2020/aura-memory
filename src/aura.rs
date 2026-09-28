@@ -2396,7 +2396,10 @@ impl Aura {
             session_id,
             namespaces,
         )?;
-        let context = recall::format_provenance(&scored, token_budget.unwrap_or(2048));
+        let context = {
+            let records = self.records.read();
+            recall::format_provenance(&scored, token_budget.unwrap_or(2048), &records)
+        };
         self.runtime.note_recall(usize::from(!context.is_empty()));
         Ok(context)
     }

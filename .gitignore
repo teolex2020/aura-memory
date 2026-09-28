@@ -108,6 +108,7 @@ tests/*
 !tests/security_profile.rs
 !tests/python_security_profile_smoke.py
 !tests/channel_source.rs
+!tests/provenance_context.rs
 
 # Marketing materials (strategy — not public)
 marketing/

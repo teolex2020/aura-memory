@@ -2335,6 +2335,31 @@ impl Aura {
         result
     }
 
+    /// Recall formatted with provenance: first-hand user memory and untrusted
+    /// memory in separate sections, untrusted text quoted and fenced (see
+    /// `recall::format_provenance`). Not cached.
+    pub fn recall_provenance(
+        &self,
+        query: &str,
+        token_budget: Option<usize>,
+        min_strength: Option<f32>,
+        expand_connections: Option<bool>,
+        session_id: Option<&str>,
+        namespaces: Option<&[&str]>,
+    ) -> Result<String> {
+        let scored = self.recall_core(
+            query,
+            20,
+            min_strength.unwrap_or(0.1),
+            expand_connections.unwrap_or(true),
+            session_id,
+            namespaces,
+        )?;
+        let context = recall::format_provenance(&scored, token_budget.unwrap_or(2048));
+        self.runtime.note_recall(usize::from(!context.is_empty()));
+        Ok(context)
+    }
+
     /// Recall structured (raw results with trust scoring).
     #[instrument(skip(self), fields(top_k, min_strength))]
     pub fn recall_structured(
@@ -15228,7 +15253,7 @@ impl Aura {
         Ok(dict.into())
     }
 
-    #[pyo3(name = "recall", signature = (query, token_budget=None, min_strength=None, expand_connections=None, session_id=None, namespace=None))]
+    #[pyo3(name = "recall", signature = (query, token_budget=None, min_strength=None, expand_connections=None, session_id=None, namespace=None, format=None))]
     fn py_recall(
         &self,
         py: Python<'_>,
@@ -15238,21 +15263,42 @@ impl Aura {
         expand_connections: Option<bool>,
         session_id: Option<&str>,
         namespace: Option<&pyo3::Bound<'_, pyo3::types::PyAny>>,
+        format: Option<&str>,
     ) -> PyResult<String> {
         let ns_vec = extract_namespaces(namespace)?;
         let ns_refs: Option<Vec<&str>> = ns_vec
             .as_ref()
             .map(|v| v.iter().map(|s| s.as_str()).collect());
         let ns_slice: Option<&[&str]> = ns_refs.as_deref();
+        let provenance = match format.unwrap_or("levels") {
+            "levels" => false,
+            "provenance" => true,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown recall format {other:?}; expected levels or provenance"
+                )))
+            }
+        };
         py.allow_threads(|| {
-            self.recall(
-                query,
-                token_budget,
-                min_strength,
-                expand_connections,
-                session_id,
-                ns_slice,
-            )
+            if provenance {
+                self.recall_provenance(
+                    query,
+                    token_budget,
+                    min_strength,
+                    expand_connections,
+                    session_id,
+                    ns_slice,
+                )
+            } else {
+                self.recall(
+                    query,
+                    token_budget,
+                    min_strength,
+                    expand_connections,
+                    session_id,
+                    ns_slice,
+                )
+            }
         })
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }

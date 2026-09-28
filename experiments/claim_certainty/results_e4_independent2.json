@@ -1,0 +1,178 @@
+{
+  "dataset": "independent2.jsonl",
+  "n": 160,
+  "arms": {
+    "rules": {
+      "hearsay_recall": 0.525,
+      "hearsay_precision": 0.955,
+      "asserted_demoted": 0,
+      "accuracy": 0.569,
+      "confusion": {
+        "asserted": {
+          "asserted": 40,
+          "hearsay": 0,
+          "speculative": 0
+        },
+        "hedged": {
+          "asserted": 23,
+          "hedged": 16,
+          "hearsay": 1
+        },
+        "speculative": {
+          "asserted": 25,
+          "speculative": 14,
+          "hedged": 1,
+          "hearsay": 0
+        },
+        "hearsay": {
+          "hearsay": 21,
+          "asserted": 19
+        }
+      },
+      "gates": {
+        "H1": false,
+        "H2": true,
+        "H3": true,
+        "H4": false
+      }
+    },
+    "llm:qwen3:4b-instruct": {
+      "hearsay_recall": 0.875,
+      "hearsay_precision": 0.921,
+      "asserted_demoted": 0,
+      "accuracy": 0.825,
+      "confusion": {
+        "asserted": {
+          "asserted": 40,
+          "hearsay": 0,
+          "speculative": 0
+        },
+        "hedged": {
+          "hedged": 29,
+          "asserted": 9,
+          "hearsay": 2
+        },
+        "speculative": {
+          "speculative": 28,
+          "hedged": 11,
+          "hearsay": 1
+        },
+        "hearsay": {
+          "hearsay": 35,
+          "asserted": 5
+        }
+      },
+      "gates": {
+        "H1": true,
+        "H2": true,
+        "H3": true,
+        "H4": true
+      },
+      "median_s": 0.286,
+      "p95_s": 0.317,
+      "unparsed": 0
+    },
+    "llm+rules:qwen3:4b-instruct": {
+      "hearsay_recall": 0.875,
+      "hearsay_precision": 0.921,
+      "asserted_demoted": 0,
+      "accuracy": 0.825,
+      "confusion": {
+        "asserted": {
+          "asserted": 40,
+          "hearsay": 0,
+          "speculative": 0
+        },
+        "hedged": {
+          "hedged": 29,
+          "asserted": 9,
+          "hearsay": 2
+        },
+        "speculative": {
+          "speculative": 28,
+          "hedged": 11,
+          "hearsay": 1
+        },
+        "hearsay": {
+          "hearsay": 35,
+          "asserted": 5
+        }
+      },
+      "gates": {
+        "H1": true,
+        "H2": true,
+        "H3": true,
+        "H4": true
+      }
+    },
+    "llm:gemma3n:e4b": {
+      "hearsay_recall": 1.0,
+      "hearsay_precision": 0.714,
+      "asserted_demoted": 2,
+      "accuracy": 0.731,
+      "confusion": {
+        "asserted": {
+          "asserted": 38,
+          "hearsay": 2,
+          "speculative": 0
+        },
+        "hedged": {
+          "hedged": 33,
+          "hearsay": 5,
+          "asserted": 2
+        },
+        "speculative": {
+          "asserted": 13,
+          "speculative": 6,
+          "hedged": 12,
+          "hearsay": 9
+        },
+        "hearsay": {
+          "hearsay": 40
+        }
+      },
+      "gates": {
+        "H1": true,
+        "H2": true,
+        "H3": false,
+        "H4": true
+      },
+      "median_s": 1.0,
+      "p95_s": 1.09,
+      "unparsed": 13
+    },
+    "llm+rules:gemma3n:e4b": {
+      "hearsay_recall": 1.0,
+      "hearsay_precision": 0.714,
+      "asserted_demoted": 2,
+      "accuracy": 0.762,
+      "confusion": {
+        "asserted": {
+          "asserted": 38,
+          "hearsay": 2,
+          "speculative": 0
+        },
+        "hedged": {
+          "hedged": 33,
+          "hearsay": 5,
+          "asserted": 2
+        },
+        "speculative": {
+          "asserted": 8,
+          "speculative": 11,
+          "hedged": 12,
+          "hearsay": 9
+        },
+        "hearsay": {
+          "hearsay": 40
+        }
+      },
+      "gates": {
+        "H1": true,
+        "H2": true,
+        "H3": false,
+        "H4": true
+      }
+    }
+  }
+}

@@ -12,7 +12,24 @@
 //! but it must not count as first-hand evidence. Matching is on whole words,
 //! so `may` does not fire inside `maybe`.
 
+use std::sync::Arc;
+
 use crate::experience::ClaimCertainty;
+
+/// Host-provided claim classifier. Returning `None` defers to the built-in
+/// rules (when enabled); otherwise its answer is used as-is.
+pub type ClaimClassifier = Arc<dyn Fn(&str) -> Option<ClaimCertainty> + Send + Sync>;
+
+/// Parse a certainty name as returned by a classifier.
+pub fn parse(name: &str) -> Option<ClaimCertainty> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "asserted" => Some(ClaimCertainty::Asserted),
+        "hedged" => Some(ClaimCertainty::Hedged),
+        "speculative" => Some(ClaimCertainty::Speculative),
+        "hearsay" => Some(ClaimCertainty::Hearsay),
+        _ => None,
+    }
+}
 
 /// Phrases that relay someone else's claim regardless of grammatical subject.
 const HEARSAY_PHRASES: &[&str] = &[

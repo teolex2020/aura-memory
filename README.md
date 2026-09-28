@@ -901,6 +901,44 @@ results = brain.recall_structured("login problems", top_k=5)
 
 Without embeddings, Aura continues to use its local recall pipeline - still fast, still effective.
 
+### Claim Certainty (Optional LLM)
+
+Aura records whether each memory is first-hand (`asserted`), qualified (`hedged`),
+a guess (`speculative`), or relayed from someone else (`hearsay`). Relayed and
+uncertain claims are still stored, but with lower confidence, and they never
+count as first-hand evidence for advice.
+
+Built-in rules catch obvious phrasings without any model. For better coverage,
+plug in a small local LLM:
+
+```python
+import json, urllib.request
+
+PROMPT = (
+    "Classify what kind of claim the sentence makes. Answer with exactly one word: "
+    "asserted, hearsay, hedged or speculative.\nSentence: {text}\nAnswer:"
+)
+
+def classify(text):
+    body = json.dumps({"model": "qwen3:4b-instruct", "prompt": PROMPT.format(text=text),
+                       "stream": False, "options": {"temperature": 0, "num_predict": 8}}).encode()
+    req = urllib.request.Request("http://127.0.0.1:11434/api/generate", data=body,
+                                 headers={"Content-Type": "application/json"})
+    answer = json.loads(urllib.request.urlopen(req).read())["response"].strip().lower()
+    return next((l for l in ("asserted", "hearsay", "hedged", "speculative") if l in answer), None)
+
+brain.set_claim_classifier(classify)   # returning None falls back to the built-in rules
+brain.store("I was born on May 12")    # asserted, Identity level
+brain.store("I heard the plant closed") # hearsay, lower confidence
+```
+
+On an independent test set, `qwen3:4b-instruct` via this hook reached hearsay
+recall 0.88 and precision 0.92 without demoting any first-hand statement
+(~0.3 s per write); the built-in rules alone reached recall 0.53. Those numbers
+were measured with the longer prompt that defines each label, in
+`experiments/claim_certainty/llm_eval.py`; the short prompt above is only an
+illustration. See `experiments/claim_certainty` for the full evaluation.
+
 ### Encryption
 
 ```python

@@ -1,0 +1,160 @@
+{"text": "I told my landlord on Monday that the sink is leaking again.", "label": "asserted", "lang": "en"}
+{"text": "My brother lives in Lviv with his two cats.", "label": "asserted", "lang": "en"}
+{"text": "The dog threw up twice this morning.", "label": "asserted", "lang": "en"}
+{"text": "We paid off the car loan in March.", "label": "asserted", "lang": "en"}
+{"text": "I switched our team's CI from Jenkins to GitHub Actions last week.", "label": "asserted", "lang": "en"}
+{"text": "My passport expires on 14 November 2027.", "label": "asserted", "lang": "en"}
+{"text": "I warned my sister not to sign that lease.", "label": "asserted", "lang": "en"}
+{"text": "The fridge is making a clicking noise again.", "label": "asserted", "lang": "en"}
+{"text": "Our daughter starts first grade in September.", "label": "asserted", "lang": "en"}
+{"text": "I asked the pharmacist for a smaller dose, and she refused.", "label": "asserted", "lang": "en"}
+{"text": "My rent went up by 1,200 hryvnias this month.", "label": "asserted", "lang": "en"}
+{"text": "I cancelled the gym membership yesterday.", "label": "asserted", "lang": "en"}
+{"text": "Grandma's birthday is on the 3rd, and I already bought the cake.", "label": "asserted", "lang": "en"}
+{"text": "The build fails on Windows but passes on Linux.", "label": "asserted", "lang": "en"}
+{"text": "I explained to the teacher why Max missed class.", "label": "asserted", "lang": "en"}
+{"text": "My flight to Warsaw leaves at 6:40 a.m.", "label": "asserted", "lang": "en"}
+{"text": "I'm allergic to penicillin.", "label": "asserted", "lang": "en"}
+{"text": "Mom called me three times today.", "label": "asserted", "lang": "en"}
+{"text": "It rained all weekend here in Kharkiv.", "label": "asserted", "lang": "en"}
+{"text": "I replied to the tax office's letter this morning.", "label": "asserted", "lang": "en"}
+{"text": "According to my doctor, I should cut coffee to one cup a day.", "label": "hearsay", "lang": "en"}
+{"text": "The bank's website says the transfer takes up to five business days.", "label": "hearsay", "lang": "en"}
+{"text": "Apparently the office is closing early on Friday.", "label": "hearsay", "lang": "en"}
+{"text": "My neighbor claims the water will be off all Tuesday.", "label": "hearsay", "lang": "en"}
+{"text": "The new phone battery lasts two whole days (per some YouTube review).", "label": "hearsay", "lang": "en"}
+{"text": "The label on the jar: consume within 7 days of opening.", "label": "hearsay", "lang": "en"}
+{"text": "Word in the parents' chat is that school starts a week late.", "label": "hearsay", "lang": "en"}
+{"text": "The vet mentioned that Luna needs her booster shot in May.", "label": "hearsay", "lang": "en"}
+{"text": "Rumor has it our manager is leaving for a competitor.", "label": "hearsay", "lang": "en"}
+{"text": "The manual recommends descaling the kettle every month.", "label": "hearsay", "lang": "en"}
+{"text": "Tickets sold out within an hour, the news reported.", "label": "hearsay", "lang": "en"}
+{"text": "My colleague swears the VPN only breaks after the update.", "label": "hearsay", "lang": "en"}
+{"text": "Per the documentation, the API rate limit is 100 requests per minute.", "label": "hearsay", "lang": "en"}
+{"text": "Dad heard from a friend that fuel prices will jump next week.", "label": "hearsay", "lang": "en"}
+{"text": "There's a sign at the station saying trains to Kyiv are delayed.", "label": "hearsay", "lang": "en"}
+{"text": "People online say this laptop overheats after a year.", "label": "hearsay", "lang": "en"}
+{"text": "My accountant told me I can deduct the tuition fees.", "label": "hearsay", "lang": "en"}
+{"text": "The forecast is calling for snow on Thursday.", "label": "hearsay", "lang": "en"}
+{"text": "Allegedly the landlord already found new tenants.", "label": "hearsay", "lang": "en"}
+{"text": "Mark from IT reckons the outage was caused by a bad DNS change.", "label": "hearsay", "lang": "en"}
+{"text": "I'm pretty sure I left my charger at the hotel.", "label": "hedged", "lang": "en"}
+{"text": "The rash seems to be getting smaller.", "label": "hedged", "lang": "en"}
+{"text": "I think the invoice was due on the 15th.", "label": "hedged", "lang": "en"}
+{"text": "If I remember correctly, the car insurance renews in April.", "label": "hedged", "lang": "en"}
+{"text": "The cat has probably eaten something from the plant pot.", "label": "hedged", "lang": "en"}
+{"text": "As far as I can tell, the leak is coming from the upstairs flat.", "label": "hedged", "lang": "en"}
+{"text": "Our internet bill looks about 20% higher than usual.", "label": "hedged", "lang": "en"}
+{"text": "I'm fairly confident the deploy script still points at staging.", "label": "hedged", "lang": "en"}
+{"text": "Most likely I'll be working from home all next week.", "label": "hedged", "lang": "en"}
+{"text": "The package should arrive by Wednesday, I believe.", "label": "hedged", "lang": "en"}
+{"text": "My knee feels a bit better after the physio, more or less.", "label": "hedged", "lang": "en"}
+{"text": "I'd say the kids watched too much TV this summer.", "label": "hedged", "lang": "en"}
+{"text": "The boiler appears to be losing pressure again.", "label": "hedged", "lang": "en"}
+{"text": "Unless I'm mistaken, I already renewed my driving licence.", "label": "hedged", "lang": "en"}
+{"text": "I'm almost certain the meeting got moved to 3 p.m.", "label": "hedged", "lang": "en"}
+{"text": "The shop on the corner is likely closed on Sundays.", "label": "hedged", "lang": "en"}
+{"text": "The dishwasher filter must be clogged again.", "label": "hedged", "lang": "en"}
+{"text": "To the best of my knowledge, my son has no exams this week.", "label": "hedged", "lang": "en"}
+{"text": "I suspect the bug is in the date parsing code.", "label": "hedged", "lang": "en"}
+{"text": "Chances are I overpaid the electricity bill in August.", "label": "hedged", "lang": "en"}
+{"text": "Could the headache be from the new glasses?", "label": "speculative", "lang": "en"}
+{"text": "Maybe we should move to Lviv, who knows.", "label": "speculative", "lang": "en"}
+{"text": "I wonder if the landlord will even return the deposit.", "label": "speculative", "lang": "en"}
+{"text": "What if the flight gets cancelled because of the strike?", "label": "speculative", "lang": "en"}
+{"text": "Is it possible that the dog is allergic to chicken?", "label": "speculative", "lang": "en"}
+{"text": "Perhaps the refund went to my old card, I have no idea.", "label": "speculative", "lang": "en"}
+{"text": "Not sure at all whether the visa covers the whole Schengen area.", "label": "speculative", "lang": "en"}
+{"text": "Might the error be caused by an outdated driver?", "label": "speculative", "lang": "en"}
+{"text": "Hypothetically, if I quit in December, would I still get the bonus?", "label": "speculative", "lang": "en"}
+{"text": "No clue if Grandma still has her old phone number.", "label": "speculative", "lang": "en"}
+{"text": "Does the warranty even cover water damage?", "label": "speculative", "lang": "en"}
+{"text": "It could be the thermostat, or it could be nothing.", "label": "speculative", "lang": "en"}
+{"text": "I'm wondering whether my daughter needs braces.", "label": "speculative", "lang": "en"}
+{"text": "Suppose the bank rejects the mortgage, then what?", "label": "speculative", "lang": "en"}
+{"text": "Who knows, maybe the package is stuck at customs.", "label": "speculative", "lang": "en"}
+{"text": "Would the car pass inspection with this crack in the windshield?", "label": "speculative", "lang": "en"}
+{"text": "There's a chance, a slim one, that the server was hacked.", "label": "speculative", "lang": "en"}
+{"text": "Possibly the cat's just bored, or possibly she's sick.", "label": "speculative", "lang": "en"}
+{"text": "Is the pharmacy open on public holidays?", "label": "speculative", "lang": "en"}
+{"text": "I can't tell if the milk is still OK or not.", "label": "speculative", "lang": "en"}
+{"text": "Я попередила сусіда, що в суботу в нас ремонт.", "label": "asserted", "lang": "uk"}
+{"text": "Мій брат живе у Львові й працює в банку.", "label": "asserted", "lang": "uk"}
+{"text": "Вчора я заплатив за комуналку 2 340 гривень.", "label": "asserted", "lang": "uk"}
+{"text": "Кіт уже третій день не їсть сухий корм.", "label": "asserted", "lang": "uk"}
+{"text": "Я сказав начальниці, що у п'ятницю беру відгул.", "label": "asserted", "lang": "uk"}
+{"text": "Наша донька цього року вступила до ліцею.", "label": "asserted", "lang": "uk"}
+{"text": "У мене алергія на пилок берези.", "label": "asserted", "lang": "uk"}
+{"text": "Сьогодні зранку в Києві випав перший сніг.", "label": "asserted", "lang": "uk"}
+{"text": "Я оновив Windows, і принтер перестав друкувати.", "label": "asserted", "lang": "uk"}
+{"text": "Ми продали стару машину за чотири тисячі доларів.", "label": "asserted", "lang": "uk"}
+{"text": "Мама переїхала до нас ще в липні.", "label": "asserted", "lang": "uk"}
+{"text": "Я подала документи на закордонний паспорт 12 вересня.", "label": "asserted", "lang": "uk"}
+{"text": "Пральна машина зламалася посеред циклу.", "label": "asserted", "lang": "uk"}
+{"text": "Я пояснив синові, чому не можна гратися із сірниками.", "label": "asserted", "lang": "uk"}
+{"text": "Наш рейс до Варшави затримали на дві години.", "label": "asserted", "lang": "uk"}
+{"text": "Я записалася до стоматолога на вівторок.", "label": "asserted", "lang": "uk"}
+{"text": "У квартирі знову пахне газом.", "label": "asserted", "lang": "uk"}
+{"text": "Бабуся святкує вісімдесятиріччя в неділю.", "label": "asserted", "lang": "uk"}
+{"text": "Я скасував підписку на Netflix.", "label": "asserted", "lang": "uk"}
+{"text": "Наш пес боїться грози і ховається під ліжко.", "label": "asserted", "lang": "uk"}
+{"text": "Лікар сказав, що мені треба їсти менше солі.", "label": "hearsay", "lang": "uk"}
+{"text": "На сайті банку пишуть, що переказ іде до трьох днів.", "label": "hearsay", "lang": "uk"}
+{"text": "Кажуть, воду відключать на весь тиждень.", "label": "hearsay", "lang": "uk"}
+{"text": "Сусідка розповіла, що в під'їзді поставлять камери.", "label": "hearsay", "lang": "uk"}
+{"text": "Нібито податкова змінила форму декларації.", "label": "hearsay", "lang": "uk"}
+{"text": "За словами ветеринара, щеплення Барсику потрібне в травні.", "label": "hearsay", "lang": "uk"}
+{"text": "У батьківському чаті пишуть, що канікули подовжать.", "label": "hearsay", "lang": "uk"}
+{"text": "Колега запевняє, що після оновлення VPN не працює.", "label": "hearsay", "lang": "uk"}
+{"text": "Згідно з інструкцією, фільтр треба міняти щопівроку.", "label": "hearsay", "lang": "uk"}
+{"text": "По телевізору передавали, що бензин подорожчає.", "label": "hearsay", "lang": "uk"}
+{"text": "Ходять чутки, що нашу філію закриють.", "label": "hearsay", "lang": "uk"}
+{"text": "На етикетці вказано: зберігати не довше трьох діб.", "label": "hearsay", "lang": "uk"}
+{"text": "Начебто орендодавець уже знайшов нових мешканців.", "label": "hearsay", "lang": "uk"}
+{"text": "Ремонт мосту завершать до грудня (з новин).", "label": "hearsay", "lang": "uk"}
+{"text": "Синоптики обіцяють заморозки на вихідних.", "label": "hearsay", "lang": "uk"}
+{"text": "Бухгалтерка пояснила, що я можу повернути частину податку за навчання.", "label": "hearsay", "lang": "uk"}
+{"text": "Люди в інтернеті скаржаться, що цей пилосос швидко ламається.", "label": "hearsay", "lang": "uk"}
+{"text": "За даними Укрзалізниці, потяг до Одеси запізнюється на годину.", "label": "hearsay", "lang": "uk"}
+{"text": "Тато переказав від дядька, що той приїде в жовтні.", "label": "hearsay", "lang": "uk"}
+{"text": "Вчителька повідомила, що контрольна буде в четвер.", "label": "hearsay", "lang": "uk"}
+{"text": "Здається, я залишив зарядку в готелі.", "label": "hedged", "lang": "uk"}
+{"text": "Я майже впевнена, що рахунок треба оплатити до п'ятнадцятого.", "label": "hedged", "lang": "uk"}
+{"text": "Мабуть, кіт з'їв щось із вазона.", "label": "hedged", "lang": "uk"}
+{"text": "Наскільки я пам'ятаю, страховка на машину закінчується у квітні.", "label": "hedged", "lang": "uk"}
+{"text": "Висип, схоже, зменшується.", "label": "hedged", "lang": "uk"}
+{"text": "Скоріше за все, наступного тижня працюватиму з дому.", "label": "hedged", "lang": "uk"}
+{"text": "Якщо не помиляюся, я вже продовжив посвідчення водія.", "label": "hedged", "lang": "uk"}
+{"text": "Посилка має прийти до середи, я так думаю.", "label": "hedged", "lang": "uk"}
+{"text": "Коліно ніби трохи менше болить після масажу.", "label": "hedged", "lang": "uk"}
+{"text": "Бойлер, видається, знову втрачає тиск.", "label": "hedged", "lang": "uk"}
+{"text": "Рахунок за інтернет, по-моєму, на третину більший, ніж зазвичай.", "label": "hedged", "lang": "uk"}
+{"text": "Я доволі впевнений, що скрипт деплою досі дивиться на тестовий сервер.", "label": "hedged", "lang": "uk"}
+{"text": "Напевно, магазин на розі в неділю зачинений.", "label": "hedged", "lang": "uk"}
+{"text": "Наскільки мені відомо, в сина цього тижня немає контрольних.", "label": "hedged", "lang": "uk"}
+{"text": "Я підозрюю, що помилка десь у розборі дат.", "label": "hedged", "lang": "uk"}
+{"text": "Швидше за все, я переплатив за світло в серпні.", "label": "hedged", "lang": "uk"}
+{"text": "Нарада, якщо я правильно зрозуміла, перенесена на третю.", "label": "hedged", "lang": "uk"}
+{"text": "Дитина, судячи з усього, просто втомилася, а не захворіла.", "label": "hedged", "lang": "uk"}
+{"text": "Фільтр посудомийки, певно, знову забився.", "label": "hedged", "lang": "uk"}
+{"text": "Я б сказала, що діти цього літа забагато сиділи в телефонах.", "label": "hedged", "lang": "uk"}
+{"text": "Може, голова болить через нові окуляри?", "label": "speculative", "lang": "uk"}
+{"text": "Цікаво, чи поверне власник квартири заставу.", "label": "speculative", "lang": "uk"}
+{"text": "А що, як рейс скасують через страйк?", "label": "speculative", "lang": "uk"}
+{"text": "Чи може бути, що пес має алергію на курятину?", "label": "speculative", "lang": "uk"}
+{"text": "Хтозна, може, посилка застрягла на митниці.", "label": "speculative", "lang": "uk"}
+{"text": "Гадки не маю, чи віза діє в усьому Шенгені.", "label": "speculative", "lang": "uk"}
+{"text": "Не знаю, чи бабуся ще користується старим номером.", "label": "speculative", "lang": "uk"}
+{"text": "Чи покриває гарантія пошкодження водою?", "label": "speculative", "lang": "uk"}
+{"text": "Припустімо, банк відмовить в іпотеці, і що тоді?", "label": "speculative", "lang": "uk"}
+{"text": "Якщо я звільнюся в грудні, чи отримаю премію?", "label": "speculative", "lang": "uk"}
+{"text": "Можливо, гроші повернули на стару картку, але я не певен.", "label": "speculative", "lang": "uk"}
+{"text": "Невже машина пройде техогляд із тріщиною на склі?", "label": "speculative", "lang": "uk"}
+{"text": "Я все думаю, чи не потрібні доньці брекети.", "label": "speculative", "lang": "uk"}
+{"text": "Є мізерний шанс, що сервер зламали.", "label": "speculative", "lang": "uk"}
+{"text": "Хіба аптека працює у святкові дні?", "label": "speculative", "lang": "uk"}
+{"text": "Важко сказати, чи молоко ще нормальне.", "label": "speculative", "lang": "uk"}
+{"text": "А раптом це термостат, а не котел?", "label": "speculative", "lang": "uk"}
+{"text": "Чи варто нам узагалі переїжджати до Львова?", "label": "speculative", "lang": "uk"}
+{"text": "Не розумію, чи треба декларувати доходи з фрилансу.", "label": "speculative", "lang": "uk"}
+{"text": "Теоретично, якщо продати дачу, чи вистачить на перший внесок?", "label": "speculative", "lang": "uk"}

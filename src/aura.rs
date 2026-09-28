@@ -253,6 +253,9 @@ pub struct Aura {
     embedding_store: EmbeddingStore,
     #[cfg(feature = "python")]
     embedding_fn: RwLock<Option<Arc<PyObject>>>,
+    // ── Claim certainty ──
+    claim_classifier: RwLock<Option<crate::certainty::ClaimClassifier>>,
+    claim_rules_enabled: std::sync::atomic::AtomicBool,
     #[cfg(feature = "capsule")]
     capsule_retention_scheduler:
         parking_lot::Mutex<Option<crate::capsule::CapsuleRetentionScheduler>>,
@@ -1083,6 +1086,8 @@ impl Aura {
             embedding_store,
             #[cfg(feature = "python")]
             embedding_fn: RwLock::new(None),
+            claim_classifier: RwLock::new(None),
+            claim_rules_enabled: std::sync::atomic::AtomicBool::new(true),
             #[cfg(feature = "capsule")]
             capsule_retention_scheduler: parking_lot::Mutex::new(None),
         })
@@ -1585,6 +1590,15 @@ impl Aura {
             );
         }
 
+        // Claim certainty is computed before any lock is taken: a host
+        // classifier may call back into Python and needs the GIL.
+        let is_text = content_type == "text" || content_type.starts_with("text/");
+        let certainty = if is_text {
+            self.classify_claim(content)
+        } else {
+            None
+        };
+
         // ── Guard: Auto-protect tags (detect sensitive content) ──
         guards::auto_protect_tags(content, &mut tags);
 
@@ -1656,8 +1670,6 @@ impl Aura {
         // Claim certainty: a relayed or speculative claim keeps its channel
         // label but loses confidence; a first-hand biographical fact defaults
         // to Identity level when the caller did not choose one.
-        let is_text = content_type == "text" || content_type.starts_with("text/");
-        let certainty = is_text.then(|| crate::certainty::classify(content));
         if !level_given
             && certainty == Some(crate::experience::ClaimCertainty::Asserted)
             && crate::certainty::is_identity_fact(content)
@@ -4402,6 +4414,8 @@ impl Aura {
             crate::ingress::check_external_fields(tags, None)?;
         }
         crate::ingress::check_external_fields(&[], metadata.as_ref())?;
+        // Classify new text before taking the records lock (see store).
+        let new_certainty = content.and_then(|text| self.classify_claim(text));
         let mut records = self.records.write();
         let rec = match records.get_mut(record_id) {
             Some(r) => r,
@@ -4480,14 +4494,26 @@ impl Aura {
         if content.is_some() || source_type.is_some() {
             // New text or label: recompute claim certainty and confidence.
             let is_text = rec.content_type == "text" || rec.content_type.starts_with("text/");
+            if content.is_some() {
+                match new_certainty.as_ref().filter(|_| is_text) {
+                    Some(certainty) => {
+                        rec.metadata.insert(
+                            crate::certainty::META_CLAIM_CERTAINTY.to_string(),
+                            crate::certainty::as_str(certainty).to_string(),
+                        );
+                    }
+                    None => {
+                        rec.metadata.remove(crate::certainty::META_CLAIM_CERTAINTY);
+                    }
+                }
+            }
             rec.confidence = Record::default_confidence_for_source(&rec.source_type);
-            if is_text {
-                let certainty = crate::certainty::classify(&rec.content);
+            if let Some(certainty) = rec
+                .metadata
+                .get(crate::certainty::META_CLAIM_CERTAINTY)
+                .and_then(|name| crate::certainty::parse(name))
+            {
                 rec.confidence *= crate::certainty::confidence_factor(&certainty);
-                rec.metadata.insert(
-                    crate::certainty::META_CLAIM_CERTAINTY.to_string(),
-                    crate::certainty::as_str(&certainty).to_string(),
-                );
             }
         }
 
@@ -5527,6 +5553,31 @@ impl Aura {
     /// Check if embedding support is active (any embeddings stored).
     pub fn has_embeddings(&self) -> bool {
         self.embedding_store.is_active()
+    }
+
+    /// Set (or clear) a host claim classifier. It receives the text of each
+    /// write and returns a certainty, or `None` to defer to the built-in rules.
+    pub fn set_claim_classifier(&self, classifier: Option<crate::certainty::ClaimClassifier>) {
+        *self.claim_classifier.write() = classifier;
+    }
+
+    /// Enable or disable the built-in phrase rules used when no classifier
+    /// answers. Disabled rules leave unclassified text at its channel trust.
+    pub fn set_claim_rules_enabled(&self, enabled: bool) {
+        self.claim_rules_enabled
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Classify a claim: host classifier first, built-in rules as fallback.
+    /// Must be called without holding store locks.
+    fn classify_claim(&self, text: &str) -> Option<crate::experience::ClaimCertainty> {
+        let classifier = self.claim_classifier.read().clone();
+        if let Some(certainty) = classifier.and_then(|classify| classify(text)) {
+            return Some(certainty);
+        }
+        self.claim_rules_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .then(|| crate::certainty::classify(text))
     }
 
     /// Run the Python embedding callback, if one is set.
@@ -18119,6 +18170,53 @@ impl Aura {
     fn py_set_embedding_fn(&self, func: PyObject) {
         *self.embedding_fn.write() = Some(Arc::new(func));
         self.runtime.clear_recall_caches();
+    }
+
+    /// Set a Python callable that classifies each written text.
+    ///
+    /// The callable receives the text and returns "asserted", "hedged",
+    /// "speculative", "hearsay", or None to defer to the built-in rules.
+    /// It is called without Aura's locks held, so it may itself be slow
+    /// (for example a small local LLM).
+    ///
+    /// Example:
+    ///   brain.set_claim_classifier(lambda text: my_model.classify(text))
+    #[pyo3(name = "set_claim_classifier")]
+    fn py_set_claim_classifier(&self, func: PyObject) {
+        let func = Arc::new(func);
+        let classifier: crate::certainty::ClaimClassifier = Arc::new(move |text: &str| {
+            Python::with_gil(|py| {
+                let value = match func.call1(py, (text,)) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!(%error, "claim classifier failed; using fallback");
+                        return None;
+                    }
+                };
+                if value.is_none(py) {
+                    return None;
+                }
+                let name: String = value.extract(py).ok()?;
+                let parsed = crate::certainty::parse(&name);
+                if parsed.is_none() {
+                    tracing::warn!(%name, "claim classifier returned an unknown label");
+                }
+                parsed
+            })
+        });
+        self.set_claim_classifier(Some(classifier));
+    }
+
+    /// Remove the Python claim classifier.
+    #[pyo3(name = "clear_claim_classifier")]
+    fn py_clear_claim_classifier(&self) {
+        self.set_claim_classifier(None);
+    }
+
+    /// Enable or disable the built-in phrase rules for claim certainty.
+    #[pyo3(name = "set_claim_rules_enabled")]
+    fn py_set_claim_rules_enabled(&self, enabled: bool) {
+        self.set_claim_rules_enabled(enabled);
     }
 
     /// Clear the embedding function.

@@ -1,0 +1,110 @@
+{
+  "dataset": "independent.jsonl",
+  "n": 120,
+  "arms": {
+    "rules": {
+      "hearsay_recall": 0.667,
+      "hearsay_precision": 1.0,
+      "asserted_demoted": 0,
+      "accuracy": 0.625,
+      "confusion": {
+        "asserted": {
+          "asserted": 30,
+          "hearsay": 0,
+          "speculative": 0
+        },
+        "hedged": {
+          "asserted": 18,
+          "hedged": 12,
+          "hearsay": 0
+        },
+        "speculative": {
+          "speculative": 13,
+          "asserted": 17,
+          "hearsay": 0
+        },
+        "hearsay": {
+          "hearsay": 20,
+          "asserted": 10
+        }
+      },
+      "gates": {
+        "H1": false,
+        "H2": true,
+        "H3": true,
+        "H4": false
+      }
+    },
+    "llm:qwen3:4b-instruct": {
+      "hearsay_recall": 0.967,
+      "hearsay_precision": 1.0,
+      "asserted_demoted": 0,
+      "accuracy": 0.875,
+      "confusion": {
+        "asserted": {
+          "asserted": 30,
+          "hearsay": 0,
+          "speculative": 0
+        },
+        "hedged": {
+          "hedged": 26,
+          "asserted": 4,
+          "hearsay": 0
+        },
+        "speculative": {
+          "hedged": 9,
+          "speculative": 20,
+          "asserted": 1,
+          "hearsay": 0
+        },
+        "hearsay": {
+          "hearsay": 29,
+          "asserted": 1
+        }
+      },
+      "gates": {
+        "H1": true,
+        "H2": true,
+        "H3": true,
+        "H4": true
+      },
+      "median_s": 0.293,
+      "p95_s": 0.336,
+      "unparsed": 0
+    },
+    "llm+rules:qwen3:4b-instruct": {
+      "hearsay_recall": 0.967,
+      "hearsay_precision": 1.0,
+      "asserted_demoted": 0,
+      "accuracy": 0.875,
+      "confusion": {
+        "asserted": {
+          "asserted": 30,
+          "hearsay": 0,
+          "speculative": 0
+        },
+        "hedged": {
+          "hedged": 26,
+          "asserted": 4,
+          "hearsay": 0
+        },
+        "speculative": {
+          "hedged": 9,
+          "speculative": 20,
+          "asserted": 1,
+          "hearsay": 0
+        },
+        "hearsay": {
+          "hearsay": 29,
+          "asserted": 1
+        }
+      },
+      "gates": {
+        "H1": true,
+        "H2": true,
+        "H3": true,
+        "H4": true
+      }
+    }
+  }
+}

@@ -75,4 +75,33 @@ with tempfile.TemporaryDirectory() as directory:
         fresh.set_belief_rerank_mode("limited")
         fresh.close()
 
+    # A claim classifier runs without Aura's locks held: it may call back into
+    # the same brain (here: recall) while other threads write.
+    with tempfile.TemporaryDirectory() as other:
+        reentrant = Aura(other)
+        calls = []
+
+        def classifier(text):
+            calls.append(text)
+            reentrant.recall("anything", token_budget=128)
+            return "hearsay" if "rumor" in text.lower() else None
+
+        reentrant.set_claim_classifier(classifier)
+
+        def write_rumors(worker):
+            for step in range(20):
+                reentrant.store(f"rumor {worker}-{step}: the office moves", level=Level.Working)
+
+        writers = [threading.Thread(target=write_rumors, args=(k,)) for k in range(3)]
+        for thread in writers:
+            thread.start()
+        for thread in writers:
+            thread.join()
+        stored = reentrant.search(query="rumor")
+        assert calls, "classifier was never called"
+        assert stored and all(
+            r.metadata.get("claim_certainty") == "hearsay" for r in stored
+        ), stored[:1]
+        reentrant.close()
+
 print("python concurrency smoke passed")

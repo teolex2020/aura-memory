@@ -156,7 +156,9 @@ impl Default for TrustConfig {
             source_authority,
             recency_boost_max: 0.2,
             recency_half_life_days: 7.0,
-            fusion_mode: "equal".to_string(),
+            // Non-inferior to "equal" on every LoCoMo metric and clearly better
+            // on most (E9); identical when no embeddings are set.
+            fusion_mode: "family".to_string(),
         }
     }
 }

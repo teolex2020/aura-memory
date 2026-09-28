@@ -17015,8 +17015,8 @@ impl Aura {
         Ok(py_results)
     }
 
-    /// Choose how recall fuses its ranked signals: "equal" (default),
-    /// "embedding_only", "family" or "bm25_embedding".
+    /// Choose how recall fuses its ranked signals: "family" (default),
+    /// "equal", "embedding_only" or "bm25_embedding".
     #[pyo3(name = "set_recall_fusion_mode")]
     fn py_set_recall_fusion_mode(&self, mode: &str) -> PyResult<()> {
         self.set_recall_fusion_mode(mode)

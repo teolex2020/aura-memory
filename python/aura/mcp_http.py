@@ -121,7 +121,9 @@ def _handle_tool(name: str, args: dict) -> str:
     brain = get_brain()
 
     if name == "recall":
-        return brain.recall(args["query"], token_budget=args.get("token_budget", 2048))
+        # Model-facing context: untrusted memory is fenced and quoted (E10).
+        return brain.recall(args["query"], token_budget=args.get("token_budget", 2048),
+                            format="provenance")
 
     if name == "recall_structured":
         results = brain.recall_structured(args["query"], top_k=args.get("top_k", 20))

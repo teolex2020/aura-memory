@@ -57,7 +57,8 @@ class AuraMcpServer:
     def tool_recall(self, params: dict) -> str:
         query = params["query"]
         budget = params.get("token_budget", 2048)
-        return self.brain.recall(query, token_budget=budget)
+        # Model-facing context: untrusted memory is fenced and quoted (E10).
+        return self.brain.recall(query, token_budget=budget, format="provenance")
 
     def tool_recall_structured(self, params: dict) -> str:
         query = params["query"]

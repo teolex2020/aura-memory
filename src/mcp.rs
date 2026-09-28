@@ -275,7 +275,7 @@ impl AuraMcpServer {
         let ns_slice: Option<&[&str]> = ns_vec.as_deref();
         let result = self
             .brain
-            .recall(&p.query, p.token_budget, None, None, None, ns_slice)
+            .recall_provenance(&p.query, p.token_budget, None, None, None, ns_slice)
             .map_err(|e| err(e.to_string()))?;
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }

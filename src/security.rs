@@ -8,9 +8,12 @@
 //!   `delete()` is a logical delete (bytes can remain in storage history until
 //!   `purge_record` is called).
 //! * `strict` — `recall()` returns the provenance context (first-hand memory
-//!   separated from quoted, fenced untrusted memory; experiment E10) and
+//!   separated from quoted, fenced untrusted memory; experiments E10, E13) and
 //!   `delete()` purges the record from storage, snapshots and audit history
 //!   (experiment E1).
+//!
+//! Making the provenance context the default was tested in E14 and not
+//! adopted: its preregistered security gate failed by one case.
 //!
 //! `security_report()` lists every protection with its state and the
 //! experiment behind it, counts what the store holds by effective source, and
@@ -92,6 +95,8 @@ pub struct SecurityStats {
     pub untrusted_groups_over_cap: usize,
     /// Records in those groups.
     pub records_in_groups_over_cap: usize,
+    /// First-hand records whose write channel names an outside source.
+    pub outside_channel_first_hand: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +140,13 @@ pub(crate) fn stats<'a>(records: impl Iterator<Item = &'a Record>) -> SecuritySt
         }
         if let Some(group) = crate::recall::untrusted_group(record) {
             *groups.entry(group).or_insert(0) += 1;
+        }
+        if let Some(channel) = meta("channel") {
+            if crate::trust::source_type_for_channel(channel) != "recorded"
+                && crate::certainty::effective_source_type(record) == "recorded"
+            {
+                stats.outside_channel_first_hand += 1;
+            }
         }
     }
     for count in groups.values() {
@@ -190,7 +202,7 @@ pub(crate) fn report(inputs: ReportInputs, stats: SecurityStats) -> SecurityRepo
         Protection {
             name: "provenance_context",
             state: if strict { "on" } else { "mcp_only" },
-            evidence: "E10",
+            evidence: "E10/E13",
             detail: if strict {
                 "recall() separates first-hand memory from fenced untrusted memory".into()
             } else {
@@ -247,6 +259,13 @@ pub(crate) fn report(inputs: ReportInputs, stats: SecurityStats) -> SecurityRepo
             "no claim classifier: hearsay the user relays is trusted like first-hand statements"
                 .into(),
         );
+    }
+    if stats.outside_channel_first_hand > 0 {
+        warnings.push(format!(
+            "{} record(s) came through an outside channel but are marked first-hand: \
+             they appear as the user's own words; pass source_type or leave it to the channel",
+            stats.outside_channel_first_hand
+        ));
     }
     if stats.untrusted_groups_over_cap > 0 {
         warnings.push(format!(

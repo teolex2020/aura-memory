@@ -1575,7 +1575,11 @@ impl Aura {
 
         let pin = pin.unwrap_or(false);
         let content_type = content_type.unwrap_or("text");
-        let source_type = source_type.unwrap_or(crate::record::DEFAULT_SOURCE_TYPE);
+        // An explicit source type wins; otherwise the write channel decides
+        // (outside channels are untrusted), and no channel keeps the default.
+        let source_type = source_type
+            .or_else(|| channel.map(trust::source_type_for_channel))
+            .unwrap_or(crate::record::DEFAULT_SOURCE_TYPE);
         crate::record::Record::validate_source_type(source_type).map_err(|e| anyhow::anyhow!(e))?;
         let deduplicate = deduplicate.unwrap_or(true);
         let semantic_type = semantic_type.unwrap_or(crate::record::DEFAULT_SEMANTIC_TYPE);
@@ -1733,6 +1737,11 @@ impl Aura {
                 &taxonomy,
                 &trust_config,
             );
+        }
+        if let Some(channel) = channel {
+            rec.metadata
+                .entry("channel".to_string())
+                .or_insert_with(|| channel.to_string());
         }
 
         // ── Guard: Apply guard result metadata ──
@@ -18503,6 +18512,7 @@ impl Aura {
         stats.set_item("restricted", s.restricted)?;
         stats.set_item("untrusted_groups_over_cap", s.untrusted_groups_over_cap)?;
         stats.set_item("records_in_groups_over_cap", s.records_in_groups_over_cap)?;
+        stats.set_item("outside_channel_first_hand", s.outside_channel_first_hand)?;
         out.set_item("stats", stats)?;
         out.set_item("warnings", report.warnings.clone())?;
         Ok(out.into())

@@ -29,6 +29,11 @@ def main():
         assert brain.security_profile == "balanced"
         fill(brain)
         assert "[UNTRUSTED MEMORY" not in brain.recall(QUESTION)
+        assert "[UNTRUSTED MEMORY" in brain.recall(QUESTION, format="provenance")
+        # A write channel alone labels outside content.
+        brain.store("Your sister moved to Kherson", level=Level.Domain, channel="web_scrape")
+        report = brain.security_report()
+        assert report["stats"]["by_effective_source"]["retrieved"] == 2, report["stats"]
         brain.close()
 
     with tempfile.TemporaryDirectory() as d:

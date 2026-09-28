@@ -223,6 +223,28 @@ pub fn get_provenance(channel: Option<&str>, trust_config: &TrustConfig) -> Prov
     }
 }
 
+/// Source type implied by a write channel when the caller gives none.
+///
+/// Channels the user speaks through (`user`, `user-*`, `telegram`,
+/// `desktop`, `voice`) and host configuration (`system`) are first-hand
+/// (`recorded`); the agent's own writes (`agent`, `agent-*`) are `inferred`;
+/// every other channel (`web_scrape`, `email`, `api`, ...) is outside
+/// content (`retrieved`).
+pub fn source_type_for_channel(channel: &str) -> &'static str {
+    let channel = channel.trim().to_ascii_lowercase();
+    if matches!(
+        channel.as_str(),
+        "user" | "telegram" | "desktop" | "voice" | "system"
+    ) || channel.starts_with("user-")
+    {
+        "recorded"
+    } else if channel == "agent" || channel.starts_with("agent-") {
+        "inferred"
+    } else {
+        "retrieved"
+    }
+}
+
 /// Stamp provenance into record metadata.
 pub fn stamp_provenance(
     metadata: &mut HashMap<String, String>,

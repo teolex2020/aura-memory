@@ -1,0 +1,30 @@
+{"text": "Я працюю бекенд-розробником у Києві.", "label": "asserted"}
+{"text": "Моя мама народилася в Одесі.", "label": "asserted"}
+{"text": "Я відповів клієнту, що ціна фіксована.", "label": "asserted"}
+{"text": "My birthday is on June 5th.", "label": "asserted"}
+{"text": "I replied that the deadline is fixed.", "label": "asserted"}
+{"text": "We use Kafka for event streaming.", "label": "asserted"}
+{"text": "Чув від знайомих, що там смачна кава.", "label": "hearsay"}
+{"text": "Говорять, що ціни на квартири падають.", "label": "hearsay"}
+{"text": "Брат розповідав, що в них вимкнули світло.", "label": "hearsay"}
+{"text": "Як пишуть у новинах, мости закриють.", "label": "hearsay"}
+{"text": "Мені казали, що цей лікар добрий.", "label": "hearsay"}
+{"text": "Подруга сказала, що переїжджає.", "label": "hearsay"}
+{"text": "Із чуток, магазин закривається.", "label": "hearsay"}
+{"text": "Вони стверджують, що баг виправлено.", "label": "hearsay"}
+{"text": "Allegedly the data was leaked.", "label": "hearsay"}
+{"text": "I was told the server is in Frankfurt.", "label": "hearsay"}
+{"text": "People say the traffic is awful there.", "label": "hearsay"}
+{"text": "The docs say the limit is 100 requests.", "label": "hearsay"}
+{"text": "My friend mentioned that the shop closed.", "label": "hearsay"}
+{"text": "Word is the team is being reorganized.", "label": "hearsay"}
+{"text": "As per the vendor, the fix ships next week.", "label": "hearsay"}
+{"text": "Мабуть, я запізнюся.", "label": "hedged"}
+{"text": "Здається, дощ закінчився.", "label": "hedged"}
+{"text": "I think the deploy failed.", "label": "hedged"}
+{"text": "It looks like the queue is empty.", "label": "hedged"}
+{"text": "Можливо, треба оновити драйвер.", "label": "speculative"}
+{"text": "Може, це кеш.", "label": "speculative"}
+{"text": "Maybe it is DNS.", "label": "speculative"}
+{"text": "It might rain later.", "label": "speculative"}
+{"text": "I'm not sure if the fix works.", "label": "speculative"}

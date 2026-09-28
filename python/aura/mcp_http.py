@@ -38,6 +38,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
 from aura import Aura, Level, __version__
+from aura.mcp_server import model_write_provenance
 
 # ── App ──
 
@@ -133,7 +134,9 @@ def _handle_tool(name: str, args: dict) -> str:
 
     if name == "store":
         level = _parse_level(args["level"]) if "level" in args else None
-        rid = brain.store(args["content"], level=level, tags=args.get("tags"))
+        source_type, metadata = model_write_provenance(args.get("source_type"))
+        rid = brain.store(args["content"], level=level, tags=args.get("tags"),
+                          source_type=source_type, metadata=metadata)
         return json.dumps({"id": rid})
 
     if name == "store_code":
@@ -141,7 +144,7 @@ def _handle_tool(name: str, args: dict) -> str:
         if "filename" in args:
             tags.append(f"file:{args['filename']}")
         content = f"```{args['language']}\n{args['code']}\n```"
-        rid = brain.store(content, level=Level.Domain, tags=tags)
+        rid = brain.store(content, level=Level.Domain, tags=tags, source_type="inferred")
         return json.dumps({"id": rid, "level": "DOMAIN"})
 
     if name == "store_decision":
@@ -151,7 +154,7 @@ def _handle_tool(name: str, args: dict) -> str:
         if args.get("alternatives"):
             content += f"\nALTERNATIVES: {', '.join(args['alternatives'])}"
         tags = args.get("tags", []) + ["decision"]
-        rid = brain.store(content, level=Level.Decisions, tags=tags)
+        rid = brain.store(content, level=Level.Decisions, tags=tags, source_type="inferred")
         return json.dumps({"id": rid, "level": "DECISIONS"})
 
     if name == "search":
@@ -202,7 +205,7 @@ def _handle_tool(name: str, args: dict) -> str:
 TOOLS = [
     {"name": "recall", "description": "Retrieve relevant memories for a query.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "token_budget": {"type": "integer"}}, "required": ["query"]}},
     {"name": "recall_structured", "description": "Retrieve memories as structured data.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}}, "required": ["query"]}},
-    {"name": "store", "description": "Store a memory; omit level for adaptive routing.", "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}, "level": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["content"]}},
+    {"name": "store", "description": "Store a memory; omit level for adaptive routing.", "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}, "level": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "source_type": {"type": "string"}}, "required": ["content"]}},
     {"name": "store_code", "description": "Store a code snippet at DOMAIN level.", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}, "language": {"type": "string"}, "filename": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["code", "language"]}},
     {"name": "store_decision", "description": "Store a decision with reasoning.", "inputSchema": {"type": "object", "properties": {"decision": {"type": "string"}, "reasoning": {"type": "string"}, "alternatives": {"type": "array", "items": {"type": "string"}}}, "required": ["decision"]}},
     {"name": "search", "description": "Search memory by filters.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "level": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}}}},

@@ -107,6 +107,8 @@ impl ExperienceSource {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaimCertainty {
+    /// Relayed from someone else ("I heard", "кажуть", "my doctor said").
+    Hearsay,
     /// "X може бути Y", "possibly", "might" — least certain.
     Speculative,
     /// "X, мабуть, Y", "probably", "likely", "здається" — hedged.
@@ -120,7 +122,7 @@ impl ClaimCertainty {
         match self {
             Self::Asserted => ASSERTED_BASE_CONFIDENCE,
             Self::Hedged => HEDGED_BASE_CONFIDENCE,
-            Self::Speculative => SPECULATIVE_BASE_CONFIDENCE,
+            Self::Speculative | Self::Hearsay => SPECULATIVE_BASE_CONFIDENCE,
         }
     }
 }
@@ -436,14 +438,7 @@ static COMMITMENT_MARKERS: &[&str] = &[
 
 /// Detect certainty level from a sentence.
 fn detect_certainty(sentence: &str) -> ClaimCertainty {
-    let lower = sentence.to_lowercase();
-    if SPECULATIVE_MARKERS.iter().any(|m| lower.contains(m)) {
-        return ClaimCertainty::Speculative;
-    }
-    if HEDGE_MARKERS.iter().any(|m| lower.contains(m)) {
-        return ClaimCertainty::Hedged;
-    }
-    ClaimCertainty::Asserted
+    crate::certainty::classify(sentence)
 }
 
 /// Detect if a sentence is a commitment/plan.
@@ -526,7 +521,10 @@ fn infer_semantic_type(sentence: &str, certainty: &ClaimCertainty) -> &'static s
     {
         return "trend";
     }
-    if *certainty == ClaimCertainty::Speculative {
+    if matches!(
+        certainty,
+        ClaimCertainty::Speculative | ClaimCertainty::Hearsay
+    ) {
         return "fact"; // store speculatives as facts with low confidence
     }
     "fact"

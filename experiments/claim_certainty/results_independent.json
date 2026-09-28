@@ -1,0 +1,281 @@
+{
+  "classification": {
+    "accuracy": 0.625,
+    "asserted_demoted": 0,
+    "confusion": {
+      "asserted": {
+        "asserted": 30
+      },
+      "hearsay": {
+        "asserted": 10,
+        "hearsay": 20
+      },
+      "hedged": {
+        "asserted": 18,
+        "hedged": 12
+      },
+      "speculative": {
+        "asserted": 17,
+        "speculative": 13
+      }
+    },
+    "errors": [
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "Per the manual, the filter needs replacing every six months."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "Word around the office is that layoffs are coming."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "I read in an article that intermittent fasting improves sleep."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "Reviews online claim the new café downtown has the best croissants."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "The docs state that version 2 drops Python 3.8 support."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "Everyone at the gym swears creatine doesn't cause hair loss."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "З новин: центральний міст закривають на ремонт."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "Я читала в статті, що кава підвищує тиск лише ненадовго."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "У документації зазначено, що API повертає не більше ста записів."
+      },
+      {
+        "label": "hearsay",
+        "predicted": "asserted",
+        "text": "Як переказала мені мама, тітка Оля вже виписалася з лікарні."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "I'm fairly sure I left my keys at the office."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Pretty sure the store closes at nine on weekdays."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "If memory serves, we signed the lease in April."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "As far as I know, my insurance covers dental."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "I'm reasonably confident the bug is in the parser."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "It's around forty minutes by train, I reckon."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "My sister's birthday is on the 14th, I'm almost certain."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "I tend to think the old laptop still has the photos."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Unless I'm mistaken, I already renewed the domain."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "I seem to recall the dentist appointment is on Wednesday."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Я майже впевнена, що рахунок уже оплатила."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Наскільки я пам'ятаю, договір ми підписали у квітні."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Якщо не помиляюся, паспорт у мене дійсний до наступної весни."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Судячи з усього, ремонт закінчимо до зими."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Мені видається, що кіт набрав вагу."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Я доволі впевнений, що квитки лежать у шухляді."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "Наче я вже продовжив підписку на сервер."
+      },
+      {
+        "label": "hedged",
+        "predicted": "asserted",
+        "text": "По-моєму, у сестри день народження чотирнадцятого."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "What if the server crashed because of the update?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "I have no idea if the package will arrive before the trip."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Could it be that the plant is getting too much water?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Is the noise coming from the fridge or the pipes?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Suppose I took the job in Kraków — would the kids adapt?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "It's anyone's guess when the renovation will actually end."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "I can't tell if she was joking or serious."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "А що, як сервер упав через оновлення?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Цікаво, чи погодиться орендодавець на собаку."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Гадки не маю, чи посилка прийде до відпустки."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Чи не забагато я поливаю цей вазон?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Припустімо, я візьму ту роботу в Кракові — як діти звикнуть?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Лише здогадка, але проблема могла бути у відсутній змінній середовища."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Хтозна, коли той ремонт нарешті закінчиться."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Чи то батарея сідає, чи то зарядка барахлить — незрозуміло."
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Мене цікавить, звідки цей шум — з холодильника чи з труб?"
+      },
+      {
+        "label": "speculative",
+        "predicted": "asserted",
+        "text": "Не можу зрозуміти, жартувала вона чи ні."
+      }
+    ],
+    "gates": {
+      "H1_hearsay_recall": false,
+      "H2_first_hand_safety": true,
+      "H3_hearsay_precision": true,
+      "H4_accuracy": false
+    },
+    "hearsay_precision": 1.0,
+    "hearsay_recall": 0.6666666666666666,
+    "n": 120
+  },
+  "integration": {
+    "I1_detail": {
+      "certainty": "asserted",
+      "confidence": 0.8999999761581421,
+      "level": "Identity"
+    },
+    "I1_identity_fact": true,
+    "I2_detail": {
+      "direct": 0.8999999761581421,
+      "heard": 0.6299999952316284
+    },
+    "I2_hearsay_lower_confidence": true,
+    "I3_hearsay_hint_untrusted": true,
+    "I3_hints": [
+      {
+        "action": "verify",
+        "floor": "inferred",
+        "untrusted": true
+      }
+    ]
+  },
+  "set": "independent"
+}

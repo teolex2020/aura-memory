@@ -1552,6 +1552,7 @@ impl Aura {
             );
         }
 
+        let level_given = level.is_some();
         let level = level.unwrap_or(Level::Working);
         let mut tags = tags.unwrap_or_default();
         if tags.len() > MAX_TAGS {
@@ -1652,6 +1653,18 @@ impl Aura {
             }
         }
 
+        // Claim certainty: a relayed or speculative claim keeps its channel
+        // label but loses confidence; a first-hand biographical fact defaults
+        // to Identity level when the caller did not choose one.
+        let is_text = content_type == "text" || content_type.starts_with("text/");
+        let certainty = is_text.then(|| crate::certainty::classify(content));
+        if !level_given
+            && certainty == Some(crate::experience::ClaimCertainty::Asserted)
+            && crate::certainty::is_identity_fact(content)
+        {
+            effective_level = Level::Identity;
+        }
+
         // Create record
         let mut rec = Record::new(content.to_string(), effective_level);
         rec.pinned = pin;
@@ -1662,6 +1675,13 @@ impl Aura {
         rec.confidence = Record::default_confidence_for_source(source_type);
         if let Some(meta) = metadata {
             rec.metadata = meta;
+        }
+        if let Some(certainty) = &certainty {
+            rec.confidence *= crate::certainty::confidence_factor(certainty);
+            rec.metadata.insert(
+                crate::certainty::META_CLAIM_CERTAINTY.to_string(),
+                crate::certainty::as_str(certainty).to_string(),
+            );
         }
         if let Some(parent_id) = caused_by_id {
             rec.caused_by_id = Some(parent_id.to_string());
@@ -4446,6 +4466,8 @@ impl Aura {
                         || crate::ingress::is_reserved_metadata(key, value)
                         || crate::ingress::PROVENANCE_KEYS.contains(&key.as_str())
                         || key.as_str() == "timestamp"
+                        || key.as_str() == crate::certainty::META_CLAIM_CERTAINTY
+                        || key.as_str() == crate::certainty::META_RELAYED_BY_MODEL
                 })
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect::<HashMap<_, _>>();
@@ -4454,6 +4476,19 @@ impl Aura {
         }
         if let Some(st) = source_type {
             rec.source_type = st.to_string();
+        }
+        if content.is_some() || source_type.is_some() {
+            // New text or label: recompute claim certainty and confidence.
+            let is_text = rec.content_type == "text" || rec.content_type.starts_with("text/");
+            rec.confidence = Record::default_confidence_for_source(&rec.source_type);
+            if is_text {
+                let certainty = crate::certainty::classify(&rec.content);
+                rec.confidence *= crate::certainty::confidence_factor(&certainty);
+                rec.metadata.insert(
+                    crate::certainty::META_CLAIM_CERTAINTY.to_string(),
+                    crate::certainty::as_str(&certainty).to_string(),
+                );
+            }
         }
 
         let namespace = rec.namespace.clone();

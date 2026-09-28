@@ -59,7 +59,8 @@ pub struct StoreParams {
     tags: Option<Vec<String>>,
     /// Content type hint (text, code, decision).
     content_type: Option<String>,
-    /// How the data was obtained: "recorded", "retrieved", "inferred", "generated".
+    /// How the data was obtained: "recorded" (the user said it), "retrieved"
+    /// (a document or tool), "inferred", "generated". Defaults to "inferred".
     source_type: Option<String>,
     /// ID of the record that caused this one.
     caused_by_id: Option<String>,
@@ -319,6 +320,7 @@ impl AuraMcpServer {
         Parameters(p): Parameters<StoreParams>,
     ) -> Result<CallToolResult, McpError> {
         let level = p.level.as_deref().and_then(parse_level);
+        let (source_type, metadata) = model_write_provenance(p.source_type.as_deref());
         let rec = self
             .brain
             .store(
@@ -327,8 +329,8 @@ impl AuraMcpServer {
                 p.tags,
                 None,
                 p.content_type.as_deref(),
-                p.source_type.as_deref(),
-                None,
+                Some(source_type),
+                metadata,
                 None,
                 p.caused_by_id.as_deref(),
                 p.namespace.as_deref(),
@@ -363,7 +365,7 @@ impl AuraMcpServer {
                 Some(tags),
                 None,
                 Some("code"),
-                None,
+                Some("inferred"),
                 None,
                 None,
                 None,
@@ -404,7 +406,7 @@ impl AuraMcpServer {
                 Some(tags),
                 None,
                 None,
-                None,
+                Some("inferred"),
                 None,
                 None,
                 p.caused_by_id.as_deref(),
@@ -761,4 +763,47 @@ pub async fn run_stdio() -> anyhow::Result<()> {
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+/// Provenance for writes whose arguments are chosen by a model.
+///
+/// A model cannot vouch for anything, so an omitted `source_type` becomes
+/// `inferred`. When it claims `recorded` ("the user said this"), the label is
+/// kept but the record is marked `relayed_by_model`, and trust floors treat it
+/// as untrusted evidence: an injected instruction relayed as a user statement
+/// cannot become first-hand authority.
+fn model_write_provenance(
+    source_type: Option<&str>,
+) -> (&str, Option<std::collections::HashMap<String, String>>) {
+    match source_type {
+        None => ("inferred", None),
+        Some("recorded") => (
+            "recorded",
+            Some(std::collections::HashMap::from([(
+                crate::certainty::META_RELAYED_BY_MODEL.to_string(),
+                "true".to_string(),
+            )])),
+        ),
+        Some(other) => (other, None),
+    }
+}
+
+#[cfg(test)]
+mod provenance_tests {
+    use super::model_write_provenance;
+
+    #[test]
+    fn model_writes_default_to_inferred_and_mark_claimed_user_statements() {
+        assert_eq!(model_write_provenance(None).0, "inferred");
+        let (label, metadata) = model_write_provenance(Some("recorded"));
+        assert_eq!(label, "recorded");
+        let mut record =
+            crate::record::Record::new("user said so".into(), crate::levels::Level::Working);
+        record.metadata = metadata.unwrap();
+        assert_eq!(
+            crate::certainty::effective_source_type(&record),
+            "retrieved"
+        );
+        assert_eq!(model_write_provenance(Some("retrieved")).0, "retrieved");
+    }
 }

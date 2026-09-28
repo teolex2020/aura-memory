@@ -1,0 +1,120 @@
+{"text": "My brother lives in Lviv and works as a dentist.", "label": "asserted", "lang": "en"}
+{"text": "I told my boss yesterday that I'm taking Friday off.", "label": "asserted", "lang": "en"}
+{"text": "The meeting got moved to Thursday at 10.", "label": "asserted", "lang": "en"}
+{"text": "I'm allergic to penicillin.", "label": "asserted", "lang": "en"}
+{"text": "We sold the old car last weekend.", "label": "asserted", "lang": "en"}
+{"text": "Finally finished the quarterly report this morning.", "label": "asserted", "lang": "en"}
+{"text": "My daughter starts first grade in September.", "label": "asserted", "lang": "en"}
+{"text": "I asked the landlord to fix the leaking tap.", "label": "asserted", "lang": "en"}
+{"text": "Our team switched from Jira to Linear in March.", "label": "asserted", "lang": "en"}
+{"text": "I don't drink coffee after 2 pm anymore.", "label": "asserted", "lang": "en"}
+{"text": "Anna and I have been married for eleven years.", "label": "asserted", "lang": "en"}
+{"text": "Cancelled the gym membership on Monday.", "label": "asserted", "lang": "en"}
+{"text": "The kettle in the office is broken again.", "label": "asserted", "lang": "en"}
+{"text": "I warned Mark not to push to main without a review.", "label": "asserted", "lang": "en"}
+{"text": "My flight to Warsaw leaves at 6:40 tomorrow.", "label": "asserted", "lang": "en"}
+{"text": "Моя сестра працює медсестрою в обласній лікарні.", "label": "asserted", "lang": "uk"}
+{"text": "Я попередила сусіда, що в суботу буде ремонт.", "label": "asserted", "lang": "uk"}
+{"text": "Вчора я здав усі документи на візу.", "label": "asserted", "lang": "uk"}
+{"text": "У мене алергія на горіхи.", "label": "asserted", "lang": "uk"}
+{"text": "Ми переїхали на нову квартиру минулого місяця.", "label": "asserted", "lang": "uk"}
+{"text": "Я сказав керівникові, що не встигну до п'ятниці.", "label": "asserted", "lang": "uk"}
+{"text": "Кіт знову розбив горщик на підвіконні.", "label": "asserted", "lang": "uk"}
+{"text": "Вже третій рік вивчаю японську.", "label": "asserted", "lang": "uk"}
+{"text": "Наша команда перейшла на щотижневі релізи.", "label": "asserted", "lang": "uk"}
+{"text": "Сьогодні вранці я пробіг десять кілометрів.", "label": "asserted", "lang": "uk"}
+{"text": "Мама з татом живуть під Полтавою.", "label": "asserted", "lang": "uk"}
+{"text": "Я відмовився від пропозиції з Берліна.", "label": "asserted", "lang": "uk"}
+{"text": "Мій ноутбук не вмикається після оновлення.", "label": "asserted", "lang": "uk"}
+{"text": "Я написала викладачці, що пропущу заняття.", "label": "asserted", "lang": "uk"}
+{"text": "Зустріч із клієнтом перенесли на вівторок.", "label": "asserted", "lang": "uk"}
+{"text": "The pharmacy closes early on Sundays, according to their website.", "label": "hearsay", "lang": "en"}
+{"text": "My doctor says I should cut back on salt.", "label": "hearsay", "lang": "en"}
+{"text": "Apparently the office is moving to a new building next year.", "label": "hearsay", "lang": "en"}
+{"text": "The bridge will be closed all week — so my sister says.", "label": "hearsay", "lang": "en"}
+{"text": "Per the manual, the filter needs replacing every six months.", "label": "hearsay", "lang": "en"}
+{"text": "Word around the office is that layoffs are coming.", "label": "hearsay", "lang": "en"}
+{"text": "I read in an article that intermittent fasting improves sleep.", "label": "hearsay", "lang": "en"}
+{"text": "Reviews online claim the new café downtown has the best croissants.", "label": "hearsay", "lang": "en"}
+{"text": "Tom mentioned the client wants the demo moved up.", "label": "hearsay", "lang": "en"}
+{"text": "The news reported gas prices go up starting next month.", "label": "hearsay", "lang": "en"}
+{"text": "The docs state that version 2 drops Python 3.8 support.", "label": "hearsay", "lang": "en"}
+{"text": "Rumor has it the landlord is selling the building.", "label": "hearsay", "lang": "en"}
+{"text": "My colleague told me the VPN will be down tonight.", "label": "hearsay", "lang": "en"}
+{"text": "The rent is going up by ten percent, I heard from a neighbor.", "label": "hearsay", "lang": "en"}
+{"text": "Everyone at the gym swears creatine doesn't cause hair loss.", "label": "hearsay", "lang": "en"}
+{"text": "Лікар сказав, що мені треба менше сидіти.", "label": "hearsay", "lang": "uk"}
+{"text": "Кажуть, з наступного року проїзд подорожчає.", "label": "hearsay", "lang": "uk"}
+{"text": "Завтра відключатимуть світло з дев'ятої до обіду, мені сусід казав.", "label": "hearsay", "lang": "uk"}
+{"text": "З новин: центральний міст закривають на ремонт.", "label": "hearsay", "lang": "uk"}
+{"text": "Згідно з інструкцією, батарею треба повністю зарядити перед першим використанням.", "label": "hearsay", "lang": "uk"}
+{"text": "Колега повідомив, що дедлайн перенесли на кінець місяця.", "label": "hearsay", "lang": "uk"}
+{"text": "Нібито наш відділ хочуть об'єднати з маркетингом.", "label": "hearsay", "lang": "uk"}
+{"text": "Я читала в статті, що кава підвищує тиск лише ненадовго.", "label": "hearsay", "lang": "uk"}
+{"text": "За словами бабусі, дідусь служив на флоті.", "label": "hearsay", "lang": "uk"}
+{"text": "На сайті банку пишуть, що з липня картки перевипускатимуть автоматично.", "label": "hearsay", "lang": "uk"}
+{"text": "Ходять чутки, що директор іде на пенсію.", "label": "hearsay", "lang": "uk"}
+{"text": "Подруга розповідала, що в тому ресторані змінився шеф-кухар.", "label": "hearsay", "lang": "uk"}
+{"text": "У документації зазначено, що API повертає не більше ста записів.", "label": "hearsay", "lang": "uk"}
+{"text": "У чаті будинку повідомили, що ліфт полагодять лише в понеділок.", "label": "hearsay", "lang": "uk"}
+{"text": "Як переказала мені мама, тітка Оля вже виписалася з лікарні.", "label": "hearsay", "lang": "uk"}
+{"text": "I'm fairly sure I left my keys at the office.", "label": "hedged", "lang": "en"}
+{"text": "I think the invoice was paid last Tuesday.", "label": "hedged", "lang": "en"}
+{"text": "The meeting is probably at three.", "label": "hedged", "lang": "en"}
+{"text": "I believe my passport expires next spring.", "label": "hedged", "lang": "en"}
+{"text": "Pretty sure the store closes at nine on weekdays.", "label": "hedged", "lang": "en"}
+{"text": "If memory serves, we signed the lease in April.", "label": "hedged", "lang": "en"}
+{"text": "The printer on the second floor is most likely out of toner.", "label": "hedged", "lang": "en"}
+{"text": "As far as I know, my insurance covers dental.", "label": "hedged", "lang": "en"}
+{"text": "I'm reasonably confident the bug is in the parser.", "label": "hedged", "lang": "en"}
+{"text": "It's around forty minutes by train, I reckon.", "label": "hedged", "lang": "en"}
+{"text": "My sister's birthday is on the 14th, I'm almost certain.", "label": "hedged", "lang": "en"}
+{"text": "I tend to think the old laptop still has the photos.", "label": "hedged", "lang": "en"}
+{"text": "Unless I'm mistaken, I already renewed the domain.", "label": "hedged", "lang": "en"}
+{"text": "I seem to recall the dentist appointment is on Wednesday.", "label": "hedged", "lang": "en"}
+{"text": "Chances are I'll finish the draft by Friday.", "label": "hedged", "lang": "en"}
+{"text": "Здається, я залишив зарядку в машині.", "label": "hedged", "lang": "uk"}
+{"text": "Я майже впевнена, що рахунок уже оплатила.", "label": "hedged", "lang": "uk"}
+{"text": "Мабуть, зустріч почнеться о третій.", "label": "hedged", "lang": "uk"}
+{"text": "Наскільки я пам'ятаю, договір ми підписали у квітні.", "label": "hedged", "lang": "uk"}
+{"text": "Скоріше за все, посилка прийде в четвер.", "label": "hedged", "lang": "uk"}
+{"text": "Якщо не помиляюся, паспорт у мене дійсний до наступної весни.", "label": "hedged", "lang": "uk"}
+{"text": "Я думаю, помилка десь у модулі авторизації.", "label": "hedged", "lang": "uk"}
+{"text": "Певно, магазин уже зачинений, бо пізно.", "label": "hedged", "lang": "uk"}
+{"text": "Судячи з усього, ремонт закінчимо до зими.", "label": "hedged", "lang": "uk"}
+{"text": "Мені видається, що кіт набрав вагу.", "label": "hedged", "lang": "uk"}
+{"text": "Я доволі впевнений, що квитки лежать у шухляді.", "label": "hedged", "lang": "uk"}
+{"text": "Схоже, принтер знову без тонера.", "label": "hedged", "lang": "uk"}
+{"text": "Напевно, я встигну дописати звіт до п'ятниці.", "label": "hedged", "lang": "uk"}
+{"text": "Наче я вже продовжив підписку на сервер.", "label": "hedged", "lang": "uk"}
+{"text": "По-моєму, у сестри день народження чотирнадцятого.", "label": "hedged", "lang": "uk"}
+{"text": "Maybe I should switch careers, I honestly don't know.", "label": "speculative", "lang": "en"}
+{"text": "What if the server crashed because of the update?", "label": "speculative", "lang": "en"}
+{"text": "I wonder whether my landlord would agree to a pet.", "label": "speculative", "lang": "en"}
+{"text": "I have no idea if the package will arrive before the trip.", "label": "speculative", "lang": "en"}
+{"text": "Could it be that the plant is getting too much water?", "label": "speculative", "lang": "en"}
+{"text": "Perhaps we'll move to Canada someday, who knows.", "label": "speculative", "lang": "en"}
+{"text": "Just guessing, but the error might come from a missing env variable.", "label": "speculative", "lang": "en"}
+{"text": "If we had left earlier, we might have caught the train.", "label": "speculative", "lang": "en"}
+{"text": "Is the noise coming from the fridge or the pipes?", "label": "speculative", "lang": "en"}
+{"text": "Hard to say whether the startup will survive another year.", "label": "speculative", "lang": "en"}
+{"text": "Suppose I took the job in Kraków — would the kids adapt?", "label": "speculative", "lang": "en"}
+{"text": "It's anyone's guess when the renovation will actually end.", "label": "speculative", "lang": "en"}
+{"text": "Possibly the battery is dying, or maybe it's the charger.", "label": "speculative", "lang": "en"}
+{"text": "I can't tell if she was joking or serious.", "label": "speculative", "lang": "en"}
+{"text": "Not sure at all whether I locked the back door.", "label": "speculative", "lang": "en"}
+{"text": "Може, варто змінити професію, не знаю.", "label": "speculative", "lang": "uk"}
+{"text": "А що, як сервер упав через оновлення?", "label": "speculative", "lang": "uk"}
+{"text": "Цікаво, чи погодиться орендодавець на собаку.", "label": "speculative", "lang": "uk"}
+{"text": "Гадки не маю, чи посилка прийде до відпустки.", "label": "speculative", "lang": "uk"}
+{"text": "Чи не забагато я поливаю цей вазон?", "label": "speculative", "lang": "uk"}
+{"text": "Можливо, колись переїдемо до Канади, хто зна.", "label": "speculative", "lang": "uk"}
+{"text": "Припустімо, я візьму ту роботу в Кракові — як діти звикнуть?", "label": "speculative", "lang": "uk"}
+{"text": "Важко сказати, чи протримається цей стартап ще рік.", "label": "speculative", "lang": "uk"}
+{"text": "Лише здогадка, але проблема могла бути у відсутній змінній середовища.", "label": "speculative", "lang": "uk"}
+{"text": "Якби ми вийшли раніше, то, можливо, встигли б на потяг.", "label": "speculative", "lang": "uk"}
+{"text": "Не знаю, чи я зачинив задні двері.", "label": "speculative", "lang": "uk"}
+{"text": "Хтозна, коли той ремонт нарешті закінчиться.", "label": "speculative", "lang": "uk"}
+{"text": "Чи то батарея сідає, чи то зарядка барахлить — незрозуміло.", "label": "speculative", "lang": "uk"}
+{"text": "Мене цікавить, звідки цей шум — з холодильника чи з труб?", "label": "speculative", "lang": "uk"}
+{"text": "Не можу зрозуміти, жартувала вона чи ні.", "label": "speculative", "lang": "uk"}

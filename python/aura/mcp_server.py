@@ -21,6 +21,21 @@ from aura import Aura, Level, __version__
 SUPPORTED_PROTOCOL_VERSION = "2025-06-18"
 
 
+
+def model_write_provenance(source_type: str | None) -> tuple[str, dict | None]:
+    """Provenance for writes whose arguments are chosen by a model.
+
+    A model cannot vouch for anything, so an omitted ``source_type`` becomes
+    ``inferred``. A claimed ``recorded`` ("the user said this") is kept but
+    marked ``relayed_by_model`` so trust floors treat it as untrusted evidence.
+    """
+    if source_type is None:
+        return "inferred", None
+    if source_type == "recorded":
+        return "recorded", {"relayed_by_model": "true"}
+    return source_type, None
+
+
 def _parse_level(s: str) -> Level:
     return {
         "working": Level.Working,
@@ -63,7 +78,10 @@ class AuraMcpServer:
         content = params["content"]
         level = _parse_level(params["level"]) if "level" in params else None
         tags = params.get("tags")
-        rid = self.brain.store(content, level=level, tags=tags)
+        source_type, metadata = model_write_provenance(params.get("source_type"))
+        rid = self.brain.store(
+            content, level=level, tags=tags, source_type=source_type, metadata=metadata
+        )
         return json.dumps({"id": rid})
 
     def tool_store_code(self, params: dict) -> str:
@@ -74,7 +92,7 @@ class AuraMcpServer:
         if "filename" in params:
             tags.append(f"file:{params['filename']}")
         content = f"```{language}\n{code}\n```"
-        rid = self.brain.store(content, level=Level.Domain, tags=tags)
+        rid = self.brain.store(content, level=Level.Domain, tags=tags, source_type="inferred")
         return json.dumps({"id": rid, "level": "DOMAIN"})
 
     def tool_store_decision(self, params: dict) -> str:
@@ -85,7 +103,7 @@ class AuraMcpServer:
             content += f"\nALTERNATIVES: {', '.join(params['alternatives'])}"
         tags = params.get("tags", [])
         tags.append("decision")
-        rid = self.brain.store(content, level=Level.Decisions, tags=tags)
+        rid = self.brain.store(content, level=Level.Decisions, tags=tags, source_type="inferred")
         return json.dumps({"id": rid, "level": "DECISIONS"})
 
     def tool_search(self, params: dict) -> str:
@@ -173,6 +191,7 @@ class AuraMcpServer:
                     "content": {"type": "string", "description": "The text content to store."},
                     "level": {"type": "string", "description": "Memory level: working, decisions, domain, or identity."},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for categorization."},
+                    "source_type": {"type": "string", "description": "recorded (the user said it), retrieved (document or tool), inferred, or generated. Defaults to inferred."},
                 },
                 "required": ["content"],
             },

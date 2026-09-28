@@ -616,7 +616,7 @@ impl PolicyEngine {
         let evidence_source_floor = record_ids
             .iter()
             .filter_map(|rid| records.get(rid))
-            .map(|r| r.source_type.as_str())
+            .map(crate::certainty::effective_source_type)
             .min_by_key(|st| crate::ingress::source_type_rank(st))
             .unwrap_or("generated")
             .to_string();

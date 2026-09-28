@@ -1,0 +1,52 @@
+{
+  "classification": {
+    "accuracy": 1.0,
+    "asserted_demoted": 0,
+    "confusion": {
+      "asserted": {
+        "asserted": 6
+      },
+      "hearsay": {
+        "hearsay": 15
+      },
+      "hedged": {
+        "hedged": 4
+      },
+      "speculative": {
+        "speculative": 5
+      }
+    },
+    "errors": [],
+    "gates": {
+      "H1_hearsay_recall": true,
+      "H2_first_hand_safety": true,
+      "H3_hearsay_precision": true,
+      "H4_accuracy": true
+    },
+    "hearsay_precision": 1.0,
+    "hearsay_recall": 1.0,
+    "n": 30
+  },
+  "integration": {
+    "I1_detail": {
+      "certainty": "asserted",
+      "confidence": 0.8999999761581421,
+      "level": "Identity"
+    },
+    "I1_identity_fact": true,
+    "I2_detail": {
+      "direct": 0.8999999761581421,
+      "heard": 0.6299999952316284
+    },
+    "I2_hearsay_lower_confidence": true,
+    "I3_hearsay_hint_untrusted": true,
+    "I3_hints": [
+      {
+        "action": "verify",
+        "floor": "inferred",
+        "untrusted": true
+      }
+    ]
+  },
+  "set": "dev"
+}

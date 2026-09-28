@@ -153,6 +153,7 @@ pub mod synonym;
 
 // ── SDK Wrapper (from brain_tools.py — generic parts) ──
 pub mod cache;
+pub mod certainty;
 pub mod circuit_breaker;
 pub mod credibility;
 pub mod guards;

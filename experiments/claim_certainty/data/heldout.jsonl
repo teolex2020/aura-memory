@@ -1,0 +1,80 @@
+{"text": "Я народився 12 травня 1988 року в Житомирі.", "label": "asserted", "lang": "uk"}
+{"text": "Моя дружина працює лікаркою в міській лікарні.", "label": "asserted", "lang": "uk"}
+{"text": "Я не їм м'яса вже п'ять років.", "label": "asserted", "lang": "uk"}
+{"text": "Вчора я відмовився від пропозиції про роботу.", "label": "asserted", "lang": "uk"}
+{"text": "Я сказав начальнику, що не працюватиму у вихідні.", "label": "asserted", "lang": "uk"}
+{"text": "Наш сервер працює на Ubuntu 22.04.", "label": "asserted", "lang": "uk"}
+{"text": "У мене алергія на пеніцилін.", "label": "asserted", "lang": "uk"}
+{"text": "Я переїхав до Львова минулого літа.", "label": "asserted", "lang": "uk"}
+{"text": "Мій пароль від роутера я змінив у понеділок.", "label": "asserted", "lang": "uk"}
+{"text": "Я вивчаю Rust третій місяць.", "label": "asserted", "lang": "uk"}
+{"text": "I was born on March 3rd, 1992.", "label": "asserted", "lang": "en"}
+{"text": "My daughter starts school in September.", "label": "asserted", "lang": "en"}
+{"text": "I told my landlord I am moving out.", "label": "asserted", "lang": "en"}
+{"text": "I prefer tea over coffee in the morning.", "label": "asserted", "lang": "en"}
+{"text": "We deploy to staging before every production release.", "label": "asserted", "lang": "en"}
+{"text": "I broke my left wrist when I was twelve.", "label": "asserted", "lang": "en"}
+{"text": "Our team uses PostgreSQL 16 for billing.", "label": "asserted", "lang": "en"}
+{"text": "I said no to the extra project.", "label": "asserted", "lang": "en"}
+{"text": "I have two cats named Miso and Tofu.", "label": "asserted", "lang": "en"}
+{"text": "I finished the marathon in four hours.", "label": "asserted", "lang": "en"}
+{"text": "Я чув, що в сусідньому місті закрили завод.", "label": "hearsay", "lang": "uk"}
+{"text": "Кажуть, що податки знову піднімуть з січня.", "label": "hearsay", "lang": "uk"}
+{"text": "Сусід казав, що в будинку міняли труби.", "label": "hearsay", "lang": "uk"}
+{"text": "За словами колеги, проєкт скасують.", "label": "hearsay", "lang": "uk"}
+{"text": "Мені розповіли, що кафе на розі продають.", "label": "hearsay", "lang": "uk"}
+{"text": "Подейкують, що директор іде у відставку.", "label": "hearsay", "lang": "uk"}
+{"text": "Мама сказала, що дідусь служив на флоті.", "label": "hearsay", "lang": "uk"}
+{"text": "Лікар сказав, що в мене дефіцит заліза.", "label": "hearsay", "lang": "uk"}
+{"text": "Згідно з новинами, міст відкриють у травні.", "label": "hearsay", "lang": "uk"}
+{"text": "Нібито в компанії будуть скорочення.", "label": "hearsay", "lang": "uk"}
+{"text": "I heard the office is moving to a new building.", "label": "hearsay", "lang": "en"}
+{"text": "They say the new tax rules start in January.", "label": "hearsay", "lang": "en"}
+{"text": "According to my manager, the release slips a week.", "label": "hearsay", "lang": "en"}
+{"text": "My neighbor told me the pool is closing.", "label": "hearsay", "lang": "en"}
+{"text": "Apparently the vendor raised prices again.", "label": "hearsay", "lang": "en"}
+{"text": "Reportedly the outage was caused by a bad config.", "label": "hearsay", "lang": "en"}
+{"text": "Someone on the forum said this library is abandoned.", "label": "hearsay", "lang": "en"}
+{"text": "Rumor has it the CEO is leaving.", "label": "hearsay", "lang": "en"}
+{"text": "My doctor said my blood pressure is too high.", "label": "hearsay", "lang": "en"}
+{"text": "The article claims coffee improves memory.", "label": "hearsay", "lang": "en"}
+{"text": "Мабуть, я залишу ноутбук на роботі.", "label": "hedged", "lang": "uk"}
+{"text": "Здається, зустріч перенесли на четвер.", "label": "hedged", "lang": "uk"}
+{"text": "Ймовірно, ми встигнемо до дедлайну.", "label": "hedged", "lang": "uk"}
+{"text": "Схоже, принтер знову зламався.", "label": "hedged", "lang": "uk"}
+{"text": "Напевно, я поїду до батьків на вихідні.", "label": "hedged", "lang": "uk"}
+{"text": "Мені здається, що ключі в машині.", "label": "hedged", "lang": "uk"}
+{"text": "Скоріш за все, звіт буде готовий завтра.", "label": "hedged", "lang": "uk"}
+{"text": "Видно, що тест падає через таймаут.", "label": "hedged", "lang": "uk"}
+{"text": "Думаю, бюджет затвердять.", "label": "hedged", "lang": "uk"}
+{"text": "Вочевидь, клієнт незадоволений.", "label": "hedged", "lang": "uk"}
+{"text": "I think the meeting moved to Thursday.", "label": "hedged", "lang": "en"}
+{"text": "Probably the cache is stale.", "label": "hedged", "lang": "en"}
+{"text": "It seems the build is flaky on Windows.", "label": "hedged", "lang": "en"}
+{"text": "Likely we will ship on Friday.", "label": "hedged", "lang": "en"}
+{"text": "I believe the invoice was paid.", "label": "hedged", "lang": "en"}
+{"text": "The disk looks almost full.", "label": "hedged", "lang": "en"}
+{"text": "I guess the courier is late again.", "label": "hedged", "lang": "en"}
+{"text": "Presumably the backup ran last night.", "label": "hedged", "lang": "en"}
+{"text": "I suppose the price includes tax.", "label": "hedged", "lang": "en"}
+{"text": "Chances are the API key expired.", "label": "hedged", "lang": "en"}
+{"text": "Може бути, що проблема в драйвері.", "label": "speculative", "lang": "uk"}
+{"text": "Можливо, варто спробувати іншу бібліотеку.", "label": "speculative", "lang": "uk"}
+{"text": "Не виключено, що сервер перезавантажився.", "label": "speculative", "lang": "uk"}
+{"text": "Може, він просто забув відповісти.", "label": "speculative", "lang": "uk"}
+{"text": "Цілком можливо, що дані застаріли.", "label": "speculative", "lang": "uk"}
+{"text": "Не знаю, чи працює ця функція.", "label": "speculative", "lang": "uk"}
+{"text": "Може статися, що рейс затримають.", "label": "speculative", "lang": "uk"}
+{"text": "Якщо пощастить, ремонт закінчать восени.", "label": "speculative", "lang": "uk"}
+{"text": "Важко сказати, чи підійде ця модель.", "label": "speculative", "lang": "uk"}
+{"text": "Припускаю, що це баг у компіляторі.", "label": "speculative", "lang": "uk"}
+{"text": "Maybe the issue is in the driver.", "label": "speculative", "lang": "en"}
+{"text": "It might be a memory leak.", "label": "speculative", "lang": "en"}
+{"text": "Possibly the certificate expired.", "label": "speculative", "lang": "en"}
+{"text": "Perhaps we should try another vendor.", "label": "speculative", "lang": "en"}
+{"text": "It could be that the queue is stuck.", "label": "speculative", "lang": "en"}
+{"text": "I am not sure whether the fix landed.", "label": "speculative", "lang": "en"}
+{"text": "There may be a race in the scheduler.", "label": "speculative", "lang": "en"}
+{"text": "I wonder if the port is blocked.", "label": "speculative", "lang": "en"}
+{"text": "Hard to say whether the patch helps.", "label": "speculative", "lang": "en"}
+{"text": "Who knows, the fix might hold.", "label": "speculative", "lang": "en"}

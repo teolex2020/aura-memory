@@ -105,6 +105,8 @@ tests/*
 !tests/sybil_resistance.rs
 !tests/python_concurrency_smoke.py
 !tests/python_http_security_smoke.py
+!tests/security_profile.rs
+!tests/python_security_profile_smoke.py
 
 # Marketing materials (strategy — not public)
 marketing/

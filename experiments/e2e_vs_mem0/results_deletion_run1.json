@@ -1,0 +1,90 @@
+{
+  "results": [
+    {
+      "system": "mem0",
+      "files_before": 3,
+      "deleted": true,
+      "after_delete": {
+        "files": [
+          "history.db",
+          "locked:qdrant/.lock",
+          "qdrant/collection/e13del/storage.sqlite"
+        ],
+        "api": [
+          "history"
+        ]
+      },
+      "after_reopen": {
+        "files": [
+          "history.db",
+          "locked:qdrant/.lock",
+          "qdrant/collection/e13del/storage.sqlite"
+        ],
+        "api": [
+          "history"
+        ]
+      },
+      "after_close": [
+        "history.db",
+        "qdrant/collection/e13del/storage.sqlite"
+      ],
+      "rollback_restores": null,
+      "rollback_api": null,
+      "benign_findable_after": null
+    },
+    {
+      "system": "aura-balanced",
+      "files_before": 2,
+      "deleted": true,
+      "after_delete": {
+        "files": [
+          "brain.aura",
+          "brain.cog"
+        ],
+        "api": []
+      },
+      "after_reopen": {
+        "files": [
+          "brain.audit",
+          "brain.aura",
+          "brain.cog"
+        ],
+        "api": []
+      },
+      "after_close_post_rollback": [
+        "brain.audit",
+        "brain.aura",
+        "brain.cog"
+      ],
+      "rollback_restores": true,
+      "rollback_api": [
+        "get",
+        "recall_structured",
+        "recall"
+      ],
+      "benign_findable_after": 10
+    },
+    {
+      "system": "aura-strict",
+      "files_before": 2,
+      "deleted": true,
+      "after_delete": {
+        "files": [],
+        "api": []
+      },
+      "after_reopen": {
+        "files": [
+          "brain.audit"
+        ],
+        "api": []
+      },
+      "after_close_post_rollback": [
+        "brain.audit"
+      ],
+      "rollback_restores": false,
+      "rollback_api": [],
+      "benign_findable_after": 10
+    }
+  ],
+  "G5": false
+}

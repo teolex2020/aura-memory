@@ -1,0 +1,22 @@
+{
+  "calibration": {
+    "same": [
+      0.689,
+      0.82,
+      0.642,
+      0.859,
+      0.914,
+      0.824
+    ],
+    "different": [
+      0.669,
+      0.724,
+      0.515,
+      0.358,
+      0.668
+    ],
+    "separable": false,
+    "threshold": null
+  },
+  "stopped": true
+}

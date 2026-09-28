@@ -1,0 +1,90 @@
+{
+  "calibration": {
+    "same": [
+      0.689,
+      0.82,
+      0.642,
+      0.859,
+      0.914,
+      0.824
+    ],
+    "different": [
+      0.669,
+      0.724,
+      0.515,
+      0.358,
+      0.668
+    ],
+    "separable": true,
+    "threshold": 0.8,
+    "exploratory": true
+  },
+  "cases": [
+    {
+      "lang": "en",
+      "outcome": "negative",
+      "actions": [
+        "avoid"
+      ],
+      "correct": true,
+      "effect_beliefs": 1,
+      "false_joins": 0
+    },
+    {
+      "lang": "uk",
+      "outcome": "negative",
+      "actions": [],
+      "correct": false,
+      "effect_beliefs": 0,
+      "false_joins": 0
+    },
+    {
+      "lang": "de",
+      "outcome": "negative",
+      "actions": [
+        "avoid"
+      ],
+      "correct": true,
+      "effect_beliefs": 1,
+      "false_joins": 0
+    },
+    {
+      "lang": "en",
+      "outcome": "positive",
+      "actions": [],
+      "correct": false,
+      "effect_beliefs": 0,
+      "false_joins": 0
+    },
+    {
+      "lang": "uk",
+      "outcome": "positive",
+      "actions": [],
+      "correct": false,
+      "effect_beliefs": 0,
+      "false_joins": 0
+    },
+    {
+      "lang": "de",
+      "outcome": "positive",
+      "actions": [],
+      "correct": false,
+      "effect_beliefs": 0,
+      "false_joins": 0
+    },
+    {
+      "lang": "en+uk",
+      "outcome": "negative",
+      "actions": [],
+      "correct": false,
+      "effect_beliefs": 0,
+      "false_joins": 0
+    }
+  ],
+  "gates": {
+    "P1_negative_parity": false,
+    "P2_positive_parity": false,
+    "P3_no_false_joins": true,
+    "P4_cross_language": false
+  }
+}

@@ -5594,6 +5594,14 @@ impl Aura {
         *self.outcome_classifier.write() = classifier;
     }
 
+    /// Opt in to embedding-based belief clustering: two records count as the
+    /// same claim when their embeddings reach this cosine similarity.
+    /// `None` (the default) disables it. Calibrate the value for the
+    /// embedding model in use; scales differ between models.
+    pub fn set_embedding_claim_threshold(&self, threshold: Option<f32>) {
+        self.belief_engine.write().embedding_similarity_override = threshold;
+    }
+
     /// Run the outcome classifier, if any. Must be called without store locks.
     fn classify_outcome(&self, text: &str) -> Option<crate::outcome::Outcome> {
         let classifier = self.outcome_classifier.read().clone()?;
@@ -16947,6 +16955,19 @@ impl Aura {
             py_results.push(dict.unbind().into_any());
         }
         Ok(py_results)
+    }
+
+    /// Opt in to embedding-based belief clustering at this cosine threshold (None disables it).
+    #[pyo3(name = "set_embedding_claim_threshold", signature = (threshold=None))]
+    fn py_set_embedding_claim_threshold(&self, threshold: Option<f32>) {
+        self.set_embedding_claim_threshold(threshold);
+    }
+
+    /// ID of the belief that currently owns a record, if any.
+    #[pyo3(name = "get_belief_id_for_record")]
+    fn py_get_belief_id_for_record(&self, record_id: &str) -> Option<String> {
+        self.get_belief_for_record(record_id)
+            .map(|belief| belief.id)
     }
 
     #[pyo3(name = "get_surfaced_policy_hints", signature = (limit=None))]

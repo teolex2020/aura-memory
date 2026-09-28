@@ -62,10 +62,10 @@ const UNCERTAINTY_BAND: f32 = 0.10;
 /// while keeping paraphrases together.
 const CLAIM_SIMILARITY_THRESHOLD: f32 = 0.15;
 
-/// Cosine similarity at which two records' embeddings count as the same
-/// claim. Embeddings come from the host (`set_embedding_fn`); with a
-/// multilingual model, paraphrases and translations of one claim cluster
-/// together without any word list.
+/// Reference cosine threshold for embedding-based claim clustering. Unused
+/// unless the host opts in with `set_embedding_claim_threshold`, because
+/// similarity scales differ between embedding models (see
+/// experiments/outcome_polarity E6).
 pub const EMBEDDING_CLAIM_THRESHOLD: f32 = 0.80;
 /// Minimum Tanimoto overlap between tag SDR fingerprints in `SdrTagPool`.
 /// Slightly lower than content threshold because tag strings are much shorter.
@@ -1174,10 +1174,15 @@ impl BeliefEngine {
         sdr_lookup: &SdrLookup,
     ) -> BeliefReport {
         let mut report = BeliefReport::default();
-        let has_sdr = !sdr_lookup.is_empty() || !self.embeddings.is_empty();
-        let embedding_threshold = self
-            .embedding_similarity_override
-            .unwrap_or(EMBEDDING_CLAIM_THRESHOLD);
+        // Embedding clustering is opt-in: similarity scales differ between
+        // embedding models, so it runs only once a threshold is set for the
+        // model in use (`set_embedding_claim_threshold`).
+        let no_embeddings = HashMap::new();
+        let (embeddings, embedding_threshold) = match self.embedding_similarity_override {
+            Some(threshold) => (&self.embeddings, threshold),
+            None => (&no_embeddings, EMBEDDING_CLAIM_THRESHOLD),
+        };
+        let has_sdr = !sdr_lookup.is_empty() || !embeddings.is_empty();
 
         // Step 1: Coarse grouping by tag key
         let mut coarse_groups: HashMap<String, Vec<&Record>> = HashMap::new();
@@ -1274,7 +1279,7 @@ impl BeliefEngine {
                     group_records,
                     sdr_lookup,
                     threshold,
-                    &self.embeddings,
+                    embeddings,
                     embedding_threshold,
                 )
             };
@@ -1291,7 +1296,7 @@ impl BeliefEngine {
                         group_records,
                         sdr_lookup,
                         adaptive_threshold,
-                        &self.embeddings,
+                        embeddings,
                         embedding_threshold,
                     )
                 } else {

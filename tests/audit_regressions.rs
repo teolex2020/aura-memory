@@ -43,9 +43,11 @@ fn formatted_cache_preserves_namespace_case_and_query_options() -> anyhow::Resul
     assert!(upper.contains("UPPER_TENANT_PRIVATE"));
     assert!(lower.contains("LOWER_TENANT_PUBLIC"));
     assert!(!lower.contains("UPPER_TENANT_PRIVATE"));
+    // A budget smaller than one record must not be served the cached
+    // 2048-token context.
     let small = a.recall(
         "Launch codeword",
-        Some(64),
+        Some(2),
         Some(0.0),
         Some(false),
         None,

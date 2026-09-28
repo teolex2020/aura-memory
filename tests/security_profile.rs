@@ -51,7 +51,7 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 #[test]
-fn default_is_balanced_and_strict_recall_uses_provenance_context() {
+fn every_profile_recall_uses_provenance_context() {
     let dir = tempfile::tempdir().unwrap();
     let a = Aura::open(dir.path().to_str().unwrap()).unwrap();
     assert_eq!(a.security_profile(), SecurityProfile::Balanced);
@@ -64,10 +64,12 @@ fn default_is_balanced_and_strict_recall_uses_provenance_context() {
         Some("email"),
     );
 
+    // Every profile separates first-hand from untrusted memory (E15).
     let balanced = a
         .recall("Where does my sister live?", None, None, None, None, None)
         .unwrap();
-    assert!(!balanced.contains("[UNTRUSTED MEMORY"), "{balanced}");
+    assert!(balanced.contains("[FROM THE USER"), "{balanced}");
+    assert!(balanced.contains("[UNTRUSTED MEMORY"), "{balanced}");
 
     a.set_security_profile(SecurityProfile::Strict);
     let strict = a
@@ -169,7 +171,7 @@ fn report_reflects_profile_store_contents_and_flooding() {
             .unwrap()
     };
     assert_eq!(state("verified_deletion"), "explicit");
-    assert_eq!(state("provenance_context"), "mcp_only");
+    assert_eq!(state("provenance_context"), "on");
     assert_eq!(state("encryption_at_rest"), "off");
     assert_eq!(state("claim_certainty"), "off");
     assert!(report.warnings.iter().any(|w| w.contains("flooding")));

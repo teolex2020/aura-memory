@@ -2311,17 +2311,9 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<String> {
-        if self.security_profile() == crate::security::SecurityProfile::Strict {
-            return self.recall_provenance(
-                query,
-                token_budget,
-                min_strength,
-                expand_connections,
-                session_id,
-                namespaces,
-            );
-        }
-        self.recall_levels(
+        // The provenance context in every profile (E13, E14b, E15);
+        // `recall_levels` keeps the older level-grouped context.
+        self.recall_provenance(
             query,
             token_budget,
             min_strength,
@@ -2349,6 +2341,7 @@ impl Aura {
         let budget = token_budget.unwrap_or(2048);
         let result = RecallService::recall_formatted(
             &self.runtime.recall_cache,
+            "levels",
             query,
             budget,
             min_strength.unwrap_or(0.1),
@@ -2378,7 +2371,8 @@ impl Aura {
 
     /// Recall formatted with provenance: first-hand user memory and untrusted
     /// memory in separate sections, untrusted text quoted and fenced (see
-    /// `recall::format_provenance`). Not cached.
+    /// `recall::format_provenance`). Cached like the level format, under
+    /// its own cache key.
     pub fn recall_provenance(
         &self,
         query: &str,
@@ -2388,20 +2382,40 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<String> {
-        let scored = self.recall_core(
+        if self.has_temporal_boundaries(namespaces) {
+            // A wall-clock validity boundary can be crossed without a write,
+            // so cached context is unsafe for temporally bounded namespaces.
+            self.runtime.clear_recall_caches();
+        }
+        let budget = token_budget.unwrap_or(2048);
+        let result = RecallService::recall_formatted(
+            &self.runtime.recall_cache,
+            "provenance",
             query,
-            20,
+            budget,
             min_strength.unwrap_or(0.1),
             expand_connections.unwrap_or(true),
             session_id,
             namespaces,
-        )?;
-        let context = {
-            let records = self.records.read();
-            recall::format_provenance(&scored, token_budget.unwrap_or(2048), &records)
-        };
-        self.runtime.note_recall(usize::from(!context.is_empty()));
-        Ok(context)
+            || {
+                self.recall_core(
+                    query,
+                    20,
+                    min_strength.unwrap_or(0.1),
+                    expand_connections.unwrap_or(true),
+                    session_id,
+                    namespaces,
+                )
+            },
+            |scored| {
+                let records = self.records.read();
+                recall::format_provenance(scored, budget, &records)
+            },
+        );
+        if let Ok(ref context) = result {
+            self.runtime.note_recall(usize::from(!context.is_empty()));
+        }
+        result
     }
 
     /// Recall structured (raw results with trust scoring).

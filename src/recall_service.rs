@@ -71,6 +71,7 @@ mod cache_regressions {
         ] {
             RecallService::recall_formatted(
                 &text,
+                "levels",
                 "query",
                 2048,
                 0.0,
@@ -210,6 +211,7 @@ impl RecallService {
 
     pub(crate) fn recall_formatted<F, G>(
         cache: &RecallCache,
+        format: &str,
         query: &str,
         token_budget: usize,
         min_strength: f32,
@@ -224,7 +226,7 @@ impl RecallService {
         G: FnOnce(&[(f32, Record)]) -> String,
     {
         let cache_key = format!(
-            "{}:{token_budget}:{}:{expand_connections}",
+            "{format}:{}:{token_budget}:{}:{expand_connections}",
             Self::text_cache_key(query, namespaces),
             min_strength.to_bits()
         );

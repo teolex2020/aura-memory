@@ -159,3 +159,31 @@ fn untrusted_entries_stay_quoted_with_their_channel() {
     );
     assert_eq!(out.matches("[FROM THE USER").count(), 1, "{out}");
 }
+
+#[test]
+fn cached_provenance_context_follows_writes_and_does_not_mix_formats() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = Aura::open(dir.path().to_str().unwrap()).unwrap();
+    store(&a, Rec::new("My sister lives in Lviv", "recorded"));
+    let query = "Where does my sister live?";
+    let first = context(&a, query);
+    assert_eq!(first, context(&a, query));
+
+    // The level format is cached under its own key.
+    let levels = a
+        .recall_levels(query, None, None, None, None, None)
+        .unwrap();
+    assert!(levels.contains("=== COGNITIVE CONTEXT ==="), "{levels}");
+    assert!(context(&a, query).contains("=== MEMORY CONTEXT ==="));
+
+    // A write invalidates the cached context.
+    let moved = store(
+        &a,
+        Rec::new("My sister moved to Odesa last spring", "recorded"),
+    );
+    assert!(context(&a, query).contains("moved to Odesa"));
+
+    // A delete does too.
+    assert!(a.delete(&moved).unwrap());
+    assert!(!context(&a, query).contains("moved to Odesa"));
+}

@@ -4,16 +4,15 @@
 //! stamping, the evidence floor for advice, repetition resistance). A profile
 //! only switches the ones that change behaviour a host may rely on:
 //!
-//! * `balanced` (default) — `recall()` returns the level-grouped context and
-//!   `delete()` is a logical delete (bytes can remain in storage history until
-//!   `purge_record` is called).
-//! * `strict` — `recall()` returns the provenance context (first-hand memory
-//!   separated from quoted, fenced untrusted memory; experiments E10, E13) and
-//!   `delete()` purges the record from storage, snapshots and audit history
-//!   (experiment E1).
+//! * `balanced` (default) — `delete()` is a logical delete (bytes can remain
+//!   in storage history until `purge_record` is called).
+//! * `strict` — `delete()` purges the record from storage, snapshots and
+//!   audit history (experiment E1).
 //!
-//! Making the provenance context the default was tested in E14 and not
-//! adopted: its preregistered security gate failed by one case.
+//! In every profile `recall()` returns the provenance context: first-hand
+//! memory with its reasons, separated from quoted, fenced untrusted memory
+//! (experiments E10, E13, E14b, E15). `format="levels"` / `recall_levels`
+//! keeps the older level-grouped context.
 //!
 //! `security_report()` lists every protection with its state and the
 //! experiment behind it, counts what the store holds by effective source, and
@@ -201,13 +200,9 @@ pub(crate) fn report(inputs: ReportInputs, stats: SecurityStats) -> SecurityRepo
         },
         Protection {
             name: "provenance_context",
-            state: if strict { "on" } else { "mcp_only" },
-            evidence: "E10/E13",
-            detail: if strict {
-                "recall() separates first-hand memory from fenced untrusted memory".into()
-            } else {
-                "MCP recall uses the provenance context; Python/Rust recall() needs format=\"provenance\" or the strict profile".into()
-            },
+            state: "on",
+            evidence: "E10/E13/E14b/E15",
+            detail: "recall() separates first-hand memory from fenced untrusted memory; format=\"levels\" opts out".into(),
         },
         Protection {
             name: "verified_deletion",

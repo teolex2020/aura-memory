@@ -61,6 +61,12 @@ const UNCERTAINTY_BAND: f32 = 0.10;
 /// A threshold of 0.15 safely separates genuinely different topics
 /// while keeping paraphrases together.
 const CLAIM_SIMILARITY_THRESHOLD: f32 = 0.15;
+
+/// Cosine similarity at which two records' embeddings count as the same
+/// claim. Embeddings come from the host (`set_embedding_fn`); with a
+/// multilingual model, paraphrases and translations of one claim cluster
+/// together without any word list.
+pub const EMBEDDING_CLAIM_THRESHOLD: f32 = 0.80;
 /// Minimum Tanimoto overlap between tag SDR fingerprints in `SdrTagPool`.
 /// Slightly lower than content threshold because tag strings are much shorter.
 const TAG_FINGERPRINT_SIMILARITY_THRESHOLD: f32 = 0.08;
@@ -535,6 +541,12 @@ pub struct BeliefEngine {
     /// Lower values allow more records to cluster together within a coarse group.
     #[serde(default)]
     pub claim_similarity_override: Option<f32>,
+    /// Record embeddings for the current update cycle (not persisted).
+    #[serde(skip)]
+    pub embeddings: HashMap<String, Vec<f32>>,
+    /// Override for `EMBEDDING_CLAIM_THRESHOLD`.
+    #[serde(default)]
+    pub embedding_similarity_override: Option<f32>,
 }
 
 impl BeliefEngine {
@@ -546,6 +558,8 @@ impl BeliefEngine {
             record_index: HashMap::new(),
             coarse_key_mode: CoarseKeyMode::default(),
             claim_similarity_override: None,
+            embeddings: HashMap::new(),
+            embedding_similarity_override: None,
         }
     }
 
@@ -803,6 +817,20 @@ impl BeliefEngine {
         }
     }
 
+    fn cosine(a: &[f32], b: &[f32]) -> f32 {
+        if a.len() != b.len() || a.is_empty() {
+            return 0.0;
+        }
+        let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+        let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if na == 0.0 || nb == 0.0 {
+            0.0
+        } else {
+            dot / (na * nb)
+        }
+    }
+
     /// Tanimoto coefficient for two sorted sparse SDR vectors.
     /// Duplicated from SDRInterpreter to avoid coupling belief.rs to sdr.rs.
     fn tanimoto(a: &[u16], b: &[u16]) -> f32 {
@@ -841,6 +869,8 @@ impl BeliefEngine {
         records: &[&'a Record],
         sdr_lookup: &SdrLookup,
         threshold: f32,
+        embeddings: &HashMap<String, Vec<f32>>,
+        embedding_threshold: f32,
     ) -> Vec<Vec<&'a Record>> {
         let n = records.len();
         if n <= 1 {
@@ -865,22 +895,25 @@ impl BeliefEngine {
             }
         }
 
-        // Pairwise Tanimoto comparison
+        // Pairwise comparison: same claim if the SDRs overlap enough, or if
+        // the host embeddings are close (paraphrase or other language).
         for i in 0..n {
-            let sdr_i = sdr_lookup.get(&records[i].id);
-            if sdr_i.is_none() {
-                continue;
-            }
-            let sdr_i = sdr_i.unwrap();
-
             for j in (i + 1)..n {
-                let sdr_j = sdr_lookup.get(&records[j].id);
-                if sdr_j.is_none() {
-                    continue;
-                }
-                let sdr_j = sdr_j.unwrap();
-
-                if Self::tanimoto(sdr_i, sdr_j) >= threshold {
+                let sdr_match = match (
+                    sdr_lookup.get(&records[i].id),
+                    sdr_lookup.get(&records[j].id),
+                ) {
+                    (Some(a), Some(b)) => Self::tanimoto(a, b) >= threshold,
+                    _ => false,
+                };
+                let embedding_match = match (
+                    embeddings.get(&records[i].id),
+                    embeddings.get(&records[j].id),
+                ) {
+                    (Some(a), Some(b)) => Self::cosine(a, b) >= embedding_threshold,
+                    _ => false,
+                };
+                if sdr_match || embedding_match {
                     union(&mut parent, i, j);
                 }
             }
@@ -1141,7 +1174,10 @@ impl BeliefEngine {
         sdr_lookup: &SdrLookup,
     ) -> BeliefReport {
         let mut report = BeliefReport::default();
-        let has_sdr = !sdr_lookup.is_empty();
+        let has_sdr = !sdr_lookup.is_empty() || !self.embeddings.is_empty();
+        let embedding_threshold = self
+            .embedding_similarity_override
+            .unwrap_or(EMBEDDING_CLAIM_THRESHOLD);
 
         // Step 1: Coarse grouping by tag key
         let mut coarse_groups: HashMap<String, Vec<&Record>> = HashMap::new();
@@ -1234,7 +1270,13 @@ impl BeliefEngine {
             } else if use_tag_sdr_guard {
                 Self::sdr_subcluster_tag_sdr_guarded(group_records, sdr_lookup, threshold)
             } else {
-                Self::sdr_subcluster(group_records, sdr_lookup, threshold)
+                Self::sdr_subcluster(
+                    group_records,
+                    sdr_lookup,
+                    threshold,
+                    &self.embeddings,
+                    embedding_threshold,
+                )
             };
 
             let subclusters = if self.coarse_key_mode == CoarseKeyMode::TagFamilyAdaptive {
@@ -1245,7 +1287,13 @@ impl BeliefEngine {
                     && !Self::is_generic_tag_family(family)
                 {
                     let adaptive_threshold = self.claim_similarity_override.unwrap_or(0.10);
-                    Self::sdr_subcluster(group_records, sdr_lookup, adaptive_threshold)
+                    Self::sdr_subcluster(
+                        group_records,
+                        sdr_lookup,
+                        adaptive_threshold,
+                        &self.embeddings,
+                        embedding_threshold,
+                    )
                 } else {
                     subclusters
                 }
@@ -2144,6 +2192,37 @@ mod tests {
     }
 
     #[test]
+    fn embeddings_join_paraphrases_that_share_no_sdr_bits() {
+        let mut r1 = Record::new("Payments were down for two hours".into(), Level::Domain);
+        r1.tags = vec!["result".into()];
+        let mut r2 = Record::new("Платежі лежали дві години".into(), Level::Domain);
+        r2.tags = vec!["result".into()];
+        let mut r3 = Record::new("The office moved to the third floor".into(), Level::Domain);
+        r3.tags = vec!["result".into()];
+        let lookup = HashMap::from([
+            (r1.id.clone(), vec![1u16, 2, 3]),
+            (r2.id.clone(), vec![7u16, 8, 9]),
+            (r3.id.clone(), vec![4u16, 5, 6]),
+        ]);
+        let embeddings = HashMap::from([
+            (r1.id.clone(), vec![0.9f32, 0.1, 0.0]),
+            (r2.id.clone(), vec![0.88f32, 0.12, 0.02]),
+            (r3.id.clone(), vec![0.0f32, 0.2, 0.95]),
+        ]);
+        let clusters = BeliefEngine::sdr_subcluster(
+            &[&r1, &r2, &r3],
+            &lookup,
+            CLAIM_SIMILARITY_THRESHOLD,
+            &embeddings,
+            EMBEDDING_CLAIM_THRESHOLD,
+        );
+        assert_eq!(clusters.len(), 2);
+        assert!(clusters.iter().any(|c| c.len() == 2
+            && c.iter().any(|r| r.id == r1.id)
+            && c.iter().any(|r| r.id == r2.id)));
+    }
+
+    #[test]
     fn test_claim_key_generation() {
         let rec = make_record(
             "test content for claim key",
@@ -2734,8 +2813,13 @@ mod tests {
         lookup.insert(r1.id.clone(), sdr1);
         lookup.insert(r2.id.clone(), sdr2);
 
-        let clusters =
-            BeliefEngine::sdr_subcluster(&[&r1, &r2], &lookup, CLAIM_SIMILARITY_THRESHOLD);
+        let clusters = BeliefEngine::sdr_subcluster(
+            &[&r1, &r2],
+            &lookup,
+            CLAIM_SIMILARITY_THRESHOLD,
+            &HashMap::new(),
+            EMBEDDING_CLAIM_THRESHOLD,
+        );
         assert_eq!(
             clusters.len(),
             1,
@@ -2764,8 +2848,13 @@ mod tests {
         lookup.insert(r1.id.clone(), sdr1);
         lookup.insert(r2.id.clone(), sdr2);
 
-        let clusters =
-            BeliefEngine::sdr_subcluster(&[&r1, &r2], &lookup, CLAIM_SIMILARITY_THRESHOLD);
+        let clusters = BeliefEngine::sdr_subcluster(
+            &[&r1, &r2],
+            &lookup,
+            CLAIM_SIMILARITY_THRESHOLD,
+            &HashMap::new(),
+            EMBEDDING_CLAIM_THRESHOLD,
+        );
         assert_eq!(
             clusters.len(),
             2,

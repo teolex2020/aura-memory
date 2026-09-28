@@ -83,6 +83,11 @@ impl EmbeddingStore {
         Ok(())
     }
 
+    /// Copy of all stored embeddings (for maintenance-time clustering).
+    pub fn snapshot(&self) -> HashMap<String, Vec<f32>> {
+        self.embeddings.read().clone()
+    }
+
     /// Check if any embeddings are stored.
     pub fn is_active(&self) -> bool {
         !self.embeddings.read().is_empty()

@@ -5847,6 +5847,10 @@ impl Aura {
             &mut hotspots,
         );
 
+        // Host embeddings let paraphrases and other languages of one claim
+        // cluster into the same belief (no-op when no embeddings exist).
+        self.belief_engine.write().embeddings = self.embedding_store.snapshot();
+
         let discovery = MaintenanceService::run_discovery_phases(
             &self.belief_engine,
             &self.belief_store,

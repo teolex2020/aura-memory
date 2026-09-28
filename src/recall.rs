@@ -269,6 +269,80 @@ pub fn collect_tags(
 
 // ── RRF Fusion ──
 
+/// Supported fusion modes for `TrustConfig::fusion_mode`.
+pub const FUSION_MODES: &[&str] = &["equal", "embedding_only", "family", "bm25_embedding"];
+
+/// Merge several ranked lists into one ranked list by RRF, keeping order
+/// deterministic (score, then content tie key, then id).
+fn rrf_merge_ranked(
+    records: &HashMap<String, Record>,
+    lists: &[Vec<(String, f32)>],
+) -> Vec<(String, f32)> {
+    let mut scores: HashMap<String, f32> = HashMap::new();
+    for list in lists {
+        for (rank, (rid, _)) in list.iter().enumerate() {
+            *scores.entry(rid.clone()).or_insert(0.0) += 1.0 / (RRF_K as f32 + rank as f32 + 1.0);
+        }
+    }
+    let mut merged: Vec<(String, f32)> = scores.into_iter().collect();
+    merged.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| tie_of(records, &a.0).cmp(&tie_of(records, &b.0)))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    merged
+}
+
+/// Arrange collected signals into the lists that RRF fuses, per fusion mode.
+///
+/// * `equal` — every signal is one vote (SDR, BM25, n-gram, tags, embedding).
+/// * `embedding_only` — the embedding list alone when present.
+/// * `family` — lexical signals are merged into one list first, so correlated
+///   lexical evidence counts once next to the embedding.
+/// * `bm25_embedding` — BM25 and embedding only.
+///
+/// Without an embedding list every mode falls back to the lexical signals;
+/// `family` then yields the same order as `equal`.
+pub fn fusion_lists(
+    records: &HashMap<String, Record>,
+    lexical: Vec<Vec<(String, f32)>>,
+    bm25_index: Option<usize>,
+    embedding: Option<Vec<(String, f32)>>,
+    mode: &str,
+) -> Vec<Vec<(String, f32)>> {
+    let lexical: Vec<Vec<(String, f32)>> = lexical.into_iter().filter(|l| !l.is_empty()).collect();
+    let embedding = embedding.filter(|e| !e.is_empty());
+    let Some(embedding) = embedding else {
+        return lexical;
+    };
+    match mode {
+        "embedding_only" => vec![embedding],
+        "family" => {
+            let merged = rrf_merge_ranked(records, &lexical);
+            let mut lists = Vec::new();
+            if !merged.is_empty() {
+                lists.push(merged);
+            }
+            lists.push(embedding);
+            lists
+        }
+        "bm25_embedding" => {
+            let mut lists = Vec::new();
+            if let Some(bm25) = bm25_index.and_then(|i| lexical.get(i)) {
+                lists.push(bm25.clone());
+            }
+            lists.push(embedding);
+            lists
+        }
+        _ => {
+            let mut lists = lexical;
+            lists.push(embedding);
+            lists
+        }
+    }
+}
+
 /// Reciprocal Rank Fusion — combines multiple ranked lists.
 ///
 /// RRF score = Σ(1 / (k + rank_i)) for each list where record appears.
@@ -842,26 +916,23 @@ pub fn recall_pipeline(
     let ngram_ranked = collect_ngram(ngram_index, records, query, top_k, ns);
     let tag_ranked = collect_tags(tag_index, records, query, top_k, ns);
 
-    // 2. RRF Fuse
-    let mut lists = Vec::new();
-    if !sdr_ranked.is_empty() {
-        lists.push(sdr_ranked);
-    }
-    if !bm25_ranked.is_empty() {
-        lists.push(bm25_ranked);
-    }
-    if !ngram_ranked.is_empty() {
-        lists.push(ngram_ranked);
-    }
-    if !tag_ranked.is_empty() {
-        lists.push(tag_ranked);
-    }
-    // 4th signal: embedding similarity (optional)
-    if let Some(emb) = embedding_ranked {
-        if !emb.is_empty() {
-            lists.push(emb);
-        }
-    }
+    // 2. RRF Fuse (lists arranged by the configured fusion mode)
+    let mode = trust_config
+        .map(|config| config.fusion_mode.as_str())
+        .unwrap_or("equal");
+    let bm25_position = [&sdr_ranked, &bm25_ranked]
+        .iter()
+        .filter(|list| !list.is_empty())
+        .count()
+        .checked_sub(1)
+        .filter(|_| !bm25_ranked.is_empty());
+    let lists = fusion_lists(
+        records,
+        vec![sdr_ranked, bm25_ranked, ngram_ranked, tag_ranked],
+        bm25_position,
+        embedding_ranked,
+        mode,
+    );
 
     if lists.is_empty() {
         return vec![];
@@ -2215,6 +2286,41 @@ pub fn apply_policy_rerank(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn family_fusion_counts_lexical_evidence_once_and_is_a_no_op_without_embeddings() {
+        let mut records = HashMap::new();
+        for id in ["a", "b", "c"] {
+            let mut r = Record::new(format!("record {id}"), crate::levels::Level::Working);
+            r.id = id.into();
+            records.insert(id.to_string(), r);
+        }
+        let list = |ids: &[&str]| ids.iter().map(|i| (i.to_string(), 1.0)).collect::<Vec<_>>();
+        let lexical = vec![list(&["a", "b"]), list(&["a", "b"]), list(&["a", "c"])];
+
+        let no_embedding = fusion_lists(&records, lexical.clone(), Some(1), None, "family");
+        assert_eq!(
+            no_embedding, lexical,
+            "without embeddings every mode is unchanged"
+        );
+
+        let with_embedding = fusion_lists(
+            &records,
+            lexical.clone(),
+            Some(1),
+            Some(list(&["c", "b"])),
+            "family",
+        );
+        assert_eq!(
+            with_embedding.len(),
+            2,
+            "one lexical list plus the embedding list"
+        );
+        assert_eq!(with_embedding[0][0].0, "a");
+
+        let equal = fusion_lists(&records, lexical, Some(1), Some(list(&["c"])), "equal");
+        assert_eq!(equal.len(), 4);
+    }
 
     #[test]
     fn test_rrf_fuse_basic() {

@@ -11,6 +11,7 @@ Usage: python run.py <label>   -> results_<label>.json
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import time
@@ -96,6 +97,9 @@ def main():
         for arm in ("aura_plain", "aura_bge"):
             t0 = time.perf_counter()
             brain = Aura(str(INDEXES / f"{arm}_c{ci}"))
+            fusion = os.environ.get("AURA_FUSION")
+            if fusion:
+                brain.set_recall_fusion_mode(fusion)
             if arm == "aura_bge":
                 brain.set_embedding_fn(embed)
             for i in indices:
@@ -161,6 +165,7 @@ def main():
     result = {
         "protocol": "PROTOCOL.md",
         "label": LABEL,
+        "fusion_mode": os.environ.get("AURA_FUSION", "default"),
         "aura_version": aura_version,
         "aura_module": aura.__file__,
         "script_sha256": sha256(Path(__file__)),

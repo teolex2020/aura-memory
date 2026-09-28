@@ -125,6 +125,8 @@ pub struct TrustConfig {
     pub recency_boost_max: f32,
     /// Recency boost half-life in days.
     pub recency_half_life_days: f32,
+    /// How ranked signals are fused (see `recall::FUSION_MODES`).
+    pub fusion_mode: String,
 }
 
 impl Default for TrustConfig {
@@ -154,6 +156,7 @@ impl Default for TrustConfig {
             source_authority,
             recency_boost_max: 0.2,
             recency_half_life_days: 7.0,
+            fusion_mode: "equal".to_string(),
         }
     }
 }

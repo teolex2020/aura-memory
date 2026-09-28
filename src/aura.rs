@@ -5602,6 +5602,18 @@ impl Aura {
         self.belief_engine.write().embedding_similarity_override = threshold;
     }
 
+    /// Choose how recall fuses its ranked signals (see `recall::FUSION_MODES`).
+    pub fn set_recall_fusion_mode(&self, mode: &str) -> Result<()> {
+        anyhow::ensure!(
+            recall::FUSION_MODES.contains(&mode),
+            "unknown fusion mode {mode:?}; expected one of {:?}",
+            recall::FUSION_MODES
+        );
+        self.config.trust_config.write().fusion_mode = mode.to_string();
+        self.runtime.clear_recall_caches();
+        Ok(())
+    }
+
     /// Run the outcome classifier, if any. Must be called without store locks.
     fn classify_outcome(&self, text: &str) -> Option<crate::outcome::Outcome> {
         let classifier = self.outcome_classifier.read().clone()?;
@@ -16955,6 +16967,14 @@ impl Aura {
             py_results.push(dict.unbind().into_any());
         }
         Ok(py_results)
+    }
+
+    /// Choose how recall fuses its ranked signals: "equal" (default),
+    /// "embedding_only", "family" or "bm25_embedding".
+    #[pyo3(name = "set_recall_fusion_mode")]
+    fn py_set_recall_fusion_mode(&self, mode: &str) -> PyResult<()> {
+        self.set_recall_fusion_mode(mode)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
     /// Opt in to embedding-based belief clustering at this cosine threshold (None disables it).

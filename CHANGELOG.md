@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- **Reproducible recall.** Identical input now yields identical recall results. Equal scores were broken by random record ids at every stage (SDR, BM25, n-gram, tags, fusion, final ranking), BM25 summed term contributions in `HashSet` order, and recency used millisecond ages; on the same data two runs produced 0/600 identical LoCoMo rankings. Ties now use a content hash (`Record::tie_key`), BM25 terms are summed in sorted order, and recency age is counted in whole hours. Two runs now give 600/600 identical rankings (599/600 with embeddings) with unchanged quality and latency (`experiments/recall_determinism`).
 - **Embedding writes no longer rewrite every stored vector.** `EmbeddingStore::insert` cloned the whole map and rewrote `embeddings.cog` on each write (quadratic indexing). Inserts now append one CRC-checked, codec-encoded frame to `embeddings.log`; the log is folded into the snapshot when it outgrows it, removals rewrite the snapshot and drop the log (so purge leaves no id behind), and a torn log tail is cut on open. On LoCoMo (5,882 records) indexing with embeddings went from 146.5 s to 7.0 s with no change in retrieval results beyond run-to-run noise (`experiments/locomo_retrieval`).
 
 - Fixed deadlocks between concurrent recall and writes: SDR index search vs. store, bounded reranking vs. delete, lexical index guards held into recall activation, and binary-store reads vs. appends. A multi-threaded stress test now covers recall, store, update, delete, and maintenance together.

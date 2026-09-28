@@ -83,6 +83,14 @@ pub struct RecallTraceResult {
 
 // ── Signal Collection ──
 
+/// Content-based tie key for a record id (see `Record::tie_key`).
+fn tie_of(records: &HashMap<String, Record>, id: &str) -> u64 {
+    records
+        .get(id)
+        .map(|record| Record::tie_key(&record.content))
+        .unwrap_or(0)
+}
+
 /// Upper bound on how far candidate pools grow (as a multiple of `top_k`)
 /// when namespace filtering discards out-of-scope candidates.
 const MAX_NAMESPACE_WIDENING: usize = 256;
@@ -152,6 +160,7 @@ pub fn collect_sdr(
     results.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| tie_of(records, &a.0).cmp(&tie_of(records, &b.0)))
             .then_with(|| a.0.cmp(&b.0))
     });
     results.truncate(top_k);
@@ -251,6 +260,7 @@ pub fn collect_tags(
     results.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| tie_of(records, &a.0).cmp(&tie_of(records, &b.0)))
             .then_with(|| a.0.cmp(&b.0))
     });
     results.truncate(top_k);
@@ -304,6 +314,7 @@ pub fn rrf_fuse(
     results.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| Record::tie_key(&a.1.content).cmp(&Record::tie_key(&b.1.content)))
             .then_with(|| a.1.id.cmp(&b.1.id))
     });
     results.truncate(top_k);
@@ -362,6 +373,7 @@ pub fn graph_walk(
         sorted.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| tie_of(records, &a.0).cmp(&tie_of(records, &b.0)))
                 .then_with(|| a.0.cmp(&b.0))
         });
 
@@ -434,6 +446,7 @@ fn graph_walk_with_trace(
         sorted.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| tie_of(records, &a.0).cmp(&tie_of(records, &b.0)))
                 .then_with(|| a.0.cmp(&b.0))
         });
 
@@ -591,6 +604,7 @@ pub fn apply_recency_scoring(
     matched.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| Record::tie_key(&a.1.content).cmp(&Record::tie_key(&b.1.content)))
             .then_with(|| a.1.id.cmp(&b.1.id))
     });
     matched.truncate(top_k);
@@ -992,6 +1006,7 @@ pub fn recall_pipeline_with_trace(
     matched.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| Record::tie_key(&a.1.content).cmp(&Record::tie_key(&b.1.content)))
             .then_with(|| a.1.id.cmp(&b.1.id))
     });
     matched.truncate(top_k);
@@ -1163,6 +1178,7 @@ pub fn apply_belief_rerank(
     matched.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| Record::tie_key(&a.1.content).cmp(&Record::tie_key(&b.1.content)))
             .then_with(|| a.1.id.cmp(&b.1.id))
     });
 
@@ -1612,6 +1628,7 @@ pub fn apply_concept_rerank(
     matched.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| Record::tie_key(&a.1.content).cmp(&Record::tie_key(&b.1.content)))
             .then_with(|| a.1.id.cmp(&b.1.id))
     });
 
@@ -1864,6 +1881,7 @@ pub fn apply_causal_rerank(
     matched.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| Record::tie_key(&a.1.content).cmp(&Record::tie_key(&b.1.content)))
             .then_with(|| a.1.id.cmp(&b.1.id))
     });
 
@@ -2107,6 +2125,7 @@ pub fn apply_policy_rerank(
     matched.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| Record::tie_key(&a.1.content).cmp(&Record::tie_key(&b.1.content)))
             .then_with(|| a.1.id.cmp(&b.1.id))
     });
 

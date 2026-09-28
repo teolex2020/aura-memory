@@ -296,7 +296,10 @@ pub fn compute_effective_trust(
         .map(|dt| dt.timestamp() as f64)
         .unwrap_or(now_unix - 86400.0 * 14.0); // assume 14 days old if unknown
 
-    let age_days = ((now_unix - ts) / 86400.0).max(0.0);
+    // Whole hours: millisecond differences in when identical input was
+    // written must not reorder near-equal results (reproducible recall).
+    let age_hours = ((now_unix - ts) / 3600.0).max(0.0).floor();
+    let age_days = age_hours / 24.0;
     let recency_boost = (trust_config.recency_boost_max
         * (1.0 - age_days as f32 / trust_config.recency_half_life_days))
         .max(0.0);

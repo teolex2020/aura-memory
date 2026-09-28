@@ -25,6 +25,8 @@ pub struct NGramIndex {
     buckets: Vec<AHashMap<u64, Vec<String>>>,
     /// Optional synonym ring for query expansion.
     synonym_ring: Option<SynonymRing>,
+    /// Content-based tie keys (see `Record::tie_key`).
+    tie_keys: AHashMap<String, u64>,
 }
 
 impl NGramIndex {
@@ -48,6 +50,7 @@ impl NGramIndex {
             signatures: AHashMap::new(),
             buckets,
             synonym_ring,
+            tie_keys: AHashMap::new(),
         }
     }
 
@@ -128,10 +131,13 @@ impl NGramIndex {
         }
 
         self.signatures.insert(record_id.to_string(), sig);
+        self.tie_keys
+            .insert(record_id.to_string(), crate::record::Record::tie_key(text));
     }
 
     /// Remove a record from the index.
     pub fn remove(&mut self, record_id: &str) {
+        self.tie_keys.remove(record_id);
         if let Some(sig) = self.signatures.remove(record_id) {
             for (i, &val) in sig.iter().enumerate() {
                 if let Some(bucket) = self.buckets[i].get_mut(&val) {
@@ -176,6 +182,7 @@ impl NGramIndex {
         results.sort_by(|a, b| {
             b.0.partial_cmp(&a.0)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| self.tie_keys.get(&a.1).cmp(&self.tie_keys.get(&b.1)))
                 .then_with(|| a.1.cmp(&b.1))
         });
         results.truncate(top_k);

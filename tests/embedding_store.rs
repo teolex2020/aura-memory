@@ -70,7 +70,11 @@ fn inserts_survive_reopen_and_rank_the_same() {
             None,
         )
         .unwrap();
-    assert!(hits.iter().any(|(_, r)| r.id == ids[3]));
+    // Records 3, 11, 19, ... share the closest vector; after reopen at least
+    // one of them must still rank in the top 5 (which one is decided by
+    // content, not by random id).
+    let closest: Vec<&String> = ids.iter().skip(3).step_by(8).collect();
+    assert!(hits.iter().any(|(_, r)| closest.contains(&&r.id)));
     assert!(aura.has_embeddings());
 }
 

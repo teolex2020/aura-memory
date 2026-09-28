@@ -117,7 +117,11 @@ impl LexicalIndex {
             return Vec::new();
         }
 
-        let query_terms: HashSet<String> = tokenize(query).into_iter().collect();
+        // Sorted, deduplicated terms: summing BM25 contributions in a fixed
+        // order keeps scores bit-identical across runs.
+        let mut query_terms: Vec<String> = tokenize(query);
+        query_terms.sort();
+        query_terms.dedup();
         if query_terms.is_empty() {
             return Vec::new();
         }
@@ -191,6 +195,10 @@ impl LexicalIndex {
                 .1
                 .partial_cmp(&left.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let tie = |id: &str| records.get(id).map(|r| Record::tie_key(&r.content));
+                    tie(&left.0).cmp(&tie(&right.0))
+                })
                 .then_with(|| left.0.cmp(&right.0))
         });
         ranked.truncate(top_k);

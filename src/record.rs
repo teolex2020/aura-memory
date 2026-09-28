@@ -246,6 +246,13 @@ impl Record {
     }
 
     /// Generate a 12-char hex ID.
+    /// Run-independent tie-breaker for equal scores: a hash of the content.
+    /// Record ids are random per store, so ordering ties by id made identical
+    /// input produce different rankings on every build.
+    pub fn tie_key(content: &str) -> u64 {
+        xxhash_rust::xxh3::xxh3_64(content.as_bytes())
+    }
+
     pub fn generate_id() -> String {
         uuid::Uuid::new_v4().simple().to_string()[..12].to_string()
     }

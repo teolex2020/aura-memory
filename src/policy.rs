@@ -40,43 +40,6 @@ const W_STABILITY: f32 = 0.20;
 const STABLE_THRESHOLD: f32 = 0.75;
 const CANDIDATE_THRESHOLD: f32 = 0.50;
 
-/// Negative outcome keywords (tag or semantic_type driven).
-const NEGATIVE_KEYWORDS: &[&str] = &[
-    "error",
-    "failure",
-    "fail",
-    "crash",
-    "bug",
-    "incident",
-    "rollback",
-    "revert",
-    "risk",
-    "vulnerability",
-    "downtime",
-    "outage",
-    "regression",
-    "contradiction",
-    "conflict",
-];
-
-/// Positive outcome keywords.
-const POSITIVE_KEYWORDS: &[&str] = &[
-    "success",
-    "improvement",
-    "improve",
-    "faster",
-    "reliable",
-    "stable",
-    "healthy",
-    "secure",
-    "optimized",
-    "resolved",
-    "fixed",
-    "deployed",
-    "completed",
-    "approved",
-];
-
 // ── PolicyActionKind ──
 
 /// The type of advisory action suggested by a policy hint.
@@ -474,8 +437,8 @@ impl PolicyEngine {
 
     // ── Phase B: Polarity classification ──
 
-    /// Classify the outcome polarity of a causal pattern by examining
-    /// effect-side records' tags, semantic_type, and content keywords.
+    /// Classify the outcome polarity of a causal pattern from its effect
+    /// records' structured outcome signals.
     fn classify_polarity(
         &self,
         pattern: &crate::causal::CausalPattern,
@@ -512,43 +475,13 @@ impl PolicyEngine {
         pattern: &crate::causal::CausalPattern,
         records: &HashMap<String, Record>,
     ) -> (usize, usize) {
-        let mut positive_signals = 0;
-        let mut negative_signals = 0;
-
-        for eid in &pattern.effect_record_ids {
-            if let Some(rec) = records.get(eid) {
-                // Check semantic_type
-                if rec.semantic_type == "contradiction" {
-                    negative_signals += 2;
-                }
-
-                // Check tags
-                for tag in &rec.tags {
-                    let tag_lower = tag.to_lowercase();
-                    if NEGATIVE_KEYWORDS.iter().any(|kw| tag_lower.contains(kw)) {
-                        negative_signals += 1;
-                    }
-                    if POSITIVE_KEYWORDS.iter().any(|kw| tag_lower.contains(kw)) {
-                        positive_signals += 1;
-                    }
-                }
-
-                // Check content keywords (lightweight — no NLP)
-                let content_lower = rec.content.to_lowercase();
-                for kw in NEGATIVE_KEYWORDS {
-                    if content_lower.contains(kw) {
-                        negative_signals += 1;
-                    }
-                }
-                for kw in POSITIVE_KEYWORDS {
-                    if content_lower.contains(kw) {
-                        positive_signals += 1;
-                    }
-                }
-            }
-        }
-
-        (positive_signals, negative_signals)
+        // Structured, language-independent signals only (see `outcome`).
+        crate::outcome::signal_counts(
+            pattern
+                .effect_record_ids
+                .iter()
+                .filter_map(|id| records.get(id)),
+        )
     }
 
     // ── Phase C: Action kind mapping ──
@@ -1322,6 +1255,14 @@ mod tests {
             ),
         );
 
+        for id in ["e1", "e2"] {
+            records
+                .get_mut(id)
+                .unwrap()
+                .metadata
+                .insert("outcome".into(), "negative".into());
+        }
+
         let pattern = make_causal_pattern(
             "p1",
             "default",
@@ -1389,6 +1330,14 @@ mod tests {
                 "fact",
             ),
         );
+
+        for id in ["e1", "e2"] {
+            records
+                .get_mut(id)
+                .unwrap()
+                .metadata
+                .insert("outcome".into(), "positive".into());
+        }
 
         let pattern = make_causal_pattern(
             "p1",

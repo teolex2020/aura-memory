@@ -56,44 +56,6 @@ const MAX_EDGES_PER_NAMESPACE: usize = 5000;
 /// budgeted nearby-successor mode.
 const MAX_TEMPORAL_SUCCESSORS_PER_RECORD: usize = 16;
 
-/// Lightweight polarity keywords used only for causal-side ambiguity checks.
-const NEGATIVE_OUTCOME_KEYWORDS: &[&str] = &[
-    "error",
-    "failure",
-    "fail",
-    "crash",
-    "bug",
-    "incident",
-    "rollback",
-    "revert",
-    "risk",
-    "vulnerability",
-    "downtime",
-    "outage",
-    "regression",
-    "contradiction",
-    "conflict",
-    "noise",
-    "review",
-];
-
-const POSITIVE_OUTCOME_KEYWORDS: &[&str] = &[
-    "success",
-    "improvement",
-    "improve",
-    "faster",
-    "reliable",
-    "stable",
-    "healthy",
-    "secure",
-    "optimized",
-    "resolved",
-    "fixed",
-    "deployed",
-    "completed",
-    "approved",
-];
-
 // ── CausalState ──
 
 /// Lifecycle state of a causal pattern.
@@ -1462,46 +1424,13 @@ fn effect_polarity_signal_counts(
     pattern: &CausalPattern,
     records: &HashMap<String, Record>,
 ) -> (usize, usize) {
-    let mut positive = 0;
-    let mut negative = 0;
-
-    for eid in &pattern.effect_record_ids {
-        if let Some(record) = records.get(eid) {
-            if record.semantic_type == "contradiction" {
-                negative += 2;
-            }
-
-            for tag in &record.tags {
-                let tag_lower = tag.to_ascii_lowercase();
-                if NEGATIVE_OUTCOME_KEYWORDS
-                    .iter()
-                    .any(|kw| tag_lower.contains(kw))
-                {
-                    negative += 1;
-                }
-                if POSITIVE_OUTCOME_KEYWORDS
-                    .iter()
-                    .any(|kw| tag_lower.contains(kw))
-                {
-                    positive += 1;
-                }
-            }
-
-            let content_lower = record.content.to_ascii_lowercase();
-            for kw in NEGATIVE_OUTCOME_KEYWORDS {
-                if content_lower.contains(kw) {
-                    negative += 1;
-                }
-            }
-            for kw in POSITIVE_OUTCOME_KEYWORDS {
-                if content_lower.contains(kw) {
-                    positive += 1;
-                }
-            }
-        }
-    }
-
-    (positive, negative)
+    // Structured, language-independent signals only (see `outcome`).
+    crate::outcome::signal_counts(
+        pattern
+            .effect_record_ids
+            .iter()
+            .filter_map(|id| records.get(id)),
+    )
 }
 
 // ── Stable pattern key ──
@@ -2249,6 +2178,19 @@ mod tests {
         );
         records.get_mut("e3").unwrap().tags =
             vec!["deploy".into(), "rollback".into(), "regression".into()];
+
+        for (id, outcome) in [("e1", "positive"), ("e2", "negative"), ("e3", "negative")] {
+            records
+                .get_mut(id)
+                .unwrap()
+                .metadata
+                .insert("outcome".into(), outcome.into());
+        }
+        records
+            .get_mut("e1")
+            .unwrap()
+            .tags
+            .push(crate::consequence::CONSEQUENCE_SUPPORT_TAG.into());
 
         let mut pattern = make_pattern_for_scoring(9, 9, 1);
         pattern.effect_record_ids = vec!["e1".into(), "e2".into(), "e3".into()];

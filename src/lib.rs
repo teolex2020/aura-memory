@@ -159,6 +159,7 @@ pub mod credibility;
 pub mod guards;
 pub mod identity;
 pub mod ingress;
+pub mod outcome;
 pub mod relation;
 pub mod research;
 pub mod trust;

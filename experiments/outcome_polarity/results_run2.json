@@ -1,0 +1,51 @@
+{
+  "cases": [
+    {
+      "actions": [
+        "avoid"
+      ],
+      "correct": true,
+      "lang": "en",
+      "outcome": "negative"
+    },
+    {
+      "actions": [],
+      "correct": false,
+      "lang": "uk",
+      "outcome": "negative"
+    },
+    {
+      "actions": [
+        "avoid"
+      ],
+      "correct": true,
+      "lang": "de",
+      "outcome": "negative"
+    },
+    {
+      "actions": [],
+      "correct": false,
+      "lang": "en",
+      "outcome": "positive"
+    },
+    {
+      "actions": [],
+      "correct": false,
+      "lang": "uk",
+      "outcome": "positive"
+    },
+    {
+      "actions": [],
+      "correct": false,
+      "lang": "de",
+      "outcome": "positive"
+    }
+  ],
+  "gates": {
+    "O1_negative_parity": false,
+    "O2_positive_parity": false,
+    "O3_no_word_lists": true
+  },
+  "run": "run2",
+  "schema": "outcome-polarity-v1"
+}

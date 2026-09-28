@@ -256,6 +256,7 @@ pub struct Aura {
     // ── Claim certainty ──
     claim_classifier: RwLock<Option<crate::certainty::ClaimClassifier>>,
     claim_rules_enabled: std::sync::atomic::AtomicBool,
+    outcome_classifier: RwLock<Option<crate::outcome::OutcomeClassifier>>,
     #[cfg(feature = "capsule")]
     capsule_retention_scheduler:
         parking_lot::Mutex<Option<crate::capsule::CapsuleRetentionScheduler>>,
@@ -1090,6 +1091,7 @@ impl Aura {
             // Phrase rules cover only Ukrainian and English, so they are
             // opt-in; the language-independent path is a host classifier.
             claim_rules_enabled: std::sync::atomic::AtomicBool::new(false),
+            outcome_classifier: RwLock::new(None),
             #[cfg(feature = "capsule")]
             capsule_retention_scheduler: parking_lot::Mutex::new(None),
         })
@@ -1600,6 +1602,14 @@ impl Aura {
         } else {
             None
         };
+        let caller_outcome = metadata
+            .as_ref()
+            .is_some_and(|m| m.contains_key(crate::outcome::META_OUTCOME));
+        let outcome = if is_text && !caller_outcome {
+            self.classify_outcome(content)
+        } else {
+            None
+        };
 
         // ── Guard: Auto-protect tags (detect sensitive content) ──
         guards::auto_protect_tags(content, &mut tags);
@@ -1689,6 +1699,12 @@ impl Aura {
         rec.confidence = Record::default_confidence_for_source(source_type);
         if let Some(meta) = metadata {
             rec.metadata = meta;
+        }
+        if let Some(outcome) = outcome {
+            rec.metadata.insert(
+                crate::outcome::META_OUTCOME.to_string(),
+                outcome.as_str().to_string(),
+            );
         }
         if let Some(certainty) = &certainty {
             rec.confidence *= crate::certainty::confidence_factor(certainty);
@@ -5569,6 +5585,19 @@ impl Aura {
     pub fn set_claim_rules_enabled(&self, enabled: bool) {
         self.claim_rules_enabled
             .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Set (or clear) a host outcome classifier. At write time it receives
+    /// the text and may return a positive or negative outcome, which is stored
+    /// as `metadata.outcome` unless the caller already set one.
+    pub fn set_outcome_classifier(&self, classifier: Option<crate::outcome::OutcomeClassifier>) {
+        *self.outcome_classifier.write() = classifier;
+    }
+
+    /// Run the outcome classifier, if any. Must be called without store locks.
+    fn classify_outcome(&self, text: &str) -> Option<crate::outcome::Outcome> {
+        let classifier = self.outcome_classifier.read().clone()?;
+        classifier(text)
     }
 
     /// Classify a claim: host classifier first, built-in rules as fallback.
@@ -18208,6 +18237,40 @@ impl Aura {
             })
         });
         self.set_claim_classifier(Some(classifier));
+    }
+
+    /// Set a Python callable that labels each written text's outcome.
+    ///
+    /// The callable receives the text and returns "positive", "negative", or
+    /// None. The result is stored as `metadata["outcome"]` (unless the caller
+    /// set it) and decides whether advice says avoid or prefer. Called without
+    /// Aura's locks held.
+    #[pyo3(name = "set_outcome_classifier")]
+    fn py_set_outcome_classifier(&self, func: PyObject) {
+        let func = Arc::new(func);
+        let classifier: crate::outcome::OutcomeClassifier = Arc::new(move |text: &str| {
+            Python::with_gil(|py| {
+                let value = match func.call1(py, (text,)) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!(%error, "outcome classifier failed");
+                        return None;
+                    }
+                };
+                if value.is_none(py) {
+                    return None;
+                }
+                let name: String = value.extract(py).ok()?;
+                crate::outcome::Outcome::parse(&name)
+            })
+        });
+        self.set_outcome_classifier(Some(classifier));
+    }
+
+    /// Remove the Python outcome classifier.
+    #[pyo3(name = "clear_outcome_classifier")]
+    fn py_clear_outcome_classifier(&self) {
+        self.set_outcome_classifier(None);
     }
 
     /// Remove the Python claim classifier.

@@ -5,16 +5,35 @@
 //! This is optional — Aura works fully without embeddings.
 
 use anyhow::{ensure, Result};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+/// Minimum number of logged inserts before the log is folded into the snapshot.
+const MIN_LOG_FRAMES_BEFORE_COMPACTION: usize = 1024;
+
 /// Stores pre-computed embeddings for records.
+///
+/// Persistence is a snapshot (`embeddings.cog`) plus an append-only insert log
+/// (`embeddings.log`). Inserts append one frame instead of rewriting every
+/// stored vector; the log is folded into the snapshot once it outgrows it.
+/// Removals always rewrite the snapshot and drop the log, so a removed record
+/// id never survives in the log (purge relies on this).
 pub struct EmbeddingStore {
     /// record_id → embedding vector
     embeddings: RwLock<HashMap<String, Vec<f32>>>,
     path: Option<PathBuf>,
     codec: crate::persistence::PersistenceCodec,
+    /// Open append handle and number of frames in the log.
+    log: Mutex<(Option<File>, usize)>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LogFrame {
+    id: String,
+    v: Vec<f32>,
 }
 
 impl EmbeddingStore {
@@ -23,7 +42,41 @@ impl EmbeddingStore {
             embeddings: RwLock::new(HashMap::new()),
             path: None,
             codec: Default::default(),
+            log: Mutex::new((None, 0)),
         }
+    }
+
+    fn log_path(path: &Path) -> PathBuf {
+        path.with_extension("log")
+    }
+
+    /// Replay log frames; stops at the first incomplete or corrupt frame and
+    /// returns the byte length of the valid prefix.
+    fn replay_log(
+        codec: &crate::persistence::PersistenceCodec,
+        bytes: &[u8],
+        embeddings: &mut HashMap<String, Vec<f32>>,
+    ) -> (usize, usize) {
+        let mut offset = 0;
+        let mut frames = 0;
+        while offset + 8 <= bytes.len() {
+            let len = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+            let crc = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap());
+            let end = offset + 8 + len;
+            if end > bytes.len() || crc32fast::hash(&bytes[offset + 8..end]) != crc {
+                break;
+            }
+            let Ok(decoded) = codec.decode(&bytes[offset + 8..end]) else {
+                break;
+            };
+            let Ok(frame) = serde_json::from_slice::<LogFrame>(&decoded) else {
+                break;
+            };
+            embeddings.insert(frame.id, frame.v);
+            offset = end;
+            frames += 1;
+        }
+        (offset, frames)
     }
 
     pub(crate) fn open(
@@ -37,6 +90,21 @@ impl EmbeddingStore {
         } else {
             HashMap::new()
         };
+        let log_path = Self::log_path(&path);
+        let mut log_frames = 0;
+        if log_path.exists() {
+            let mut bytes = Vec::new();
+            File::open(&log_path)?.read_to_end(&mut bytes)?;
+            let (valid, frames) = Self::replay_log(&codec, &bytes, &mut embeddings);
+            log_frames = frames;
+            if valid < bytes.len() {
+                // Torn tail from a crash mid-append: cut it so later appends
+                // are not written after garbage.
+                let file = OpenOptions::new().write(true).open(&log_path)?;
+                file.set_len(valid as u64)?;
+                file.sync_all()?;
+            }
+        }
         // A crash after the authoritative record deletion cannot resurrect a
         // stale embedding from the last index snapshot.
         embeddings.retain(|id, _| records.contains_key(id));
@@ -45,28 +113,77 @@ impl EmbeddingStore {
             validate_vector(vector, dimensions)?;
             dimensions = Some(vector.len());
         }
-        Ok(Self {
+        let store = Self {
             embeddings: RwLock::new(embeddings),
             path: Some(path),
             codec,
-        })
+            log: Mutex::new((None, log_frames)),
+        };
+        if log_frames > 0 {
+            // Fold the replayed log (and any records filtered above) back into
+            // one snapshot so the next session starts from a clean state.
+            let current = store.embeddings.read().clone();
+            store.persist(&current)?;
+        }
+        Ok(store)
     }
 
+    /// Rewrite the snapshot atomically and drop the insert log.
     fn persist(&self, embeddings: &HashMap<String, Vec<f32>>) -> Result<()> {
         if let Some(path) = &self.path {
+            let mut log = self.log.lock();
+            log.0.take();
             self.codec.write(path, &serde_json::to_vec(embeddings)?)?;
+            let log_path = Self::log_path(path);
+            if log_path.exists() {
+                std::fs::remove_file(&log_path)?;
+            }
+            log.1 = 0;
         }
         Ok(())
+    }
+
+    /// Append one insert frame to the log. Returns the frame count after it.
+    fn append_log(&self, record_id: &str, embedding: &[f32]) -> Result<usize> {
+        let Some(path) = &self.path else {
+            return Ok(0);
+        };
+        let payload = self.codec.encode(&serde_json::to_vec(&LogFrame {
+            id: record_id.to_string(),
+            v: embedding.to_vec(),
+        })?)?;
+        let mut frame = Vec::with_capacity(payload.len() + 8);
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(&crc32fast::hash(&payload).to_le_bytes());
+        frame.extend_from_slice(&payload);
+
+        let mut log = self.log.lock();
+        if log.0.is_none() {
+            log.0 = Some(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(Self::log_path(path))?,
+            );
+        }
+        log.0
+            .as_mut()
+            .expect("log handle opened above")
+            .write_all(&frame)?;
+        log.1 += 1;
+        Ok(log.1)
     }
 
     /// Store an embedding for a record.
     pub fn insert(&self, record_id: &str, embedding: Vec<f32>) -> Result<()> {
         let mut current = self.embeddings.write();
         validate_vector(&embedding, current.values().next().map(Vec::len))?;
-        let mut updated = current.clone();
-        updated.insert(record_id.to_string(), embedding);
-        self.persist(&updated)?;
-        *current = updated;
+        // Durable first (append one frame), then publish in memory.
+        let frames = self.append_log(record_id, &embedding)?;
+        current.insert(record_id.to_string(), embedding);
+        if frames > MIN_LOG_FRAMES_BEFORE_COMPACTION.max(current.len()) {
+            self.persist(&current)?;
+        }
         Ok(())
     }
 

@@ -101,6 +101,7 @@ tests/*
 !tests/concurrency_stress.rs
 !tests/ingress_authority.rs
 !tests/claim_classifier.rs
+!tests/embedding_store.rs
 !tests/python_concurrency_smoke.py
 !tests/python_http_security_smoke.py
 

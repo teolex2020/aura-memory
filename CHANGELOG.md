@@ -29,6 +29,8 @@
 
 ### Fixed
 
+- **Embedding writes no longer rewrite every stored vector.** `EmbeddingStore::insert` cloned the whole map and rewrote `embeddings.cog` on each write (quadratic indexing). Inserts now append one CRC-checked, codec-encoded frame to `embeddings.log`; the log is folded into the snapshot when it outgrows it, removals rewrite the snapshot and drop the log (so purge leaves no id behind), and a torn log tail is cut on open. On LoCoMo (5,882 records) indexing with embeddings went from 146.5 s to 7.0 s with no change in retrieval results beyond run-to-run noise (`experiments/locomo_retrieval`).
+
 - Fixed deadlocks between concurrent recall and writes: SDR index search vs. store, bounded reranking vs. delete, lexical index guards held into recall activation, and binary-store reads vs. appends. A multi-threaded stress test now covers recall, store, update, delete, and maintenance together.
 - Python embedding callbacks now run before any store lock is taken and without holding the callback lock, preventing GIL deadlocks; callback errors are logged instead of silently dropped.
 - `compact_active` holds the writer lock throughout, replaces `brain.aura` with one atomic rename (no window without a file), and keeps temporal links.

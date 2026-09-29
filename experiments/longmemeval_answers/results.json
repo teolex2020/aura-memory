@@ -1,0 +1,68 @@
+{
+ "model": "gemini-3.8-flash",
+ "questions": 120,
+ "gates": {
+  "H1": true,
+  "H2": true,
+  "H3": true
+ },
+ "accuracy": {
+  "M": 0.817,
+  "A-cap": 0.817,
+  "A-flat": 0.817
+ },
+ "by_type": {
+  "knowledge-update": {
+   "M": 0.9,
+   "A-cap": 0.95,
+   "A-flat": 0.95
+  },
+  "multi-session": {
+   "M": 0.85,
+   "A-cap": 0.8,
+   "A-flat": 0.75
+  },
+  "single-session-assistant": {
+   "M": 1.0,
+   "A-cap": 1.0,
+   "A-flat": 1.0
+  },
+  "single-session-preference": {
+   "M": 0.4,
+   "A-cap": 0.35,
+   "A-flat": 0.45
+  },
+  "single-session-user": {
+   "M": 0.9,
+   "A-cap": 0.95,
+   "A-flat": 0.9
+  },
+  "temporal-reasoning": {
+   "M": 0.85,
+   "A-cap": 0.85,
+   "A-flat": 0.85
+  }
+ },
+ "arms": {
+  "M": {
+   "empty_answers": 0,
+   "context_chars_median": 7248.0,
+   "reader_tokens_total": 279756
+  },
+  "A-cap": {
+   "empty_answers": 0,
+   "context_chars_median": 4485.5,
+   "reader_tokens_total": 230045
+  },
+  "A-flat": {
+   "empty_answers": 0,
+   "context_chars_median": 7269.0,
+   "reader_tokens_total": 288646
+  }
+ },
+ "usage": {
+  "calls": 654,
+  "prompt_tokens": 697585,
+  "output_tokens": 186004
+ }
+}

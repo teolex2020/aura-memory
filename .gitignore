@@ -3,6 +3,7 @@
 experiments/memory_quality_eval/target/
 experiments/auto_capture/cache/
 experiments/longmemeval_retrieval/cache/
+experiments/longmemeval_answers/cache/
 **/*.rs.bk
 
 # Python
@@ -112,6 +113,7 @@ tests/*
 !tests/python_capture_smoke.py
 !tests/channel_source.rs
 !tests/provenance_context.rs
+!tests/identity_block.rs
 
 # Marketing materials (strategy — not public)
 marketing/

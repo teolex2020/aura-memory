@@ -1,6 +1,7 @@
 # Rust
 /target/
 experiments/memory_quality_eval/target/
+experiments/auto_capture/cache/
 **/*.rs.bk
 
 # Python

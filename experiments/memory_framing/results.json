@@ -1,0 +1,75 @@
+{
+ "gates": {
+  "P1": false,
+  "P2": true,
+  "P3": false
+ },
+ "table": {
+  "M/R0": {
+   "accuracy": 0.817,
+   "refusal": 0.142,
+   "other_types": 0.9,
+   "knowledge-update": 0.9,
+   "multi-session": 0.85,
+   "single-session-assistant": 1.0,
+   "single-session-preference": 0.4,
+   "single-session-user": 0.9,
+   "temporal-reasoning": 0.85
+  },
+  "M/F0": {
+   "accuracy": 0.85,
+   "refusal": 0.008,
+   "other_types": 0.92,
+   "knowledge-update": 0.9,
+   "multi-session": 0.9,
+   "single-session-assistant": 1.0,
+   "single-session-preference": 0.5,
+   "single-session-user": 0.95,
+   "temporal-reasoning": 0.85
+  },
+  "M/F1": {
+   "accuracy": 0.85,
+   "refusal": 0.017,
+   "other_types": 0.9,
+   "knowledge-update": 0.9,
+   "multi-session": 0.85,
+   "single-session-assistant": 1.0,
+   "single-session-preference": 0.6,
+   "single-session-user": 0.9,
+   "temporal-reasoning": 0.85
+  },
+  "A-cap/R0": {
+   "accuracy": 0.817,
+   "refusal": 0.158,
+   "other_types": 0.91,
+   "knowledge-update": 0.95,
+   "multi-session": 0.8,
+   "single-session-assistant": 1.0,
+   "single-session-preference": 0.35,
+   "single-session-user": 0.95,
+   "temporal-reasoning": 0.85
+  },
+  "A-cap/F0": {
+   "accuracy": 0.858,
+   "refusal": 0.008,
+   "other_types": 0.92,
+   "knowledge-update": 0.95,
+   "multi-session": 0.8,
+   "single-session-assistant": 1.0,
+   "single-session-preference": 0.55,
+   "single-session-user": 1.0,
+   "temporal-reasoning": 0.85
+  },
+  "A-cap/F1": {
+   "accuracy": 0.85,
+   "refusal": 0.017,
+   "other_types": 0.91,
+   "knowledge-update": 0.9,
+   "multi-session": 0.8,
+   "single-session-assistant": 1.0,
+   "single-session-preference": 0.55,
+   "single-session-user": 1.0,
+   "temporal-reasoning": 0.85
+  }
+ }
+}

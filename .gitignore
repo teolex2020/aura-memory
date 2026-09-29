@@ -2,6 +2,7 @@
 /target/
 experiments/memory_quality_eval/target/
 experiments/auto_capture/cache/
+experiments/longmemeval_retrieval/cache/
 **/*.rs.bk
 
 # Python

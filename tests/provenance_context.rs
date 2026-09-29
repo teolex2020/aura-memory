@@ -187,3 +187,51 @@ fn cached_provenance_context_follows_writes_and_does_not_mix_formats() {
     assert!(a.delete(&moved).unwrap());
     assert!(!context(&a, query).contains("moved to Odesa"));
 }
+
+#[test]
+fn event_dates_are_shown_only_when_enabled_and_never_in_the_future() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = Aura::open(dir.path().to_str().unwrap()).unwrap();
+    let at = |ts: &str| Some(HashMap::from([("timestamp".to_string(), ts.to_string())]));
+    store(
+        &a,
+        Rec {
+            metadata: at("2023-05-20T14:30:00Z"),
+            ..Rec::new("I moved to Lviv", "recorded")
+        },
+    );
+    store(
+        &a,
+        Rec {
+            metadata: Some(HashMap::from([
+                ("timestamp".to_string(), "2023-05-21T09:00:00Z".to_string()),
+                ("channel".to_string(), "email".to_string()),
+            ])),
+            ..Rec::new("Your move to Lviv is confirmed", "retrieved")
+        },
+    );
+    store(
+        &a,
+        Rec {
+            metadata: at("2999-01-01T00:00:00Z"),
+            ..Rec::new("I moved to Lviv with my cat", "recorded")
+        },
+    );
+    let query = "When did I move to Lviv?";
+    assert!(
+        !context(&a, query).contains("[2023-05-20"),
+        "dates are off by default"
+    );
+
+    a.set_context_dates_enabled(true);
+    let out = context(&a, query);
+    assert!(
+        out.contains("  - [2023-05-20 14:30] I moved to Lviv"),
+        "{out}"
+    );
+    assert!(out.contains("- source: email, 2023-05-21 09:00"), "{out}");
+    assert!(
+        !out.contains("2999-"),
+        "future timestamp must be clamped: {out}"
+    );
+}

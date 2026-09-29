@@ -258,6 +258,7 @@ pub struct Aura {
     claim_rules_enabled: std::sync::atomic::AtomicBool,
     security_profile: std::sync::atomic::AtomicU8,
     identity_block_enabled: std::sync::atomic::AtomicBool,
+    context_dates_enabled: std::sync::atomic::AtomicBool,
     outcome_classifier: RwLock<Option<crate::outcome::OutcomeClassifier>>,
     #[cfg(feature = "capsule")]
     capsule_retention_scheduler:
@@ -1095,6 +1096,7 @@ impl Aura {
             claim_rules_enabled: std::sync::atomic::AtomicBool::new(false),
             security_profile: std::sync::atomic::AtomicU8::new(0),
             identity_block_enabled: std::sync::atomic::AtomicBool::new(true),
+            context_dates_enabled: std::sync::atomic::AtomicBool::new(false),
             outcome_classifier: RwLock::new(None),
             #[cfg(feature = "capsule")]
             capsule_retention_scheduler: parking_lot::Mutex::new(None),
@@ -2428,8 +2430,12 @@ impl Aura {
                 } else {
                     (String::new(), 0)
                 };
-                let context =
-                    recall::format_provenance(scored, budget.saturating_sub(used), &records);
+                let context = recall::format_provenance(
+                    scored,
+                    budget.saturating_sub(used),
+                    &records,
+                    self.context_dates_enabled(),
+                );
                 format!("{block}{context}")
             },
         );
@@ -5710,6 +5716,24 @@ impl Aura {
         self.identity_block_enabled
             .store(enabled, std::sync::atomic::Ordering::Relaxed);
         self.runtime.clear_recall_caches();
+    }
+
+    /// Show or hide (default) the event date of each entry in the
+    /// provenance context (`metadata.timestamp`).
+    ///
+    /// Off by default (E23): dates help questions about time (25% → 67.5%),
+    /// but an outside record dated newer than what the user said looks like
+    /// a legitimate update and raised injection success (11.5% → 18.3%).
+    pub fn set_context_dates_enabled(&self, enabled: bool) {
+        self.context_dates_enabled
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.runtime.clear_recall_caches();
+    }
+
+    /// Whether the provenance context shows event dates.
+    pub fn context_dates_enabled(&self) -> bool {
+        self.context_dates_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether the provenance context shows the identity block.
@@ -18524,6 +18548,14 @@ impl Aura {
     }
 
     /// Enable or disable the built-in phrase rules for claim certainty.
+    /// Show or hide (default) the event date of each provenance-context entry.
+    /// Off by default: a newer-dated outside record raised injection success
+    /// in E23 (11.5% → 18.3%).
+    #[pyo3(name = "set_context_dates_enabled")]
+    fn py_set_context_dates_enabled(&self, enabled: bool) {
+        self.set_context_dates_enabled(enabled);
+    }
+
     /// Show (default) or hide the always-on block of first-hand identity facts.
     #[pyo3(name = "set_identity_block_enabled")]
     fn py_set_identity_block_enabled(&self, enabled: bool) {

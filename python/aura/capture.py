@@ -115,7 +115,10 @@ def last_assistant_text(transcript_path: str | None) -> str:
 def items_for(event: dict) -> list[dict]:
     """Memory writes for one hook event: [{text, channel, metadata}]."""
     name = event.get("hook_event_name", "")
-    meta = {"capture": "claude-code", "session": str(event.get("session_id", ""))}
+    # Event time, so a record keeps when it was said even if the inbox is
+    # ingested later (Aura clamps future timestamps to now).
+    meta = {"capture": "claude-code", "session": str(event.get("session_id", "")),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     if name == "UserPromptSubmit":
         # The field name differs between Claude Code versions and docs.
         text = next((event[k] for k in PROMPT_FIELDS if isinstance(event.get(k), str) and event[k].strip()), "")

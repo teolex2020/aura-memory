@@ -31,9 +31,10 @@ Outcome: ✅ gates passed · ❌ gates failed · ◐ partly · — measurement o
 | E21 | `memory_framing` | How memory is framed for the model | ❌ frame adds nothing; "answer only from memory" costs ~4 pp | — |
 | E22 | `reasoned_recall` | Facts that need a reasoning step: identity block vs reasoning hook | ❌ neither passed all gates | — |
 | E22b | `identity_block` | Always-on identity block, powered re-test | ✅ answers needing a fact 40% → 73% | identity block; no novelty promotion into IDENTITY |
+| E23 | `context_dates` | Event dates in the provenance context | ❌ time questions 25% → 67.5%, but a newer untrusted date raised attack success 11.5% → 18.3% | opt-in `set_context_dates_enabled` (off); capture stores event time |
 
 E16 was used twice on 2026-09-29 by two sessions; the later pair
 (`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit
 messages keep the old numbers.
 
-Next free number: **E23**.
+Next free number: **E24**.

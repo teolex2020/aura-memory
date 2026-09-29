@@ -258,7 +258,7 @@ pub struct Aura {
     claim_rules_enabled: std::sync::atomic::AtomicBool,
     security_profile: std::sync::atomic::AtomicU8,
     identity_block_enabled: std::sync::atomic::AtomicBool,
-    context_dates_enabled: std::sync::atomic::AtomicBool,
+    context_dates: std::sync::atomic::AtomicU8,
     outcome_classifier: RwLock<Option<crate::outcome::OutcomeClassifier>>,
     #[cfg(feature = "capsule")]
     capsule_retention_scheduler:
@@ -1096,7 +1096,7 @@ impl Aura {
             claim_rules_enabled: std::sync::atomic::AtomicBool::new(false),
             security_profile: std::sync::atomic::AtomicU8::new(0),
             identity_block_enabled: std::sync::atomic::AtomicBool::new(true),
-            context_dates_enabled: std::sync::atomic::AtomicBool::new(false),
+            context_dates: std::sync::atomic::AtomicU8::new(1), // ContextDates::FirstHand
             outcome_classifier: RwLock::new(None),
             #[cfg(feature = "capsule")]
             capsule_retention_scheduler: parking_lot::Mutex::new(None),
@@ -2434,7 +2434,7 @@ impl Aura {
                     scored,
                     budget.saturating_sub(used),
                     &records,
-                    self.context_dates_enabled(),
+                    self.context_dates(),
                 );
                 format!("{block}{context}")
             },
@@ -5718,22 +5718,24 @@ impl Aura {
         self.runtime.clear_recall_caches();
     }
 
-    /// Show or hide (default) the event date of each entry in the
-    /// provenance context (`metadata.timestamp`).
-    ///
-    /// Off by default (E23): dates help questions about time (25% → 67.5%),
-    /// but an outside record dated newer than what the user said looks like
-    /// a legitimate update and raised injection success (11.5% → 18.3%).
-    pub fn set_context_dates_enabled(&self, enabled: bool) {
-        self.context_dates_enabled
-            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    /// Which provenance-context entries show their event date
+    /// (`metadata.timestamp`); see `recall::ContextDates`. Default:
+    /// first-hand entries only, with a header note that a newer date does
+    /// not make untrusted memory more reliable (E24). Dates on every entry
+    /// raised injection success when outside records were dated newer than
+    /// the user's statements (E23: 11.5% → 18.3%; E24: 31% → 49%).
+    pub fn set_context_dates(&self, mode: recall::ContextDates) {
+        self.context_dates
+            .store(mode.to_u8(), std::sync::atomic::Ordering::Relaxed);
         self.runtime.clear_recall_caches();
     }
 
-    /// Whether the provenance context shows event dates.
-    pub fn context_dates_enabled(&self) -> bool {
-        self.context_dates_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
+    /// Current context date mode.
+    pub fn context_dates(&self) -> recall::ContextDates {
+        recall::ContextDates::from_u8(
+            self.context_dates
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// Whether the provenance context shows the identity block.
@@ -18548,12 +18550,15 @@ impl Aura {
     }
 
     /// Enable or disable the built-in phrase rules for claim certainty.
-    /// Show or hide (default) the event date of each provenance-context entry.
-    /// Off by default: a newer-dated outside record raised injection success
-    /// in E23 (11.5% → 18.3%).
-    #[pyo3(name = "set_context_dates_enabled")]
-    fn py_set_context_dates_enabled(&self, enabled: bool) {
-        self.set_context_dates_enabled(enabled);
+    /// Which provenance-context entries show their event date: "off",
+    /// "first_hand" (default) or "all". "all" raised injection success when
+    /// outside records were dated newer than the user's statements (E23, E24).
+    #[pyo3(name = "set_context_dates")]
+    fn py_set_context_dates(&self, mode: &str) -> PyResult<()> {
+        let mode = recall::ContextDates::parse(mode)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        self.set_context_dates(mode);
+        Ok(())
     }
 
     /// Show (default) or hide the always-on block of first-hand identity facts.

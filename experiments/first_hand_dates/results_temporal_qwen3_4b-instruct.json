@@ -1,0 +1,3737 @@
+{
+  "summary": {
+    "suite": "temporal",
+    "model": "qwen3:4b-instruct",
+    "runs": 3,
+    "D0": {
+      "correct": 0.25,
+      "by_type": {
+        "when": 0.0,
+        "order": 0.375,
+        "elapsed": 0.125,
+        "latest": 0.5,
+        "window": 0.25
+      }
+    },
+    "D1": {
+      "correct": 0.675,
+      "by_type": {
+        "when": 0.875,
+        "order": 0.375,
+        "elapsed": 0.625,
+        "latest": 1.0,
+        "window": 0.5
+      }
+    },
+    "D2": {
+      "correct": 0.675,
+      "by_type": {
+        "when": 0.875,
+        "order": 0.375,
+        "elapsed": 0.625,
+        "latest": 1.0,
+        "window": 0.5
+      }
+    },
+    "D3": {
+      "correct": 0.675,
+      "by_type": {
+        "when": 0.875,
+        "order": 0.375,
+        "elapsed": 0.625,
+        "latest": 1.0,
+        "window": 0.5
+      }
+    },
+    "gates": {
+      "D2": {
+        "U3": true
+      },
+      "D3": {
+        "U3": true
+      }
+    }
+  },
+  "rows": [
+    {
+      "id": "d01",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 319,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Сьогодні купив машину, синю шкоду\n  - Сусід теж думає купувати машину\n  - Помив машину вперше\n  - Записався на тест-драйв нової машини\n  - Поставив машину на облік у сервісному центрі\n  - Перше ТО для машини призначили на кінець травня\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні.",
+        "Сьогодні.",
+        "Сьогодні."
+      ]
+    },
+    {
+      "id": "d01",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 433,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-18 14:00] Сьогодні купив машину, синю шкоду\n  - [2026-03-05 19:00] Сусід теж думає купувати машину\n  - [2026-04-10 12:00] Помив машину вперше\n  - [2026-03-12 09:30] Записався на тест-драйв нової машини\n  - [2026-03-24 11:00] Поставив машину на облік у сервісному центрі\n  - [2026-04-02 16:00] Перше ТО для машини призначили на кінець травня\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "18 березня 2026 року.",
+        "18 березня 2026 року.",
+        "18 березня 2026 року."
+      ]
+    },
+    {
+      "id": "d01",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 433,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-18 14:00] Сьогодні купив машину, синю шкоду\n  - [2026-03-05 19:00] Сусід теж думає купувати машину\n  - [2026-04-10 12:00] Помив машину вперше\n  - [2026-03-12 09:30] Записався на тест-драйв нової машини\n  - [2026-03-24 11:00] Поставив машину на облік у сервісному центрі\n  - [2026-04-02 16:00] Перше ТО для машини призначили на кінець травня\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "18 березня 2026 року.",
+        "18 березня 2026 року.",
+        "18 березня 2026 року."
+      ]
+    },
+    {
+      "id": "d01",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 433,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-18 14:00] Сьогодні купив машину, синю шкоду\n  - [2026-03-05 19:00] Сусід теж думає купувати машину\n  - [2026-04-10 12:00] Помив машину вперше\n  - [2026-03-12 09:30] Записався на тест-драйв нової машини\n  - [2026-03-24 11:00] Поставив машину на облік у сервісному центрі\n  - [2026-04-02 16:00] Перше ТО для машини призначили на кінець травня\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "18 березня 2026 року.",
+        "18 березня 2026 року.",
+        "18 березня 2026 року."
+      ]
+    },
+    {
+      "id": "d02",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 389,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Picked up my new passport today\n  - Got a text that my new passport is ready for pickup\n  - Went to the passport office and submitted my application\n  - My sister's passport expires next year\n  - Paid the passport fee\n  - Filled out the passport renewal form online\n  - Booked flights for the trip in July\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I picked up my new passport today.",
+        "I picked up my new passport today.",
+        "I picked up my new passport today."
+      ]
+    },
+    {
+      "id": "d02",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 522,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-29 15:00] Picked up my new passport today\n  - [2026-05-27 13:00] Got a text that my new passport is ready for pickup\n  - [2026-05-11 10:00] Went to the passport office and submitted my application\n  - [2026-05-15 19:00] My sister's passport expires next year\n  - [2026-05-04 08:30] Paid the passport fee\n  - [2026-05-04 08:00] Filled out the passport renewal form online\n  - [2026-06-01 20:00] Booked flights for the trip in July\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You picked up your new passport on May 29, 2026.",
+        "You picked up your new passport on May 29, 2026.",
+        "You picked up your new passport on May 29, 2026."
+      ]
+    },
+    {
+      "id": "d02",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 522,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-29 15:00] Picked up my new passport today\n  - [2026-05-27 13:00] Got a text that my new passport is ready for pickup\n  - [2026-05-11 10:00] Went to the passport office and submitted my application\n  - [2026-05-15 19:00] My sister's passport expires next year\n  - [2026-05-04 08:30] Paid the passport fee\n  - [2026-05-04 08:00] Filled out the passport renewal form online\n  - [2026-06-01 20:00] Booked flights for the trip in July\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You picked up your new passport on May 29, 2026.",
+        "You picked up your new passport on May 29, 2026.",
+        "You picked up your new passport on May 29, 2026."
+      ]
+    },
+    {
+      "id": "d02",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 522,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-29 15:00] Picked up my new passport today\n  - [2026-05-27 13:00] Got a text that my new passport is ready for pickup\n  - [2026-05-11 10:00] Went to the passport office and submitted my application\n  - [2026-05-15 19:00] My sister's passport expires next year\n  - [2026-05-04 08:30] Paid the passport fee\n  - [2026-05-04 08:00] Filled out the passport renewal form online\n  - [2026-06-01 20:00] Booked flights for the trip in July\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You picked up your new passport on May 29, 2026.",
+        "You picked up your new passport on May 29, 2026.",
+        "You picked up your new passport on May 29, 2026."
+      ]
+    },
+    {
+      "id": "d03",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 310,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Була у стоматолога, поставили пломбу\n  - Записалася до стоматолога\n  - Колега порадила іншого стоматолога\n  - Стоматолог сказав прийти на чистку через пів року\n  - Болить зуб, треба щось робити\n  - Купила нову електричну щітку\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У пам'яті не зазначено конкретну дату, коли вам поставили пломбу. Тільки сказано, що «була у стоматолога, поставили пломбу». Тому точну дату визначити не можу.",
+        "У пам'яті не зазначено конкретну дату, коли вам поставили пломбу. Тільки сказано, що «була у стоматолога, поставили пломбу». Тому точну дату визначити не можу.",
+        "У пам'яті не зазначено конкретну дату, коли вам поставили пломбу. Тільки сказано, що «була у стоматолога, поставили пломбу». Тому точну дату визначити не можу."
+      ]
+    },
+    {
+      "id": "d03",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 424,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-22 11:00] Була у стоматолога, поставили пломбу\n  - [2026-01-13 09:00] Записалася до стоматолога\n  - [2026-02-03 13:00] Колега порадила іншого стоматолога\n  - [2026-01-22 11:30] Стоматолог сказав прийти на чистку через пів року\n  - [2026-01-11 21:00] Болить зуб, треба щось робити\n  - [2026-01-27 17:00] Купила нову електричну щітку\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "22 січня 2026 року.",
+        "22 січня 2026 року.",
+        "22 січня 2026 року."
+      ]
+    },
+    {
+      "id": "d03",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 424,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-22 11:00] Була у стоматолога, поставили пломбу\n  - [2026-01-13 09:00] Записалася до стоматолога\n  - [2026-02-03 13:00] Колега порадила іншого стоматолога\n  - [2026-01-22 11:30] Стоматолог сказав прийти на чистку через пів року\n  - [2026-01-11 21:00] Болить зуб, треба щось робити\n  - [2026-01-27 17:00] Купила нову електричну щітку\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "22 січня 2026 року.",
+        "22 січня 2026 року.",
+        "22 січня 2026 року."
+      ]
+    },
+    {
+      "id": "d03",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 424,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-22 11:00] Була у стоматолога, поставили пломбу\n  - [2026-01-13 09:00] Записалася до стоматолога\n  - [2026-02-03 13:00] Колега порадила іншого стоматолога\n  - [2026-01-22 11:30] Стоматолог сказав прийти на чистку через пів року\n  - [2026-01-11 21:00] Болить зуб, треба щось робити\n  - [2026-01-27 17:00] Купила нову електричну щітку\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "22 січня 2026 року.",
+        "22 січня 2026 року.",
+        "22 січня 2026 року."
+      ]
+    },
+    {
+      "id": "d04",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 326,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - We adopted a kitten today, named her Pixel\n  - Took Pixel to the vet for her first shots\n  - Pixel knocked a glass off the table\n  - We're thinking about getting a cat\n  - Visited the shelter and met a few kittens\n  - Bought a scratching post\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "We adopted Pixel today.",
+        "We adopted Pixel today.",
+        "We adopted Pixel today."
+      ]
+    },
+    {
+      "id": "d04",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 440,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-13 15:00] We adopted a kitten today, named her Pixel\n  - [2025-10-20 10:00] Took Pixel to the vet for her first shots\n  - [2025-10-27 20:00] Pixel knocked a glass off the table\n  - [2025-09-14 19:00] We're thinking about getting a cat\n  - [2025-09-26 12:00] Visited the shelter and met a few kittens\n  - [2025-10-14 11:00] Bought a scratching post\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "We adopted Pixel on 2025-10-13.",
+        "We adopted Pixel on 2025-10-13.",
+        "We adopted Pixel on 2025-10-13."
+      ]
+    },
+    {
+      "id": "d04",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 440,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-13 15:00] We adopted a kitten today, named her Pixel\n  - [2025-10-20 10:00] Took Pixel to the vet for her first shots\n  - [2025-10-27 20:00] Pixel knocked a glass off the table\n  - [2025-09-14 19:00] We're thinking about getting a cat\n  - [2025-09-26 12:00] Visited the shelter and met a few kittens\n  - [2025-10-14 11:00] Bought a scratching post\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "We adopted Pixel on 2025-10-13.",
+        "We adopted Pixel on 2025-10-13.",
+        "We adopted Pixel on 2025-10-13."
+      ]
+    },
+    {
+      "id": "d04",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 440,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-13 15:00] We adopted a kitten today, named her Pixel\n  - [2025-10-20 10:00] Took Pixel to the vet for her first shots\n  - [2025-10-27 20:00] Pixel knocked a glass off the table\n  - [2025-09-14 19:00] We're thinking about getting a cat\n  - [2025-09-26 12:00] Visited the shelter and met a few kittens\n  - [2025-10-14 11:00] Bought a scratching post\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "We adopted Pixel on 2025-10-13.",
+        "We adopted Pixel on 2025-10-13.",
+        "We adopted Pixel on 2025-10-13."
+      ]
+    },
+    {
+      "id": "d05",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 314,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Нарешті склав практику! Права мої\n  - Провалив практичний іспит у сервісному центрі, нервував\n  - Записався в автошколу\n  - Склав теорію з першого разу\n  - Забрав посвідчення водія\n  - Інструктор каже, що треба більше їздити вночі\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У вашій інформації немає дати, коли ви склав практичний іспит. Ви зазначили, що провалив його, але не вказали дату. Тому немає даних для визначення дати успішного складання практичного іспиту.",
+        "У вашій інформації немає дати, коли ви склав практичний іспит. Ви зазначили, що провалив його, але не вказали дату. Тому немає даних для визначення дати успішного складання практичного іспиту.",
+        "У вашій інформації немає дати, коли ви склав практичний іспит. Ви зазначили, що провалив його, але не вказали дату. Тому немає даних для визначення дати успішного складання практичного іспиту."
+      ]
+    },
+    {
+      "id": "d05",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 428,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-16 13:00] Нарешті склав практику! Права мої\n  - [2026-05-20 12:00] Провалив практичний іспит у сервісному центрі, нервував\n  - [2026-04-15 10:00] Записався в автошколу\n  - [2026-05-12 11:00] Склав теорію з першого разу\n  - [2026-06-23 14:00] Забрав посвідчення водія\n  - [2026-05-28 17:00] Інструктор каже, що треба більше їздити вночі\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "2026-05-20",
+        "2026-05-20",
+        "2026-05-20"
+      ]
+    },
+    {
+      "id": "d05",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 428,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-16 13:00] Нарешті склав практику! Права мої\n  - [2026-05-20 12:00] Провалив практичний іспит у сервісному центрі, нервував\n  - [2026-04-15 10:00] Записався в автошколу\n  - [2026-05-12 11:00] Склав теорію з першого разу\n  - [2026-06-23 14:00] Забрав посвідчення водія\n  - [2026-05-28 17:00] Інструктор каже, що треба більше їздити вночі\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "2026-05-20",
+        "2026-05-20",
+        "2026-05-20"
+      ]
+    },
+    {
+      "id": "d05",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 428,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-16 13:00] Нарешті склав практику! Права мої\n  - [2026-05-20 12:00] Провалив практичний іспит у сервісному центрі, нервував\n  - [2026-04-15 10:00] Записався в автошколу\n  - [2026-05-12 11:00] Склав теорію з першого разу\n  - [2026-06-23 14:00] Забрав посвідчення водія\n  - [2026-05-28 17:00] Інструктор каже, що треба більше їздити вночі\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "2026-05-20",
+        "2026-05-20",
+        "2026-05-20"
+      ]
+    },
+    {
+      "id": "d06",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 325,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Started the new job at Northwind today\n  - Got an offer from Northwind, accepting it\n  - First team lunch at Northwind\n  - Handed in my notice at the old place\n  - Last day at the old job, cake and goodbyes\n  - Got my laptop and badge sorted\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The date you started working at Northwind is not specified in the memory context. You mentioned that you started the new job today, but no specific date is provided.",
+        "The date you started working at Northwind is not specified in the memory context. You mentioned that you started the new job today, but no specific date is provided.",
+        "The date you started working at Northwind is not specified in the memory context. You mentioned that you started the new job today, but no specific date is provided."
+      ]
+    },
+    {
+      "id": "d06",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 439,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-16 17:00] Started the new job at Northwind today\n  - [2026-02-11 16:00] Got an offer from Northwind, accepting it\n  - [2026-03-19 12:30] First team lunch at Northwind\n  - [2026-02-12 09:00] Handed in my notice at the old place\n  - [2026-02-27 17:00] Last day at the old job, cake and goodbyes\n  - [2026-03-17 10:00] Got my laptop and badge sorted\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You started working at Northwind on March 16, 2026.",
+        "You started working at Northwind on March 16, 2026.",
+        "You started working at Northwind on March 16, 2026."
+      ]
+    },
+    {
+      "id": "d06",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 439,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-16 17:00] Started the new job at Northwind today\n  - [2026-02-11 16:00] Got an offer from Northwind, accepting it\n  - [2026-03-19 12:30] First team lunch at Northwind\n  - [2026-02-12 09:00] Handed in my notice at the old place\n  - [2026-02-27 17:00] Last day at the old job, cake and goodbyes\n  - [2026-03-17 10:00] Got my laptop and badge sorted\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You started working at Northwind on March 16, 2026.",
+        "You started working at Northwind on March 16, 2026.",
+        "You started working at Northwind on March 16, 2026."
+      ]
+    },
+    {
+      "id": "d06",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 439,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-16 17:00] Started the new job at Northwind today\n  - [2026-02-11 16:00] Got an offer from Northwind, accepting it\n  - [2026-03-19 12:30] First team lunch at Northwind\n  - [2026-02-12 09:00] Handed in my notice at the old place\n  - [2026-02-27 17:00] Last day at the old job, cake and goodbyes\n  - [2026-03-17 10:00] Got my laptop and badge sorted\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You started working at Northwind on March 16, 2026.",
+        "You started working at Northwind on March 16, 2026.",
+        "You started working at Northwind on March 16, 2026."
+      ]
+    },
+    {
+      "id": "d07",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 349,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Перша зустріч книжкового клубу, обговорювали Стефаника\n  - Записалася в книжковий клуб\n  - Взяла в бібліотеці збірку новел Коцюбинського\n  - Повернула книжки в бібліотеку\n  - Почала читати «Тіні забутих предків»\n  - Дочитала «Тіні забутих предків», дуже сподобалось\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Я вперше була на зустрічі книжкового клубу, коли обговорювали Стефаника.",
+        "Я вперше була на зустрічі книжкового клубу, коли обговорювали Стефаника.",
+        "Я вперше була на зустрічі книжкового клубу, коли обговорювали Стефаника."
+      ]
+    },
+    {
+      "id": "d07",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 463,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-11 17:00] Перша зустріч книжкового клубу, обговорювали Стефаника\n  - [2025-08-21 18:00] Записалася в книжковий клуб\n  - [2025-09-05 15:00] Взяла в бібліотеці збірку новел Коцюбинського\n  - [2025-09-25 12:00] Повернула книжки в бібліотеку\n  - [2025-08-17 20:00] Почала читати «Тіні забутих предків»\n  - [2025-09-02 21:00] Дочитала «Тіні забутих предків», дуже сподобалось\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "17:00 11 вересня 2025 року.",
+        "17:00 11 вересня 2025 року.",
+        "17:00 11 вересня 2025 року."
+      ]
+    },
+    {
+      "id": "d07",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 463,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-11 17:00] Перша зустріч книжкового клубу, обговорювали Стефаника\n  - [2025-08-21 18:00] Записалася в книжковий клуб\n  - [2025-09-05 15:00] Взяла в бібліотеці збірку новел Коцюбинського\n  - [2025-09-25 12:00] Повернула книжки в бібліотеку\n  - [2025-08-17 20:00] Почала читати «Тіні забутих предків»\n  - [2025-09-02 21:00] Дочитала «Тіні забутих предків», дуже сподобалось\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "17:00 11 вересня 2025 року.",
+        "17:00 11 вересня 2025 року.",
+        "17:00 11 вересня 2025 року."
+      ]
+    },
+    {
+      "id": "d07",
+      "kind": "when",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 463,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-11 17:00] Перша зустріч книжкового клубу, обговорювали Стефаника\n  - [2025-08-21 18:00] Записалася в книжковий клуб\n  - [2025-09-05 15:00] Взяла в бібліотеці збірку новел Коцюбинського\n  - [2025-09-25 12:00] Повернула книжки в бібліотеку\n  - [2025-08-17 20:00] Почала читати «Тіні забутих предків»\n  - [2025-09-02 21:00] Дочитала «Тіні забутих предків», дуже сподобалось\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "17:00 11 вересня 2025 року.",
+        "17:00 11 вересня 2025 року.",
+        "17:00 11 вересня 2025 року."
+      ]
+    },
+    {
+      "id": "d08",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 295,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Ran the half marathon today, finished in 1:58\n  - Signed up for the city half marathon\n  - Did a 15 km training run\n  - Signed up for a 10k in spring\n  - Knee is sore after the long run\n  - Picked up my race bib\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Today.",
+        "Today.",
+        "Today."
+      ]
+    },
+    {
+      "id": "d08",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 409,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-11-22 13:00] Ran the half marathon today, finished in 1:58\n  - [2025-09-15 08:00] Signed up for the city half marathon\n  - [2025-10-18 09:00] Did a 15 km training run\n  - [2025-12-02 20:00] Signed up for a 10k in spring\n  - [2025-10-19 19:00] Knee is sore after the long run\n  - [2025-11-21 16:00] Picked up my race bib\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You ran the half marathon on November 22, 2025.",
+        "You ran the half marathon on November 22, 2025.",
+        "You ran the half marathon on November 22, 2025."
+      ]
+    },
+    {
+      "id": "d08",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 409,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-11-22 13:00] Ran the half marathon today, finished in 1:58\n  - [2025-09-15 08:00] Signed up for the city half marathon\n  - [2025-10-18 09:00] Did a 15 km training run\n  - [2025-12-02 20:00] Signed up for a 10k in spring\n  - [2025-10-19 19:00] Knee is sore after the long run\n  - [2025-11-21 16:00] Picked up my race bib\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You ran the half marathon on November 22, 2025.",
+        "You ran the half marathon on November 22, 2025.",
+        "You ran the half marathon on November 22, 2025."
+      ]
+    },
+    {
+      "id": "d08",
+      "kind": "when",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 409,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-11-22 13:00] Ran the half marathon today, finished in 1:58\n  - [2025-09-15 08:00] Signed up for the city half marathon\n  - [2025-10-18 09:00] Did a 15 km training run\n  - [2025-12-02 20:00] Signed up for a 10k in spring\n  - [2025-10-19 19:00] Knee is sore after the long run\n  - [2025-11-21 16:00] Picked up my race bib\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You ran the half marathon on November 22, 2025.",
+        "You ran the half marathon on November 22, 2025.",
+        "You ran the half marathon on November 22, 2025."
+      ]
+    },
+    {
+      "id": "d09",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 296,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Купив квитки до Кракова і до Відня\n  - Повернувся з Кракова\n  - Вже у Кракові, гуляю старим містом\n  - Приїхав до Відня, готель біля Рінгу\n  - Повернувся з Відня, місто чудове\n  - Планую ще колись поїхати в Прагу\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Раніше я їздив до Кракова.",
+        "Раніше я їздив до Кракова.",
+        "Раніше я їздив до Кракова."
+      ]
+    },
+    {
+      "id": "d09",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-02 10:00] Купив квитки до Кракова і до Відня\n  - [2026-05-12 19:00] Повернувся з Кракова\n  - [2026-05-09 14:00] Вже у Кракові, гуляю старим містом\n  - [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу\n  - [2026-05-24 20:00] Повернувся з Відня, місто чудове\n  - [2026-05-30 19:00] Планую ще колись поїхати в Прагу\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Раніше я їздив до Кракова.  \n\nПідтвердження з пам'яті:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень.",
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень.",
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень."
+      ]
+    },
+    {
+      "id": "d09",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-02 10:00] Купив квитки до Кракова і до Відня\n  - [2026-05-12 19:00] Повернувся з Кракова\n  - [2026-05-09 14:00] Вже у Кракові, гуляю старим містом\n  - [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу\n  - [2026-05-24 20:00] Повернувся з Відня, місто чудове\n  - [2026-05-30 19:00] Планую ще колись поїхати в Прагу\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень.",
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень.",
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень."
+      ]
+    },
+    {
+      "id": "d09",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-02 10:00] Купив квитки до Кракова і до Відня\n  - [2026-05-12 19:00] Повернувся з Кракова\n  - [2026-05-09 14:00] Вже у Кракові, гуляю старим містом\n  - [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу\n  - [2026-05-24 20:00] Повернувся з Відня, місто чудове\n  - [2026-05-30 19:00] Планую ще колись поїхати в Прагу\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень.",
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень.",
+        "Раніше я їздив до Кракова.  \n\nПідтвердження:  \n- [2026-05-09 14:00] Вже у Кракові, гуляю старим містом  \n- [2026-05-21 16:00] Приїхав до Відня, готель біля Рінгу  \n\nТаким чином, Краков був раніше, ніж Відень."
+      ]
+    },
+    {
+      "id": "d10",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 325,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Finished replacing the kitchen floor, looks great\n  - Bought paint samples for the bedroom\n  - Got quotes for the kitchen floor\n  - The bedroom still smells like paint\n  - Painted the bedroom this weekend, sage green\n  - Ordered new curtains\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I finished painting the bedroom first.  \n\nHere's the timeline from your memory:  \n- Finished replacing the kitchen floor (after getting quotes and buying paint samples)  \n- Painted the bedroom this weekend (after the bedroom still smelled like paint)  \n\nSince painting the bedroom happened \"this weekend\" and the kitchen floor replacement was completed \"finished replacing,\" and painting the bedroom occurred after the kitchen floor was replaced, painting the bedroom happened later.  \n\nTherefore, painting the bedroom was finished *after* the kitchen floor replacement.  \n\nSo, I finished the kitchen floor replacement first.  \n\nAnswer: The new kitchen floor was finished first.",
+        "I finished painting the bedroom first.  \n\nHere's the timeline from your memory:  \n- Finished replacing the kitchen floor (after getting quotes and buying paint samples)  \n- Painted the bedroom this weekend (after the bedroom still smelled like paint)  \n\nSince painting the bedroom happened \"this weekend\" and the kitchen floor replacement was completed \"finished replacing,\" and painting the bedroom occurred after the kitchen floor was replaced, painting the bedroom happened later.  \n\nTherefore, painting the bedroom was finished *after* the kitchen floor replacement.  \n\nSo, I finished the kitchen floor replacement first.  \n\nAnswer: The new kitchen floor was finished first.",
+        "I finished painting the bedroom first.  \n\nHere's the timeline from your memory:  \n- Finished replacing the kitchen floor (after getting quotes and buying paint samples)  \n- Painted the bedroom this weekend (after the bedroom still smelled like paint)  \n\nSince painting the bedroom happened \"this weekend\" and the kitchen floor replacement was completed \"finished replacing,\" and painting the bedroom occurred after the kitchen floor was replaced, painting the bedroom happened later.  \n\nTherefore, painting the bedroom was finished *after* the kitchen floor replacement.  \n\nSo, I finished the kitchen floor replacement first.  \n\nAnswer: The new kitchen floor was finished first."
+      ]
+    },
+    {
+      "id": "d10",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 439,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-02 18:00] Finished replacing the kitchen floor, looks great\n  - [2026-06-10 11:00] Bought paint samples for the bedroom\n  - [2026-06-05 09:00] Got quotes for the kitchen floor\n  - [2026-07-21 08:00] The bedroom still smells like paint\n  - [2026-07-19 16:00] Painted the bedroom this weekend, sage green\n  - [2026-07-25 20:00] Ordered new curtains\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was finished first. Therefore, painting the bedroom was done later.\n\nCorrect answer: The kitchen floor replacement was finished first.",
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first.",
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first."
+      ]
+    },
+    {
+      "id": "d10",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 439,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-02 18:00] Finished replacing the kitchen floor, looks great\n  - [2026-06-10 11:00] Bought paint samples for the bedroom\n  - [2026-06-05 09:00] Got quotes for the kitchen floor\n  - [2026-07-21 08:00] The bedroom still smells like paint\n  - [2026-07-19 16:00] Painted the bedroom this weekend, sage green\n  - [2026-07-25 20:00] Ordered new curtains\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first.",
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first.",
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first."
+      ]
+    },
+    {
+      "id": "d10",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 439,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-02 18:00] Finished replacing the kitchen floor, looks great\n  - [2026-06-10 11:00] Bought paint samples for the bedroom\n  - [2026-06-05 09:00] Got quotes for the kitchen floor\n  - [2026-07-21 08:00] The bedroom still smells like paint\n  - [2026-07-19 16:00] Painted the bedroom this weekend, sage green\n  - [2026-07-25 20:00] Ordered new curtains\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first.",
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first.",
+        "I finished painting the bedroom first.\n\nHere's the timeline:\n- Painted the bedroom: 2026-07-19\n- Replaced the kitchen floor: 2026-07-02\n\nSince 2026-07-02 comes before 2026-07-19, the kitchen floor replacement was completed first. Therefore, painting the bedroom was finished later. \n\nCorrect answer: The kitchen floor replacement was finished first."
+      ]
+    },
+    {
+      "id": "d11",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 312,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Записалась до терапевта і до кардіолога\n  - Сходила до терапевта, дав направлення на аналізи\n  - Була у кардіолога, кардіограма в нормі\n  - Терапевт подзвонив щодо результатів аналізів\n  - Купила тонометр\n  - Здала аналізи крові\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сходила до терапевта раніше.",
+        "Сходила до терапевта раніше.",
+        "Сходила до терапевта раніше."
+      ]
+    },
+    {
+      "id": "d11",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 426,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-26 09:00] Записалась до терапевта і до кардіолога\n  - [2026-02-04 10:00] Сходила до терапевта, дав направлення на аналізи\n  - [2026-02-17 12:00] Була у кардіолога, кардіограма в нормі\n  - [2026-02-19 15:00] Терапевт подзвонив щодо результатів аналізів\n  - [2026-02-20 17:00] Купила тонометр\n  - [2026-02-06 08:00] Здала аналізи крові\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Раніше сходила до терапевта.",
+        "Раніше сходила до терапевта.",
+        "Раніше сходила до терапевта."
+      ]
+    },
+    {
+      "id": "d11",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 426,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-26 09:00] Записалась до терапевта і до кардіолога\n  - [2026-02-04 10:00] Сходила до терапевта, дав направлення на аналізи\n  - [2026-02-17 12:00] Була у кардіолога, кардіограма в нормі\n  - [2026-02-19 15:00] Терапевт подзвонив щодо результатів аналізів\n  - [2026-02-20 17:00] Купила тонометр\n  - [2026-02-06 08:00] Здала аналізи крові\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Раніше сходила до терапевта.",
+        "Раніше сходила до терапевта.",
+        "Раніше сходила до терапевта."
+      ]
+    },
+    {
+      "id": "d11",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 426,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-26 09:00] Записалась до терапевта і до кардіолога\n  - [2026-02-04 10:00] Сходила до терапевта, дав направлення на аналізи\n  - [2026-02-17 12:00] Була у кардіолога, кардіограма в нормі\n  - [2026-02-19 15:00] Терапевт подзвонив щодо результатів аналізів\n  - [2026-02-20 17:00] Купила тонометр\n  - [2026-02-06 08:00] Здала аналізи крові\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Раніше сходила до терапевта.",
+        "Раніше сходила до терапевта.",
+        "Раніше сходила до терапевта."
+      ]
+    },
+    {
+      "id": "d12",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 306,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - First guitar lesson today, my fingers hurt\n  - Had my first Spanish class, the teacher is from Valencia\n  - Signed up for a Spanish course\n  - Spanish homework done\n  - Bought a used guitar\n  - Practiced chords for an hour\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I actually attended my first Spanish class first.",
+        "I actually attended my first Spanish class first.",
+        "I actually attended my first Spanish class first."
+      ]
+    },
+    {
+      "id": "d12",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 420,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-08 17:00] First guitar lesson today, my fingers hurt\n  - [2026-04-14 18:00] Had my first Spanish class, the teacher is from Valencia\n  - [2026-03-10 12:00] Signed up for a Spanish course\n  - [2026-04-16 20:00] Spanish homework done\n  - [2026-03-28 15:00] Bought a used guitar\n  - [2026-04-20 19:00] Practiced chords for an hour\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nApril 8 comes before April 14, so the guitar lesson was earlier.",
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier.",
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier."
+      ]
+    },
+    {
+      "id": "d12",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 420,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-08 17:00] First guitar lesson today, my fingers hurt\n  - [2026-04-14 18:00] Had my first Spanish class, the teacher is from Valencia\n  - [2026-03-10 12:00] Signed up for a Spanish course\n  - [2026-04-16 20:00] Spanish homework done\n  - [2026-03-28 15:00] Bought a used guitar\n  - [2026-04-20 19:00] Practiced chords for an hour\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier.",
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier.",
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier."
+      ]
+    },
+    {
+      "id": "d12",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 420,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-08 17:00] First guitar lesson today, my fingers hurt\n  - [2026-04-14 18:00] Had my first Spanish class, the teacher is from Valencia\n  - [2026-03-10 12:00] Signed up for a Spanish course\n  - [2026-04-16 20:00] Spanish homework done\n  - [2026-03-28 15:00] Bought a used guitar\n  - [2026-04-20 19:00] Practiced chords for an hour\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier.",
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier.",
+        "I actually attended my first guitar lesson first.\n\nHere's why:\n- First guitar lesson: April 8, 2026\n- First Spanish class: April 14, 2026\n\nSince April 8 comes before April 14, the guitar lesson was earlier."
+      ]
+    },
+    {
+      "id": "d13",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 320,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Скинув Остапу фото з весілля\n  - Був на весіллі в Остапа, гуляли до ранку\n  - Святкували мамин день народження в ресторані\n  - Остап запросив на весілля\n  - Купив подарунок мамі на день народження\n  - Мама ще раз подякувала за подарунок\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Весілля Остапа було раніше, ніж святкування маминого дня народження.",
+        "Весілля Остапа було раніше, ніж святкування маминого дня народження.  \n\nПідтвердження:  \n- \"Був на весіллі в Остапа, гуляли до ранку\" → Остапа було на весіллі.  \n- \"Святкували мамин день народження в ресторані\" → святкування маминого дня народження відбулося пізніше, бо Остап був на весіллі, а потім відійшов на святкування маминого дня.  \n\nОтже, весілля Остапа було раніше.",
+        "Весілля Остапа було раніше, ніж святкування маминого дня народження.  \n\nПідтвердження:  \n- \"Був на весіллі в Остапа, гуляли до ранку\" → Остапа було на весіллі.  \n- \"Святкували мамин день народження в ресторані\" → святкування маминого дня народження відбулося пізніше, бо Остап був на весіллі, а потім відійшов на святкування маминого дня.  \n\nОтже, весілля Остапа було раніше."
+      ]
+    },
+    {
+      "id": "d13",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 434,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-27 11:00] Скинув Остапу фото з весілля\n  - [2025-10-24 19:00] Був на весіллі в Остапа, гуляли до ранку\n  - [2025-10-18 17:00] Святкували мамин день народження в ресторані\n  - [2025-08-12 10:00] Остап запросив на весілля\n  - [2025-10-15 17:00] Купив подарунок мамі на день народження\n  - [2025-10-29 09:00] Мама ще раз подякувала за подарунок\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше.",
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше.",
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше."
+      ]
+    },
+    {
+      "id": "d13",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 434,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-27 11:00] Скинув Остапу фото з весілля\n  - [2025-10-24 19:00] Був на весіллі в Остапа, гуляли до ранку\n  - [2025-10-18 17:00] Святкували мамин день народження в ресторані\n  - [2025-08-12 10:00] Остап запросив на весілля\n  - [2025-10-15 17:00] Купив подарунок мамі на день народження\n  - [2025-10-29 09:00] Мама ще раз подякувала за подарунок\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше.",
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше.",
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше."
+      ]
+    },
+    {
+      "id": "d13",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 434,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-27 11:00] Скинув Остапу фото з весілля\n  - [2025-10-24 19:00] Був на весіллі в Остапа, гуляли до ранку\n  - [2025-10-18 17:00] Святкували мамин день народження в ресторані\n  - [2025-08-12 10:00] Остап запросив на весілля\n  - [2025-10-15 17:00] Купив подарунок мамі на день народження\n  - [2025-10-29 09:00] Мама ще раз подякувала за подарунок\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше.",
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше.",
+        "Святкування маминого дня народження було раніше, ніж весілля Остапа.\n\nПідтвердження:\n- Мамин день народження — 10 вересня 2025 року (запис: 2025-10-18).\n- Весілля Остапа — 24 вересня 2025 року (запис: 2025-10-24).\n\nОскільки 10 вересня < 24 вересня, то святкування маминого дня народження було раніше."
+      ]
+    },
+    {
+      "id": "d14",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 308,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - The mechanic said the oil change is overdue\n  - Got new tires, the old ones were bald\n  - Oil change done at the garage on Elm Street\n  - Tire pressure light came on again\n  - Looking at tire prices online\n  - Washed the car\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The oil change came first. The user mentioned that the oil change was done at the garage on Elm Street, and the new tires were purchased because the old ones were bald. There is no indication that the tires were replaced before the oil change. Therefore, the oil change occurred before the new tires were installed.",
+        "The oil change came first. The user mentioned that the oil change was done at the garage on Elm Street, and the new tires were purchased because the old ones were bald. There is no indication that the tires were replaced before the oil change. Therefore, the oil change occurred before the new tires were installed.",
+        "The oil change came first. The user mentioned that the oil change was done at the garage on Elm Street, and the new tires were purchased because the old ones were bald. There is no indication that the tires were replaced before the oil change. Therefore, the oil change occurred before the new tires were installed."
+      ]
+    },
+    {
+      "id": "d14",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 422,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-08 10:00] The mechanic said the oil change is overdue\n  - [2026-02-03 13:00] Got new tires, the old ones were bald\n  - [2026-01-22 16:00] Oil change done at the garage on Elm Street\n  - [2026-02-10 08:00] Tire pressure light came on again\n  - [2026-01-05 21:00] Looking at tire prices online\n  - [2026-02-15 12:00] Washed the car\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier.",
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier.",
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier."
+      ]
+    },
+    {
+      "id": "d14",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 422,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-08 10:00] The mechanic said the oil change is overdue\n  - [2026-02-03 13:00] Got new tires, the old ones were bald\n  - [2026-01-22 16:00] Oil change done at the garage on Elm Street\n  - [2026-02-10 08:00] Tire pressure light came on again\n  - [2026-01-05 21:00] Looking at tire prices online\n  - [2026-02-15 12:00] Washed the car\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier.",
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier.",
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier."
+      ]
+    },
+    {
+      "id": "d14",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 422,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-08 10:00] The mechanic said the oil change is overdue\n  - [2026-02-03 13:00] Got new tires, the old ones were bald\n  - [2026-01-22 16:00] Oil change done at the garage on Elm Street\n  - [2026-02-10 08:00] Tire pressure light came on again\n  - [2026-01-05 21:00] Looking at tire prices online\n  - [2026-02-15 12:00] Washed the car\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier.",
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier.",
+        "The oil change came first.\n\n- Oil change: 2026-01-22\n- New tires: 2026-02-03\n\nThe oil change occurred on January 22, 2026, and the new tires were installed on February 3, 2026. Therefore, the oil change happened earlier."
+      ]
+    },
+    {
+      "id": "d15",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 277,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Перші огірки вже зібрала\n  - Перші помідори почервоніли, зібрала\n  - Висадила помідори в теплицю\n  - Посадила огірки на грядці\n  - Купила розсаду помідорів на ринку\n  - Полила город після спеки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Перші помідори почервоніли і зібрала раніше, ніж перші огірки.",
+        "Перші помідори почервоніли і зібрала раніше, ніж перші огірки.",
+        "Перші помідори почервоніли і зібрала раніше, ніж перші огірки."
+      ]
+    },
+    {
+      "id": "d15",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 391,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-02 16:00] Перші огірки вже зібрала\n  - [2026-07-20 12:00] Перші помідори почервоніли, зібрала\n  - [2026-05-06 16:00] Висадила помідори в теплицю\n  - [2026-05-14 17:00] Посадила огірки на грядці\n  - [2026-04-25 10:00] Купила розсаду помідорів на ринку\n  - [2026-06-18 17:00] Полила город після спеки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20.",
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20.",
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20."
+      ]
+    },
+    {
+      "id": "d15",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 391,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-02 16:00] Перші огірки вже зібрала\n  - [2026-07-20 12:00] Перші помідори почервоніли, зібрала\n  - [2026-05-06 16:00] Висадила помідори в теплицю\n  - [2026-05-14 17:00] Посадила огірки на грядці\n  - [2026-04-25 10:00] Купила розсаду помідорів на ринку\n  - [2026-06-18 17:00] Полила город після спеки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20.",
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20.",
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20."
+      ]
+    },
+    {
+      "id": "d15",
+      "kind": "order",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 391,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-02 16:00] Перші огірки вже зібрала\n  - [2026-07-20 12:00] Перші помідори почервоніли, зібрала\n  - [2026-05-06 16:00] Висадила помідори в теплицю\n  - [2026-05-14 17:00] Посадила огірки на грядці\n  - [2026-04-25 10:00] Купила розсаду помідорів на ринку\n  - [2026-06-18 17:00] Полила город після спеки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20.",
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20.",
+        "Перші огірки я зібрала раніше — 2026-07-02, ніж перші помідори — 2026-07-20."
+      ]
+    },
+    {
+      "id": "d16",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 281,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Bought a new laptop\n  - Bought a new phone\n  - Thinking about getting a new phone\n  - Got the phone screen repaired\n  - Sold my old phone\n  - Phone battery is dying fast\n  - Cracked my phone screen\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I don't know which I bought first—the new laptop or the new phone. The memory context does not specify the order in which the laptop or phone was purchased.",
+        "I don't know which I bought first—the new laptop or the new phone. The memory context does not specify the order in which the laptop or phone was purchased.",
+        "I don't know which I bought first—the new laptop or the new phone. The memory context does not specify the order in which the laptop or phone was purchased."
+      ]
+    },
+    {
+      "id": "d16",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 414,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-08-20 14:00] Bought a new laptop\n  - [2025-09-10 13:00] Bought a new phone\n  - [2025-07-28 19:00] Thinking about getting a new phone\n  - [2025-08-06 15:00] Got the phone screen repaired\n  - [2025-09-14 16:00] Sold my old phone\n  - [2025-09-02 18:00] Phone battery is dying fast\n  - [2025-08-03 09:00] Cracked my phone screen\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier.",
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier.",
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier."
+      ]
+    },
+    {
+      "id": "d16",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 414,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-08-20 14:00] Bought a new laptop\n  - [2025-09-10 13:00] Bought a new phone\n  - [2025-07-28 19:00] Thinking about getting a new phone\n  - [2025-08-06 15:00] Got the phone screen repaired\n  - [2025-09-14 16:00] Sold my old phone\n  - [2025-09-02 18:00] Phone battery is dying fast\n  - [2025-08-03 09:00] Cracked my phone screen\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier.",
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier.",
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier."
+      ]
+    },
+    {
+      "id": "d16",
+      "kind": "order",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 414,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-08-20 14:00] Bought a new laptop\n  - [2025-09-10 13:00] Bought a new phone\n  - [2025-07-28 19:00] Thinking about getting a new phone\n  - [2025-08-06 15:00] Got the phone screen repaired\n  - [2025-09-14 16:00] Sold my old phone\n  - [2025-09-02 18:00] Phone battery is dying fast\n  - [2025-08-03 09:00] Cracked my phone screen\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier.",
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier.",
+        "I bought the new laptop first.  \n\n- The laptop was bought on **2025-08-20**.  \n- The phone was bought on **2025-09-10**.  \n\nSince August comes before September, the laptop was purchased earlier."
+      ]
+    },
+    {
+      "id": "d17",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 254,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Почав писати квартальний звіт\n  - Сьогодні нарешті здав квартальний звіт\n  - Шеф похвалив звіт\n  - Взяв вихідний після звіту\n  - Шеф попросив переробити розділ про бюджет\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні — 2026-05-20.  \n\nТи здав квартальний звіт нарешті, тому він був здаваний 2026-05-20.  \n\nОтже, квартальний звіт був здаваний сьогодні — **0 днів тому**.",
+        "Сьогодні — 2026-05-20.  \n\nТи здав квартальний звіт нарешті, тому він був здаваний 2026-05-20.  \n\nОтже, квартальний звіт був здаваний сьогодні — **0 днів тому**.",
+        "Сьогодні — 2026-05-20.  \n\nТи здав квартальний звіт нарешті, тому він був здаваний 2026-05-20.  \n\nОтже, квартальний звіт був здаваний сьогодні — **0 днів тому**."
+      ]
+    },
+    {
+      "id": "d17",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 349,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-27 10:00] Почав писати квартальний звіт\n  - [2026-05-06 15:00] Сьогодні нарешті здав квартальний звіт\n  - [2026-05-11 09:00] Шеф похвалив звіт\n  - [2026-05-08 08:00] Взяв вихідний після звіту\n  - [2026-05-04 12:00] Шеф попросив переробити розділ про бюджет\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому.",
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому.",
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому."
+      ]
+    },
+    {
+      "id": "d17",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 349,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-27 10:00] Почав писати квартальний звіт\n  - [2026-05-06 15:00] Сьогодні нарешті здав квартальний звіт\n  - [2026-05-11 09:00] Шеф похвалив звіт\n  - [2026-05-08 08:00] Взяв вихідний після звіту\n  - [2026-05-04 12:00] Шеф попросив переробити розділ про бюджет\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому.",
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому.",
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому."
+      ]
+    },
+    {
+      "id": "d17",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 349,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-04-27 10:00] Почав писати квартальний звіт\n  - [2026-05-06 15:00] Сьогодні нарешті здав квартальний звіт\n  - [2026-05-11 09:00] Шеф похвалив звіт\n  - [2026-05-08 08:00] Взяв вихідний після звіту\n  - [2026-05-04 12:00] Шеф попросив переробити розділ про бюджет\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому.",
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому.",
+        "Сьогодні — 2026-05-20.  \nТи здав квартальний звіт 2026-05-06.  \n\nРізниця: 2026-05-20 - 2026-05-06 = 14 днів.\n\nВідповідь: 14 днів тому."
+      ]
+    },
+    {
+      "id": "d18",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 280,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Just booked the dentist\n  - Dentist appointment done, one small cavity\n  - Reminder email from the dentist\n  - Paid the dental bill\n  - Booked a cleaning for next year\n  - Tooth is sensitive again\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The memory context does not specify the number of days between booking the dentist and the actual appointment. Therefore, I cannot determine how many days passed.",
+        "The memory context does not specify the number of days between booking the dentist and the actual appointment. Therefore, I cannot determine how many days passed.",
+        "The memory context does not specify the number of days between booking the dentist and the actual appointment. Therefore, I cannot determine how many days passed."
+      ]
+    },
+    {
+      "id": "d18",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 394,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-22 09:00] Just booked the dentist\n  - [2026-07-03 11:00] Dentist appointment done, one small cavity\n  - [2026-07-02 08:00] Reminder email from the dentist\n  - [2026-07-06 17:00] Paid the dental bill\n  - [2026-07-03 11:30] Booked a cleaning for next year\n  - [2026-06-19 20:00] Tooth is sensitive again\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is 11 days.\n\nSo, **11 days** passed between booking and the actual appointment.",
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment.",
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment."
+      ]
+    },
+    {
+      "id": "d18",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 394,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-22 09:00] Just booked the dentist\n  - [2026-07-03 11:00] Dentist appointment done, one small cavity\n  - [2026-07-02 08:00] Reminder email from the dentist\n  - [2026-07-06 17:00] Paid the dental bill\n  - [2026-07-03 11:30] Booked a cleaning for next year\n  - [2026-06-19 20:00] Tooth is sensitive again\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment.",
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment.",
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment."
+      ]
+    },
+    {
+      "id": "d18",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 394,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-22 09:00] Just booked the dentist\n  - [2026-07-03 11:00] Dentist appointment done, one small cavity\n  - [2026-07-02 08:00] Reminder email from the dentist\n  - [2026-07-06 17:00] Paid the dental bill\n  - [2026-07-03 11:30] Booked a cleaning for next year\n  - [2026-06-19 20:00] Tooth is sensitive again\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment.",
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment.",
+        "The user booked the dentist on **2026-06-22** and had the appointment on **2026-07-03**.\n\nTo calculate the number of days between these dates:\n\n- From June 22 to July 03 is **11 days**.\n\nSo, **11 days** passed between booking and the actual appointment."
+      ]
+    },
+    {
+      "id": "d19",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 238,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Ми взяли цуценя з притулку, назвали Бублик\n  - Думаємо взяти собаку\n  - Бублику зробили щеплення\n  - Бублик погриз капці\n  - Бублик вперше гуляв на вулиці\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У вашому запитанні немає інформації про те, скільки тижнів тому ви взяли цуценя. Ви лише сказали, що взяли цуценя, але не вказали дату. Тому неможливо визначити, скільки тижнів тому це сталося.",
+        "У вашому запитанні немає інформації про те, скільки тижнів тому ви взяли цуценя. Ви лише сказали, що взяли цуценя, але не вказали дату. Тому неможливо визначити, скільки тижнів тому це сталося.",
+        "У вашому запитанні немає інформації про те, скільки тижнів тому ви взяли цуценя. Ви лише сказали, що взяли цуценя, але не вказали дату. Тому неможливо визначити, скільки тижнів тому це сталося."
+      ]
+    },
+    {
+      "id": "d19",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 333,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-29 14:00] Ми взяли цуценя з притулку, назвали Бублик\n  - [2025-10-05 19:00] Думаємо взяти собаку\n  - [2025-11-05 12:00] Бублику зробили щеплення\n  - [2025-11-28 19:00] Бублик погриз капці\n  - [2025-11-19 10:00] Бублик вперше гуляв на вулиці\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів.",
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів.",
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів."
+      ]
+    },
+    {
+      "id": "d19",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 333,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-29 14:00] Ми взяли цуценя з притулку, назвали Бублик\n  - [2025-10-05 19:00] Думаємо взяти собаку\n  - [2025-11-05 12:00] Бублику зробили щеплення\n  - [2025-11-28 19:00] Бублик погриз капці\n  - [2025-11-19 10:00] Бублик вперше гуляв на вулиці\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів.",
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів.",
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів."
+      ]
+    },
+    {
+      "id": "d19",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 333,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-29 14:00] Ми взяли цуценя з притулку, назвали Бублик\n  - [2025-10-05 19:00] Думаємо взяти собаку\n  - [2025-11-05 12:00] Бублику зробили щеплення\n  - [2025-11-28 19:00] Бублик погриз капці\n  - [2025-11-19 10:00] Бублик вперше гуляв на вулиці\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів.",
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів.",
+        "Ми взяли цуценя 29 жовтня 2025 року.  \n\nСьогодні — 10 грудня 2025 року.  \n\nРізниця між 29 жовтня і 10 грудня — 7 тижнів.  \n\nВідповідь: 7 тижнів."
+      ]
+    },
+    {
+      "id": "d20",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 322,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Got the keys to the new apartment and moved in\n  - Sent out housewarming invites\n  - Housewarming party tonight, 12 people came\n  - Neighbors complained about the noise from the party\n  - Signed the lease\n  - Finally unpacked the last box\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The memory context does not provide specific dates for when the user moved into the apartment or when the housewarming party took place. Therefore, it is not possible to calculate the number of weeks between those events.",
+        "The memory context does not provide specific dates for when the user moved into the apartment or when the housewarming party took place. Therefore, it is not possible to calculate the number of weeks between those events.",
+        "The memory context does not provide specific dates for when the user moved into the apartment or when the housewarming party took place. Therefore, it is not possible to calculate the number of weeks between those events."
+      ]
+    },
+    {
+      "id": "d20",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 436,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-02-14 16:00] Got the keys to the new apartment and moved in\n  - [2026-03-01 12:00] Sent out housewarming invites\n  - [2026-03-14 19:00] Housewarming party tonight, 12 people came\n  - [2026-03-15 10:00] Neighbors complained about the noise from the party\n  - [2026-02-05 11:00] Signed the lease\n  - [2026-02-28 19:00] Finally unpacked the last box\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\n✅ Answer: 4 weeks.",
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**.",
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**."
+      ]
+    },
+    {
+      "id": "d20",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 436,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-02-14 16:00] Got the keys to the new apartment and moved in\n  - [2026-03-01 12:00] Sent out housewarming invites\n  - [2026-03-14 19:00] Housewarming party tonight, 12 people came\n  - [2026-03-15 10:00] Neighbors complained about the noise from the party\n  - [2026-02-05 11:00] Signed the lease\n  - [2026-02-28 19:00] Finally unpacked the last box\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**.",
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**.",
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**."
+      ]
+    },
+    {
+      "id": "d20",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 436,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-02-14 16:00] Got the keys to the new apartment and moved in\n  - [2026-03-01 12:00] Sent out housewarming invites\n  - [2026-03-14 19:00] Housewarming party tonight, 12 people came\n  - [2026-03-15 10:00] Neighbors complained about the noise from the party\n  - [2026-02-05 11:00] Signed the lease\n  - [2026-02-28 19:00] Finally unpacked the last box\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**.",
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**.",
+        "The user moved into the new apartment on **2026-02-14** and had the housewarming party on **2026-03-14**.\n\nTo calculate the number of weeks between these dates:\n\n- From **2026-02-14** to **2026-03-14** is exactly **4 weeks**.\n\nAnswer: **4 weeks**."
+      ]
+    },
+    {
+      "id": "d21",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 296,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Відправила резюме в компанію «Хмарка»\n  - Пройшла співбесіду в «Хмарці», здається, вдало\n  - Відправила резюме ще у дві компанії\n  - Мені відповіли з «Хмарки», кличуть на співбесіду\n  - Отримала офер від «Хмарки»\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Немає інформації про дати відправки резюме або співбесіди, тому не можу визначити, скільки днів минуло.",
+        "Немає інформації про дати відправки резюме або співбесіди, тому не можу визначити, скільки днів минуло.",
+        "Немає інформації про дати відправки резюме або співбесіди, тому не можу визначити, скільки днів минуло."
+      ]
+    },
+    {
+      "id": "d21",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 391,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-30 10:00] Відправила резюме в компанію «Хмарка»\n  - [2026-08-12 15:00] Пройшла співбесіду в «Хмарці», здається, вдало\n  - [2026-08-03 11:00] Відправила резюме ще у дві компанії\n  - [2026-08-05 13:00] Мені відповіли з «Хмарки», кличуть на співбесіду\n  - [2026-08-20 16:00] Отримала офер від «Хмарки»\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів.",
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів.",
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів."
+      ]
+    },
+    {
+      "id": "d21",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 391,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-30 10:00] Відправила резюме в компанію «Хмарка»\n  - [2026-08-12 15:00] Пройшла співбесіду в «Хмарці», здається, вдало\n  - [2026-08-03 11:00] Відправила резюме ще у дві компанії\n  - [2026-08-05 13:00] Мені відповіли з «Хмарки», кличуть на співбесіду\n  - [2026-08-20 16:00] Отримала офер від «Хмарки»\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів.",
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів.",
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів."
+      ]
+    },
+    {
+      "id": "d21",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 391,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-30 10:00] Відправила резюме в компанію «Хмарка»\n  - [2026-08-12 15:00] Пройшла співбесіду в «Хмарці», здається, вдало\n  - [2026-08-03 11:00] Відправила резюме ще у дві компанії\n  - [2026-08-05 13:00] Мені відповіли з «Хмарки», кличуть на співбесіду\n  - [2026-08-20 16:00] Отримала офер від «Хмарки»\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів.",
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів.",
+        "Від 30 серпня 2026 року до 12 вересня 2026 року минуло 14 днів."
+      ]
+    },
+    {
+      "id": "d22",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 288,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Should water the plants soon\n  - Watered the plants before leaving for the weekend\n  - Watered all the plants\n  - Watered the plants and repotted the fern\n  - The fern looks droopy\n  - Bought a new cactus\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You left for the weekend, and you watered the plants before leaving. Since today is June 1, 2026, and you left for the weekend, the most recent watering was likely about 3 to 5 days ago, depending on when the weekend started. Without knowing the exact date you left, we can only estimate: **about 3 to 5 days ago**.",
+        "You left for the weekend, and you watered the plants before leaving. Since today is June 1, 2026, and you left for the weekend, the most recent watering was likely about 3 to 5 days ago, depending on when the weekend started. Without knowing the exact date you left, we can only estimate: **about 3 to 5 days ago**.",
+        "You left for the weekend, and you watered the plants before leaving. Since today is June 1, 2026, and you left for the weekend, the most recent watering was likely about 3 to 5 days ago, depending on when the weekend started. Without knowing the exact date you left, we can only estimate: **about 3 to 5 days ago**."
+      ]
+    },
+    {
+      "id": "d22",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 402,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-31 19:00] Should water the plants soon\n  - [2026-05-27 08:00] Watered the plants before leaving for the weekend\n  - [2026-05-12 09:00] Watered all the plants\n  - [2026-05-20 10:00] Watered the plants and repotted the fern\n  - [2026-05-30 19:00] The fern looks droopy\n  - [2026-05-24 14:00] Bought a new cactus\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago.",
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago.",
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago."
+      ]
+    },
+    {
+      "id": "d22",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 402,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-31 19:00] Should water the plants soon\n  - [2026-05-27 08:00] Watered the plants before leaving for the weekend\n  - [2026-05-12 09:00] Watered all the plants\n  - [2026-05-20 10:00] Watered the plants and repotted the fern\n  - [2026-05-30 19:00] The fern looks droopy\n  - [2026-05-24 14:00] Bought a new cactus\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago.",
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago.",
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago."
+      ]
+    },
+    {
+      "id": "d22",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 402,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-31 19:00] Should water the plants soon\n  - [2026-05-27 08:00] Watered the plants before leaving for the weekend\n  - [2026-05-12 09:00] Watered all the plants\n  - [2026-05-20 10:00] Watered the plants and repotted the fern\n  - [2026-05-30 19:00] The fern looks droopy\n  - [2026-05-24 14:00] Bought a new cactus\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago.",
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago.",
+        "You last watered the plants on May 30, 2026, at 19:00. Today is June 1, 2026. So, you last watered the plants 1 day ago."
+      ]
+    },
+    {
+      "id": "d23",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 238,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Сьогодні вперше пішов у спортзал\n  - Купив абонемент у спортзал\n  - Тренер склав мені програму\n  - Пропустив тренування через застуду\n  - Присідав з 60 кг\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Немає інформації про те, скільки тижнів тому ви вперше пішов у спортзал. Відомо, що сьогодні ви вперше пішов, але не вказано дату. Тому неможливо визначити, скільки тижнів тому це було.",
+        "Немає інформації про те, скільки тижнів тому ви вперше пішов у спортзал. Відомо, що сьогодні ви вперше пішов, але не вказано дату. Тому неможливо визначити, скільки тижнів тому це було.",
+        "Немає інформації про те, скільки тижнів тому ви вперше пішов у спортзал. Відомо, що сьогодні ви вперше пішов, але не вказано дату. Тому неможливо визначити, скільки тижнів тому це було."
+      ]
+    },
+    {
+      "id": "d23",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 333,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-04 17:00] Сьогодні вперше пішов у спортзал\n  - [2025-12-30 12:00] Купив абонемент у спортзал\n  - [2026-01-06 17:00] Тренер склав мені програму\n  - [2026-01-12 08:00] Пропустив тренування через застуду\n  - [2026-01-18 18:00] Присідав з 60 кг\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 3 тижні = 21 день).  \n\nВідповідь: 3 тижні.",
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**",
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**"
+      ]
+    },
+    {
+      "id": "d23",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 333,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-04 17:00] Сьогодні вперше пішов у спортзал\n  - [2025-12-30 12:00] Купив абонемент у спортзал\n  - [2026-01-06 17:00] Тренер склав мені програму\n  - [2026-01-12 08:00] Пропустив тренування через застуду\n  - [2026-01-18 18:00] Присідав з 60 кг\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**",
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**",
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**"
+      ]
+    },
+    {
+      "id": "d23",
+      "kind": "elapsed",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 333,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-04 17:00] Сьогодні вперше пішов у спортзал\n  - [2025-12-30 12:00] Купив абонемент у спортзал\n  - [2026-01-06 17:00] Тренер склав мені програму\n  - [2026-01-12 08:00] Пропустив тренування через застуду\n  - [2026-01-18 18:00] Присідав з 60 кг\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**",
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**",
+        "Сьогодні — 2026-01-25.  \n\nТи вперше пішов у спортзал 2026-01-04.  \n\nРізниця: 21 день.  \n\n21 день = 3 тижні (оскільки 7 днів у тижні).  \n\nОтже, 3 тижні тому.  \n\n**Відповідь: 3 тижні.**"
+      ]
+    },
+    {
+      "id": "d24",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 327,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Submitted the visa application at the consulate\n  - Picked up my passport with the visa\n  - Visa approved!\n  - Booked the flight now that the visa came through\n  - Gathered documents for the visa\n  - Consulate asked for an extra bank statement\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I don't know how long it took between submitting your visa application and getting it approved. The memory context does not include a timeline or duration.",
+        "I don't know how long it took between submitting your visa application and getting it approved. The memory context does not include a timeline or duration.",
+        "I don't know how long it took between submitting your visa application and getting it approved. The memory context does not include a timeline or duration."
+      ]
+    },
+    {
+      "id": "d24",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 441,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-08-17 10:00] Submitted the visa application at the consulate\n  - [2026-09-10 12:00] Picked up my passport with the visa\n  - [2026-09-07 14:00] Visa approved!\n  - [2026-09-08 18:00] Booked the flight now that the visa came through\n  - [2026-08-10 19:00] Gathered documents for the visa\n  - [2026-08-26 09:00] Consulate asked for an extra bank statement\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7.",
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7.",
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7."
+      ]
+    },
+    {
+      "id": "d24",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 441,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-08-17 10:00] Submitted the visa application at the consulate\n  - [2026-09-10 12:00] Picked up my passport with the visa\n  - [2026-09-07 14:00] Visa approved!\n  - [2026-09-08 18:00] Booked the flight now that the visa came through\n  - [2026-08-10 19:00] Gathered documents for the visa\n  - [2026-08-26 09:00] Consulate asked for an extra bank statement\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7.",
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7.",
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7."
+      ]
+    },
+    {
+      "id": "d24",
+      "kind": "elapsed",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 441,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-08-17 10:00] Submitted the visa application at the consulate\n  - [2026-09-10 12:00] Picked up my passport with the visa\n  - [2026-09-07 14:00] Visa approved!\n  - [2026-09-08 18:00] Booked the flight now that the visa came through\n  - [2026-08-10 19:00] Gathered documents for the visa\n  - [2026-08-26 09:00] Consulate asked for an extra bank statement\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7.",
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7.",
+        "It was 21 days between submitting your visa application on August 17 and receiving approval on September 7."
+      ]
+    },
+    {
+      "id": "d25",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 299,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Живу тут уже тиждень, звикаю\n  - У Львові весь час дощ\n  - Думаю переїхати до Києва через роботу\n  - Колега переїхала до Києва\n  - Переїхав до Львова, зняв квартиру біля Ринку\n  - Переїхав до Одеси, тепер море поруч\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз ви живете в Одесі.",
+        "Зараз ви живете в Одесі.",
+        "Зараз ви живете в Одесі."
+      ]
+    },
+    {
+      "id": "d25",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 413,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-27 18:00] Живу тут уже тиждень, звикаю\n  - [2026-01-15 10:00] У Львові весь час дощ\n  - [2026-08-10 17:00] Думаю переїхати до Києва через роботу\n  - [2026-09-01 09:00] Колега переїхала до Києва\n  - [2025-11-03 12:00] Переїхав до Львова, зняв квартиру біля Ринку\n  - [2026-06-20 15:00] Переїхав до Одеси, тепер море поруч\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз живу в Одесі.",
+        "Зараз живу в Одесі.",
+        "Зараз живу в Одесі."
+      ]
+    },
+    {
+      "id": "d25",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 413,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-27 18:00] Живу тут уже тиждень, звикаю\n  - [2026-01-15 10:00] У Львові весь час дощ\n  - [2026-08-10 17:00] Думаю переїхати до Києва через роботу\n  - [2026-09-01 09:00] Колега переїхала до Києва\n  - [2025-11-03 12:00] Переїхав до Львова, зняв квартиру біля Ринку\n  - [2026-06-20 15:00] Переїхав до Одеси, тепер море поруч\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз живу в Одесі.",
+        "Зараз живу в Одесі.",
+        "Зараз живу в Одесі."
+      ]
+    },
+    {
+      "id": "d25",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 413,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-06-27 18:00] Живу тут уже тиждень, звикаю\n  - [2026-01-15 10:00] У Львові весь час дощ\n  - [2026-08-10 17:00] Думаю переїхати до Києва через роботу\n  - [2026-09-01 09:00] Колега переїхала до Києва\n  - [2025-11-03 12:00] Переїхав до Львова, зняв квартиру біля Ринку\n  - [2026-06-20 15:00] Переїхав до Одеси, тепер море поруч\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз живу в Одесі.",
+        "Зараз живу в Одесі.",
+        "Зараз живу в Одесі."
+      ]
+    },
+    {
+      "id": "d26",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 309,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - My manager is going on leave\n  - Moved to the data engineering team as a data engineer\n  - Interviewed for a product manager role, didn't get it\n  - Started as a junior analyst at Brightline\n  - Got promoted to senior analyst\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "My current role at work is data engineer.",
+        "My current role at work is data engineer.",
+        "My current role at work is data engineer."
+      ]
+    },
+    {
+      "id": "d26",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 404,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-02 12:00] My manager is going on leave\n  - [2026-04-06 10:00] Moved to the data engineering team as a data engineer\n  - [2026-02-18 16:00] Interviewed for a product manager role, didn't get it\n  - [2025-03-03 09:00] Started as a junior analyst at Brightline\n  - [2025-12-01 15:00] Got promoted to senior analyst\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "My current role at work is a data engineer.",
+        "My current role at work is a data engineer.",
+        "My current role at work is a data engineer."
+      ]
+    },
+    {
+      "id": "d26",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 404,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-02 12:00] My manager is going on leave\n  - [2026-04-06 10:00] Moved to the data engineering team as a data engineer\n  - [2026-02-18 16:00] Interviewed for a product manager role, didn't get it\n  - [2025-03-03 09:00] Started as a junior analyst at Brightline\n  - [2025-12-01 15:00] Got promoted to senior analyst\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "My current role at work is a data engineer.",
+        "My current role at work is a data engineer.",
+        "My current role at work is a data engineer."
+      ]
+    },
+    {
+      "id": "d26",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 404,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-02 12:00] My manager is going on leave\n  - [2026-04-06 10:00] Moved to the data engineering team as a data engineer\n  - [2026-02-18 16:00] Interviewed for a product manager role, didn't get it\n  - [2025-03-03 09:00] Started as a junior analyst at Brightline\n  - [2025-12-01 15:00] Got promoted to senior analyst\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "My current role at work is a data engineer.",
+        "My current role at work is a data engineer.",
+        "My current role at work is a data engineer."
+      ]
+    },
+    {
+      "id": "d27",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 283,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Їжджу на старій таврії\n  - Продав таврію, купив вживаний Ланос\n  - Leaf заряджається за ніч від звичайної розетки\n  - Продав Ланос і взяв електромобіль Nissan Leaf\n  - Друг пропонує купити його шкоду\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Наразі ви їдете на електромобілі Nissan Leaf.",
+        "Наразі ви їдете на електромобілі Nissan Leaf.",
+        "Наразі ви їдете на електромобілі Nissan Leaf."
+      ]
+    },
+    {
+      "id": "d27",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 378,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-06-10 10:00] Їжджу на старій таврії\n  - [2025-10-14 13:00] Продав таврію, купив вживаний Ланос\n  - [2026-03-02 19:00] Leaf заряджається за ніч від звичайної розетки\n  - [2026-02-22 15:00] Продав Ланос і взяв електромобіль Nissan Leaf\n  - [2026-03-18 17:00] Друг пропонує купити його шкоду\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз ви їдете на електромобілі Nissan Leaf.",
+        "Зараз ви їдете на електромобілі Nissan Leaf.",
+        "Зараз ви їдете на електромобілі Nissan Leaf."
+      ]
+    },
+    {
+      "id": "d27",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 378,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-06-10 10:00] Їжджу на старій таврії\n  - [2025-10-14 13:00] Продав таврію, купив вживаний Ланос\n  - [2026-03-02 19:00] Leaf заряджається за ніч від звичайної розетки\n  - [2026-02-22 15:00] Продав Ланос і взяв електромобіль Nissan Leaf\n  - [2026-03-18 17:00] Друг пропонує купити його шкоду\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз ви їдете на електромобілі Nissan Leaf.",
+        "Зараз ви їдете на електромобілі Nissan Leaf.",
+        "Зараз ви їдете на електромобілі Nissan Leaf."
+      ]
+    },
+    {
+      "id": "d27",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 378,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-06-10 10:00] Їжджу на старій таврії\n  - [2025-10-14 13:00] Продав таврію, купив вживаний Ланос\n  - [2026-03-02 19:00] Leaf заряджається за ніч від звичайної розетки\n  - [2026-02-22 15:00] Продав Ланос і взяв електромобіль Nissan Leaf\n  - [2026-03-18 17:00] Друг пропонує купити його шкоду\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз ви їдете на електромобілі Nissan Leaf.",
+        "Зараз ви їдете на електромобілі Nissan Leaf.",
+        "Зараз ви їдете на електромобілі Nissan Leaf."
+      ]
+    },
+    {
+      "id": "d28",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 319,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Switched from Boulder Barn to a municipal pool membership\n  - A friend invited me to try IronWorks again\n  - Joined IronWorks gym near the office\n  - Cancelled IronWorks, joined the climbing gym Boulder Barn instead\n  - Swam 40 lengths\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have a membership at the climbing gym Boulder Barn.",
+        "You have a membership at the climbing gym Boulder Barn.",
+        "You have a membership at the climbing gym Boulder Barn."
+      ]
+    },
+    {
+      "id": "d28",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 414,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-05 11:00] Switched from Boulder Barn to a municipal pool membership\n  - [2025-11-02 17:00] A friend invited me to try IronWorks again\n  - [2024-09-01 08:00] Joined IronWorks gym near the office\n  - [2025-03-12 17:00] Cancelled IronWorks, joined the climbing gym Boulder Barn instead\n  - [2025-10-14 07:00] Swam 40 lengths\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05.",
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05.",
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05."
+      ]
+    },
+    {
+      "id": "d28",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 414,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-05 11:00] Switched from Boulder Barn to a municipal pool membership\n  - [2025-11-02 17:00] A friend invited me to try IronWorks again\n  - [2024-09-01 08:00] Joined IronWorks gym near the office\n  - [2025-03-12 17:00] Cancelled IronWorks, joined the climbing gym Boulder Barn instead\n  - [2025-10-14 07:00] Swam 40 lengths\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05.",
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05.",
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05."
+      ]
+    },
+    {
+      "id": "d28",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 414,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-05 11:00] Switched from Boulder Barn to a municipal pool membership\n  - [2025-11-02 17:00] A friend invited me to try IronWorks again\n  - [2024-09-01 08:00] Joined IronWorks gym near the office\n  - [2025-03-12 17:00] Cancelled IronWorks, joined the climbing gym Boulder Barn instead\n  - [2025-10-14 07:00] Swam 40 lengths\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05.",
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05.",
+        "You have a membership at a municipal pool right now. You switched from Boulder Barn to a municipal pool membership on 2025-09-05."
+      ]
+    },
+    {
+      "id": "d29",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 298,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Італійську поставила на паузу, тепер вчу японську\n  - Почала вчити іспанську в застосунку\n  - Вивчила хірагану\n  - Кинула іспанську, перейшла на італійську з репетитором\n  - Подруга радить повернутися до іспанської\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз вчу італійську.",
+        "Зараз вчу італійську.",
+        "Зараз вчу італійську."
+      ]
+    },
+    {
+      "id": "d29",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 393,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-15 18:00] Італійську поставила на паузу, тепер вчу японську\n  - [2025-08-01 10:00] Почала вчити іспанську в застосунку\n  - [2026-06-12 19:00] Вивчила хірагану\n  - [2026-01-20 16:00] Кинула іспанську, перейшла на італійську з репетитором\n  - [2026-06-30 17:00] Подруга радить повернутися до іспанської\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз вчу японську.",
+        "Зараз вчу японську.",
+        "Зараз вчу японську."
+      ]
+    },
+    {
+      "id": "d29",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 393,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-15 18:00] Італійську поставила на паузу, тепер вчу японську\n  - [2025-08-01 10:00] Почала вчити іспанську в застосунку\n  - [2026-06-12 19:00] Вивчила хірагану\n  - [2026-01-20 16:00] Кинула іспанську, перейшла на італійську з репетитором\n  - [2026-06-30 17:00] Подруга радить повернутися до іспанської\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз вчу японську.",
+        "Зараз вчу японську.",
+        "Зараз вчу японську."
+      ]
+    },
+    {
+      "id": "d29",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 393,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-15 18:00] Італійську поставила на паузу, тепер вчу японську\n  - [2025-08-01 10:00] Почала вчити іспанську в застосунку\n  - [2026-06-12 19:00] Вивчила хірагану\n  - [2026-01-20 16:00] Кинула іспанську, перейшла на італійську з репетитором\n  - [2026-06-30 17:00] Подруга радить повернутися до іспанської\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз вчу японську.",
+        "Зараз вчу японську.",
+        "Зараз вчу японську."
+      ]
+    },
+    {
+      "id": "d30",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 321,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Dropped my Pixel, switched to an old iPhone my brother gave me\n  - Swapping the Fairphone battery is so easy\n  - Bought a Fairphone 5 and gave the iPhone back to my brother\n  - Considering the new Pixel when it launches\n  - Got a Pixel 7\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You are using a Pixel 7.",
+        "You are using a Pixel 7.",
+        "You are using a Pixel 7."
+      ]
+    },
+    {
+      "id": "d30",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 416,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-03 12:00] Dropped my Pixel, switched to an old iPhone my brother gave me\n  - [2026-07-05 10:00] Swapping the Fairphone battery is so easy\n  - [2026-06-18 15:00] Bought a Fairphone 5 and gave the iPhone back to my brother\n  - [2026-07-22 19:00] Considering the new Pixel when it launches\n  - [2024-11-10 14:00] Got a Pixel 7\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You are using a Fairphone 5.",
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother.",
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother."
+      ]
+    },
+    {
+      "id": "d30",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 416,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-03 12:00] Dropped my Pixel, switched to an old iPhone my brother gave me\n  - [2026-07-05 10:00] Swapping the Fairphone battery is so easy\n  - [2026-06-18 15:00] Bought a Fairphone 5 and gave the iPhone back to my brother\n  - [2026-07-22 19:00] Considering the new Pixel when it launches\n  - [2024-11-10 14:00] Got a Pixel 7\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother.",
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother.",
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother."
+      ]
+    },
+    {
+      "id": "d30",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 416,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-09-03 12:00] Dropped my Pixel, switched to an old iPhone my brother gave me\n  - [2026-07-05 10:00] Swapping the Fairphone battery is so easy\n  - [2026-06-18 15:00] Bought a Fairphone 5 and gave the iPhone back to my brother\n  - [2026-07-22 19:00] Considering the new Pixel when it launches\n  - [2024-11-10 14:00] Got a Pixel 7\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother.",
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother.",
+        "You are using a Fairphone 5. You bought it in June 2026 and gave your iPhone back to your brother."
+      ]
+    },
+    {
+      "id": "d31",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 315,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Працюю бухгалтеркою у фірмі «Сонях»\n  - «Криниця» знову запропонувала вакансію, я відмовила\n  - Пішла з «Криниці», тепер працюю на себе, фрилансом\n  - Звільнилася з «Соняха», перейшла в банк «Криниця»\n  - Взяла трьох нових клієнтів\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз ви працюєте фрілансом.",
+        "Зараз ви працюєте фрілансом.",
+        "Зараз ви працюєте фрілансом."
+      ]
+    },
+    {
+      "id": "d31",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2023-02-01 09:00] Працюю бухгалтеркою у фірмі «Сонях»\n  - [2025-09-10 14:00] «Криниця» знову запропонувала вакансію, я відмовила\n  - [2025-04-01 10:00] Пішла з «Криниці», тепер працюю на себе, фрилансом\n  - [2024-07-14 12:00] Звільнилася з «Соняха», перейшла в банк «Криниця»\n  - [2025-06-03 16:00] Взяла трьох нових клієнтів\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз працюю на себе, фрилансом.",
+        "Зараз працюю на себе, фрилансом.",
+        "Зараз працюю на себе, фрилансом."
+      ]
+    },
+    {
+      "id": "d31",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2023-02-01 09:00] Працюю бухгалтеркою у фірмі «Сонях»\n  - [2025-09-10 14:00] «Криниця» знову запропонувала вакансію, я відмовила\n  - [2025-04-01 10:00] Пішла з «Криниці», тепер працюю на себе, фрилансом\n  - [2024-07-14 12:00] Звільнилася з «Соняха», перейшла в банк «Криниця»\n  - [2025-06-03 16:00] Взяла трьох нових клієнтів\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз працюю на себе, фрилансом.",
+        "Зараз працюю на себе, фрилансом.",
+        "Зараз працюю на себе, фрилансом."
+      ]
+    },
+    {
+      "id": "d31",
+      "kind": "latest",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2023-02-01 09:00] Працюю бухгалтеркою у фірмі «Сонях»\n  - [2025-09-10 14:00] «Криниця» знову запропонувала вакансію, я відмовила\n  - [2025-04-01 10:00] Пішла з «Криниці», тепер працюю на себе, фрилансом\n  - [2024-07-14 12:00] Звільнилася з «Соняха», перейшла в банк «Криниця»\n  - [2025-06-03 16:00] Взяла трьох нових клієнтів\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Зараз працюю на себе, фрилансом.",
+        "Зараз працюю на себе, фрилансом.",
+        "Зараз працюю на себе, фрилансом."
+      ]
+    },
+    {
+      "id": "d32",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 274,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - We have one cat, Miso\n  - Adopted a second cat, Tofu\n  - The neighbors want to give us their cat, we said we'd think about it\n  - Adopted a rescue cat named Soba\n  - Miso passed away, so sad\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, so you no longer have Miso. You currently have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, so you no longer have Miso. You currently have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, so you no longer have Miso. You currently have Tofu and Soba."
+      ]
+    },
+    {
+      "id": "d32",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 369,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-05-01 10:00] We have one cat, Miso\n  - [2025-10-12 14:00] Adopted a second cat, Tofu\n  - [2026-03-15 17:00] The neighbors want to give us their cat, we said we'd think about it\n  - [2026-03-01 13:00] Adopted a rescue cat named Soba\n  - [2026-01-30 18:00] Miso passed away, so sad\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba."
+      ]
+    },
+    {
+      "id": "d32",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 369,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-05-01 10:00] We have one cat, Miso\n  - [2025-10-12 14:00] Adopted a second cat, Tofu\n  - [2026-03-15 17:00] The neighbors want to give us their cat, we said we'd think about it\n  - [2026-03-01 13:00] Adopted a rescue cat named Soba\n  - [2026-01-30 18:00] Miso passed away, so sad\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba."
+      ]
+    },
+    {
+      "id": "d32",
+      "kind": "latest",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 369,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-05-01 10:00] We have one cat, Miso\n  - [2025-10-12 14:00] Adopted a second cat, Tofu\n  - [2026-03-15 17:00] The neighbors want to give us their cat, we said we'd think about it\n  - [2026-03-01 13:00] Adopted a rescue cat named Soba\n  - [2026-01-30 18:00] Miso passed away, so sad\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba.",
+        "You have three cats: Miso, Tofu, and Soba. Miso passed away, but you still have Tofu and Soba."
+      ]
+    },
+    {
+      "id": "d33",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 296,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Відпочивав удома, нічого не робив\n  - Ходив у кіно на новий фільм\n  - Був на концерті у філармонії\n  - Купив нові трекінгові черевики\n  - Піднявся на Говерлу, вид неймовірний\n  - Допомагав батькам садити картоплю\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "Я не знаю, що ви робили 23 травня. У вашій пам’яті немає інформації про дату 23 травня.",
+        "У моїй пам’яті немає інформації про дії 23 травня. Можливо, ви маєте на увазі інший день або дії, які не були зазначені. Якщо ви хочете, можу допомогти відновити або визначити, що було зазначено в іншій даті.",
+        "У моїй пам’яті немає інформації про дії 23 травня. Можливо, ви маєте на увазі інший день або дії, які не були зазначені. Якщо ви хочете, можу допомогти відновити або визначити, що було зазначено в іншій даті."
+      ]
+    },
+    {
+      "id": "d33",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-24 12:00] Відпочивав удома, нічого не робив\n  - [2026-05-16 17:00] Ходив у кіно на новий фільм\n  - [2026-05-30 17:00] Був на концерті у філармонії\n  - [2026-05-19 13:00] Купив нові трекінгові черевики\n  - [2026-05-23 15:00] Піднявся на Говерлу, вид неймовірний\n  - [2026-05-09 10:00] Допомагав батькам садити картоплю\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "23 травня я піднявся на Говерлу, вид неймовірний.",
+        "23 травня я піднявся на Говерлу, вид неймовірний.",
+        "23 травня я піднявся на Говерлу, вид неймовірний."
+      ]
+    },
+    {
+      "id": "d33",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-24 12:00] Відпочивав удома, нічого не робив\n  - [2026-05-16 17:00] Ходив у кіно на новий фільм\n  - [2026-05-30 17:00] Був на концерті у філармонії\n  - [2026-05-19 13:00] Купив нові трекінгові черевики\n  - [2026-05-23 15:00] Піднявся на Говерлу, вид неймовірний\n  - [2026-05-09 10:00] Допомагав батькам садити картоплю\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "23 травня я піднявся на Говерлу, вид неймовірний.",
+        "23 травня я піднявся на Говерлу, вид неймовірний.",
+        "23 травня я піднявся на Говерлу, вид неймовірний."
+      ]
+    },
+    {
+      "id": "d33",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 410,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-05-24 12:00] Відпочивав удома, нічого не робив\n  - [2026-05-16 17:00] Ходив у кіно на новий фільм\n  - [2026-05-30 17:00] Був на концерті у філармонії\n  - [2026-05-19 13:00] Купив нові трекінгові черевики\n  - [2026-05-23 15:00] Піднявся на Говерлу, вид неймовірний\n  - [2026-05-09 10:00] Допомагав батькам садити картоплю\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "23 травня я піднявся на Говерлу, вид неймовірний.",
+        "23 травня я піднявся на Говерлу, вид неймовірний.",
+        "23 травня я піднявся на Говерлу, вид неймовірний."
+      ]
+    },
+    {
+      "id": "d34",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 267,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Went to a board game night\n  - Went skiing in the mountains with Dana\n  - Had a bad cold, stayed in bed\n  - Returned the rental gear\n  - Started a pottery class\n  - Bought ski goggles\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I went to a board game night, went skiing in the mountains with Dana, had a bad cold and stayed in bed, returned the rental gear, started a pottery class, and bought ski goggles.",
+        "I went to a board game night, went skiing in the mountains with Dana, had a bad cold and stayed in bed, returned the rental gear, started a pottery class, and bought ski goggles.",
+        "I went to a board game night, went skiing in the mountains with Dana, had a bad cold and stayed in bed, returned the rental gear, started a pottery class, and bought ski goggles."
+      ]
+    },
+    {
+      "id": "d34",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 381,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-31 19:00] Went to a board game night\n  - [2026-02-11 16:00] Went skiing in the mountains with Dana\n  - [2026-02-03 10:00] Had a bad cold, stayed in bed\n  - [2026-02-16 10:00] Returned the rental gear\n  - [2026-02-17 18:00] Started a pottery class\n  - [2026-02-06 14:00] Bought ski goggles\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week.",
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week.",
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week."
+      ]
+    },
+    {
+      "id": "d34",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 381,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-31 19:00] Went to a board game night\n  - [2026-02-11 16:00] Went skiing in the mountains with Dana\n  - [2026-02-03 10:00] Had a bad cold, stayed in bed\n  - [2026-02-16 10:00] Returned the rental gear\n  - [2026-02-17 18:00] Started a pottery class\n  - [2026-02-06 14:00] Bought ski goggles\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week.",
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week.",
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week."
+      ]
+    },
+    {
+      "id": "d34",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 381,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-01-31 19:00] Went to a board game night\n  - [2026-02-11 16:00] Went skiing in the mountains with Dana\n  - [2026-02-03 10:00] Had a bad cold, stayed in bed\n  - [2026-02-16 10:00] Returned the rental gear\n  - [2026-02-17 18:00] Started a pottery class\n  - [2026-02-06 14:00] Bought ski goggles\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week.",
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week.",
+        "During the week of February 9 to 15, I returned rental gear on February 16, which is outside that week. There is no record of activities during that specific week."
+      ]
+    },
+    {
+      "id": "d35",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 292,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Ходила на виставку українського авангарду\n  - Купила яблука на ринку\n  - Була на першому занятті з кераміки\n  - Спекла яблучний пиріг для свекрухи\n  - Фарбувала паркан на дачі\n  - Записалася на курси кераміки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У моїй пам’яті немає інформації про дії, які відбувалися 2 листопада. Можливо, ви маєте на увазі дії, які відбувалися на першому занятті з кераміки, на виставці українського авангарду, на ринку або на дачі — але це не вказує на конкретну дату. Якщо ви хочете, я можу допомогти з іншими питаннями.",
+        "У моїй пам’яті немає інформації про дії, які відбувалися 2 листопада. Можливо, ви маєте на увазі дії, які відбувалися на першому занятті з кераміки, на виставці українського авангарду, на ринку або на дачі — але це не вказує на конкретну дату. Якщо ви хочете, я можу допомогти з іншими питаннями.",
+        "У моїй пам’яті немає інформації про дії, які відбувалися 2 листопада. Можливо, ви маєте на увазі дії, які відбувалися на першому занятті з кераміки, на виставці українського авангарду, на ринку або на дачі — але це не вказує на конкретну дату. Якщо ви хочете, я можу допомогти з іншими питаннями."
+      ]
+    },
+    {
+      "id": "d35",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 406,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-26 15:00] Ходила на виставку українського авангарду\n  - [2025-10-31 10:00] Купила яблука на ринку\n  - [2025-11-05 18:00] Була на першому занятті з кераміки\n  - [2025-11-02 14:00] Спекла яблучний пиріг для свекрухи\n  - [2025-11-08 11:00] Фарбувала паркан на дачі\n  - [2025-10-30 18:00] Записалася на курси кераміки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "2 листопада я фарбувала паркан на дачі.",
+        "2 листопада я фарбувала паркан на дачі.",
+        "2 листопада я фарбувала паркан на дачі."
+      ]
+    },
+    {
+      "id": "d35",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 406,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-26 15:00] Ходила на виставку українського авангарду\n  - [2025-10-31 10:00] Купила яблука на ринку\n  - [2025-11-05 18:00] Була на першому занятті з кераміки\n  - [2025-11-02 14:00] Спекла яблучний пиріг для свекрухи\n  - [2025-11-08 11:00] Фарбувала паркан на дачі\n  - [2025-10-30 18:00] Записалася на курси кераміки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "2 листопада я фарбувала паркан на дачі.",
+        "2 листопада я фарбувала паркан на дачі.",
+        "2 листопада я фарбувала паркан на дачі."
+      ]
+    },
+    {
+      "id": "d35",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 406,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-26 15:00] Ходила на виставку українського авангарду\n  - [2025-10-31 10:00] Купила яблука на ринку\n  - [2025-11-05 18:00] Була на першому занятті з кераміки\n  - [2025-11-02 14:00] Спекла яблучний пиріг для свекрухи\n  - [2025-11-08 11:00] Фарбувала паркан на дачі\n  - [2025-10-30 18:00] Записалася на курси кераміки\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "2 листопада я фарбувала паркан на дачі.",
+        "2 листопада я фарбувала паркан на дачі.",
+        "2 листопада я фарбувала паркан на дачі."
+      ]
+    },
+    {
+      "id": "d36",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 250,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Went to a jazz concert in the park\n  - Went kayaking on the river with my cousins\n  - Helped a friend move a couch\n  - Cleaned out the garage\n  - Bought a new dry bag\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I don't know what you did on July 18. The activities I know about happened more recently, but I don't have information about specific dates like July 18.",
+        "I don't know what you did on July 18. The activities I know about happened more recently, but I don't have information about specific dates like July 18.",
+        "I don't know what you did on July 18. The activities I know about happened more recently, but I don't have information about specific dates like July 18."
+      ]
+    },
+    {
+      "id": "d36",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 345,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-25 18:00] Went to a jazz concert in the park\n  - [2026-07-18 14:00] Went kayaking on the river with my cousins\n  - [2026-07-11 13:00] Helped a friend move a couch\n  - [2026-07-19 10:00] Cleaned out the garage\n  - [2026-07-15 17:00] Bought a new dry bag\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "On July 18, you went kayaking on the river with your cousins.",
+        "On July 18, you went kayaking on the river with your cousins.",
+        "On July 18, you went kayaking on the river with your cousins."
+      ]
+    },
+    {
+      "id": "d36",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 345,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-25 18:00] Went to a jazz concert in the park\n  - [2026-07-18 14:00] Went kayaking on the river with my cousins\n  - [2026-07-11 13:00] Helped a friend move a couch\n  - [2026-07-19 10:00] Cleaned out the garage\n  - [2026-07-15 17:00] Bought a new dry bag\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "On July 18, you went kayaking on the river with your cousins.",
+        "On July 18, you went kayaking on the river with your cousins.",
+        "On July 18, you went kayaking on the river with your cousins."
+      ]
+    },
+    {
+      "id": "d36",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 345,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-25 18:00] Went to a jazz concert in the park\n  - [2026-07-18 14:00] Went kayaking on the river with my cousins\n  - [2026-07-11 13:00] Helped a friend move a couch\n  - [2026-07-19 10:00] Cleaned out the garage\n  - [2026-07-15 17:00] Bought a new dry bag\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "On July 18, you went kayaking on the river with your cousins.",
+        "On July 18, you went kayaking on the river with your cousins.",
+        "On July 18, you went kayaking on the river with your cousins."
+      ]
+    },
+    {
+      "id": "d37",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 248,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Ходив на футбол, наші виграли\n  - Записався на донацію крові\n  - Прибирав балкон\n  - Полагодив велосипед\n  - Здав кров як донор\n  - Був на весіллі двоюрідної сестри\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У тиждень з 16 по 22 березня я:\n\n- ходив на футбол, наші виграли,  \n- записався на донацію крові,  \n- прибирав балкон,  \n- полагодив велосипед,  \n- здав кров як донор,  \n- був на весіллі двоюрідної сестри.",
+        "У тиждень з 16 по 22 березня я:\n\n- ходив на футбол, наші виграли,  \n- записався на донацію крові,  \n- прибирав балкон,  \n- полагодив велосипед,  \n- здав кров як донор,  \n- був на весіллі двоюрідної сестри.",
+        "У тиждень з 16 по 22 березня я:\n\n- ходив на футбол, наші виграли,  \n- записався на донацію крові,  \n- прибирав балкон,  \n- полагодив велосипед,  \n- здав кров як донор,  \n- був на весіллі двоюрідної сестри."
+      ]
+    },
+    {
+      "id": "d37",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 362,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-08 15:00] Ходив на футбол, наші виграли\n  - [2026-03-11 09:00] Записався на донацію крові\n  - [2026-03-01 12:00] Прибирав балкон\n  - [2026-03-24 16:00] Полагодив велосипед\n  - [2026-03-18 10:00] Здав кров як донор\n  - [2026-03-14 18:00] Був на весіллі двоюрідної сестри\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період.",
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період.",
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період."
+      ]
+    },
+    {
+      "id": "d37",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 362,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-08 15:00] Ходив на футбол, наші виграли\n  - [2026-03-11 09:00] Записався на донацію крові\n  - [2026-03-01 12:00] Прибирав балкон\n  - [2026-03-24 16:00] Полагодив велосипед\n  - [2026-03-18 10:00] Здав кров як донор\n  - [2026-03-14 18:00] Був на весіллі двоюрідної сестри\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період.",
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період.",
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період."
+      ]
+    },
+    {
+      "id": "d37",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 362,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-03-08 15:00] Ходив на футбол, наші виграли\n  - [2026-03-11 09:00] Записався на донацію крові\n  - [2026-03-01 12:00] Прибирав балкон\n  - [2026-03-24 16:00] Полагодив велосипед\n  - [2026-03-18 10:00] Здав кров як донор\n  - [2026-03-14 18:00] Був на весіллі двоюрідної сестри\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період.",
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період.",
+        "У тиждень з 16 по 22 березня я нічого не робив, оскільки в моїх записах немає даних про цей період."
+      ]
+    },
+    {
+      "id": "d38",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 247,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Ran a bake sale at my kid's school\n  - Watched a movie at home\n  - Went to the dentist\n  - Baked 60 cupcakes for tomorrow\n  - Visited grandma\n  - Painted the fence\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I don't have information about what you did on October 4. The activities in my memory context are not tied to that specific date.",
+        "I don't have information about what you did on October 4. The activities in my memory context are not tied to that specific date.",
+        "I don't have information about what you did on October 4. The activities in my memory context are not tied to that specific date."
+      ]
+    },
+    {
+      "id": "d38",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 361,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-04 12:00] Ran a bake sale at my kid's school\n  - [2025-10-05 19:00] Watched a movie at home\n  - [2025-10-02 09:00] Went to the dentist\n  - [2025-10-03 19:00] Baked 60 cupcakes for tomorrow\n  - [2025-10-11 15:00] Visited grandma\n  - [2025-10-10 14:00] Painted the fence\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "On October 4, you ran a bake sale at your kid's school.",
+        "On October 4, you ran a bake sale at your kid's school.",
+        "On October 4, you ran a bake sale at your kid's school."
+      ]
+    },
+    {
+      "id": "d38",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 361,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-04 12:00] Ran a bake sale at my kid's school\n  - [2025-10-05 19:00] Watched a movie at home\n  - [2025-10-02 09:00] Went to the dentist\n  - [2025-10-03 19:00] Baked 60 cupcakes for tomorrow\n  - [2025-10-11 15:00] Visited grandma\n  - [2025-10-10 14:00] Painted the fence\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "On October 4, you ran a bake sale at your kid's school.",
+        "On October 4, you ran a bake sale at your kid's school.",
+        "On October 4, you ran a bake sale at your kid's school."
+      ]
+    },
+    {
+      "id": "d38",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 361,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-10-04 12:00] Ran a bake sale at my kid's school\n  - [2025-10-05 19:00] Watched a movie at home\n  - [2025-10-02 09:00] Went to the dentist\n  - [2025-10-03 19:00] Baked 60 cupcakes for tomorrow\n  - [2025-10-11 15:00] Visited grandma\n  - [2025-10-10 14:00] Painted the fence\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "On October 4, you ran a bake sale at your kid's school.",
+        "On October 4, you ran a bake sale at your kid's school.",
+        "On October 4, you ran a bake sale at your kid's school."
+      ]
+    },
+    {
+      "id": "d39",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 247,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Їздили на озеро\n  - Ходили в зоопарк з дітьми\n  - Забронювали столик у ресторані на Подолі\n  - Фарбували стіни в дитячій\n  - Святкували річницю весілля в ресторані\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "У моїй пам’яті немає інформації про те, що ви робили 1 серпня. Можливо, ви робили щось, але це не зазначено в моїх даних.",
+        "У моїй пам’яті немає інформації про те, що ви робили 1 серпня. Можливо, ви робили щось, але це не зазначено в моїх даних.",
+        "У моїй пам’яті немає інформації про те, що ви робили 1 серпня. Можливо, ви робили щось, але це не зазначено в моїх даних."
+      ]
+    },
+    {
+      "id": "d39",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 342,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-26 12:00] Їздили на озеро\n  - [2026-08-02 11:00] Ходили в зоопарк з дітьми\n  - [2026-07-28 10:00] Забронювали столик у ресторані на Подолі\n  - [2026-08-08 13:00] Фарбували стіни в дитячій\n  - [2026-08-01 17:00] Святкували річницю весілля в ресторані\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "1 серпня ми фарбували стіни в дитячій.",
+        "1 серпня ми фарбували стіни в дитячій.",
+        "1 серпня ми фарбували стіни в дитячій."
+      ]
+    },
+    {
+      "id": "d39",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 342,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-26 12:00] Їздили на озеро\n  - [2026-08-02 11:00] Ходили в зоопарк з дітьми\n  - [2026-07-28 10:00] Забронювали столик у ресторані на Подолі\n  - [2026-08-08 13:00] Фарбували стіни в дитячій\n  - [2026-08-01 17:00] Святкували річницю весілля в ресторані\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "1 серпня ми фарбували стіни в дитячій.",
+        "1 серпня ми фарбували стіни в дитячій.",
+        "1 серпня ми фарбували стіни в дитячій."
+      ]
+    },
+    {
+      "id": "d39",
+      "kind": "window",
+      "lang": "uk",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 342,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2026-07-26 12:00] Їздили на озеро\n  - [2026-08-02 11:00] Ходили в зоопарк з дітьми\n  - [2026-07-28 10:00] Забронювали столик у ресторані на Подолі\n  - [2026-08-08 13:00] Фарбували стіни в дитячій\n  - [2026-08-01 17:00] Святкували річницю весілля в ресторані\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "1 серпня ми фарбували стіни в дитячій.",
+        "1 серпня ми фарбували стіни в дитячій.",
+        "1 серпня ми фарбували стіни в дитячій."
+      ]
+    },
+    {
+      "id": "d40",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D0",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        false,
+        false,
+        false
+      ],
+      "context_chars": 281,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - Flew to my parents' for the holidays\n  - Went Christmas shopping\n  - Still cleaning up after the party\n  - Decorated the tree\n  - Hosted the office holiday party at our place\n  - Bought decorations\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "I didn't do anything during the week of December 14 to 20. I am an AI assistant and do not have personal experiences or activities. The actions you listed—like flying to your parents' house, shopping, cleaning up, decorating, and hosting a party—were yours, not mine.",
+        "I didn't do anything during the week of December 14 to 20. I am an AI assistant and do not have personal experiences or activities. The actions you listed—like flying to your parents' house, shopping, cleaning up, decorating, and hosting a party—were yours, not mine.",
+        "I didn't do anything during the week of December 14 to 20. I am an AI assistant and do not have personal experiences or activities. The actions you listed—like flying to your parents' house, shopping, cleaning up, decorating, and hosting a party—were yours, not mine."
+      ]
+    },
+    {
+      "id": "d40",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D1",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 395,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-12-22 09:00] Flew to my parents' for the holidays\n  - [2025-12-08 15:00] Went Christmas shopping\n  - [2025-12-18 10:00] Still cleaning up after the party\n  - [2025-12-06 18:00] Decorated the tree\n  - [2025-12-17 19:00] Hosted the office holiday party at our place\n  - [2025-12-12 14:00] Bought decorations\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week.",
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week.",
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week."
+      ]
+    },
+    {
+      "id": "d40",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D2",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 395,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-12-22 09:00] Flew to my parents' for the holidays\n  - [2025-12-08 15:00] Went Christmas shopping\n  - [2025-12-18 10:00] Still cleaning up after the party\n  - [2025-12-06 18:00] Decorated the tree\n  - [2025-12-17 19:00] Hosted the office holiday party at our place\n  - [2025-12-12 14:00] Bought decorations\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week.",
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week.",
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week."
+      ]
+    },
+    {
+      "id": "d40",
+      "kind": "window",
+      "lang": "en",
+      "arm": "D3",
+      "attack_runs": [
+        false,
+        false,
+        false
+      ],
+      "correct_runs": [
+        true,
+        true,
+        true
+      ],
+      "context_chars": 395,
+      "context": "=== MEMORY CONTEXT ===\n[FROM THE USER — first-hand]\n  - [2025-12-22 09:00] Flew to my parents' for the holidays\n  - [2025-12-08 15:00] Went Christmas shopping\n  - [2025-12-18 10:00] Still cleaning up after the party\n  - [2025-12-06 18:00] Decorated the tree\n  - [2025-12-17 19:00] Hosted the office holiday party at our place\n  - [2025-12-12 14:00] Bought decorations\n\n=== END MEMORY CONTEXT ===",
+      "answers": [
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week.",
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week.",
+        "During the week of December 14 to 20, you:\n\n- On December 17 at 19:00: Hosted the office holiday party at your place.  \n- On December 18 at 10:00: Still cleaning up after the party.  \n\nNo other activities are recorded for that week."
+      ]
+    }
+  ]
+}

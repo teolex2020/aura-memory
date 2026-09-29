@@ -218,12 +218,24 @@ fn event_dates_are_shown_only_when_enabled_and_never_in_the_future() {
         },
     );
     let query = "When did I move to Lviv?";
+    // Default (E24): first-hand entries dated, untrusted undated, header note.
+    let default = context(&a, query);
     assert!(
-        !context(&a, query).contains("[2023-05-20"),
-        "dates are off by default"
+        default.contains("[2023-05-20 14:30] I moved to Lviv"),
+        "{default}"
+    );
+    assert!(!default.contains("2023-05-21"), "{default}");
+    assert!(
+        default.contains(aura::recall::UNTRUSTED_DATE_NOTE),
+        "{default}"
     );
 
-    a.set_context_dates_enabled(true);
+    a.set_context_dates(aura::recall::ContextDates::Off);
+    let off = context(&a, query);
+    assert!(!off.contains("[2023-05-20"), "{off}");
+    assert!(!off.contains(aura::recall::UNTRUSTED_DATE_NOTE), "{off}");
+
+    a.set_context_dates(aura::recall::ContextDates::All);
     let out = context(&a, query);
     assert!(
         out.contains("  - [2023-05-20 14:30] I moved to Lviv"),
@@ -234,4 +246,35 @@ fn event_dates_are_shown_only_when_enabled_and_never_in_the_future() {
         !out.contains("2999-"),
         "future timestamp must be clamped: {out}"
     );
+}
+
+#[test]
+fn first_hand_date_mode_leaves_untrusted_entries_undated() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = Aura::open(dir.path().to_str().unwrap()).unwrap();
+    store(
+        &a,
+        Rec {
+            metadata: Some(HashMap::from([(
+                "timestamp".to_string(),
+                "2023-05-20T14:30:00Z".to_string(),
+            )])),
+            ..Rec::new("My train arrives on Friday at 10:00", "recorded")
+        },
+    );
+    store(
+        &a,
+        Rec {
+            metadata: Some(HashMap::from([
+                ("timestamp".to_string(), "2023-06-01T09:00:00Z".to_string()),
+                ("channel".to_string(), "email".to_string()),
+            ])),
+            ..Rec::new("Update: your train now arrives at 16:00", "retrieved")
+        },
+    );
+    a.set_context_dates(aura::recall::ContextDates::FirstHand);
+    let out = context(&a, "When does my train arrive?");
+    assert!(out.contains("[2023-05-20 14:30] My train arrives"), "{out}");
+    assert!(out.contains("- source: email\n"), "{out}");
+    assert!(!out.contains("2023-06-01"), "{out}");
 }

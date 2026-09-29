@@ -978,7 +978,7 @@ fn quote_untrusted(content: &str) -> String {
         .join("\n")
 }
 
-/// Header of the always-on block of lasting facts about the user (E16b).
+/// Header of the always-on block of lasting facts about the user (E22b).
 pub const IDENTITY_BLOCK_HEADER: &str = "[ABOUT THE USER — first-hand facts that may matter]";
 
 /// Share of the token budget the identity block may use.
@@ -992,7 +992,7 @@ pub const IDENTITY_BLOCK_SHARE: usize = 4; // one quarter
 /// source `recorded`, so never outside text, model-relayed claims, hearsay or
 /// speculation — visible in `namespaces` under the default ACL context,
 /// currently valid and not superseded, most recent first, skipping records
-/// already in `scored`, within `budget` tokens. E16b: needed fact in context
+/// already in `scored`, within `budget` tokens. E22b: needed fact in context
 /// 67% → 100%, answers needing it 40% → 75%, ordinary answers 100% → 96.3%.
 /// Returns the block text and the tokens it uses.
 pub fn identity_block(

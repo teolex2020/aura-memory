@@ -1682,7 +1682,7 @@ impl Aura {
                     // Novel information — promote, but never into IDENTITY:
                     // novelty is not evidence of a lasting fact about the
                     // user (maintenance promotion requires identity evidence,
-                    // and the identity block trusts this level; E16b found
+                    // and the identity block trusts this level; E22b found
                     // notes like "Janet will take in parcels" promoted there).
                     if let Some(promoted) = effective_level.promote() {
                         if promoted != Level::Identity {

@@ -1,4 +1,4 @@
-# E16: facts that need a reasoning step — preregistered protocol
+# E22: facts that need a reasoning step — preregistered protocol
 
 Date frozen: 2026-09-29, before the dataset existed and before the runner.
 
@@ -62,3 +62,9 @@ is at least 10 pp higher.
 ## Amendment D1 (2026-09-29, before any run)
 
 `data/personas.jsonl` sha256 `9e6976a4795f248d804b4845ed7d8efd7e5eb7eb8cd0655d2febc7de5049261d` (8 personas, 48 inference and 32 control questions). Automatic check issues: []. The author flags p7q1 ("pork" answerable without the fact) and p8q4 (weak link) as weak inference questions; kept as written.
+
+## Note (2026-09-29): renumbered
+
+First recorded as E16/E16b; renumbered to E22/E22b because a parallel
+session had already used E16 (`experiments/auto_capture`). Commit messages
+keep the old number.

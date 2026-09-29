@@ -1,4 +1,4 @@
-//! E16b: the provenance context shows an always-on block of first-hand
+//! E22b: the provenance context shows an always-on block of first-hand
 //! identity facts, and only facts the user stated that the caller may see.
 
 use std::collections::HashMap;

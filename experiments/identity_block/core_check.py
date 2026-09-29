@@ -1,6 +1,6 @@
-"""E16b follow-up: does the core identity block reproduce the tested prototype?
+"""E22b follow-up: does the core identity block reproduce the tested prototype?
 
-Deterministic, no model. For every E16b question: is the needed identity fact
+Deterministic, no model. For every E22b question: is the needed identity fact
 in the core `recall()` context, does any untrusted marker reach the
 first-hand part, and does the core block hold the same facts as the
 prototype K block?

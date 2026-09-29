@@ -1,0 +1,39 @@
+# Experiment registry
+
+One number per experiment. Take the next free number here **before**
+freezing a protocol, and add a row when the result is recorded. Details are
+in each directory's `PROTOCOL.md` and `RESULTS.uk.md`.
+
+Outcome: ✅ gates passed · ❌ gates failed · ◐ partly · — measurement only.
+
+| № | Directory | Question | Outcome | In the core |
+|---|---|---|---|---|
+| E1 | `purge_verification` | Can poisoned records be purged from every surface? | ✅ (found a consolidation data-loss bug) | `purge_record`, strict `delete()` |
+| E1b | `purge_verification_mem0` | Same in mem0 | — deleted text stays in history.db, Qdrant, `history()` | comparison |
+| E2 | `trust_laundering` | Can untrusted evidence become trusted advice? | ✅ after fix | evidence floor for policy hints |
+| E3/E4 | `claim_certainty` | Hearsay and speculation in user claims | ◐ rules weak; LLM hook ✅ | classifier hook; rules opt-in |
+| E5/E6 | `outcome_polarity` | Outcome polarity without keyword lists; embedding clustering | ◐ | structured polarity; clustering opt-in |
+| E7/E9 | `locomo_retrieval` | LoCoMo retrieval, embedding write path, fusion modes | ◐ | embedding log; `family` fusion |
+| E8 | `recall_determinism` | Same input → same recall? | ✅ 0/200 → 200/200 | deterministic tie-breaking |
+| E10 | `context_provenance` | Provenance markers in recall context | ✅ injection 52% → 25% | provenance context |
+| E11 | `sybil_resistance` | Repetition flooding from one untrusted source | ◐ 2 of 4 attack kinds | per-source cap in recall |
+| E12 | `action_gate` | Tool-call argument provenance gate | ✅ | no (prototype) |
+| E12b | `action_gate_inflection` | Gate under inflection and reformatting | ✅ R1 | no (prototype) |
+| E13 | `e2e_vs_mem0` | End-to-end attacks: Aura strict vs mem0 | ✅ correct under attack 94% vs 44% | security profiles |
+| E14 | `default_provenance` | Provenance context by default; channel → source | ◐ H1 failed by one case | channel → source |
+| E14b | `causal_provenance` | Provenance context with causal reasons | ✅ "why" 6/16 → 16/16 | causal provenance context |
+| E15 | `identity_budget` | Identity facts under tight budgets; cache | ✅ | provenance default + cache |
+| E16 | `auto_capture` | Learning from conversations without learning attacks | ◐ K1 ❌ | capture by role |
+| E17 | `extraction_verify` | Verifying where extracted facts come from | ◐ V4, V5 ❌ | — |
+| E18 | `hook_capture` | Capturing Claude Code conversations through hooks | ✅ | `python/aura/capture.py` |
+| E19 | `longmemeval_retrieval` | LongMemEval retrieval: Aura capture vs mem0 | ✅ top-10 95.8% vs 94.2% | — |
+| E20 | `longmemeval_answers` | LongMemEval answers: Aura capture vs mem0 | ✅ 81.7% = 81.7% | — |
+| E21 | `memory_framing` | How memory is framed for the model | ❌ frame adds nothing; "answer only from memory" costs ~4 pp | — |
+| E22 | `reasoned_recall` | Facts that need a reasoning step: identity block vs reasoning hook | ❌ neither passed all gates | — |
+| E22b | `identity_block` | Always-on identity block, powered re-test | ✅ answers needing a fact 40% → 73% | identity block; no novelty promotion into IDENTITY |
+
+E16 was used twice on 2026-09-29 by two sessions; the later pair
+(`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit
+messages keep the old numbers.
+
+Next free number: **E23**.

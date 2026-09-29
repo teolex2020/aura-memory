@@ -1,4 +1,4 @@
-"""E16: facts that need a reasoning step. See PROTOCOL.md.
+"""E22: facts that need a reasoning step. See PROTOCOL.md.
 
 Run in the mem0 venv (reuses the E13 runner for embeddings and the model):
     python run.py [model]   -> results_<model>.json

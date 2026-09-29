@@ -1,6 +1,6 @@
-"""E16b: always-on identity block, powered re-test. See PROTOCOL.md.
+"""E22b: always-on identity block, powered re-test. See PROTOCOL.md.
 
-Reuses the E16 runner (same block construction) and answers every arm 3 times.
+Reuses the E22 runner (same block construction) and answers every arm 3 times.
 Usage (mem0 venv): python run.py [model]  -> results_<model>.json
 """
 

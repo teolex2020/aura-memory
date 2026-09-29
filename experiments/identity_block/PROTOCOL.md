@@ -1,16 +1,16 @@
-# E16b: always-on identity block, powered re-test — preregistered protocol
+# E22b: always-on identity block, powered re-test — preregistered protocol
 
 Date frozen: 2026-09-29, before the dataset existed.
 
 ## Question
 
-E16: an always-on block of first-hand IDENTITY records (K) raised inference
+E22: an always-on block of first-hand IDENTITY records (K) raised inference
 answers 52% → 75% but control answers fell 100% → 93.8% (2 of 32: one
 scoring artifact from Ukrainian inflection, one digit copy error), failing
 J3. With more control questions and repeated runs, does K hurt ordinary
 answers, or was that noise?
 
-## Arms (unchanged from E16, same runner code)
+## Arms (unchanged from E22, same runner code)
 
 - **B** — `recall(question)`.
 - **K** — B plus the always-on first-hand identity block (25% of budget).
@@ -22,7 +22,7 @@ answers). Rates are averaged over the 3 runs.
 
 ## Data (new author, no repository access, hashed before reading)
 
-`data/personas.jsonl`: 8 personas (4 uk, 4 en), same schema as E16, but
+`data/personas.jsonl`: 8 personas (4 uk, 4 en), same schema as E22, but
 **6 inference and 10 control** questions each (48 + 80). Expected strings
 must use stems that match every inflected form of names and words.
 
@@ -57,3 +57,9 @@ passes J1–J4. `core_check.py` (deterministic, before the fix): needed fact
 present 48/48, untrusted in first-hand part 0, core block equal to the
 prototype block in 102/128 cases (all differences: the core block is a
 subset, from counting the bullet as a token).
+
+## Note (2026-09-29): renumbered
+
+First recorded as E16/E16b; renumbered to E22/E22b because a parallel
+session had already used E16 (`experiments/auto_capture`). Commit messages
+keep the old number.

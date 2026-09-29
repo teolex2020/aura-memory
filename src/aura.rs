@@ -257,6 +257,7 @@ pub struct Aura {
     claim_classifier: RwLock<Option<crate::certainty::ClaimClassifier>>,
     claim_rules_enabled: std::sync::atomic::AtomicBool,
     security_profile: std::sync::atomic::AtomicU8,
+    identity_block_enabled: std::sync::atomic::AtomicBool,
     outcome_classifier: RwLock<Option<crate::outcome::OutcomeClassifier>>,
     #[cfg(feature = "capsule")]
     capsule_retention_scheduler:
@@ -1093,6 +1094,7 @@ impl Aura {
             // opt-in; the language-independent path is a host classifier.
             claim_rules_enabled: std::sync::atomic::AtomicBool::new(false),
             security_profile: std::sync::atomic::AtomicU8::new(0),
+            identity_block_enabled: std::sync::atomic::AtomicBool::new(true),
             outcome_classifier: RwLock::new(None),
             #[cfg(feature = "capsule")]
             capsule_retention_scheduler: parking_lot::Mutex::new(None),
@@ -1677,9 +1679,15 @@ impl Aura {
                 let matches = ngram.query(content, 1);
                 let best_sim = matches.first().map(|(s, _)| *s).unwrap_or(0.0);
                 if best_sim < SURPRISE_THRESHOLD {
-                    // Novel information — promote
+                    // Novel information — promote, but never into IDENTITY:
+                    // novelty is not evidence of a lasting fact about the
+                    // user (maintenance promotion requires identity evidence,
+                    // and the identity block trusts this level; E16b found
+                    // notes like "Janet will take in parcels" promoted there).
                     if let Some(promoted) = effective_level.promote() {
-                        effective_level = promoted;
+                        if promoted != Level::Identity {
+                            effective_level = promoted;
+                        }
                     }
                 }
             }
@@ -2409,7 +2417,20 @@ impl Aura {
             },
             |scored| {
                 let records = self.records.read();
-                recall::format_provenance(scored, budget, &records)
+                let (block, used) = if self.identity_block_enabled() {
+                    let default_ns = [crate::record::DEFAULT_NAMESPACE];
+                    recall::identity_block(
+                        &records,
+                        scored,
+                        namespaces.unwrap_or(&default_ns),
+                        budget / recall::IDENTITY_BLOCK_SHARE,
+                    )
+                } else {
+                    (String::new(), 0)
+                };
+                let context =
+                    recall::format_provenance(scored, budget.saturating_sub(used), &records);
+                format!("{block}{context}")
             },
         );
         if let Ok(ref context) = result {
@@ -5681,6 +5702,20 @@ impl Aura {
     pub fn set_claim_rules_enabled(&self, enabled: bool) {
         self.claim_rules_enabled
             .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Show (default) or hide the always-on block of first-hand identity
+    /// facts in the provenance context (see `recall::identity_block`).
+    pub fn set_identity_block_enabled(&self, enabled: bool) {
+        self.identity_block_enabled
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.runtime.clear_recall_caches();
+    }
+
+    /// Whether the provenance context shows the identity block.
+    pub fn identity_block_enabled(&self) -> bool {
+        self.identity_block_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Choose the security profile (see `security::SecurityProfile`).
@@ -18489,6 +18524,12 @@ impl Aura {
     }
 
     /// Enable or disable the built-in phrase rules for claim certainty.
+    /// Show (default) or hide the always-on block of first-hand identity facts.
+    #[pyo3(name = "set_identity_block_enabled")]
+    fn py_set_identity_block_enabled(&self, enabled: bool) {
+        self.set_identity_block_enabled(enabled);
+    }
+
     /// Choose the security profile: "balanced" (default) or "strict".
     #[pyo3(name = "set_security_profile")]
     fn py_set_security_profile(&self, profile: &str) -> PyResult<()> {

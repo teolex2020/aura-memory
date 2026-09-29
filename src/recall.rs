@@ -978,6 +978,71 @@ fn quote_untrusted(content: &str) -> String {
         .join("\n")
 }
 
+/// Header of the always-on block of lasting facts about the user (E16b).
+pub const IDENTITY_BLOCK_HEADER: &str = "[ABOUT THE USER — first-hand facts that may matter]";
+
+/// Share of the token budget the identity block may use.
+pub const IDENTITY_BLOCK_SHARE: usize = 4; // one quarter
+
+/// Always-on block of lasting facts about the user.
+///
+/// Similarity search misses facts a question needs only through a reasoning
+/// step ("can I take amoxicillin?" → "I am allergic to penicillin"; E15:
+/// 11/24 found). The block lists first-hand IDENTITY records — effective
+/// source `recorded`, so never outside text, model-relayed claims, hearsay or
+/// speculation — visible in `namespaces` under the default ACL context,
+/// currently valid and not superseded, most recent first, skipping records
+/// already in `scored`, within `budget` tokens. E16b: needed fact in context
+/// 67% → 100%, answers needing it 40% → 75%, ordinary answers 100% → 96.3%.
+/// Returns the block text and the tokens it uses.
+pub fn identity_block(
+    records: &HashMap<String, Record>,
+    scored: &[(f32, Record)],
+    namespaces: &[&str],
+    budget: usize,
+) -> (String, usize) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64();
+    let shown: HashSet<&str> = scored.iter().map(|(_, r)| r.id.as_str()).collect();
+    let mut facts: Vec<&Record> = records
+        .values()
+        .filter(|r| {
+            r.level == Level::Identity
+                && !shown.contains(r.id.as_str())
+                && in_namespace(r, namespaces)
+                && r.is_valid_at(now)
+                && r.superseded_at.is_none()
+                && crate::certainty::effective_source_type(r) == "recorded"
+        })
+        .collect();
+    facts.sort_by(|a, b| {
+        b.created_at
+            .partial_cmp(&a.created_at)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let mut lines = Vec::new();
+    let mut used = 0usize;
+    for fact in facts {
+        let line = format!("  - {}", fact.content);
+        let cost = estimate_tokens(&line) + 1;
+        if used + cost > budget {
+            break;
+        }
+        used += cost;
+        lines.push(line);
+    }
+    if lines.is_empty() {
+        return (String::new(), 0);
+    }
+    (
+        format!("{IDENTITY_BLOCK_HEADER}\n{}\n\n", lines.join("\n")),
+        used,
+    )
+}
+
 /// Escape an untrusted value shown inline (channel names, causal previews).
 fn inline_untrusted(value: &str) -> String {
     value

@@ -5,6 +5,7 @@ Usage:
     python -m aura maintain ./data --interval 120  # Daemon loop
     python -m aura status ./data                   # Last report
     python -m aura shell ./data                    # Interactive REPL
+    python -m aura capture ./data                  # Claude Code hook: capture a turn
 """
 
 import argparse
@@ -166,6 +167,25 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     run_mcp(path=args.path, password=args.password, security=args.security)
 
 
+def cmd_capture(args: argparse.Namespace) -> None:
+    """Claude Code hook: capture one event (JSON on stdin) into the brain."""
+    if args.print_config:
+        print(json.dumps(claude_code_hooks(args.path), indent=2))
+        return
+    from aura.capture import run_hook
+
+    sys.exit(run_hook(args.path, ingest_now=not args.no_ingest))
+
+
+def claude_code_hooks(path: str) -> dict:
+    """The settings.json "hooks" block that captures every turn into ``path``."""
+    command = f'"{sys.executable}" -m aura capture "{os.path.abspath(path)}"'
+    hook = [{"hooks": [{"type": "command", "command": command, "async": True, "timeout": 30}]}]
+    return {"hooks": {"UserPromptSubmit": hook,
+                      "PostToolUse": [{"matcher": "*", **hook[0]}],
+                      "Stop": hook}}
+
+
 def cmd_shell(args: argparse.Namespace) -> None:
     """Interactive REPL for store/recall/search."""
     brain = Aura(args.path)
@@ -299,6 +319,20 @@ def main():
         help="Print a ready-to-paste client configuration, then exit",
     )
 
+    # capture
+    p_capture = subparsers.add_parser(
+        "capture", help="Claude Code hook: capture a conversation turn (JSON on stdin)")
+    p_capture.add_argument(
+        "path",
+        nargs="?",
+        default=os.environ.get("AURA_BRAIN_PATH", "./aura_brain"),
+        help="Path to brain data directory (default: AURA_BRAIN_PATH or ./aura_brain)",
+    )
+    p_capture.add_argument("--no-ingest", action="store_true",
+                           help="Only spool the event; leave ingesting to the MCP server")
+    p_capture.add_argument("--print-config", action="store_true",
+                           help="Print the Claude Code settings.json hooks block, then exit")
+
     # serve
     p_serve = subparsers.add_parser("serve", help="Run legacy HTTP+SSE and REST server")
     p_serve.add_argument("path", nargs="?", default="./aura_brain",
@@ -325,6 +359,8 @@ def main():
         cmd_shell(args)
     elif args.command == "mcp":
         cmd_mcp(args)
+    elif args.command == "capture":
+        cmd_capture(args)
     elif args.command == "serve":
         from aura.mcp_http import run_http
         run_http(path=args.path, host=args.host, port=args.port, password=args.password,

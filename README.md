@@ -1185,6 +1185,34 @@ Once connected, the client receives 11 tools:
 > After connecting, tell the agent: *"Before answering, recall relevant context
 > from Aura. Store only durable facts, decisions, and useful patterns."*
 
+### Automatic capture in Claude Code
+
+The MCP tools store only what the model decides to store. To remember every
+conversation instead, add Aura as a Claude Code hook:
+
+```bash
+python -m aura capture ./aura_brain --print-config
+```
+
+Merge the printed `hooks` block into `~/.claude/settings.json` (all projects)
+or `.claude/settings.json` (one project). Each turn is then stored verbatim,
+with its source taken from where it came from, never from what it says:
+
+| Event | Stored as |
+|------|---------|
+| your prompt | first-hand (`user-claude-code`) |
+| a tool's output — web page, file, MCP tool | untrusted data (`web`, `file`, `mcp:<server>`, `tool`) |
+| Claude's reply | model-written (`agent-claude-code`) |
+| Aura's own tool results | not stored |
+
+The hooks run in the background and only drop each event into
+`<brain>.inbox/`; the Aura MCP server stores them before its next tool call
+(or the hook does, when no server holds the brain). On 264 attack and utility
+cases, capture through the hooks matched direct role-split writes: injected
+content steered 10.5% of later answers (mem0 with the same capture: 30.5%),
+and every prompt was kept verbatim as first-hand
+(`experiments/hook_capture`, `experiments/auto_capture`).
+
 For remote automation, `aura serve` exposes REST plus the legacy HTTP+SSE MCP
 transport. Install its optional dependencies with
 `python -m pip install "aura-memory[http]"`. New local MCP integrations should

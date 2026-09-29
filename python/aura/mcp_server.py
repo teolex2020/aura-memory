@@ -48,7 +48,14 @@ def _parse_level(s: str) -> Level:
 class AuraMcpServer:
     def __init__(self, path: str, password: str = None, security: str = None):
         security = security or os.environ.get("AURA_SECURITY")
+        self.path = path
         self.brain = Aura(path, password=password or None, security=security or None)
+
+    def ingest_captured(self) -> int:
+        """Store conversation turns spooled by the Claude Code capture hook (E18)."""
+        from aura.capture import ingest
+
+        return ingest(self.brain, self.path)
 
     # ── MCP Tools ──
 
@@ -324,6 +331,10 @@ class AuraMcpServer:
             if not handler:
                 return self._error(msg_id, -32601, f"Unknown tool: {tool_name}")
             try:
+                try:
+                    self.ingest_captured()
+                except Exception:  # noqa: BLE001 - capture must never break a tool call
+                    pass
                 result_text = getattr(self, handler)(tool_args)
                 return self._result(msg_id, {
                     "content": [{"type": "text", "text": result_text}],

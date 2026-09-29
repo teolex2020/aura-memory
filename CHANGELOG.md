@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Conversation capture from Claude Code hooks.** `python -m aura capture <brain>` is a hook command for `UserPromptSubmit`, `PostToolUse` and `Stop` (`--print-config` prints the `settings.json` block). The prompt is stored verbatim as first-hand (`user-claude-code`), tool output as untrusted (`web`, `file`, `mcp:<server>`, `tool`), Claude's reply as model-written (`agent-claude-code`); Aura's own MCP tool results are skipped. Because the MCP server keeps the brain locked, the hook writes each event to `<brain>.inbox/` (~0.08 s) and the Python MCP server ingests it before its next tool call; the hook ingests itself when the brain is free. Evidence: storing conversations by role beat LLM fact extraction (E16/E17: extraction let forged claims through as the user's words, or dropped the user's words when checked), and through the real hook path on the E16 cases injected content steered 10.5% of later answers vs 10.0% for direct writes and 30.5% for mem0, with every prompt kept verbatim as first-hand (`experiments/auto_capture`, `extraction_verify`, `hook_capture`). The Rust MCP and HTTP servers do not read the inbox yet.
+
 ### Changed
 
 - Aura is plain MIT with no additional patent or commercial-licensing terms. The `PATENT` notice, the license-enforcement module that ran at library load (`ctor`), and the `ctor`/`base64` dependencies are removed. The dashboard `/stats` response no longer has a `license` field and reports the real package version.

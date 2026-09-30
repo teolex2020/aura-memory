@@ -33,8 +33,12 @@ Outcome: ✅ gates passed · ❌ gates failed · ◐ partly · — measurement o
 | E22b | `identity_block` | Always-on identity block, powered re-test | ✅ answers needing a fact 40% → 73% | identity block; no novelty promotion into IDENTITY |
 | E23 | `context_dates` | Event dates in the provenance context | ❌ time questions 25% → 67.5%, but a newer untrusted date raised attack success 11.5% → 18.3% | superseded by E24; capture stores event time |
 | E24 | `first_hand_dates` | Dates on first-hand memory only; header note against newer-looking "updates" | ✅ D3: time questions 25% → 67.5%, attack success 31.0% → 28.2% | default `first_hand` dates + untrusted header note |
+| E25 | `final_vs_mem0` | Aura defaults vs mem0 end to end (qwen 4B gated; gemma, qwen3-vl 8B reported) | running | — |
+| E26 | `context_order` | Order inside the provenance context (untrusted first, relevance order, date only) | running | — |
+| E27 | `amb_aura` | Aura on the Agent Memory Benchmark (LongMemEval 120, PersonaMem 589) | pending | — |
+
 E16 was used twice on 2026-09-29 by two sessions; the later pair
 (`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit
 messages keep the old numbers.
 
-Next free number: **E25**.
+Next free number: **E28**.

@@ -35,7 +35,7 @@ Outcome: ✅ gates passed · ❌ gates failed · ◐ partly · — measurement o
 | E24 | `first_hand_dates` | Dates on first-hand memory only; header note against newer-looking "updates" | ✅ D3: time questions 25% → 67.5%, attack success 31.0% → 28.2% | default `first_hand` dates + untrusted header note |
 | E25 | `final_vs_mem0` | Aura defaults vs mem0 end to end (qwen 4B gated; gemma, gemini-3.1-flash-lite reported) | ◐ F1–F4 ✅ attack success 21.7% vs 73.8% (flash-lite 0% vs 90%); F5 ❌ helpfulness 74% vs labelled mem0 83% | — |
 | E26 | `context_order` | Order inside the provenance context (untrusted first, relevance order, date only) | ❌ helps gemma (57.5% → 28.3%), hurts qwen and flash-lite | — (default unchanged) |
-| E27 | `amb_aura` | Aura on the Agent Memory Benchmark (LongMemEval 120, PersonaMem 589) | pending | — |
+| E27 | `amb_aura` | Aura on the Agent Memory Benchmark (LongMemEval 120, PersonaMem 128 of 589 — daily quota) | ✅ A1: LongMemEval 76.7% vs hybrid-search 65.8% (hindsight 91.7%); PersonaMem 82.0% vs 85.2–85.9%; context 10–20× shorter; preferences weak (6/20) | adapter only |
 
 E16 was used twice on 2026-09-29 by two sessions; the later pair
 (`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit

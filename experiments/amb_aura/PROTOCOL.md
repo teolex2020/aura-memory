@@ -45,3 +45,13 @@ to exactly the question ids Aura answered.
 Reported: accuracy vs hindsight and cognee, per category, context tokens,
 retrieval time, cost. Aura's context is much shorter than the others'
 (~1–2k vs 12–43k tokens); this is reported, not adjusted.
+
+## Amendment D1 (2026-09-30, after 2 paid answers, before any result was used)
+
+The harness's LongMemEval prompt uses `json.dumps(raw_response)` instead of
+the formatted context whenever a provider returns a raw response. The first
+adapter returned `{"sources": [...]}`, so the model saw only session ids and
+answered "the context lacks the information" although the answer was the
+first line of Aura's context. The run was stopped after the first answers
+(kept in `aborted/`, not scored); the adapter now returns no raw response,
+and the run restarts from scratch.

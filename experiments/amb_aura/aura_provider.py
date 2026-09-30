@@ -145,4 +145,6 @@ class AuraMemoryProvider(MemoryProvider):
             if doc_id and doc_id not in sources:
                 sources.append(doc_id)
         doc = Document(id=f"aura:{user_id or 'default'}", content=context, source_ids=sources)
-        return [doc], {"sources": sources}
+        # No raw response: the harness's LongMemEval prompt substitutes a raw
+        # response for the formatted context when one is returned.
+        return [doc], None

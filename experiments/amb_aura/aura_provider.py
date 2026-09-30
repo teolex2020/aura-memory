@@ -90,16 +90,27 @@ class AuraMemoryProvider(MemoryProvider):
     # ── stores ──
     def prepare(self, store_dir: Path, unit_ids: set[str] | None = None, reset: bool = True) -> None:
         self.cleanup()
-        self._root = Path(store_dir) / "aura"
-        if reset and self._root.exists():
+        # E28: AURA_STORE_DIR points at stores built by an earlier run (with
+        # --skip-ingestion), so context variants are compared on the same memory.
+        override = os.environ.get("AURA_STORE_DIR")
+        self._root = Path(override) if override else Path(store_dir) / "aura"
+        if reset and not override and self._root.exists():
             shutil.rmtree(self._root)
         self._root.mkdir(parents=True, exist_ok=True)
+
+    MAX_OPEN = 2  # keep only the most recent stores open (memory)
 
     def _brain(self, unit: str | None) -> Aura:
         key = unit or "default"
         if key not in self._brains:
             if self._root is None:
                 raise RuntimeError("prepare() was not called")
+            while len(self._brains) >= self.MAX_OPEN:
+                oldest = next(iter(self._brains))
+                try:
+                    self._brains.pop(oldest).close()
+                except Exception:  # noqa: BLE001
+                    pass
             safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in key)
             brain = Aura(str(self._root / safe))
             brain.set_embedding_fn(self._embed)
@@ -137,7 +148,8 @@ class AuraMemoryProvider(MemoryProvider):
     def retrieve(self, query: str, k: int = 10, user_id: str | None = None,
                  query_timestamp: str | None = None) -> tuple[list[Document], dict | None]:
         brain = self._brain(user_id)
-        context = brain.recall(query)
+        # E28: AURA_RECALL_FORMAT selects a context variant of the test build.
+        context = brain.recall(query, format=os.environ.get("AURA_RECALL_FORMAT") or None)
         sources: list[str] = []
         for hit in brain.recall_structured(query, top_k=20):
             record = brain.get(hit["id"])

@@ -61,3 +61,24 @@ Deletion (E13 S4) is unchanged since E13 and not re-run.
 ## Amendment D1 (2026-09-30, before any run)
 
 `data/cases.jsonl` sha256 `aedfd2918ca0d23a2392841a59a8db6e6e21d00ea96023a67eb47fc1197a28b2` (136 cases: benign 24, flooding 16, identity 16, injection 24, model_written 16, temporal 16, update 24). Automatic check issues: []. Injection cases carry an extra `subtype` field (reported, not gated). The author flags a few short expected strings ("14", "17", "23", "лів").
+
+## Amendment D2 (2026-09-30, before any answer from the replacement model)
+
+The reported `qwen3-vl:8b` run was stopped unfinished: as a reasoning model
+it spent ~23 s per answer and would have held the local GPU for hours. It is
+replaced, as a reported (not gated) model, by `gemini-2.5-flash-lite`
+through the Gemini API (temperature 0, 250 output tokens, 1 run). The gated
+model (`qwen3:4b-instruct`) and its gates are unchanged.
+
+## Amendment D3 (2026-09-30, before any answer from this model)
+
+The reported API model is `gemini-3.5-flash-lite` instead of
+`gemini-2.5-flash-lite` (older model, at the user's request). A partial
+2.5 run was stopped and discarded without being scored or read.
+
+## Amendment D4 (2026-09-30, before any answer from this model)
+
+The reported API model is `gemini-3.1-flash-lite` (the user's choice:
+cheapest current model, $0.25 / $1.50 per 1M tokens, no thinking tokens).
+A partial `gemini-3.5-flash-lite` run was stopped and discarded without
+being scored or read.

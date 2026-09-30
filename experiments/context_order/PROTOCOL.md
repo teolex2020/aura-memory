@@ -56,3 +56,23 @@ default stays C.
 ## Amendment D1 (2026-09-30, before any run)
 
 `data/cases.jsonl` sha256 `44f290e9b593a01188f031f49cc54f7f9c08bf5705ae6c046e0e27d459f2455d` (136 cases: benign 24, flooding 16, identity 16, injection 24, model_written 16, temporal 16, update 24). Automatic check issues: []. The author notes bare-number expected strings (e.g. "17", "39") and the loose stem "сім" in mw-uk-05; temporal cases contain no which-came-first questions. Test build: `patches/variants.py` applied to `ebaf9cc`.
+
+## Amendment D2 (2026-09-30, before any E26 run)
+
+The reported third model `qwen3-vl:8b` (~23 s per answer) is replaced by
+`gemini-2.5-flash-lite` through the Gemini API (temperature 0, 250 output
+tokens, 1 run), reported only. The two gated models and all gates are
+unchanged.
+
+## Amendment D3 (2026-09-30, before any answer from this model)
+
+The reported API model is `gemini-3.5-flash-lite` instead of
+`gemini-2.5-flash-lite` (older model, at the user's request). A partial
+2.5 run was stopped and discarded without being scored or read.
+
+## Amendment D4 (2026-09-30, before any answer from this model)
+
+The reported API model is `gemini-3.1-flash-lite` (the user's choice:
+cheapest current model, $0.25 / $1.50 per 1M tokens, no thinking tokens).
+A partial `gemini-3.5-flash-lite` run was stopped and discarded without
+being scored or read.

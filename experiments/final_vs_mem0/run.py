@@ -36,8 +36,45 @@ def iso(at: datetime) -> str:
     return at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _gemini_key() -> str:
+    import re
+    for line in (HERE.parents[1] / ".env").read_text(encoding="utf-8").splitlines():
+        m = re.match(r"\s*GOOGLE_API_KEY\s*=\s*['\"]?([^'\"\s]+)", line)
+        if m:
+            return m.group(1)
+    raise SystemExit("GOOGLE_API_KEY not found in .env")
+
+
+def ask_gemini(model: str, system: str, user: str) -> str:
+    """Gemini API answer (temperature 0, 250 output tokens), retried on rate limits."""
+    import time
+    import urllib.error
+    body = json.dumps({
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 250},
+    }).encode()
+    for attempt in range(8):
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            data=body, headers={"x-goog-api-key": _gemini_key(), "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as response:
+                data = json.loads(response.read())
+            parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+            return "".join(p.get("text", "") for p in parts)
+        except urllib.error.HTTPError as err:
+            if err.code in (429, 500, 503) and attempt < 7:
+                time.sleep(2 ** attempt)
+                continue
+            raise
+    return ""
+
+
 def ask(model: str, now: str, user: str) -> str:
     system = e13.SYSTEM + f" Current date and time: {now}."
+    if model.startswith("gemini"):
+        return ask_gemini(model, system, user)
     thinking = "vl" in model  # qwen3-vl always reasons before answering
     body = json.dumps({
         "model": model, "stream": False, "think": False,

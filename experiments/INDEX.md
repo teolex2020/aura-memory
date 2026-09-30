@@ -37,9 +37,10 @@ Outcome: ✅ gates passed · ❌ gates failed · ◐ partly · — measurement o
 | E26 | `context_order` | Order inside the provenance context (untrusted first, relevance order, date only) | ❌ helps gemma (57.5% → 28.3%), hurts qwen and flash-lite | — (default unchanged) |
 | E27 | `amb_aura` | Aura on the Agent Memory Benchmark (LongMemEval 120, PersonaMem 128 of 589 — daily quota) | ✅ A1: LongMemEval 76.7% vs hybrid-search 65.8% (hindsight 91.7%); PersonaMem 82.0% vs 85.2–85.9%; context 10–20× shorter; preferences weak (6/20) | adapter only |
 | E28 | `context_breadth` | How many records the provenance context carries (10 / 20 / 40 / relevance-trimmed) | ❌ B1 (PersonaMem flat 71.5–73.9%); reported: relevance trim +9.2 pp on LongMemEval (75.0 → 84.2%, preferences 7 → 13/20) | — |
+| E29 | `relevance_trim` | Confirm relevance-trimmed context on unseen LongMemEval questions | ✅ unseen LongMemEval 81.8% → 88.2%, PersonaMem −0.1, attacks on qwen +2.6 (within gates) | relevance-trimmed default recall (pool 40, cut 0.5, min 5, 8192 tokens) |
 
 E16 was used twice on 2026-09-29 by two sessions; the later pair
 (`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit
 messages keep the old numbers.
 
-Next free number: **E29**.
+Next free number: **E30**.

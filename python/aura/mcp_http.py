@@ -123,7 +123,7 @@ def _handle_tool(name: str, args: dict) -> str:
 
     if name == "recall":
         # Model-facing context: untrusted memory is fenced and quoted (E10).
-        return brain.recall(args["query"], token_budget=args.get("token_budget", 2048),
+        return brain.recall(args["query"], token_budget=args.get("token_budget"),
                             format="provenance")
 
     if name == "recall_structured":
@@ -321,7 +321,7 @@ class StoreRequest(BaseModel):
 
 class RecallRequest(BaseModel):
     query: str
-    token_budget: int = 2048
+    token_budget: int | None = None
     top_k: int = 20
 
 @app.post("/store")

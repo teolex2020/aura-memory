@@ -58,7 +58,9 @@ fn block_shows_a_fact_search_would_miss() {
         None,
         None,
     );
-    for i in 0..30 {
+    // More matching notes than the recall pool (RELEVANCE_POOL = 40), so
+    // search alone cannot reach the fact.
+    for i in 0..80 {
         put(
             &a,
             &format!("Pharmacy note {i}: Augmentin stock arrived, shelf {i}"),
@@ -180,8 +182,20 @@ fn block_respects_its_budget_share_and_can_be_disabled() {
         .filter(|l| l.starts_with("  - "))
         .count();
     assert!(lines > 0 && lines < 60, "{lines} lines: {context}");
-    // Most recent first.
-    assert!(block_of(&context).contains("number 59"), "{context}");
+    // Most recent first among the facts the block shows (the newest ones
+    // may already be in the recalled part of the context).
+    let numbers: Vec<u32> = block_of(&context)
+        .lines()
+        .filter_map(|l| {
+            l.split("number ")
+                .nth(1)?
+                .split_whitespace()
+                .next()?
+                .parse()
+                .ok()
+        })
+        .collect();
+    assert!(numbers.windows(2).all(|w| w[0] > w[1]), "{numbers:?}");
 
     a.set_identity_block_enabled(false);
     let off = a

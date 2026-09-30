@@ -63,6 +63,11 @@ pub struct Record {
     /// This is distinct from `valid_until`, which describes business time.
     #[serde(default)]
     pub superseded_at: Option<f64>,
+    /// Fused retrieval relevance of a copy returned by recall, before recency
+    /// and trust weighting (used to trim the provenance context, E29). Never
+    /// stored or serialized; `None` on stored records.
+    #[serde(skip)]
+    pub recall_relevance: Option<f32>,
     /// Classification tags.
     pub tags: Vec<String>,
     /// Bidirectional connections to other records (id → weight).
@@ -226,6 +231,7 @@ impl Record {
             valid_from: None,
             valid_until: None,
             superseded_at: None,
+            recall_relevance: None,
             tags: Vec::new(),
             connections: HashMap::new(),
             connection_types: HashMap::new(),

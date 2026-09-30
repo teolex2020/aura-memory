@@ -278,3 +278,33 @@ fn first_hand_date_mode_leaves_untrusted_entries_undated() {
     assert!(out.contains("- source: email\n"), "{out}");
     assert!(!out.contains("2023-06-01"), "{out}");
 }
+
+#[test]
+fn provenance_recall_trims_by_relevance_and_keeps_stored_records_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_str().unwrap().to_string();
+    let a = Aura::open(&path).unwrap();
+    let shoes = store(
+        &a,
+        Rec::new("My favourite running shoes are Brooks Ghost 15", "recorded"),
+    );
+    for i in 0..45 {
+        store(
+            &a,
+            Rec::new(
+                &format!("Garden note {i}: the tomatoes on bed {i} need watering"),
+                "recorded",
+            ),
+        );
+    }
+    let out = context(&a, "What brand are my favourite running shoes?");
+    assert!(out.contains("Brooks Ghost 15"), "{out}");
+    let entries = out.lines().filter(|l| l.starts_with("  - ")).count();
+    assert!(entries <= aura::recall::RELEVANCE_POOL, "{entries} entries");
+    a.flush().unwrap();
+    // The recall-time relevance never reaches the stored record.
+    assert_eq!(a.get(&shoes).unwrap().recall_relevance, None);
+    drop(a);
+    let reopened = Aura::open(&path).unwrap();
+    assert_eq!(reopened.get(&shoes).unwrap().recall_relevance, None);
+}

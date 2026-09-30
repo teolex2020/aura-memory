@@ -832,6 +832,7 @@ pub fn apply_recency_scoring(
     let config = trust_config.unwrap_or(&default_config);
 
     for (score, rec) in matched.iter_mut() {
+        rec.recall_relevance = Some(*score);
         let effective_trust =
             trust::compute_effective_trust(&rec.metadata, now_unix, config, &rec.source_type);
         *score = *score * rec.strength * effective_trust;
@@ -976,6 +977,41 @@ fn quote_untrusted(content: &str) -> String {
         .map(|line| format!("    │ {line}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Candidates the provenance context is chosen from (E29).
+pub const RELEVANCE_POOL: usize = 40;
+/// A candidate stays if its relevance is at least this share of the best one.
+pub const RELEVANCE_CUT: f32 = 0.5;
+/// The most relevant candidates kept regardless of the cut.
+pub const RELEVANCE_MIN_KEEP: usize = 5;
+/// Default token budget of the provenance context (E28/E29 were measured
+/// with it; the trimmed context was ~2.6–2.9k tokens in practice).
+pub const PROVENANCE_DEFAULT_BUDGET: usize = 8192;
+
+/// Keep, in order, the first `min_keep` records and every later record whose
+/// relevance (`Record::recall_relevance`) is at least `cut` × the best one.
+///
+/// E29 (preregistered, unseen LongMemEval questions): 40 candidates trimmed
+/// this way answered 88.2% vs 81.8% for the plain top 20 (preferences 4 →
+/// 6/10, multi-session 15 → 17/20, time 13 → 15/20), with PersonaMem
+/// unchanged (72.7% vs 72.8%) and injection success within noise on a
+/// small model (26.3% vs 23.7%). Unrelated but true user statements no
+/// longer crowd the context and pull answers off topic.
+pub fn trim_by_relevance(scored: &mut Vec<(f32, Record)>, cut: f32, min_keep: usize) {
+    let relevance = |rec: &Record| rec.recall_relevance.unwrap_or(0.0);
+    let best = scored
+        .iter()
+        .map(|(_, rec)| relevance(rec))
+        .fold(0.0f32, f32::max);
+    let mut kept = 0usize;
+    scored.retain(|(_, rec)| {
+        let keep = kept < min_keep || relevance(rec) >= cut * best;
+        if keep {
+            kept += 1;
+        }
+        keep
+    });
 }
 
 /// Header of the always-on block of lasting facts about the user (E22b).
@@ -2768,6 +2804,39 @@ pub fn apply_policy_rerank(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trim_by_relevance_keeps_order_minimum_and_share_of_best() {
+        let make = |text: &str, relevance: f32| {
+            let mut rec = Record::new(text.into(), crate::levels::Level::Domain);
+            rec.recall_relevance = Some(relevance);
+            (relevance, rec)
+        };
+        let mut scored = vec![
+            make("a", 0.9),
+            make("b", 0.1),
+            make("c", 0.8),
+            make("d", 0.2),
+            make("e", 0.05),
+            make("f", 0.6),
+            make("g", 0.3),
+            make("h", 0.45),
+        ];
+        trim_by_relevance(&mut scored, 0.5, 2);
+        let kept: Vec<&str> = scored.iter().map(|(_, r)| r.content.as_str()).collect();
+        // First two always; then only relevance >= 0.45 (half of 0.9).
+        assert_eq!(kept, vec!["a", "b", "c", "f", "h"]);
+    }
+
+    #[test]
+    fn recall_relevance_is_never_serialized() {
+        let mut rec = Record::new("x".into(), crate::levels::Level::Domain);
+        rec.recall_relevance = Some(0.7);
+        let json = serde_json::to_string(&rec).unwrap();
+        assert!(!json.contains("recall_relevance"), "{json}");
+        let back: Record = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.recall_relevance, None);
+    }
 
     #[test]
     fn provenance_format_separates_and_quotes_untrusted_memory() {

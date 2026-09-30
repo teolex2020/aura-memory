@@ -2397,7 +2397,7 @@ impl Aura {
             // so cached context is unsafe for temporally bounded namespaces.
             self.runtime.clear_recall_caches();
         }
-        let budget = token_budget.unwrap_or(2048);
+        let budget = token_budget.unwrap_or(recall::PROVENANCE_DEFAULT_BUDGET);
         let result = RecallService::recall_formatted(
             &self.runtime.recall_cache,
             "provenance",
@@ -2408,14 +2408,21 @@ impl Aura {
             session_id,
             namespaces,
             || {
-                self.recall_core(
+                // A wider pool trimmed by relevance (E29).
+                let mut scored = self.recall_core(
                     query,
-                    20,
+                    recall::RELEVANCE_POOL,
                     min_strength.unwrap_or(0.1),
                     expand_connections.unwrap_or(true),
                     session_id,
                     namespaces,
-                )
+                )?;
+                recall::trim_by_relevance(
+                    &mut scored,
+                    recall::RELEVANCE_CUT,
+                    recall::RELEVANCE_MIN_KEEP,
+                );
+                Ok(scored)
             },
             |scored| {
                 let records = self.records.read();

@@ -38,6 +38,21 @@ from aura_provider import AuraMemoryProvider  # noqa: E402
 
 REGISTRY["aura"] = AuraMemoryProvider
 
+# E29: AMB_EXCLUDE_IDS names a file of question ids to leave out before the
+# per-category limit is applied, so a run can take the next unseen questions.
+_exclude_path = os.environ.get("AMB_EXCLUDE_IDS")
+if _exclude_path:
+    from memory_bench.dataset.longmemeval import LongMemEvalDataset
+
+    _excluded = set(Path(_exclude_path).read_text(encoding="utf-8").split())
+    _original_load_queries = LongMemEvalDataset.load_queries
+
+    def _load_queries(self, split, category=None, limit=None):
+        kept = [q for q in _original_load_queries(self, split, category, None) if q.id not in _excluded]
+        return kept[:limit] if limit else kept
+
+    LongMemEvalDataset.load_queries = _load_queries
+
 from memory_bench.cli import app  # noqa: E402
 
 if __name__ == "__main__":

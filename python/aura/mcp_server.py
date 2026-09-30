@@ -61,7 +61,7 @@ class AuraMcpServer:
 
     def tool_recall(self, params: dict) -> str:
         query = params["query"]
-        budget = params.get("token_budget", 2048)
+        budget = params.get("token_budget")  # None: the core default (8192)
         # Model-facing context: untrusted memory is fenced and quoted (E10).
         return self.brain.recall(query, token_budget=budget, format="provenance")
 
@@ -171,7 +171,7 @@ class AuraMcpServer:
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Natural language query to search memories."},
-                    "token_budget": {"type": "integer", "description": "Maximum tokens in output (default: 2048)."},
+                    "token_budget": {"type": "integer", "description": "Maximum tokens in output (default: 8192)."},
                 },
                 "required": ["query"],
             },

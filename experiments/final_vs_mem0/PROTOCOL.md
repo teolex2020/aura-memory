@@ -82,3 +82,11 @@ The reported API model is `gemini-3.1-flash-lite` (the user's choice:
 cheapest current model, $0.25 / $1.50 per 1M tokens, no thinking tokens).
 A partial `gemini-3.5-flash-lite` run was stopped and discarded without
 being scored or read.
+
+## Amendment D5 (2026-10-01, re-run on a new default build)
+
+Since the first run the default `recall()` changed: relevance-trimmed context
+(E29; build `532565d`). The same data, arms, runner and gates are re-run on
+that build to check the comparison with mem0 still holds: `qwen3:4b-instruct`
+(3 runs, gated), `gemma3n:e4b` and `gemini-3.1-flash-lite` (1 run, reported).
+First-run results are kept as `results_*_ebaf9cc.json`.

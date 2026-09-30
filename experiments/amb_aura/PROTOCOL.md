@@ -55,3 +55,15 @@ answered "the context lacks the information" although the answer was the
 first line of Aura's context. The run was stopped after the first answers
 (kept in `aborted/`, not scored); the adapter now returns no raw response,
 and the run restarts from scratch.
+
+## Amendment D2 (2026-09-30, after the quota stop, before any new answer)
+
+The daily quota of `gemini-3.1-pro` (250 requests per project) stopped
+PersonaMem after 128 of 589 questions (kept as a partial result). At the
+user's request PersonaMem continues with another answer model,
+`gemini-3.1-flash-lite`. The shipped results were produced with
+`gemini-3.1-pro-preview`, so they are no longer a like-for-like baseline:
+the harness's own `hybrid-search` baseline (local) is re-run with the same
+new model on all 589 questions, next to Aura. Judge unchanged
+(`gemini-2.5-flash-lite`). Gate A1 for PersonaMem is evaluated against this
+re-run hybrid-search.

@@ -36,7 +36,7 @@ Outcome: ✅ gates passed · ❌ gates failed · ◐ partly · — measurement o
 | E25 | `final_vs_mem0` | Aura defaults vs mem0 end to end (qwen 4B gated; gemma, gemini-3.1-flash-lite reported) | ◐ F1–F4 ✅ attack success 21.7% vs 73.8% (flash-lite 0% vs 90%); F5 ❌ helpfulness 74% vs labelled mem0 83% | — |
 | E26 | `context_order` | Order inside the provenance context (untrusted first, relevance order, date only) | ❌ helps gemma (57.5% → 28.3%), hurts qwen and flash-lite | — (default unchanged) |
 | E27 | `amb_aura` | Aura on the Agent Memory Benchmark (LongMemEval 120, PersonaMem 128 of 589 — daily quota) | ✅ A1: LongMemEval 76.7% vs hybrid-search 65.8% (hindsight 91.7%); PersonaMem 82.0% vs 85.2–85.9%; context 10–20× shorter; preferences weak (6/20) | adapter only |
-| E28 | `context_breadth` | How many records the provenance context carries (10 / 20 / 40 / relevance-trimmed) | running | — |
+| E28 | `context_breadth` | How many records the provenance context carries (10 / 20 / 40 / relevance-trimmed) | ❌ B1 (PersonaMem flat 71.5–73.9%); reported: relevance trim +9.2 pp on LongMemEval (75.0 → 84.2%, preferences 7 → 13/20) | — |
 
 E16 was used twice on 2026-09-29 by two sessions; the later pair
 (`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit

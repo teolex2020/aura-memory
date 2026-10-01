@@ -12,33 +12,55 @@ use aura::Aura;
 const TOKEN: &str = "test-token-123";
 
 type Advanced = Arc<std::sync::atomic::AtomicBool>;
+type Events = Arc<std::sync::Mutex<Vec<serde_json::Value>>>;
 
 async fn start(
     dir: &std::path::Path,
-) -> (u16, tokio::sync::oneshot::Sender<()>, Arc<Aura>, Advanced) {
+) -> (
+    u16,
+    tokio::sync::oneshot::Sender<()>,
+    Arc<Aura>,
+    Advanced,
+    Events,
+) {
     let brain = Arc::new(Aura::open(dir.join("brain").to_str().unwrap()).unwrap());
     let kept = brain.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let advanced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let events: Events = Arc::default();
     tokio::spawn(serve_http(
         brain,
         listener,
         Arc::new(std::sync::RwLock::new(TOKEN.to_string())),
         advanced.clone(),
+        Some({
+            let events = events.clone();
+            Arc::new(move |event| events.lock().unwrap().push(event))
+        }),
         async {
             let _ = stopped.await;
         },
     ));
-    (port, stop, kept, advanced)
+    (port, stop, kept, advanced, events)
 }
 
 async fn raw_post(port: u16, host: &str, auth: Option<&str>) -> String {
+    raw_request(
+        port,
+        host,
+        auth,
+        "/mcp",
+        r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#,
+    )
+    .await
+}
+
+async fn raw_request(port: u16, host: &str, auth: Option<&str>, path: &str, body: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let body = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
     let mut request = format!(
-        "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
          Accept: application/json, text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n",
         body.len()
     );
@@ -59,7 +81,7 @@ async fn raw_post(port: u16, host: &str, auth: Option<&str>) -> String {
 #[tokio::test]
 async fn http_endpoint_requires_token_and_loopback_host() {
     let dir = tempfile::tempdir().unwrap();
-    let (port, _stop, _, _) = start(dir.path()).await;
+    let (port, _stop, _, _, _) = start(dir.path()).await;
     let ok_host = format!("127.0.0.1:{port}");
     let bearer = format!("Bearer {TOKEN}");
     assert!(raw_post(port, &ok_host, None).await.contains("401"));
@@ -80,7 +102,7 @@ async fn http_endpoint_requires_token_and_loopback_host() {
 #[tokio::test(flavor = "multi_thread")]
 async fn two_bridges_share_one_store() {
     let dir = tempfile::tempdir().unwrap();
-    let (port, _stop, brain, advanced) = start(dir.path()).await;
+    let (port, _stop, brain, advanced, events) = start(dir.path()).await;
     let home = dir.path().join("home");
     std::env::set_var("AURA_HOME", &home);
     link::write(&link::Link {
@@ -130,6 +152,78 @@ async fn two_bridges_share_one_store() {
     .await
     .unwrap();
     assert!(reader.contains("Lviv"), "{reader}");
+
+    // The journal saw both calls: who asked, and exactly what the model got.
+    {
+        let events = events.lock().unwrap();
+        let recall = events
+            .iter()
+            .find(|e| e["tool"] == "recall")
+            .expect("recall event");
+        assert_eq!(recall["client"], "cursor");
+        assert_eq!(recall["query"], "Where does my sister live?");
+        assert!(recall["result"].as_str().unwrap().contains("Lviv"));
+        let remember = events
+            .iter()
+            .find(|e| e["tool"] == "remember")
+            .expect("remember event");
+        assert_eq!(remember["client"], "claude-desktop");
+        assert_eq!(remember["source"], "user");
+    }
+
+    // Agent hook events posted to /events reach the journal with the client.
+    let hook = r#"{"hook_event_name":"UserPromptSubmit","session_id":"s1","prompt":"hello"}"#;
+    let status = raw_request(
+        port,
+        &format!("127.0.0.1:{port}"),
+        Some(&format!("Bearer {TOKEN}")),
+        "/events?client=claude-code",
+        hook,
+    )
+    .await;
+    assert!(status.contains("204"), "{status}");
+    {
+        let events = events.lock().unwrap();
+        let posted = events.iter().find(|e| e["kind"] == "hook").expect("hook");
+        assert_eq!(posted["client"], "claude-code");
+        assert_eq!(posted["event"]["prompt"], "hello");
+    }
+
+    // The bridge's hook mode delivers an agent event and prints nothing, so
+    // the agent's own decision is never changed.
+    let output = tokio::task::spawn_blocking({
+        let home = home2.clone();
+        move || {
+            let mut child = Command::new(env!("CARGO_BIN_EXE_aura-bridge"))
+                .args(["hook", "--client", "claude-code"])
+                .env("AURA_HOME", &home)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(br#"{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"Bash","tool_input":{"command":"ls"}}"#)
+                .unwrap();
+            child.wait_with_output().unwrap()
+        }
+    })
+    .await
+    .unwrap();
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    {
+        let events = events.lock().unwrap();
+        let tool = events
+            .iter()
+            .find(|e| e["event"]["hook_event_name"] == "PreToolUse")
+            .expect("hook from bridge");
+        assert_eq!(tool["client"], "claude-code");
+        assert_eq!(tool["event"]["tool_input"]["command"], "ls");
+        assert!(tool["event"]["received_at"].as_f64().unwrap() > 0.0);
+    }
 
     // The app offers a small tool set, and a model cannot pass a document
     // off as the user's words or invent a source.

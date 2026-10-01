@@ -872,18 +872,49 @@ pub mod app {
         limit: Option<usize>,
     }
 
+    /// Receives one JSON event per memory tool call and per agent hook
+    /// event, for the app's journal.
+    pub type EventSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
+
     #[derive(Clone)]
     pub struct AppMcpServer {
         brain: Arc<Aura>,
+        sink: Option<EventSink>,
         tool_router: ToolRouter<Self>,
     }
 
     #[tool_router]
     impl AppMcpServer {
         pub fn new(brain: Arc<Aura>) -> Self {
+            Self::with_sink(brain, None)
+        }
+
+        pub fn with_sink(brain: Arc<Aura>, sink: Option<EventSink>) -> Self {
             Self {
                 brain,
+                sink,
                 tool_router: Self::tool_router(),
+            }
+        }
+
+        fn emit(
+            &self,
+            context: &rmcp::service::RequestContext<rmcp::RoleServer>,
+            tool: &str,
+            started: std::time::Instant,
+            mut fields: serde_json::Value,
+        ) {
+            if let Some(sink) = &self.sink {
+                if let Some(map) = fields.as_object_mut() {
+                    map.insert("kind".into(), "memory".into());
+                    map.insert("tool".into(), tool.into());
+                    map.insert("client".into(), client_name(context).into());
+                    map.insert(
+                        "ms".into(),
+                        (started.elapsed().as_secs_f64() * 1000.0).into(),
+                    );
+                }
+                sink(fields);
             }
         }
 
@@ -893,11 +924,20 @@ pub mod app {
         async fn recall(
             &self,
             Parameters(p): Parameters<RecallArgs>,
+            context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<CallToolResult, McpError> {
+            let started = std::time::Instant::now();
             let text = self
                 .brain
                 .recall_provenance(&p.query, None, None, None, None, None)
                 .map_err(|e| err(e.to_string()))?;
+            // The journal keeps exactly the context the model received.
+            self.emit(
+                &context,
+                "recall",
+                started,
+                serde_json::json!({"query": p.query, "result": text}),
+            );
             Ok(CallToolResult::success(vec![Content::text(text)]))
         }
 
@@ -909,6 +949,7 @@ pub mod app {
             Parameters(p): Parameters<RememberArgs>,
             context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<CallToolResult, McpError> {
+            let started = std::time::Instant::now();
             let claimed = match p.source.as_deref() {
                 Some("user") => Some("recorded"),
                 Some("document") => Some("retrieved"),
@@ -943,6 +984,17 @@ pub mod app {
                     Some(semantic),
                 )
                 .map_err(|e| err(e.to_string()))?;
+            self.emit(
+                &context,
+                "remember",
+                started,
+                serde_json::json!({
+                    "content": p.content,
+                    "source": p.source.as_deref().unwrap_or("assistant"),
+                    "memory_kind": semantic,
+                    "id": rec.id,
+                }),
+            );
             Ok(CallToolResult::success(vec![Content::text(
                 serde_json::json!({"remembered": rec.id}).to_string(),
             )]))
@@ -954,7 +1006,9 @@ pub mod app {
         async fn search_memory(
             &self,
             Parameters(p): Parameters<SearchArgs>,
+            context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<CallToolResult, McpError> {
+            let started = std::time::Instant::now();
             let results = self.brain.search(
                 Some(&p.query),
                 None,
@@ -976,6 +1030,12 @@ pub mod app {
                 })
                 .collect();
             let json = serde_json::to_string(&items).map_err(|e| err(e.to_string()))?;
+            self.emit(
+                &context,
+                "search_memory",
+                started,
+                serde_json::json!({"query": p.query, "count": items.len(), "result": json}),
+            );
             Ok(CallToolResult::success(vec![Content::text(json)]))
         }
     }
@@ -1102,6 +1162,7 @@ pub async fn serve_http(
     listener: tokio::net::TcpListener,
     token: SharedToken,
     advanced: Arc<std::sync::atomic::AtomicBool>,
+    sink: Option<app::EventSink>,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     use axum::{
@@ -1114,12 +1175,16 @@ pub async fn serve_http(
         session::local::LocalSessionManager, StreamableHttpService,
     };
 
+    let tools_sink = sink.clone();
     let service = StreamableHttpService::new(
         move || {
             Ok(if advanced.load(std::sync::atomic::Ordering::Relaxed) {
                 app::Tools::Full(AuraMcpServer::new(brain.clone()))
             } else {
-                app::Tools::App(app::AppMcpServer::new(brain.clone()))
+                app::Tools::App(app::AppMcpServer::with_sink(
+                    brain.clone(),
+                    tools_sink.clone(),
+                ))
             })
         },
         LocalSessionManager::default().into(),
@@ -1154,8 +1219,23 @@ pub async fn serve_http(
             Ok::<Response, StatusCode>(next.run(request).await)
         }
     };
+    // Agent hook events (prompts, tool calls, replies) for the journal,
+    // posted by `aura-bridge hook`.
+    let events = axum::routing::post(
+        move |query: axum::extract::RawQuery, axum::Json(event): axum::Json<serde_json::Value>| {
+            let sink = sink.clone();
+            async move {
+                if let Some(sink) = sink {
+                    let client = query.0.as_deref().and_then(client_from_query);
+                    sink(serde_json::json!({"kind": "hook", "client": client, "event": event}));
+                }
+                StatusCode::NO_CONTENT
+            }
+        },
+    );
     let app = axum::Router::new()
         .nest_service("/mcp", service)
+        .route("/events", events)
         .layer(middleware::from_fn(guard));
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)
@@ -1171,31 +1251,45 @@ fn with_client(
     context: &rmcp::service::RequestContext<rmcp::RoleServer>,
     metadata: Option<std::collections::HashMap<String, String>>,
 ) -> Option<std::collections::HashMap<String, String>> {
+    if let Some(client) = client_name(context) {
+        let mut metadata = metadata.unwrap_or_default();
+        metadata.insert("client".into(), client);
+        return Some(metadata);
+    }
+    metadata
+}
+
+/// The calling app's `?client=` name on the HTTP endpoint, when it is a
+/// plain identifier.
+#[allow(unused_variables)]
+fn client_name(context: &rmcp::service::RequestContext<rmcp::RoleServer>) -> Option<String> {
     #[cfg(feature = "mcp-http")]
     {
-        let client = context
+        context
             .extensions
             .get::<axum::http::request::Parts>()
             .and_then(|parts| parts.uri.query())
-            .and_then(|query| {
-                query
-                    .split('&')
-                    .find_map(|pair| pair.strip_prefix("client="))
-            })
-            .filter(|name| {
-                !name.is_empty()
-                    && name.len() <= 40
-                    && name
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-            });
-        if let Some(client) = client {
-            let mut metadata = metadata.unwrap_or_default();
-            metadata.insert("client".into(), client.to_string());
-            return Some(metadata);
-        }
+            .and_then(client_from_query)
     }
-    metadata
+    #[cfg(not(feature = "mcp-http"))]
+    {
+        None
+    }
+}
+
+#[cfg(feature = "mcp-http")]
+fn client_from_query(query: &str) -> Option<String> {
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("client="))
+        .filter(|name| {
+            !name.is_empty()
+                && name.len() <= 40
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        })
+        .map(str::to_owned)
 }
 
 /// Provenance for writes whose arguments are chosen by a model.

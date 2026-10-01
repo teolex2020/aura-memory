@@ -43,9 +43,9 @@ E16 was used twice on 2026-09-29 by two sessions; the later pair
 (`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit
 messages keep the old numbers.
 
-| E30 | `control_facts` | Control facts: can a checker catch answers and actions that ignore what the user said? | running | — |
-| E31 | `embedding_need` | Does Aura need semantic embeddings (EMB vs LEX, the desktop default)? | running | — |
-| E32 | `memory_spaces` | Memory spaces from provenance: global vs hard walls vs soft preference | running | — |
+| E30 | `control_facts` | Control facts: can a checker catch answers and actions that ignore what the user said? | ◐ C2 flash-lite ✅ all gates (97.2% caught, 2.8% false alarms, cross-language 100%); C1 qwen 4B local ❌ (71.1% / 14.3%); C0 no model ❌ | — (opt-in API checker candidate) |
+| E31 | `embedding_need` | Does Aura need semantic embeddings (EMB vs LEX, the desktop default)? | radical: LongMemEval evidence@10 95.8% vs 80.8% (preferences −30 pp, assistant turns −45 pp); E22b at ceiling | — (lightest option next) |
+| E32 | `memory_spaces` | Memory spaces from provenance: global vs hard walls vs soft preference | ❌ soft +4.2 pp in-space but cross-space 93→45%; global best (84.6% LEX, 96.2% EMB); identity paraphrase 68% LEX vs 95% EMB | — (spaces only as UI grouping) |
 | E33 | `research_cache` | Research once into memory vs search every time (quality, cost, citations) | planned | — |
 
 Next free number: **E34**.

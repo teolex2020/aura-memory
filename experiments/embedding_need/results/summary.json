@@ -1,0 +1,90 @@
+{
+  "d1": {
+    "n": 120,
+    "EMB": {
+      "turn_any@10": 95.8,
+      "turn_any@5": 89.2,
+      "ndcg@10": 0.681,
+      "query_ms_median": 22.2
+    },
+    "LEX": {
+      "turn_any@10": 80.8,
+      "turn_any@5": 75.0,
+      "ndcg@10": 0.54,
+      "query_ms_median": 5.55
+    },
+    "by_type": {
+      "knowledge-update": {
+        "EMB": 100.0,
+        "LEX": 100.0
+      },
+      "multi-session": {
+        "EMB": 100.0,
+        "LEX": 95.0
+      },
+      "single-session-assistant": {
+        "EMB": 95.0,
+        "LEX": 50.0
+      },
+      "single-session-preference": {
+        "EMB": 85.0,
+        "LEX": 55.0
+      },
+      "single-session-user": {
+        "EMB": 100.0,
+        "LEX": 95.0
+      },
+      "temporal-reasoning": {
+        "EMB": 95.0,
+        "LEX": 90.0
+      }
+    },
+    "delta_pp": 15.0
+  },
+  "d2": {
+    "n": 128,
+    "EMB": {
+      "present": 100.0,
+      "query_ms_median": 254.2
+    },
+    "LEX": {
+      "present": 100.0,
+      "query_ms_median": 0.9
+    },
+    "by_lang_type": {
+      "uk/control": {
+        "EMB": 100.0,
+        "LEX": 100.0
+      },
+      "uk/inference": {
+        "EMB": 100.0,
+        "LEX": 100.0
+      },
+      "en/control": {
+        "EMB": 100.0,
+        "LEX": 100.0
+      },
+      "en/inference": {
+        "EMB": 100.0,
+        "LEX": 100.0
+      }
+    },
+    "delta_pp": 0.0
+  },
+  "decision": "radical",
+  "lex_misses_emb_finds": {
+    "d1": [
+      "36b9f61e",
+      "51b23612",
+      "5809eb10",
+      "18dcd5a5",
+      "e982271f",
+      "7e00a6cb",
+      "dc439ea3",
+      "8752c811",
+      "cc539528",
+      "7a8d0b71"
+    ],
+    "d2": []
+  }
+}

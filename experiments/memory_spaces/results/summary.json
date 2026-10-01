@@ -1,0 +1,124 @@
+{
+  "EMB": {
+    "in_space": {
+      "G": 95.8,
+      "H": 96.7,
+      "S": 96.7,
+      "S1": 96.7
+    },
+    "cross_space": {
+      "G": 98.3,
+      "H": 0,
+      "S": 30.0,
+      "S1": 3.3
+    },
+    "identity": {
+      "G": 95.0,
+      "H": 96.7,
+      "S": 85.0,
+      "S1": 85.0
+    },
+    "intrusion_in_space": {
+      "G": 46.5,
+      "H": 0.0,
+      "S": 0.0,
+      "S1": 0.0
+    },
+    "by_lang": {
+      "uk": {
+        "G": 95.8,
+        "H": 72.5,
+        "S": 77.5,
+        "S1": 71.7
+      },
+      "en": {
+        "G": 96.7,
+        "H": 72.5,
+        "S": 76.7,
+        "S1": 69.2
+      }
+    },
+    "all": {
+      "G": 96.2,
+      "H": 72.5,
+      "S": 77.1,
+      "S1": 70.4
+    },
+    "gates_S": {
+      "in_space>=G+5": false,
+      "cross_space>=G-3": false,
+      "identity>=G-2": false
+    },
+    "gates_S1": {
+      "in_space>=G+5": false,
+      "cross_space>=G-3": false,
+      "identity>=G-2": false
+    },
+    "gates_H": {
+      "in_space>=G+5": false,
+      "cross_space>=G-3": false,
+      "identity>=G-2": true
+    }
+  },
+  "LEX": {
+    "in_space": {
+      "G": 88.3,
+      "H": 91.7,
+      "S": 92.5,
+      "S1": 92.5
+    },
+    "cross_space": {
+      "G": 93.3,
+      "H": 0,
+      "S": 45.0,
+      "S1": 13.3
+    },
+    "identity": {
+      "G": 68.3,
+      "H": 68.3,
+      "S": 68.3,
+      "S1": 68.3
+    },
+    "intrusion_in_space": {
+      "G": 54.0,
+      "H": 0.0,
+      "S": 5.7,
+      "S1": 0.2
+    },
+    "by_lang": {
+      "uk": {
+        "G": 83.3,
+        "H": 63.3,
+        "S": 76.7,
+        "S1": 67.5
+      },
+      "en": {
+        "G": 85.8,
+        "H": 62.5,
+        "S": 72.5,
+        "S1": 65.8
+      }
+    },
+    "all": {
+      "G": 84.6,
+      "H": 62.9,
+      "S": 74.6,
+      "S1": 66.7
+    },
+    "gates_S": {
+      "in_space>=G+5": false,
+      "cross_space>=G-3": false,
+      "identity>=G-2": true
+    },
+    "gates_S1": {
+      "in_space>=G+5": false,
+      "cross_space>=G-3": false,
+      "identity>=G-2": true
+    },
+    "gates_H": {
+      "in_space>=G+5": false,
+      "cross_space>=G-3": false,
+      "identity>=G-2": true
+    }
+  }
+}

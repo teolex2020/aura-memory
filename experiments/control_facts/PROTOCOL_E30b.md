@@ -51,3 +51,13 @@ Median latency per check on this computer, and resident memory.
 - **One or more pass:** the smallest passing model is the local option for
   control facts. Its download size is weighed against the owner's rule.
 - **None pass:** control facts use the opt-in API checker (E30, C2).
+
+## Amendment D1 (2026-10-01, before any E30b result was scored)
+
+The CPU build took about 30 s per check: 5 models × 360 checks would take
+more than 15 hours. All models now run on the Vulkan build with every layer
+on the GPU (GTX 1070, 8 GB), still at temperature 0. Latency is reported for
+the GPU.
+
+The partial CPU run of L4 (151 of 360) was discarded unread, so that no
+model's results mix two backends.

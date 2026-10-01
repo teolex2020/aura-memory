@@ -18,7 +18,8 @@ from pathlib import Path
 import run as e30
 
 HERE = Path(__file__).resolve().parent
-LLAMA = Path(r"D:\Aura-clean\tools\neural_runner\llama-b9870-cpu\llama-server.exe")
+# Amendment D1: GPU (Vulkan) build; the CPU build took ~30 s per check.
+LLAMA = Path(r"D:\Aura-clean\tools\neural_runner\llama-b9870-vulkan\llama-server.exe")
 MODELS_DIR = Path(r"C:\aura-neural-models")
 PORT = 8735
 MODELS = {
@@ -33,7 +34,7 @@ MODELS = {
 def start(model: str) -> subprocess.Popen:
     proc = subprocess.Popen(
         [str(LLAMA), "-m", str(MODELS_DIR / MODELS[model]), "--port", str(PORT), "-c", "4096",
-         "--jinja", "--log-disable"],
+         "--jinja", "--log-disable", "-ngl", "99"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(600):
         try:

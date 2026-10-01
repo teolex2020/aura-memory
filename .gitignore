@@ -131,3 +131,4 @@ ci_smoke_brain/
 # E34: Belebele is CC-BY-SA (kept local), embedding caches
 experiments/embedding_choice/data/belebele/
 experiments/embedding_choice/cache/
+experiments/capture_value/cache/

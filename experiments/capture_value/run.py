@@ -57,7 +57,7 @@ CACHE_PATH = HERE / "cache" / "gemini.jsonl"
 (HERE / "cache").mkdir(exist_ok=True)
 _cache: dict[str, dict] = {}
 if CACHE_PATH.exists():
-    for line in CACHE_PATH.read_text(encoding="utf-8").splitlines():
+    for line in CACHE_PATH.read_text(encoding="utf-8").split("\n"):
         if line.strip():
             rec = json.loads(line)
             _cache[rec["k"]] = rec
@@ -194,7 +194,7 @@ def dir_bytes(path: Path) -> int:
 
 def retrieve() -> None:
     path = HERE / "retrieved.jsonl"
-    done = {json.loads(l)["qid"] for l in path.read_text(encoding="utf-8").splitlines()
+    done = {json.loads(l)["qid"] for l in path.read_text(encoding="utf-8").split("\n")
             if l.strip()} if path.exists() else set()
     for q in questions():
         if q["question_id"] in done:
@@ -247,7 +247,7 @@ def reader_prompt(q: dict, arm: str, ranked: list[str]) -> str:
 
 def load_retrieved() -> dict[str, dict]:
     return {r["qid"]: r for r in (json.loads(l) for l in
-            (HERE / "retrieved.jsonl").read_text(encoding="utf-8").splitlines() if l.strip())}
+            (HERE / "retrieved.jsonl").read_text(encoding="utf-8").split("\n") if l.strip())}
 
 
 def jobs():

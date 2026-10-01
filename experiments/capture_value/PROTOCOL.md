@@ -115,3 +115,7 @@ in the overall gates.
 - `run.py` sha256 `818e3024dbf09ccc3645c02633bbba2a49ca791ecea0b82b49fa525ebe165fec`.
 - Core: the E31 Python build, `_core` sha256 `940a338128f129154f4488098d94593508dbcd8766a42b0e3ea2b767a5684abd`.
 - 120 questions, 5,339 sessions with user text.
+
+## Amendment D1 (2026-10-01, after retrieval, before any answer; execution only)
+
+`answer` failed while loading `retrieved.jsonl`. `str.splitlines()` also splits on Unicode line separators (for example U+2028), and some LongMemEval turns contain them, so one JSON line was cut. The three JSONL loaders now split on `\n` only. No arm, prompt, metric or gate changes. Retrieval rows and summaries are kept. `run.py` sha256 `12b8bb6355da80ce1f8ec0e95314396e2c4650f6675f406bf56b76733d0f7467`.

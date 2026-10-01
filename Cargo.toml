@@ -20,6 +20,11 @@ path = "src/bin/aura-mcp.rs"
 required-features = ["mcp"]
 
 [[bin]]
+name = "aura-bridge"
+path = "src/bin/aura-bridge.rs"
+required-features = ["mcp-bridge"]
+
+[[bin]]
 name = "aura-dashboard"
 path = "src/bin/aura-dashboard.rs"
 required-features = ["server"]
@@ -32,6 +37,8 @@ encryption = ["chacha20poly1305", "argon2", "zeroize"]
 server = ["axum", "tower-http", "utoipa", "utoipa-swagger-ui", "metrics", "metrics-exporter-prometheus", "axum-server", "rust-embed", "mime_guess"]
 audit = []
 mcp = ["rmcp", "schemars"]
+mcp-http = ["mcp", "axum", "rmcp/transport-streamable-http-server"]
+mcp-bridge = ["mcp", "rmcp/client", "rmcp/transport-streamable-http-client-reqwest"]
 embedded = ["encryption"]
 lite = []
 ffi = []

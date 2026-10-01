@@ -321,9 +321,11 @@ impl AuraMcpServer {
     async fn store(
         &self,
         Parameters(p): Parameters<StoreParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let level = p.level.as_deref().and_then(parse_level);
         let (source_type, metadata) = model_write_provenance(p.source_type.as_deref());
+        let metadata = with_client(&context, metadata);
         let rec = self
             .brain
             .store(
@@ -352,6 +354,7 @@ impl AuraMcpServer {
     async fn store_code(
         &self,
         Parameters(p): Parameters<StoreCodeParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let mut tags = p.tags.unwrap_or_default();
         tags.push("code".into());
@@ -369,7 +372,7 @@ impl AuraMcpServer {
                 None,
                 Some("code"),
                 Some("inferred"),
-                None,
+                with_client(&context, None),
                 None,
                 None,
                 p.namespace.as_deref(),
@@ -387,6 +390,7 @@ impl AuraMcpServer {
     async fn store_decision(
         &self,
         Parameters(p): Parameters<StoreDecisionParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let mut content = format!("DECISION: {}", p.decision);
         if let Some(ref r) = p.reasoning {
@@ -410,7 +414,7 @@ impl AuraMcpServer {
                 None,
                 None,
                 Some("inferred"),
-                None,
+                with_client(&context, None),
                 None,
                 p.caused_by_id.as_deref(),
                 p.namespace.as_deref(),
@@ -766,6 +770,169 @@ pub async fn run_stdio() -> anyhow::Result<()> {
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+/// Where the running desktop app tells local clients how to reach it.
+///
+/// The file holds the loopback port, the bearer token and the app path, so
+/// client configs never contain a secret or a port that changes between runs.
+pub mod link {
+    use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+    pub struct Link {
+        pub port: u16,
+        pub token: String,
+        /// The desktop executable, so a bridge can start it when it is closed.
+        pub app: Option<String>,
+    }
+
+    /// Per-user app directory: `%APPDATA%\Aura` on Windows,
+    /// `~/Library/Application Support/Aura` on macOS, `$XDG_CONFIG_HOME/aura`
+    /// (or `~/.config/aura`) elsewhere. `AURA_HOME` overrides it.
+    pub fn app_dir() -> PathBuf {
+        if let Some(dir) = std::env::var_os("AURA_HOME") {
+            return PathBuf::from(dir);
+        }
+        let home = || std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+        if cfg!(windows) {
+            if let Some(appdata) = std::env::var_os("APPDATA") {
+                return PathBuf::from(appdata).join("Aura");
+            }
+        } else if cfg!(target_os = "macos") {
+            if let Some(home) = home() {
+                return PathBuf::from(home).join("Library/Application Support/Aura");
+            }
+        } else if let Some(config) = std::env::var_os("XDG_CONFIG_HOME") {
+            return PathBuf::from(config).join("aura");
+        } else if let Some(home) = home() {
+            return PathBuf::from(home).join(".config/aura");
+        }
+        PathBuf::from(".aura")
+    }
+
+    pub fn path() -> PathBuf {
+        app_dir().join("link.json")
+    }
+
+    pub fn read() -> Option<Link> {
+        serde_json::from_slice(&std::fs::read(path()).ok()?).ok()
+    }
+
+    pub fn write(link: &Link) -> std::io::Result<()> {
+        let path = path();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(link)?)?;
+        std::fs::rename(tmp, path)
+    }
+
+    pub fn remove() {
+        let _ = std::fs::remove_file(path());
+    }
+}
+
+/// Serve MCP over streamable HTTP on an already bound local listener.
+///
+/// The desktop app owns the store (it is locked to one process), so every
+/// client reaches it through this endpoint: directly by URL, or through the
+/// stdio bridge for clients that only start local processes. Requests must
+/// carry `Authorization: Bearer <token>` and a loopback `Host` header (a
+/// web page cannot rebind its own name onto this port).
+#[cfg(feature = "mcp-http")]
+pub async fn serve_http(
+    brain: Arc<Aura>,
+    listener: tokio::net::TcpListener,
+    token: String,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> anyhow::Result<()> {
+    use axum::{
+        extract::Request,
+        http::{header, StatusCode},
+        middleware::{self, Next},
+        response::Response,
+    };
+    use rmcp::transport::streamable_http_server::{
+        session::local::LocalSessionManager, StreamableHttpService,
+    };
+
+    let service = StreamableHttpService::new(
+        move || Ok(AuraMcpServer::new(brain.clone())),
+        LocalSessionManager::default().into(),
+        Default::default(),
+    );
+    let expected = format!("Bearer {token}");
+    let guard = move |request: Request, next: Next| {
+        let expected = expected.clone();
+        async move {
+            let host_ok = request
+                .headers()
+                .get(header::HOST)
+                .and_then(|h| h.to_str().ok())
+                .map(|h| {
+                    let name = h.rsplit_once(':').map_or(h, |(name, _)| name);
+                    matches!(name, "127.0.0.1" | "localhost" | "[::1]")
+                })
+                .unwrap_or(false);
+            let token_ok = request
+                .headers()
+                .get(header::AUTHORIZATION)
+                .and_then(|h| h.to_str().ok())
+                .is_some_and(|h| h == expected);
+            if !host_ok {
+                return Err(StatusCode::FORBIDDEN);
+            }
+            if !token_ok {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+            Ok::<Response, StatusCode>(next.run(request).await)
+        }
+    };
+    let app = axum::Router::new()
+        .nest_service("/mcp", service)
+        .layer(middleware::from_fn(guard));
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
+    Ok(())
+}
+
+/// The app that sent a tool call over HTTP (`?client=` on the endpoint
+/// URL, set by the stdio bridge), kept as `metadata.client`. Display only:
+/// it never changes how a write is trusted.
+#[allow(unused_variables)]
+fn with_client(
+    context: &rmcp::service::RequestContext<rmcp::RoleServer>,
+    metadata: Option<std::collections::HashMap<String, String>>,
+) -> Option<std::collections::HashMap<String, String>> {
+    #[cfg(feature = "mcp-http")]
+    {
+        let client = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .and_then(|parts| parts.uri.query())
+            .and_then(|query| {
+                query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("client="))
+            })
+            .filter(|name| {
+                !name.is_empty()
+                    && name.len() <= 40
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            });
+        if let Some(client) = client {
+            let mut metadata = metadata.unwrap_or_default();
+            metadata.insert("client".into(), client.to_string());
+            return Some(metadata);
+        }
+    }
+    metadata
 }
 
 /// Provenance for writes whose arguments are chosen by a model.

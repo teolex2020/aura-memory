@@ -1,0 +1,76 @@
+# E34: which small embedding model for the optional smart search?
+
+Frozen before any model is downloaded or run. Measurement only.
+
+## Question
+
+E31 showed that embeddings matter a great deal: evidence in the top 10 is
+95.8% with them and 80.8% without. The app will offer them as an opt-in
+download. Which model should that be, for an international product?
+
+The criteria are:
+
+- quality across many languages;
+- query and memory written in different languages;
+- small download and memory use;
+- speed on an ordinary CPU;
+- a license that allows commercial use.
+
+## Candidates (from desk research, 2026-10-01)
+
+| id | model | runtime |
+|---|---|---|
+| BGE | BAAI/bge-m3 (baseline) | Ollama `bge-m3` |
+| QWEN | Qwen3-Embedding-0.6B | Ollama `qwen3-embedding:0.6b` |
+| GEMMA | Google EmbeddingGemma-300M | Ollama `embeddinggemma` |
+| GRANITE | IBM granite-embedding-311m-multilingual-r2 | llama.cpp (GGUF) |
+| HARRIER | Microsoft Harrier-OSS-v1-0.6b | llama.cpp (GGUF) |
+
+Each model gets its documented query and document formats: instruction
+prefixes for QWEN and HARRIER, task prompts for GEMMA, plain text for BGE
+and GRANITE. These formats are recorded in `run.py` before any run. A model
+that cannot be run as documented is reported as not runnable.
+
+## Datasets
+
+- **D1 — LongMemEval-S, 120 questions** (E19 selection, E31 harness, through
+  Aura). Metric: evidence in top 10.
+- **D2 — E32 personas** (uk/en, through Aura, global recall). Metric: hit@5
+  on all 240 questions. Paraphrased identity questions are reported
+  separately.
+- **D3 — Belebele, 15 languages.** `mteb/belebele`, using the questions and
+  passages:
+  - eng, spa, deu, fra, por, ita, pol, ukr, rus, zho_Hans, jpn, kor, arb, hin,
+    tur;
+  - plain embedding retrieval (cosine) of the right passage among all
+    passages of the target language;
+  - **mono**: question and passages in the same language, all 15;
+  - **cross**: English question with passages in each other language, and
+    each other language's question with English passages.
+
+  Metric: recall@1 and nDCG@10, macro-averaged over languages.
+
+## Also measured on this computer
+
+- Download size.
+- Resident memory while embedding.
+- Documents embedded per second on CPU: the same 2,000 D1 turns for every
+  model.
+- Median query latency.
+
+## Decision rule (fixed now)
+
+1. Exclude any model whose license forbids commercial use. GEMMA's custom
+   terms are flagged for the owner, not excluded.
+2. A model **qualifies** if each of these is within 3 pp of the best model:
+   D1, D2, D3-mono and D3-cross.
+3. The **winner** is the qualifying model with the smallest download. Ties go
+   to higher D3-cross.
+4. If none qualifies, the winner is the model with the highest D3-cross
+   (international use first), and the trade-off is reported.
+
+## Limits stated in advance
+
+- One computer for the speed numbers.
+- Belebele passages are formal text, not personal memory.
+- D1 is English only.

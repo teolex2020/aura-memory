@@ -103,7 +103,7 @@ def gemini(system: str | None, user: str, max_out: int) -> dict:
                 time.sleep(min(120, 5 * 2 ** attempt))
                 continue
             raise RuntimeError(f"Gemini HTTP {err.code}: {err.read()[:300]!r}") from None
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
             time.sleep(min(120, 5 * 2 ** attempt))
     raise RuntimeError("Gemini: retries exhausted")
 

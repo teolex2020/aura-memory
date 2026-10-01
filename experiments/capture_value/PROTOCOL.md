@@ -119,3 +119,7 @@ in the overall gates.
 ## Amendment D1 (2026-10-01, after retrieval, before any answer; execution only)
 
 `answer` failed while loading `retrieved.jsonl`. `str.splitlines()` also splits on Unicode line separators (for example U+2028), and some LongMemEval turns contain them, so one JSON line was cut. The three JSONL loaders now split on `\n` only. No arm, prompt, metric or gate changes. Retrieval rows and summaries are kept. `run.py` sha256 `12b8bb6355da80ce1f8ec0e95314396e2c4650f6675f406bf56b76733d0f7467`.
+
+## Amendment D2 (2026-10-01, during answers; execution only)
+
+The answer phase stopped at 577 of 600 on `ConnectionResetError` (WinError 10054), which the retry loop did not catch. `ConnectionError` is now retried like other network errors. Cached answers are kept; the run resumes. `run.py` sha256 `b37311ae0b1daeee19852a142854505bb1808bb6102bf53a7896b068f77230a3`.

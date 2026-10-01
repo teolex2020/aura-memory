@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from array import array
 from pathlib import Path
@@ -84,6 +85,7 @@ class Server:
         self.db = sqlite3.connect(HERE / "cache" / f"{model}.sqlite")
         self.db.execute("CREATE TABLE IF NOT EXISTS emb (h TEXT PRIMARY KEY, v BLOB)")
         self.mode = "doc"
+        self.cut = 0  # texts shortened to fit the context (amendment D2)
 
     def close(self):
         self.proc.terminate()
@@ -112,19 +114,37 @@ class Server:
         todo = [(k, f) for k, f in dict(zip(keys, formatted)).items() if k not in out]
         for i in range(0, len(todo), 16):
             chunk = todo[i:i + 16]
-            body = json.dumps({"input": [f for _, f in chunk]}).encode()
-            req = urllib.request.Request(f"http://127.0.0.1:{PORT}/v1/embeddings", data=body,
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=600) as r:
-                data = json.loads(r.read())["data"]
-            for (k, _), item in zip(chunk, sorted(data, key=lambda d: d["index"])):
-                v = item["embedding"]
+            try:
+                vectors = self._request([f for _, f in chunk])
+            except urllib.error.HTTPError:
+                # Amendment D2: a text longer than the model's context is cut
+                # until it fits, as an app would; texts that fit are untouched.
+                vectors = [self._fit(f) for _, f in chunk]
+            for (k, _), v in zip(chunk, vectors):
                 n = math.sqrt(sum(x * x for x in v)) or 1.0
                 v = [x / n for x in v]
                 out[k] = v
                 self.db.execute("INSERT OR REPLACE INTO emb VALUES (?, ?)", (k, array("f", v).tobytes()))
             self.db.commit()
         return [out[k] for k in keys]
+
+    def _request(self, texts: list[str]) -> list[list[float]]:
+        body = json.dumps({"input": texts}).encode()
+        req = urllib.request.Request(f"http://127.0.0.1:{PORT}/v1/embeddings", data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=600) as r:
+            data = json.loads(r.read())["data"]
+        return [d["embedding"] for d in sorted(data, key=lambda d: d["index"])]
+
+    def _fit(self, text: str) -> list[float]:
+        while True:
+            try:
+                return self._request([text])[0]
+            except urllib.error.HTTPError:
+                if len(text) < 200:
+                    raise
+                self.cut += 1
+                text = text[: int(len(text) * 0.7)]
 
     def embed_fn(self, text: str) -> list[float]:
         """For Aura: document format while storing, query format while recalling."""
@@ -234,6 +254,7 @@ def d1(model: str) -> None:
                 f.flush()
                 print(model, n, row["turn_any@10"], flush=True)
     finally:
+        print(model, "texts cut to fit the context:", srv.cut, flush=True)
         srv.close()
 
 

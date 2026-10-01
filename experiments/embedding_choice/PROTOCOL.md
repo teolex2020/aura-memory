@@ -96,3 +96,16 @@ Decision rule unchanged.
 
 At the time of this amendment, only BGE had a D2 score (96.2, the same as
 E32's EMB arm). No D1 or D3 score existed for any model.
+
+## Amendment D2 (2026-10-01, after D1 failed mid-run for four models)
+
+QWEN, GEMMA, GRANITE and HARRIER stopped during D1 with HTTP 400/500
+errors: some LongMemEval turns are longer than the model's context
+(EmbeddingGemma takes 2k tokens). The analysis that ran after the failure
+used partial D1 rows (GEMMA 11/60) and is void.
+
+Change: when a request fails, each text is embedded on its own, and a text
+the model rejects is shortened (to 70%, repeatedly) until it fits, as an app
+would. Texts that fit are unchanged, so BGE's complete D1 run and the D1 rows
+already written stay valid. The number of shortened texts per model is
+reported. D2 and D3 had no failures and are unchanged.

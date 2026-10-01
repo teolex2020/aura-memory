@@ -125,3 +125,7 @@ ci_smoke_brain/
 
 # Claude Code local config
 .claude/
+
+# E34: Belebele is CC-BY-SA (kept local), embedding caches
+experiments/embedding_choice/data/belebele/
+experiments/embedding_choice/cache/

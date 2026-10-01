@@ -135,13 +135,17 @@ def cos(a, b) -> float:
 def load_belebele():
     rows = {l: [json.loads(x) for x in (HERE / "data" / "belebele" / f"{l}.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
             for l in LANGS}
+    # Files list the same items in different orders: align every language to
+    # English by (link, question_number). A passage id comes from the English text.
+    key = lambda r: (r["link"], r["question_number"])
     eng = rows["eng_Latn"]
-    # Rows are aligned across languages; a passage id comes from the English text.
+    for l in LANGS:
+        by_key = {key(r): r for r in rows[l]}
+        assert len(by_key) == len(eng) and all(key(r) in by_key for r in eng), l
+        rows[l] = [by_key[key(r)] for r in eng]
     pid_of_text, pids = {}, []
     for r in eng:
         pids.append(pid_of_text.setdefault(r["flores_passage"], len(pid_of_text)))
-    for l in LANGS:
-        assert len(rows[l]) == len(eng) and all(a["link"] == b["link"] for a, b in zip(rows[l], eng)), l
     passages = {}
     for l in LANGS:
         texts = {}

@@ -11,16 +11,27 @@ use aura::Aura;
 
 const TOKEN: &str = "test-token-123";
 
-async fn start(dir: &std::path::Path) -> (u16, tokio::sync::oneshot::Sender<()>, Arc<Aura>) {
+type Advanced = Arc<std::sync::atomic::AtomicBool>;
+
+async fn start(
+    dir: &std::path::Path,
+) -> (u16, tokio::sync::oneshot::Sender<()>, Arc<Aura>, Advanced) {
     let brain = Arc::new(Aura::open(dir.join("brain").to_str().unwrap()).unwrap());
     let kept = brain.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(serve_http(brain, listener, TOKEN.into(), async {
-        let _ = stopped.await;
-    }));
-    (port, stop, kept)
+    let advanced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    tokio::spawn(serve_http(
+        brain,
+        listener,
+        TOKEN.into(),
+        advanced.clone(),
+        async {
+            let _ = stopped.await;
+        },
+    ));
+    (port, stop, kept, advanced)
 }
 
 async fn raw_post(port: u16, host: &str, auth: Option<&str>) -> String {
@@ -48,7 +59,7 @@ async fn raw_post(port: u16, host: &str, auth: Option<&str>) -> String {
 #[tokio::test]
 async fn http_endpoint_requires_token_and_loopback_host() {
     let dir = tempfile::tempdir().unwrap();
-    let (port, _stop, _) = start(dir.path()).await;
+    let (port, _stop, _, _) = start(dir.path()).await;
     let ok_host = format!("127.0.0.1:{port}");
     let bearer = format!("Bearer {TOKEN}");
     assert!(raw_post(port, &ok_host, None).await.contains("401"));
@@ -69,7 +80,7 @@ async fn http_endpoint_requires_token_and_loopback_host() {
 #[tokio::test(flavor = "multi_thread")]
 async fn two_bridges_share_one_store() {
     let dir = tempfile::tempdir().unwrap();
-    let (port, _stop, brain) = start(dir.path()).await;
+    let (port, _stop, brain, advanced) = start(dir.path()).await;
     let home = dir.path().join("home");
     std::env::set_var("AURA_HOME", &home);
     link::write(&link::Link {
@@ -85,7 +96,7 @@ async fn two_bridges_share_one_store() {
             session(
                 &home,
                 "claude-desktop",
-                r#"{"name":"store","arguments":{"content":"My sister lives in Lviv","source_type":"recorded"}}"#,
+                r#"{"name":"remember","arguments":{"content":"My sister lives in Lviv","source":"user"}}"#,
             )
         }
     })
@@ -108,6 +119,7 @@ async fn two_bridges_share_one_store() {
         Some("true")
     );
 
+    let home2 = home.clone();
     let reader = tokio::task::spawn_blocking(move || {
         session(
             &home,
@@ -118,11 +130,66 @@ async fn two_bridges_share_one_store() {
     .await
     .unwrap();
     assert!(reader.contains("Lviv"), "{reader}");
+
+    // The app offers a small tool set, and a model cannot pass a document
+    // off as the user's words or invent a source.
+    let tools = tokio::task::spawn_blocking({
+        let home = home2.clone();
+        move || exchange(&home, "cursor", "tools/list", "{}")
+    })
+    .await
+    .unwrap();
+    for name in ["recall", "remember", "search_memory"] {
+        assert!(tools.contains(&format!("\"name\":\"{name}\"")), "{tools}");
+    }
+    assert_eq!(tools.matches("\"inputSchema\"").count(), 3, "{tools}");
+    let doc = tokio::task::spawn_blocking({
+        let home = home2.clone();
+        move || {
+            session(
+                &home,
+                "cursor",
+                r#"{"name":"remember","arguments":{"content":"Vendor page: the rate limit is 600 per minute","source":"document"}}"#,
+            )
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!doc.contains("\"isError\":true"), "{doc}");
+    let stored = brain.search(Some("rate limit"), None, None, None, None, None, None, None);
+    assert_eq!(stored[0].source_type, "retrieved");
+    // Advanced mode gives new sessions every tool.
+    advanced.store(true, std::sync::atomic::Ordering::Relaxed);
+    let full = tokio::task::spawn_blocking({
+        let home = home2.clone();
+        move || exchange(&home, "cursor", "tools/list", "{}")
+    })
+    .await
+    .unwrap();
+    assert!(full.matches("\"inputSchema\"").count() > 10, "{full}");
+    assert!(full.contains("\"name\":\"store_decision\""), "{full}");
+    advanced.store(false, std::sync::atomic::Ordering::Relaxed);
+
+    let bad = tokio::task::spawn_blocking(move || {
+        session(
+            &home2,
+            "cursor",
+            r#"{"name":"remember","arguments":{"content":"x is y","source":"admin"}}"#,
+        )
+    })
+    .await
+    .unwrap();
+    assert!(bad.contains("error"), "{bad}");
 }
 
 /// One client session through the bridge: initialize, one tool call; the
 /// tool call's response line.
 fn session(home: &std::path::Path, client: &str, call: &str) -> String {
+    exchange(home, client, "tools/call", call)
+}
+
+/// Initialize, then one request; its response line.
+fn exchange(home: &std::path::Path, client: &str, method: &str, params: &str) -> String {
     let mut child = Command::new(env!("CARGO_BIN_EXE_aura-bridge"))
         .args(["--client", client])
         .env("AURA_HOME", home)
@@ -155,7 +222,7 @@ fn session(home: &std::path::Path, client: &str, call: &str) -> String {
     assert!(init.contains("serverInfo"), "{init}");
     send(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
     send(&format!(
-        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{call}}}"#
+        r#"{{"jsonrpc":"2.0","id":2,"method":"{method}","params":{params}}}"#
     ));
     let response = read_id(2);
     let _ = child.kill();

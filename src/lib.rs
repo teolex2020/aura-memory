@@ -227,6 +227,9 @@ pub use evidence::{
     SourceDocument, SourceSpan, VerificationStatus,
 };
 pub use levels::Level;
+
+/// This crate's version.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use outcome_receipt::{
     CandidateOutcomeVerdict, OutcomeEvaluationEvidence, OutcomeKind, OutcomeReceipt,
     OutcomeReceiptDraft,

@@ -74,3 +74,25 @@ that cannot be run as documented is reported as not runnable.
 - One computer for the speed numbers.
 - Belebele passages are formal text, not personal memory.
 - D1 is English only.
+
+## Amendment D1 (2026-10-01, before any D1 or D3 score of any model)
+
+The first run used the CPU llama.cpp build with an oversized batch (8192).
+It used up to 11 GB of memory and embedded about 1.5 texts per second, so
+the planned run would take days. Changes:
+
+- **Quality runs** (D1, D2, D3) use the Vulkan build on the GPU (GTX 1070),
+  with `-c 4096 -b 4096 -ub 4096 -ngl 99`. The device does not change the
+  metrics. Embeddings cached by the CPU run are reused.
+- **D1** uses the first 10 questions of each type in E19's selection: 60
+  questions instead of 120.
+- **D3** uses the first 300 questions of each language: 300 × 15 queries
+  over all 488 passages per language, instead of 900.
+- **Speed and memory** are measured on the CPU build with
+  `-c 2048 -b 2048 -ub 2048 -t 6`, on 200 English Belebele passages. This
+  is what a user without a GPU gets. The GPU rate is reported too.
+
+Decision rule unchanged.
+
+At the time of this amendment, only BGE had a D2 score (96.2, the same as
+E32's EMB arm). No D1 or D3 score existed for any model.

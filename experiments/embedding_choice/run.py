@@ -33,6 +33,11 @@ OUT = HERE / "results"
 OUT.mkdir(exist_ok=True)
 MODELS_DIR = Path(r"C:\aura-neural-models\embeddings")
 LLAMA = Path(r"D:\Aura-clean\tools\neural_runner\llama-b9870-cpu\llama-server.exe")
+LLAMA_GPU = Path(r"D:\Aura-clean\tools\neural_runner\llama-b9870-vulkan\llama-server.exe")
+GPU_ARGS = ["-c", "4096", "-b", "4096", "-ub", "4096", "-ngl", "99"]
+CPU_ARGS = ["-c", "2048", "-b", "2048", "-ub", "2048", "-t", "6"]
+D1_PER_TYPE = 10
+D3_QUESTIONS = 300  # amendment D1
 PORT = 8734
 MAX_CHARS = 6000  # long turns are cut, as E19 truncated for bge-m3
 
@@ -54,15 +59,15 @@ LANGS = ["eng_Latn", "spa_Latn", "deu_Latn", "fra_Latn", "por_Latn", "ita_Latn",
 # ------------------------------------------------------------------ server
 
 class Server:
-    def __init__(self, model: str):
+    def __init__(self, model: str, gpu: bool = True):
         self.model = model
         self.spec = MODELS[model]
         path = MODELS_DIR / self.spec["file"]
         if not path.exists():
             raise SystemExit(f"missing {path}")
         self.proc = subprocess.Popen(
-            [str(LLAMA), "-m", str(path), "--embeddings", "--port", str(PORT), "-c", "8192",
-             "-b", "8192", "-ub", "8192", "--log-disable"],
+            [str(LLAMA_GPU if gpu else LLAMA), "-m", str(path), "--embeddings", "--port", str(PORT),
+             "--log-disable", *(GPU_ARGS if gpu else CPU_ARGS)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(240):
             try:
@@ -152,8 +157,8 @@ def load_belebele():
         for r, pid in zip(rows[l], pids):
             texts.setdefault(pid, r["flores_passage"])
         passages[l] = [texts[i] for i in range(len(texts))]
-    questions = {l: [r["question"] for r in rows[l]] for l in LANGS}
-    return passages, questions, pids
+    questions = {l: [r["question"] for r in rows[l]][:D3_QUESTIONS] for l in LANGS}
+    return passages, questions, pids[:D3_QUESTIONS]
 
 
 def d3(model: str) -> None:
@@ -203,7 +208,12 @@ def d1(model: str) -> None:
     srv = Server(model)
     try:
         with out.open("a", encoding="utf-8") as f:
-            for n, q in enumerate(e19.select(e19.load(), "sample"), 1):
+            picked, per_type = [], {}
+            for q in e19.select(e19.load(), "sample"):
+                if per_type.get(q["question_type"], 0) < D1_PER_TYPE:
+                    per_type[q["question_type"]] = per_type.get(q["question_type"], 0) + 1
+                    picked.append(q)
+            for n, q in enumerate(picked, 1):
                 if q["question_id"] in done:
                     continue
                 ts = e19.turns(q)
@@ -265,28 +275,25 @@ def d2(model: str) -> None:
 
 
 def speed(model: str) -> None:
-    e19 = _load("e19", HERE.parent / "longmemeval_retrieval" / "run.py")
-    texts = []
-    for q in e19.select(e19.load(), "sample"):
-        texts += [t["content"] for t in e19.turns(q)]
-        if len(texts) >= 2000:
-            break
-    texts = [f"{i} {t}" for i, t in enumerate(texts[:2000])]  # unique, so nothing comes from cache
-    srv = Server(model)
-    try:
-        start = time.perf_counter()
-        srv.embed_many(texts, "doc")
-        docs_s = len(texts) / (time.perf_counter() - start)
-        rss = srv.rss_mb()
-        lat = []
-        for q in ["Where does my sister live?", "Що я казав про бюджет ремонту?", "¿Cuándo es mi cita con el dentista?"] * 7:
-            t0 = time.perf_counter()
-            srv.embed_many([q + str(time.perf_counter())], "query")
-            lat.append((time.perf_counter() - t0) * 1000)
-    finally:
-        srv.close()
-    res = {"docs_per_s": round(docs_s, 1), "rss_mb": rss, "query_ms_median": round(statistics.median(lat), 1),
-           "file_mb": round((MODELS_DIR / MODELS[model]["file"]).stat().st_size / 1e6, 1)}
+    passages, _, _ = load_belebele()
+    texts = [f"{i}. {t}" for i, t in enumerate(passages["eng_Latn"][:200])]
+    res = {"file_mb": round((MODELS_DIR / MODELS[model]["file"]).stat().st_size / 1e6, 1)}
+    for gpu in (False, True):
+        tag = "gpu" if gpu else "cpu"
+        srv = Server(model, gpu=gpu)
+        try:
+            start_t = time.perf_counter()
+            srv.embed_many([f"{tag} {t}" for t in texts], "doc")  # unique: nothing from cache
+            res[f"{tag}_docs_per_s"] = round(len(texts) / (time.perf_counter() - start_t), 1)
+            res[f"{tag}_rss_mb"] = srv.rss_mb()
+            lat = []
+            for q in ["Where does my sister live?", "Що я казав про бюджет ремонту?", "Wann ist mein Zahnarzttermin?"] * 5:
+                t0 = time.perf_counter()
+                srv.embed_many([f"{tag} {q} {time.perf_counter()}"], "query")
+                lat.append((time.perf_counter() - t0) * 1000)
+            res[f"{tag}_query_ms_median"] = round(statistics.median(lat), 1)
+        finally:
+            srv.close()
     (OUT / f"speed_{model}.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
     print(model, res)
 

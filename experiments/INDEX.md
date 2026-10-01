@@ -46,5 +46,6 @@ messages keep the old numbers.
 | E30 | `control_facts` | Control facts: can a checker catch answers and actions that ignore what the user said? | running | — |
 | E31 | `embedding_need` | Does Aura need semantic embeddings (EMB vs LEX, the desktop default)? | running | — |
 | E32 | `memory_spaces` | Memory spaces from provenance: global vs hard walls vs soft preference | running | — |
+| E33 | `research_cache` | Research once into memory vs search every time (quality, cost, citations) | planned | — |
 
-Next free number: **E33**.
+Next free number: **E34**.

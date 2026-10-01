@@ -132,3 +132,5 @@ ci_smoke_brain/
 experiments/embedding_choice/data/belebele/
 experiments/embedding_choice/cache/
 experiments/capture_value/cache/
+experiments/capture_value/retrieved.jsonl
+experiments/capture_value/*.log

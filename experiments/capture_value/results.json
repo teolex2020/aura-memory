@@ -1,0 +1,97 @@
+{
+ "model": "gemini-3.1-flash-lite",
+ "questions": 120,
+ "gates": {
+  "H0": true,
+  "H1": false,
+  "H2": true,
+  "H3": false,
+  "H4": false
+ },
+ "accuracy": {
+  "N": 9.2,
+  "U": 79.2,
+  "F": 85.0,
+  "S": 25.0,
+  "US": 75.0
+ },
+ "by_type": {
+  "knowledge-update": {
+   "N": 0.0,
+   "U": 100.0,
+   "F": 90.0,
+   "S": 30.0,
+   "US": 90.0
+  },
+  "multi-session": {
+   "N": 0.0,
+   "U": 80.0,
+   "F": 85.0,
+   "S": 10.0,
+   "US": 80.0
+  },
+  "single-session-assistant": {
+   "N": 35.0,
+   "U": 40.0,
+   "F": 95.0,
+   "S": 25.0,
+   "US": 35.0
+  },
+  "single-session-preference": {
+   "N": 15.0,
+   "U": 80.0,
+   "F": 75.0,
+   "S": 70.0,
+   "US": 80.0
+  },
+  "single-session-user": {
+   "N": 0.0,
+   "U": 85.0,
+   "F": 90.0,
+   "S": 10.0,
+   "US": 85.0
+  },
+  "temporal-reasoning": {
+   "N": 5.0,
+   "U": 90.0,
+   "F": 75.0,
+   "S": 5.0,
+   "US": 80.0
+  }
+ },
+ "size_and_retrieval": {
+  "U": {
+   "records_median": 243.0,
+   "chars_median": 59942.5,
+   "chars_total": 7366431,
+   "disk_mb_median": 5.92,
+   "sess_any@10": 99.2,
+   "turn_any@10": 82.5
+  },
+  "F": {
+   "records_median": 489.0,
+   "chars_median": 488621.5,
+   "chars_total": 58659645,
+   "disk_mb_median": 14.06,
+   "sess_any@10": 99.2,
+   "turn_any@10": 95.8
+  },
+  "S": {
+   "records_median": 47.0,
+   "chars_median": 16350.0,
+   "chars_total": 1966732,
+   "disk_mb_median": 1.43,
+   "sess_any@10": 97.5
+  },
+  "US": {
+   "records_median": 289.5,
+   "chars_median": 76528.5,
+   "chars_total": 9333163,
+   "disk_mb_median": 7.26,
+   "sess_any@10": 99.2
+  }
+ },
+ "summaries": 5339,
+ "summary_usd": 1.001,
+ "total_usd": 1.316
+}

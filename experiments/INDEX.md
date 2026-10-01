@@ -49,5 +49,5 @@ messages keep the old numbers.
 | E32 | `memory_spaces` | Memory spaces from provenance: global vs hard walls vs soft preference | ❌ soft +4.2 pp in-space but cross-space 93→45%; global best (84.6% LEX, 96.2% EMB); identity paraphrase 68% LEX vs 95% EMB | — (spaces only as UI grouping) |
 | E34 | `embedding_choice` | Which small embedding model for opt-in smart search (5 candidates, 15 languages, cross-lingual) | ✅ EmbeddingGemma 300M by rule (334 MB, cross-lingual 95.8 best, 2.5× faster than bge-m3 on CPU); bge-m3 (MIT) also qualifies; Qwen3/Harrier not better and 3.4 GB RAM | — (owner decides Gemma terms vs bge-m3) |
 | E33 | `research_cache` | Research once into memory vs search every time (quality, cost, citations) | ❌ cache 48.3% vs live search 76.7% (coverage, not retrieval); 34× cheaper per question but break-even ~12 questions/topic; citations 91.4% ✅ | — (grow-on-use cache is the follow-up idea) |
-
-Next free number: **E35**.
+| E35 | `capture_value` | What to keep from a conversation: nothing / user words / full / Remy-style session summaries / user words + summaries (LongMemEval-S 120) | ◐ H1 ❌ user words 79.2% vs full 85.0% (all loss in assistant-said questions, 11 of 14; without them 87.0 vs 83.0) at 12% of the text ✅; summaries 25.0% ❌, add nothing ❌; 50% of summaries invent assistant actions | — (owner decides; recommendation: user words verbatim, assistant replies stay in the journal) |
+Next free number: **E36**.

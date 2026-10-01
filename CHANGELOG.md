@@ -10,7 +10,9 @@
   - **Import:** notes, PDFs and ChatGPT/Claude exports. Exports are split by role: the user's messages become first-hand and the assistant's become inferred. Documents are outside content unless the user marks them as their own notes.
   - **Map:** 2D/3D force graph with origin, term or app colouring, period filter, a timeline you can play back, neighbour focus, and remembered layout.
   - **Settings:** security profile, data folder, advanced tools, app and core versions, and a signed update check (Tauri updater; not published yet).
-  - **Help:** what every tool and screen means, plus troubleshooting.
+  - **Help:** getting started, what every tool and screen means, troubleshooting, developer notes, FAQ, updates and uninstalling.
+  - **Custom connection:** copyable MCP JSON, CLI, HTTP, Python (`mcp>=2`) and JavaScript snippets. The access key now persists across restarts (`token.txt`) and can be replaced from the app (`SharedToken`). The Python and JavaScript snippets were checked against a running app.
+  - **Themes:** system, light or dark.
 
   AI clients get three tools by default (`recall`, `remember` with a `source` of user/document/assistant, and `search_memory`). They cannot delete or edit memory. Advanced tools gives new sessions the full 20-tool set.
 - **MCP over loopback HTTP (`mcp-http` feature) and the stdio bridge (`mcp-bridge`, `aura-bridge` binary).** `aura::mcp::serve_http` requires a bearer token and a loopback `Host` header. The bridge finds the app through `aura::mcp::link` (`%APPDATA%\Aura\link.json`, overridable with `AURA_HOME`), so client settings hold no port or secret. Writes over HTTP record the calling app as `metadata.client`; this is display only and never changes trust.

@@ -25,7 +25,7 @@ async fn start(
     tokio::spawn(serve_http(
         brain,
         listener,
-        TOKEN.into(),
+        Arc::new(std::sync::RwLock::new(TOKEN.to_string())),
         advanced.clone(),
         async {
             let _ = stopped.await;

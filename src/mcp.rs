@@ -1085,6 +1085,11 @@ pub mod app {
 
 /// Serve MCP over streamable HTTP on an already bound local listener.
 ///
+/// The bearer token the endpoint accepts. Shared so the app can replace it
+/// without restarting the endpoint.
+#[cfg(feature = "mcp-http")]
+pub type SharedToken = Arc<std::sync::RwLock<String>>;
+
 /// The desktop app owns the store (it is locked to one process), so every
 /// client reaches it through this endpoint: directly by URL, or through the
 /// stdio bridge for clients that only start local processes. Requests must
@@ -1095,7 +1100,7 @@ pub mod app {
 pub async fn serve_http(
     brain: Arc<Aura>,
     listener: tokio::net::TcpListener,
-    token: String,
+    token: SharedToken,
     advanced: Arc<std::sync::atomic::AtomicBool>,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
@@ -1120,9 +1125,11 @@ pub async fn serve_http(
         LocalSessionManager::default().into(),
         Default::default(),
     );
-    let expected = format!("Bearer {token}");
     let guard = move |request: Request, next: Next| {
-        let expected = expected.clone();
+        let expected = format!(
+            "Bearer {}",
+            token.read().map(|t| t.clone()).unwrap_or_default()
+        );
         async move {
             let host_ok = request
                 .headers()

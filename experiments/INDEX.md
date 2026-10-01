@@ -43,4 +43,8 @@ E16 was used twice on 2026-09-29 by two sessions; the later pair
 (`reasoned_recall`, `identity_block`) was renumbered to E22/E22b. Commit
 messages keep the old numbers.
 
-Next free number: **E30**.
+| E30 | `control_facts` | Control facts: can a checker catch answers and actions that ignore what the user said? | running | — |
+| E31 | `embedding_need` | Does Aura need semantic embeddings (EMB vs LEX, the desktop default)? | running | — |
+| E32 | `memory_spaces` | Memory spaces from provenance: global vs hard walls vs soft preference | running | — |
+
+Next free number: **E33**.

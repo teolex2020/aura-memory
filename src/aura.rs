@@ -2452,7 +2452,70 @@ impl Aura {
         result
     }
 
-    /// Recall structured (raw results with trust scoring).
+    /// Provenance recall limited to what one app may receive (desktop app
+    /// permissions). Excluded records are removed before the context is
+    /// built, from the results, the identity block and causal parents.
+    pub fn recall_provenance_scoped(
+        &self,
+        query: &str,
+        token_budget: Option<usize>,
+        scope: &recall::RecallScope,
+    ) -> Result<String> {
+        if self.has_temporal_boundaries(None) {
+            self.runtime.clear_recall_caches();
+        }
+        let budget = token_budget.unwrap_or(recall::PROVENANCE_DEFAULT_BUDGET);
+        let format = format!("provenance|{}", scope.key());
+        RecallService::recall_formatted(
+            &self.runtime.recall_cache,
+            &format,
+            query,
+            budget,
+            0.1,
+            true,
+            None,
+            None,
+            || {
+                let mut scored =
+                    self.recall_core(query, recall::RELEVANCE_POOL, 0.1, true, None, None)?;
+                scored.retain(|(_, record)| scope.allows(record));
+                recall::trim_by_relevance(
+                    &mut scored,
+                    recall::RELEVANCE_CUT,
+                    recall::RELEVANCE_MIN_KEEP,
+                );
+                Ok(scored)
+            },
+            |scored| {
+                let visible: HashMap<String, Record> = self
+                    .records
+                    .read()
+                    .iter()
+                    .filter(|(_, record)| scope.allows(record))
+                    .map(|(id, record)| (id.clone(), record.clone()))
+                    .collect();
+                let (block, used) = if self.identity_block_enabled() && scope.include_identity {
+                    recall::identity_block(
+                        &visible,
+                        scored,
+                        &[crate::record::DEFAULT_NAMESPACE],
+                        budget / recall::IDENTITY_BLOCK_SHARE,
+                    )
+                } else {
+                    (String::new(), 0)
+                };
+                let context = recall::format_provenance(
+                    scored,
+                    budget.saturating_sub(used),
+                    &visible,
+                    self.context_dates(),
+                );
+                format!("{block}{context}")
+            },
+        )
+    }
+
+    /// Recall structured (raw results with trust scoring).    /// Recall structured (raw results with trust scoring).
     #[instrument(skip(self), fields(top_k, min_strength))]
     pub fn recall_structured(
         &self,

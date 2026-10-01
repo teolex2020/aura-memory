@@ -13,6 +13,12 @@
   - **Help:** getting started, what every tool and screen means, troubleshooting, developer notes, FAQ, updates and uninstalling.
   - **Custom connection:** copyable MCP JSON, CLI, HTTP, Python (`mcp>=2`) and JavaScript snippets. The access key now persists across restarts (`token.txt`) and can be replaced from the app (`SharedToken`). The Python and JavaScript snippets were checked against a running app.
   - **Themes:** system, light or dark.
+  - **Privacy controls:**
+    - **Private memories:** cloud AI apps never receive them; only apps marked as local models do.
+    - **Per-app "What it sees":** facts about you, other apps' memories, imported documents, outside content, and whether the model runs locally.
+    - **"What left" report:** built from the journal. It shows exactly what each app received, including which facts about you, and whether it went to a model provider.
+
+    The core part is `Aura::recall_provenance_scoped` with `aura::recall::RecallScope`. It filters records before the context is built, so excluded records cannot appear as results, identity facts or causal reasons, and the cache is keyed by scope. App tools apply the calling app's scope through `aura::mcp::app::ScopeFor`. Help and Settings now say plainly that connected cloud apps pass recalled memory on to their provider.
   - **Journal (trajectory):** every memory call per app with exactly the context the model received, and for Claude Code (opt-in hooks written into `~/.claude/settings.json`) the full session. The session view has input/model/tools/memory lanes, Duration/Turns/Calls modes, turn dividers, search and a detail panel. The core emits events through `aura::mcp::app::EventSink`. `aura-bridge hook` posts agent hook events to `/events`; it prints nothing and always exits 0. Events are kept for 30 days as daily JSON lines.
 
   AI clients get three tools by default (`recall`, `remember` with a `source` of user/document/assistant, and `search_memory`). They cannot delete or edit memory. Advanced tools gives new sessions the full 20-tool set.

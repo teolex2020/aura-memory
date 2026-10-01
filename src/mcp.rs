@@ -876,24 +876,44 @@ pub mod app {
     /// event, for the app's journal.
     pub type EventSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
 
+    /// What a client (by its `?client=` name) may receive from memory.
+    pub type ScopeFor = Arc<dyn Fn(Option<&str>) -> crate::recall::RecallScope + Send + Sync>;
+
     #[derive(Clone)]
     pub struct AppMcpServer {
         brain: Arc<Aura>,
         sink: Option<EventSink>,
+        scope_for: Option<ScopeFor>,
         tool_router: ToolRouter<Self>,
     }
 
     #[tool_router]
     impl AppMcpServer {
         pub fn new(brain: Arc<Aura>) -> Self {
-            Self::with_sink(brain, None)
+            Self::with_sink(brain, None, None)
         }
 
-        pub fn with_sink(brain: Arc<Aura>, sink: Option<EventSink>) -> Self {
+        pub fn with_sink(
+            brain: Arc<Aura>,
+            sink: Option<EventSink>,
+            scope_for: Option<ScopeFor>,
+        ) -> Self {
             Self {
                 brain,
                 sink,
+                scope_for,
                 tool_router: Self::tool_router(),
+            }
+        }
+
+        /// The calling app's permissions; everything when none are set.
+        fn scope(
+            &self,
+            context: &rmcp::service::RequestContext<rmcp::RoleServer>,
+        ) -> crate::recall::RecallScope {
+            match &self.scope_for {
+                Some(scope_for) => scope_for(client_name(context).as_deref()),
+                None => crate::recall::RecallScope::all(),
             }
         }
 
@@ -927,9 +947,10 @@ pub mod app {
             context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<CallToolResult, McpError> {
             let started = std::time::Instant::now();
+            let scope = self.scope(&context);
             let text = self
                 .brain
-                .recall_provenance(&p.query, None, None, None, None, None)
+                .recall_provenance_scoped(&p.query, None, &scope)
                 .map_err(|e| err(e.to_string()))?;
             // The journal keeps exactly the context the model received.
             self.emit(
@@ -1009,11 +1030,13 @@ pub mod app {
             context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<CallToolResult, McpError> {
             let started = std::time::Instant::now();
+            let scope = self.scope(&context);
+            let limit = p.limit.unwrap_or(10).min(50);
             let results = self.brain.search(
                 Some(&p.query),
                 None,
                 None,
-                Some(p.limit.unwrap_or(10).min(50)),
+                Some(limit * 4),
                 None,
                 None,
                 None,
@@ -1021,6 +1044,8 @@ pub mod app {
             );
             let items: Vec<serde_json::Value> = results
                 .iter()
+                .filter(|r| scope.allows(r))
+                .take(limit)
                 .map(|r| {
                     serde_json::json!({
                         "id": r.id,
@@ -1163,6 +1188,7 @@ pub async fn serve_http(
     token: SharedToken,
     advanced: Arc<std::sync::atomic::AtomicBool>,
     sink: Option<app::EventSink>,
+    scope_for: Option<app::ScopeFor>,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     use axum::{
@@ -1184,6 +1210,7 @@ pub async fn serve_http(
                 app::Tools::App(app::AppMcpServer::with_sink(
                     brain.clone(),
                     tools_sink.clone(),
+                    scope_for.clone(),
                 ))
             })
         },

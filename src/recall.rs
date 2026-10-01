@@ -1031,6 +1031,87 @@ pub const IDENTITY_BLOCK_SHARE: usize = 4; // one quarter
 /// already in `scored`, within `budget` tokens. E22b: needed fact in context
 /// 67% → 100%, answers needing it 40% → 75%, ordinary answers 100% → 96.3%.
 /// Returns the block text and the tokens it uses.
+/// Metadata key marking a record the user keeps private: only apps scoped
+/// with `include_private` (local models) may receive it.
+pub const META_PRIVATE: &str = "private";
+
+/// What one app may receive from recall. Records are filtered before the
+/// context is built, so an excluded record cannot reach the app as a
+/// result, as an identity fact, or as the causal reason of another record.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RecallScope {
+    /// Records marked private (local models only).
+    pub include_private: bool,
+    /// Identity-level facts about the user, including the identity block.
+    pub include_identity: bool,
+    /// When set, records written by other apps (`metadata.client`) are left
+    /// out; the user's own records (no client) always stay.
+    pub only_client: Option<String>,
+    /// Records imported from files or chat exports (`metadata.imported`).
+    pub include_imported: bool,
+    /// Outside content: web pages, documents, tool output.
+    pub include_outside: bool,
+}
+
+impl Default for RecallScope {
+    fn default() -> Self {
+        Self {
+            include_private: false,
+            include_identity: true,
+            only_client: None,
+            include_imported: true,
+            include_outside: true,
+        }
+    }
+}
+
+impl RecallScope {
+    /// Everything, as plain recall: private records included.
+    pub fn all() -> Self {
+        Self {
+            include_private: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn allows(&self, record: &Record) -> bool {
+        let meta = |key: &str| record.metadata.get(key).map(String::as_str);
+        if !self.include_private && meta(META_PRIVATE) == Some("true") {
+            return false;
+        }
+        if !self.include_identity && record.level == Level::Identity {
+            return false;
+        }
+        if let (Some(only), Some(client)) = (&self.only_client, meta("client")) {
+            if client != only {
+                return false;
+            }
+        }
+        if !self.include_imported && meta("imported") == Some("true") {
+            return false;
+        }
+        if !self.include_outside
+            && record.source_type == "retrieved"
+            && meta(crate::certainty::META_RELAYED_BY_MODEL) != Some("true")
+        {
+            return false;
+        }
+        true
+    }
+
+    /// Stable text for the recall cache key.
+    pub fn key(&self) -> String {
+        format!(
+            "p{}i{}c{}m{}o{}",
+            u8::from(self.include_private),
+            u8::from(self.include_identity),
+            self.only_client.as_deref().unwrap_or("*"),
+            u8::from(self.include_imported),
+            u8::from(self.include_outside),
+        )
+    }
+}
+
 pub fn identity_block(
     records: &HashMap<String, Record>,
     scored: &[(f32, Record)],

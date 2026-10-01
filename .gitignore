@@ -115,6 +115,7 @@ tests/*
 !tests/provenance_context.rs
 !tests/identity_block.rs
 !tests/mcp_bridge.rs
+!tests/recall_scope.rs
 
 # Marketing materials (strategy — not public)
 marketing/

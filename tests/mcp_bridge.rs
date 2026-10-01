@@ -39,6 +39,11 @@ async fn start(
             let events = events.clone();
             Arc::new(move |event| events.lock().unwrap().push(event))
         }),
+        // LM Studio is local: it may see private records; others may not.
+        Some(Arc::new(|client: Option<&str>| aura::recall::RecallScope {
+            include_private: client == Some("lm-studio"),
+            ..Default::default()
+        })),
         async {
             let _ = stopped.await;
         },
@@ -152,6 +157,41 @@ async fn two_bridges_share_one_store() {
     .await
     .unwrap();
     assert!(reader.contains("Lviv"), "{reader}");
+
+    // A private record reaches only the local app.
+    brain
+        .store(
+            "My therapist is Dr. Koval on Tuesdays",
+            None,
+            None,
+            None,
+            None,
+            Some("recorded"),
+            Some(std::collections::HashMap::from([(
+                "private".to_string(),
+                "true".to_string(),
+            )])),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let ask = r#"{"name":"recall","arguments":{"query":"Who is my therapist?"}}"#;
+    let cloud = tokio::task::spawn_blocking({
+        let home = home2.clone();
+        move || session(&home, "cursor", ask)
+    })
+    .await
+    .unwrap();
+    assert!(!cloud.contains("Koval"), "{cloud}");
+    let local = tokio::task::spawn_blocking({
+        let home = home2.clone();
+        move || session(&home, "lm-studio", ask)
+    })
+    .await
+    .unwrap();
+    assert!(local.contains("Koval"), "{local}");
 
     // The journal saw both calls: who asked, and exactly what the model got.
     {

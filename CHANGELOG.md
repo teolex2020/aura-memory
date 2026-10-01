@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Desktop app (`desktop/`, Tauri, not released).** A per-user Windows installer (NSIS, ~8 MB) puts Aura in the tray. The app owns the store and serves it over loopback MCP; every AI client reaches it through the bundled `aura-bridge`, which starts the app when it is closed. The Connections screen adds or removes one `aura` entry in the settings of Claude Desktop (including the Store build), Claude Code, Cursor, VS Code, Windsurf, Gemini CLI, Codex and LM Studio. Other entries are kept, a one-time `*.before-aura` backup is written, and a file Aura cannot parse is left unchanged. Screens:
+- **Desktop app (Tauri, not released; moved to its own repository `aura-desktop` on 2026-10-01, with its history).** A per-user Windows installer (NSIS, ~8 MB) puts Aura in the tray. The app owns the store and serves it over loopback MCP; every AI client reaches it through the bundled `aura-bridge`, which starts the app when it is closed. The Connections screen adds or removes one `aura` entry in the settings of Claude Desktop (including the Store build), Claude Code, Cursor, VS Code, Windsurf, Gemini CLI, Codex and LM Studio. Other entries are kept, a one-time `*.before-aura` backup is written, and a file Aura cannot parse is left unchanged. Screens:
   - **Overview:** counts by origin and by term (short-term, decisions, long-term, permanent).
   - **Memory:** search, origin and term filters, edit, change term, "this is true about me" (stored as a new first-hand record, since a label can't be raised in place), delete.
   - **Import:** notes, PDFs and ChatGPT/Claude exports. Exports are split by role: the user's messages become first-hand and the assistant's become inferred. Documents are outside content unless the user marks them as their own notes.

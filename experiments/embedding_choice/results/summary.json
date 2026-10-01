@@ -1,0 +1,1088 @@
+{
+  "BGE": {
+    "d1_turn_any@10": 95.0,
+    "d1_n": 60,
+    "d2": {
+      "all": 96.2,
+      "in_space": 95.8,
+      "cross_space": 98.3,
+      "identity": 95.0,
+      "uk": 95.8,
+      "en": 96.7
+    },
+    "d3": {
+      "mono": {
+        "eng_Latn": [
+          95.0,
+          97.6
+        ],
+        "spa_Latn": [
+          95.0,
+          97.4
+        ],
+        "deu_Latn": [
+          94.7,
+          97.1
+        ],
+        "fra_Latn": [
+          95.7,
+          97.6
+        ],
+        "por_Latn": [
+          93.3,
+          96.8
+        ],
+        "ita_Latn": [
+          94.3,
+          97.2
+        ],
+        "pol_Latn": [
+          94.7,
+          97.2
+        ],
+        "ukr_Cyrl": [
+          94.0,
+          97.2
+        ],
+        "rus_Cyrl": [
+          93.3,
+          96.6
+        ],
+        "zho_Hans": [
+          93.7,
+          96.7
+        ],
+        "jpn_Jpan": [
+          93.7,
+          96.3
+        ],
+        "kor_Hang": [
+          92.0,
+          95.2
+        ],
+        "arb_Arab": [
+          90.7,
+          94.3
+        ],
+        "hin_Deva": [
+          84.0,
+          90.6
+        ],
+        "tur_Latn": [
+          94.0,
+          97.0
+        ]
+      },
+      "en_to_x": {
+        "spa_Latn": [
+          90.3,
+          95.0
+        ],
+        "deu_Latn": [
+          92.3,
+          96.1
+        ],
+        "fra_Latn": [
+          93.0,
+          96.7
+        ],
+        "por_Latn": [
+          89.3,
+          94.5
+        ],
+        "ita_Latn": [
+          90.7,
+          95.6
+        ],
+        "pol_Latn": [
+          91.3,
+          95.8
+        ],
+        "ukr_Cyrl": [
+          89.7,
+          94.9
+        ],
+        "rus_Cyrl": [
+          90.3,
+          95.0
+        ],
+        "zho_Hans": [
+          85.7,
+          92.0
+        ],
+        "jpn_Jpan": [
+          89.0,
+          94.1
+        ],
+        "kor_Hang": [
+          88.7,
+          93.7
+        ],
+        "arb_Arab": [
+          82.3,
+          89.8
+        ],
+        "hin_Deva": [
+          88.0,
+          94.0
+        ],
+        "tur_Latn": [
+          89.0,
+          94.4
+        ]
+      },
+      "x_to_en": {
+        "spa_Latn": [
+          92.7,
+          95.9
+        ],
+        "deu_Latn": [
+          91.0,
+          95.4
+        ],
+        "fra_Latn": [
+          92.3,
+          96.0
+        ],
+        "por_Latn": [
+          91.3,
+          95.6
+        ],
+        "ita_Latn": [
+          92.7,
+          96.3
+        ],
+        "pol_Latn": [
+          91.3,
+          95.6
+        ],
+        "ukr_Cyrl": [
+          90.3,
+          95.3
+        ],
+        "rus_Cyrl": [
+          92.3,
+          95.9
+        ],
+        "zho_Hans": [
+          87.0,
+          93.1
+        ],
+        "jpn_Jpan": [
+          86.7,
+          92.9
+        ],
+        "kor_Hang": [
+          82.0,
+          90.3
+        ],
+        "arb_Arab": [
+          83.3,
+          89.6
+        ],
+        "hin_Deva": [
+          80.0,
+          88.6
+        ],
+        "tur_Latn": [
+          90.3,
+          94.5
+        ]
+      },
+      "mono_macro": {
+        "recall@1": 93.2,
+        "ndcg@10": 96.3
+      },
+      "en_to_x_macro": {
+        "recall@1": 89.3,
+        "ndcg@10": 94.4
+      },
+      "x_to_en_macro": {
+        "recall@1": 88.8,
+        "ndcg@10": 93.9
+      },
+      "cross_macro_ndcg@10": 94.2
+    },
+    "speed": {
+      "file_mb": 634.6,
+      "cpu_docs_per_s": 2.9,
+      "cpu_rss_mb": 1218.2,
+      "cpu_query_ms_median": 89.0,
+      "gpu_docs_per_s": 18.9,
+      "gpu_rss_mb": 1331.1,
+      "gpu_query_ms_median": 80.7
+    }
+  },
+  "QWEN": {
+    "d1_turn_any@10": 93.3,
+    "d1_n": 60,
+    "d2": {
+      "all": 92.9,
+      "in_space": 95.8,
+      "cross_space": 100,
+      "identity": 80.0,
+      "uk": 92.5,
+      "en": 93.3
+    },
+    "d3": {
+      "mono": {
+        "eng_Latn": [
+          94.7,
+          96.6
+        ],
+        "spa_Latn": [
+          91.3,
+          94.7
+        ],
+        "deu_Latn": [
+          88.0,
+          92.3
+        ],
+        "fra_Latn": [
+          89.7,
+          93.9
+        ],
+        "por_Latn": [
+          90.3,
+          94.0
+        ],
+        "ita_Latn": [
+          87.3,
+          93.0
+        ],
+        "pol_Latn": [
+          81.7,
+          88.3
+        ],
+        "ukr_Cyrl": [
+          82.7,
+          89.8
+        ],
+        "rus_Cyrl": [
+          89.0,
+          93.8
+        ],
+        "zho_Hans": [
+          90.7,
+          94.7
+        ],
+        "jpn_Jpan": [
+          85.7,
+          92.0
+        ],
+        "kor_Hang": [
+          80.7,
+          88.5
+        ],
+        "arb_Arab": [
+          79.7,
+          87.0
+        ],
+        "hin_Deva": [
+          72.3,
+          80.8
+        ],
+        "tur_Latn": [
+          76.3,
+          85.2
+        ]
+      },
+      "en_to_x": {
+        "spa_Latn": [
+          91.7,
+          95.2
+        ],
+        "deu_Latn": [
+          91.0,
+          94.9
+        ],
+        "fra_Latn": [
+          91.0,
+          94.9
+        ],
+        "por_Latn": [
+          91.0,
+          94.6
+        ],
+        "ita_Latn": [
+          90.0,
+          94.3
+        ],
+        "pol_Latn": [
+          86.0,
+          91.8
+        ],
+        "ukr_Cyrl": [
+          84.0,
+          91.2
+        ],
+        "rus_Cyrl": [
+          88.7,
+          93.4
+        ],
+        "zho_Hans": [
+          91.7,
+          95.2
+        ],
+        "jpn_Jpan": [
+          90.3,
+          94.2
+        ],
+        "kor_Hang": [
+          88.3,
+          93.1
+        ],
+        "arb_Arab": [
+          80.7,
+          89.2
+        ],
+        "hin_Deva": [
+          84.0,
+          90.7
+        ],
+        "tur_Latn": [
+          82.0,
+          90.2
+        ]
+      },
+      "x_to_en": {
+        "spa_Latn": [
+          88.7,
+          93.0
+        ],
+        "deu_Latn": [
+          87.0,
+          91.9
+        ],
+        "fra_Latn": [
+          87.3,
+          92.8
+        ],
+        "por_Latn": [
+          89.0,
+          93.4
+        ],
+        "ita_Latn": [
+          88.3,
+          93.7
+        ],
+        "pol_Latn": [
+          70.0,
+          81.5
+        ],
+        "ukr_Cyrl": [
+          76.7,
+          84.8
+        ],
+        "rus_Cyrl": [
+          86.0,
+          91.6
+        ],
+        "zho_Hans": [
+          89.7,
+          93.9
+        ],
+        "jpn_Jpan": [
+          81.3,
+          89.4
+        ],
+        "kor_Hang": [
+          70.3,
+          80.8
+        ],
+        "arb_Arab": [
+          69.0,
+          80.8
+        ],
+        "hin_Deva": [
+          57.0,
+          70.9
+        ],
+        "tur_Latn": [
+          61.3,
+          73.5
+        ]
+      },
+      "mono_macro": {
+        "recall@1": 85.3,
+        "ndcg@10": 91.0
+      },
+      "en_to_x_macro": {
+        "recall@1": 87.9,
+        "ndcg@10": 93.1
+      },
+      "x_to_en_macro": {
+        "recall@1": 78.7,
+        "ndcg@10": 86.6
+      },
+      "cross_macro_ndcg@10": 89.8
+    },
+    "speed": {
+      "file_mb": 639.2,
+      "cpu_docs_per_s": 1.7,
+      "cpu_rss_mb": 3447.6,
+      "cpu_query_ms_median": 190.1,
+      "gpu_docs_per_s": 12.1,
+      "gpu_rss_mb": 3156.2,
+      "gpu_query_ms_median": 89.1
+    }
+  },
+  "GEMMA": {
+    "d1_turn_any@10": 96.7,
+    "d1_n": 60,
+    "d2": {
+      "all": 95.0,
+      "in_space": 96.7,
+      "cross_space": 98.3,
+      "identity": 88.3,
+      "uk": 92.5,
+      "en": 97.5
+    },
+    "d3": {
+      "mono": {
+        "eng_Latn": [
+          96.0,
+          97.8
+        ],
+        "spa_Latn": [
+          95.3,
+          97.6
+        ],
+        "deu_Latn": [
+          92.7,
+          95.6
+        ],
+        "fra_Latn": [
+          95.7,
+          97.6
+        ],
+        "por_Latn": [
+          95.0,
+          97.0
+        ],
+        "ita_Latn": [
+          95.0,
+          97.2
+        ],
+        "pol_Latn": [
+          93.7,
+          96.3
+        ],
+        "ukr_Cyrl": [
+          89.3,
+          93.7
+        ],
+        "rus_Cyrl": [
+          93.7,
+          96.6
+        ],
+        "zho_Hans": [
+          97.0,
+          98.2
+        ],
+        "jpn_Jpan": [
+          95.3,
+          97.6
+        ],
+        "kor_Hang": [
+          93.0,
+          96.1
+        ],
+        "arb_Arab": [
+          93.0,
+          95.7
+        ],
+        "hin_Deva": [
+          88.7,
+          92.8
+        ],
+        "tur_Latn": [
+          90.7,
+          94.4
+        ]
+      },
+      "en_to_x": {
+        "spa_Latn": [
+          94.7,
+          97.0
+        ],
+        "deu_Latn": [
+          94.3,
+          96.8
+        ],
+        "fra_Latn": [
+          95.7,
+          97.7
+        ],
+        "por_Latn": [
+          95.3,
+          97.4
+        ],
+        "ita_Latn": [
+          95.0,
+          97.3
+        ],
+        "pol_Latn": [
+          94.0,
+          96.7
+        ],
+        "ukr_Cyrl": [
+          93.3,
+          96.4
+        ],
+        "rus_Cyrl": [
+          93.7,
+          96.7
+        ],
+        "zho_Hans": [
+          95.0,
+          97.4
+        ],
+        "jpn_Jpan": [
+          94.7,
+          97.1
+        ],
+        "kor_Hang": [
+          94.7,
+          97.0
+        ],
+        "arb_Arab": [
+          91.3,
+          95.4
+        ],
+        "hin_Deva": [
+          94.7,
+          97.2
+        ],
+        "tur_Latn": [
+          93.7,
+          96.7
+        ]
+      },
+      "x_to_en": {
+        "spa_Latn": [
+          92.7,
+          96.0
+        ],
+        "deu_Latn": [
+          92.7,
+          96.1
+        ],
+        "fra_Latn": [
+          93.7,
+          96.7
+        ],
+        "por_Latn": [
+          93.7,
+          96.5
+        ],
+        "ita_Latn": [
+          93.7,
+          96.5
+        ],
+        "pol_Latn": [
+          89.3,
+          94.4
+        ],
+        "ukr_Cyrl": [
+          85.7,
+          91.6
+        ],
+        "rus_Cyrl": [
+          90.7,
+          95.3
+        ],
+        "zho_Hans": [
+          93.3,
+          96.4
+        ],
+        "jpn_Jpan": [
+          93.7,
+          96.7
+        ],
+        "kor_Hang": [
+          90.3,
+          94.7
+        ],
+        "arb_Arab": [
+          87.7,
+          92.6
+        ],
+        "hin_Deva": [
+          87.7,
+          92.4
+        ],
+        "tur_Latn": [
+          88.3,
+          92.0
+        ]
+      },
+      "mono_macro": {
+        "recall@1": 93.6,
+        "ndcg@10": 96.3
+      },
+      "en_to_x_macro": {
+        "recall@1": 94.3,
+        "ndcg@10": 96.9
+      },
+      "x_to_en_macro": {
+        "recall@1": 90.9,
+        "ndcg@10": 94.8
+      },
+      "cross_macro_ndcg@10": 95.8
+    },
+    "speed": {
+      "file_mb": 333.6,
+      "cpu_docs_per_s": 7.4,
+      "cpu_rss_mb": 856.2,
+      "cpu_query_ms_median": 79.3,
+      "gpu_docs_per_s": 42.5,
+      "gpu_rss_mb": 1380.4,
+      "gpu_query_ms_median": 62.0
+    }
+  },
+  "GRANITE": {
+    "d1_turn_any@10": 95.0,
+    "d1_n": 60,
+    "d2": {
+      "all": 95.8,
+      "in_space": 95.8,
+      "cross_space": 98.3,
+      "identity": 93.3,
+      "uk": 94.2,
+      "en": 97.5
+    },
+    "d3": {
+      "mono": {
+        "eng_Latn": [
+          92.7,
+          95.7
+        ],
+        "spa_Latn": [
+          92.7,
+          95.2
+        ],
+        "deu_Latn": [
+          88.7,
+          93.2
+        ],
+        "fra_Latn": [
+          93.3,
+          96.0
+        ],
+        "por_Latn": [
+          91.7,
+          95.2
+        ],
+        "ita_Latn": [
+          91.7,
+          94.9
+        ],
+        "pol_Latn": [
+          85.3,
+          91.5
+        ],
+        "ukr_Cyrl": [
+          84.7,
+          90.8
+        ],
+        "rus_Cyrl": [
+          91.7,
+          94.6
+        ],
+        "zho_Hans": [
+          92.3,
+          95.7
+        ],
+        "jpn_Jpan": [
+          90.7,
+          94.4
+        ],
+        "kor_Hang": [
+          86.0,
+          91.3
+        ],
+        "arb_Arab": [
+          88.7,
+          92.2
+        ],
+        "hin_Deva": [
+          83.3,
+          87.8
+        ],
+        "tur_Latn": [
+          86.7,
+          92.2
+        ]
+      },
+      "en_to_x": {
+        "spa_Latn": [
+          92.7,
+          94.9
+        ],
+        "deu_Latn": [
+          90.3,
+          94.5
+        ],
+        "fra_Latn": [
+          91.7,
+          95.1
+        ],
+        "por_Latn": [
+          90.3,
+          94.3
+        ],
+        "ita_Latn": [
+          91.3,
+          94.8
+        ],
+        "pol_Latn": [
+          88.0,
+          93.1
+        ],
+        "ukr_Cyrl": [
+          87.0,
+          92.3
+        ],
+        "rus_Cyrl": [
+          89.3,
+          92.9
+        ],
+        "zho_Hans": [
+          90.7,
+          94.3
+        ],
+        "jpn_Jpan": [
+          91.3,
+          94.7
+        ],
+        "kor_Hang": [
+          88.3,
+          93.0
+        ],
+        "arb_Arab": [
+          85.3,
+          91.3
+        ],
+        "hin_Deva": [
+          88.7,
+          93.2
+        ],
+        "tur_Latn": [
+          86.7,
+          92.4
+        ]
+      },
+      "x_to_en": {
+        "spa_Latn": [
+          86.7,
+          92.2
+        ],
+        "deu_Latn": [
+          86.0,
+          91.4
+        ],
+        "fra_Latn": [
+          89.0,
+          93.5
+        ],
+        "por_Latn": [
+          87.0,
+          92.4
+        ],
+        "ita_Latn": [
+          89.0,
+          93.3
+        ],
+        "pol_Latn": [
+          77.3,
+          86.1
+        ],
+        "ukr_Cyrl": [
+          76.0,
+          84.1
+        ],
+        "rus_Cyrl": [
+          79.0,
+          87.8
+        ],
+        "zho_Hans": [
+          83.7,
+          89.9
+        ],
+        "jpn_Jpan": [
+          85.7,
+          90.8
+        ],
+        "kor_Hang": [
+          78.7,
+          86.3
+        ],
+        "arb_Arab": [
+          76.7,
+          84.8
+        ],
+        "hin_Deva": [
+          74.3,
+          82.8
+        ],
+        "tur_Latn": [
+          74.0,
+          81.7
+        ]
+      },
+      "mono_macro": {
+        "recall@1": 89.3,
+        "ndcg@10": 93.4
+      },
+      "en_to_x_macro": {
+        "recall@1": 89.4,
+        "ndcg@10": 93.6
+      },
+      "x_to_en_macro": {
+        "recall@1": 81.7,
+        "ndcg@10": 88.4
+      },
+      "cross_macro_ndcg@10": 91.0
+    },
+    "speed": {
+      "file_mb": 347.0,
+      "cpu_docs_per_s": 8.7,
+      "cpu_rss_mb": 886.1,
+      "cpu_query_ms_median": 65.2,
+      "gpu_docs_per_s": 44.5,
+      "gpu_rss_mb": 1004.3,
+      "gpu_query_ms_median": 57.0
+    }
+  },
+  "HARRIER": {
+    "d1_turn_any@10": 96.7,
+    "d1_n": 60,
+    "d2": {
+      "all": 94.6,
+      "in_space": 95.0,
+      "cross_space": 98.3,
+      "identity": 90.0,
+      "uk": 93.3,
+      "en": 95.8
+    },
+    "d3": {
+      "mono": {
+        "eng_Latn": [
+          95.3,
+          97.3
+        ],
+        "spa_Latn": [
+          95.7,
+          97.8
+        ],
+        "deu_Latn": [
+          93.7,
+          96.5
+        ],
+        "fra_Latn": [
+          94.7,
+          97.2
+        ],
+        "por_Latn": [
+          95.7,
+          97.8
+        ],
+        "ita_Latn": [
+          95.3,
+          97.6
+        ],
+        "pol_Latn": [
+          91.0,
+          94.8
+        ],
+        "ukr_Cyrl": [
+          91.7,
+          95.8
+        ],
+        "rus_Cyrl": [
+          95.0,
+          97.3
+        ],
+        "zho_Hans": [
+          96.7,
+          98.0
+        ],
+        "jpn_Jpan": [
+          93.0,
+          96.0
+        ],
+        "kor_Hang": [
+          90.3,
+          94.6
+        ],
+        "arb_Arab": [
+          93.0,
+          96.0
+        ],
+        "hin_Deva": [
+          84.3,
+          91.3
+        ],
+        "tur_Latn": [
+          91.7,
+          95.5
+        ]
+      },
+      "en_to_x": {
+        "spa_Latn": [
+          93.0,
+          96.3
+        ],
+        "deu_Latn": [
+          91.3,
+          95.5
+        ],
+        "fra_Latn": [
+          95.0,
+          96.9
+        ],
+        "por_Latn": [
+          94.3,
+          96.8
+        ],
+        "ita_Latn": [
+          93.3,
+          96.1
+        ],
+        "pol_Latn": [
+          92.0,
+          95.5
+        ],
+        "ukr_Cyrl": [
+          92.3,
+          96.0
+        ],
+        "rus_Cyrl": [
+          93.3,
+          96.1
+        ],
+        "zho_Hans": [
+          94.0,
+          96.6
+        ],
+        "jpn_Jpan": [
+          94.7,
+          96.8
+        ],
+        "kor_Hang": [
+          91.0,
+          95.0
+        ],
+        "arb_Arab": [
+          91.3,
+          95.2
+        ],
+        "hin_Deva": [
+          91.7,
+          96.0
+        ],
+        "tur_Latn": [
+          92.7,
+          96.2
+        ]
+      },
+      "x_to_en": {
+        "spa_Latn": [
+          92.3,
+          96.3
+        ],
+        "deu_Latn": [
+          92.3,
+          95.6
+        ],
+        "fra_Latn": [
+          92.7,
+          96.2
+        ],
+        "por_Latn": [
+          93.0,
+          96.3
+        ],
+        "ita_Latn": [
+          92.3,
+          96.2
+        ],
+        "pol_Latn": [
+          87.7,
+          93.6
+        ],
+        "ukr_Cyrl": [
+          88.7,
+          94.3
+        ],
+        "rus_Cyrl": [
+          92.3,
+          95.9
+        ],
+        "zho_Hans": [
+          92.0,
+          96.0
+        ],
+        "jpn_Jpan": [
+          92.0,
+          95.6
+        ],
+        "kor_Hang": [
+          82.7,
+          89.6
+        ],
+        "arb_Arab": [
+          83.0,
+          89.7
+        ],
+        "hin_Deva": [
+          79.0,
+          86.8
+        ],
+        "tur_Latn": [
+          83.7,
+          90.4
+        ]
+      },
+      "mono_macro": {
+        "recall@1": 93.1,
+        "ndcg@10": 96.2
+      },
+      "en_to_x_macro": {
+        "recall@1": 92.8,
+        "ndcg@10": 96.1
+      },
+      "x_to_en_macro": {
+        "recall@1": 88.8,
+        "ndcg@10": 93.8
+      },
+      "cross_macro_ndcg@10": 94.9
+    },
+    "speed": {
+      "file_mb": 639.4,
+      "cpu_docs_per_s": 2.0,
+      "cpu_rss_mb": 3448.8,
+      "cpu_query_ms_median": 174.2,
+      "gpu_docs_per_s": 12.7,
+      "gpu_rss_mb": 3157.3,
+      "gpu_query_ms_median": 89.0
+    }
+  },
+  "_decision": {
+    "best": {
+      "D1": 96.7,
+      "D2": 96.2,
+      "D3_mono": 96.3,
+      "D3_cross": 95.8
+    },
+    "qualifies": {
+      "BGE": true,
+      "QWEN": false,
+      "GEMMA": true,
+      "GRANITE": false,
+      "HARRIER": true
+    },
+    "winner": "GEMMA"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "file_mb": 639.2,
+  "cpu_docs_per_s": 1.7,
+  "cpu_rss_mb": 3447.6,
+  "cpu_query_ms_median": 190.1,
+  "gpu_docs_per_s": 12.1,
+  "gpu_rss_mb": 3156.2,
+  "gpu_query_ms_median": 89.1
+}

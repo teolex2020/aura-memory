@@ -46,7 +46,7 @@ messages keep the old numbers.
 | E30 | `control_facts` | Control facts: can a checker catch answers and actions that ignore what the user said? | ◐ C2 flash-lite ✅ all gates (97.2% caught, 2.8% false alarms, cross-language 100%); C1 qwen 4B local ❌ (71.1% / 14.3%); C0 no model ❌ | — (opt-in API checker candidate) |
 | E31 | `embedding_need` | Does Aura need semantic embeddings (EMB vs LEX, the desktop default)? | radical: LongMemEval evidence@10 95.8% vs 80.8% (preferences −30 pp, assistant turns −45 pp); E22b at ceiling | — (lightest option next) |
 | E32 | `memory_spaces` | Memory spaces from provenance: global vs hard walls vs soft preference | ❌ soft +4.2 pp in-space but cross-space 93→45%; global best (84.6% LEX, 96.2% EMB); identity paraphrase 68% LEX vs 95% EMB | — (spaces only as UI grouping) |
-| E34 | `embedding_choice` | Which small embedding model for opt-in smart search (5 candidates, 15 languages, cross-lingual) | planned | — |
+| E34 | `embedding_choice` | Which small embedding model for opt-in smart search (5 candidates, 15 languages, cross-lingual) | ✅ EmbeddingGemma 300M by rule (334 MB, cross-lingual 95.8 best, 2.5× faster than bge-m3 on CPU); bge-m3 (MIT) also qualifies; Qwen3/Harrier not better and 3.4 GB RAM | — (owner decides Gemma terms vs bge-m3) |
 | E33 | `research_cache` | Research once into memory vs search every time (quality, cost, citations) | ❌ cache 48.3% vs live search 76.7% (coverage, not retrieval); 34× cheaper per question but break-even ~12 questions/topic; citations 91.4% ✅ | — (grow-on-use cache is the follow-up idea) |
 
 Next free number: **E35**.

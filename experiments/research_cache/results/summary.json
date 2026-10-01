@@ -1,0 +1,60 @@
+{
+  "C-LEX": {
+    "accuracy": 43.3,
+    "n": 60,
+    "usd_per_question": 0.00051,
+    "by_lang": {
+      "uk": 43.3,
+      "en": 43.3
+    },
+    "by_kind": {
+      "fact": 41.7,
+      "number_or_date": 58.3,
+      "synthesis": 16.7
+    },
+    "usd_per_question_at_5_incl_build": 0.04682,
+    "median_context_chars": 6321.5
+  },
+  "C": {
+    "accuracy": 48.3,
+    "n": 60,
+    "usd_per_question": 0.00059,
+    "by_lang": {
+      "uk": 53.3,
+      "en": 43.3
+    },
+    "by_kind": {
+      "fact": 50.0,
+      "number_or_date": 58.3,
+      "synthesis": 25.0
+    },
+    "usd_per_question_at_5_incl_build": 0.0469,
+    "median_context_chars": 7324.0
+  },
+  "R": {
+    "accuracy": 76.7,
+    "n": 60,
+    "usd_per_question": 0.02016,
+    "by_lang": {
+      "uk": 80.0,
+      "en": 73.3
+    },
+    "by_kind": {
+      "fact": 87.5,
+      "number_or_date": 62.5,
+      "synthesis": 83.3
+    }
+  },
+  "build_usd": 1.3893,
+  "citations": {
+    "sampled": 60,
+    "fetched": 58,
+    "supported_pct": 91.4
+  },
+  "gates": {
+    "G1_accuracy_C>=R-5": false,
+    "G2_cost_C<=R/5_at_5q": false,
+    "G3_citations>=90": true
+  },
+  "break_even_questions_per_topic": 11.8
+}

@@ -1,0 +1,242 @@
+[
+  {
+    "topic": "t1",
+    "aspect": "an overview: what it is, who is involved, where and when",
+    "in": 122,
+    "out": 1019,
+    "searches": 4,
+    "usd": 0.057559
+  },
+  {
+    "topic": "t1",
+    "aspect": "a timeline of key events with exact dates",
+    "in": 116,
+    "out": 857,
+    "searches": 3,
+    "usd": 0.043314500000000006
+  },
+  {
+    "topic": "t1",
+    "aspect": "key numbers, amounts, results and statistics",
+    "in": 116,
+    "out": 1047,
+    "searches": 4,
+    "usd": 0.0575995
+  },
+  {
+    "topic": "t1",
+    "aspect": "the people, companies and organisations involved and their roles",
+    "in": 118,
+    "out": 1029,
+    "searches": 4,
+    "usd": 0.057573
+  },
+  {
+    "topic": "t1",
+    "aspect": "the latest developments and what is expected next",
+    "in": 116,
+    "out": 984,
+    "searches": 4,
+    "usd": 0.057505
+  },
+  {
+    "topic": "t2",
+    "aspect": "an overview: what it is, who is involved, where and when",
+    "in": 116,
+    "out": 1099,
+    "searches": 4,
+    "usd": 0.0576775
+  },
+  {
+    "topic": "t2",
+    "aspect": "a timeline of key events with exact dates",
+    "in": 110,
+    "out": 994,
+    "searches": 4,
+    "usd": 0.0575185
+  },
+  {
+    "topic": "t2",
+    "aspect": "key numbers, amounts, results and statistics",
+    "in": 110,
+    "out": 1087,
+    "searches": 4,
+    "usd": 0.057658
+  },
+  {
+    "topic": "t2",
+    "aspect": "the people, companies and organisations involved and their roles",
+    "in": 112,
+    "out": 979,
+    "searches": 0,
+    "usd": 0.0014965
+  },
+  {
+    "topic": "t2",
+    "aspect": "the latest developments and what is expected next",
+    "in": 110,
+    "out": 1183,
+    "searches": 4,
+    "usd": 0.057802
+  },
+  {
+    "topic": "t3",
+    "aspect": "an overview: what it is, who is involved, where and when",
+    "in": 107,
+    "out": 911,
+    "searches": 0,
+    "usd": 0.0013932500000000002
+  },
+  {
+    "topic": "t3",
+    "aspect": "a timeline of key events with exact dates",
+    "in": 101,
+    "out": 994,
+    "searches": 2,
+    "usd": 0.02951625
+  },
+  {
+    "topic": "t3",
+    "aspect": "key numbers, amounts, results and statistics",
+    "in": 101,
+    "out": 1122,
+    "searches": 3,
+    "usd": 0.043708250000000004
+  },
+  {
+    "topic": "t3",
+    "aspect": "the people, companies and organisations involved and their roles",
+    "in": 103,
+    "out": 1204,
+    "searches": 3,
+    "usd": 0.04383175
+  },
+  {
+    "topic": "t3",
+    "aspect": "the latest developments and what is expected next",
+    "in": 101,
+    "out": 1221,
+    "searches": 3,
+    "usd": 0.04385675
+  },
+  {
+    "topic": "t4",
+    "aspect": "an overview: what it is, who is involved, where and when",
+    "in": 80,
+    "out": 830,
+    "searches": 4,
+    "usd": 0.057265
+  },
+  {
+    "topic": "t4",
+    "aspect": "a timeline of key events with exact dates",
+    "in": 74,
+    "out": 779,
+    "searches": 3,
+    "usd": 0.043187
+  },
+  {
+    "topic": "t4",
+    "aspect": "key numbers, amounts, results and statistics",
+    "in": 74,
+    "out": 884,
+    "searches": 3,
+    "usd": 0.0433445
+  },
+  {
+    "topic": "t4",
+    "aspect": "the people, companies and organisations involved and their roles",
+    "in": 76,
+    "out": 872,
+    "searches": 3,
+    "usd": 0.043327000000000004
+  },
+  {
+    "topic": "t4",
+    "aspect": "the latest developments and what is expected next",
+    "in": 74,
+    "out": 782,
+    "searches": 3,
+    "usd": 0.0431915
+  },
+  {
+    "topic": "t5",
+    "aspect": "an overview: what it is, who is involved, where and when",
+    "in": 83,
+    "out": 823,
+    "searches": 3,
+    "usd": 0.04325525
+  },
+  {
+    "topic": "t5",
+    "aspect": "a timeline of key events with exact dates",
+    "in": 77,
+    "out": 1100,
+    "searches": 4,
+    "usd": 0.05766925
+  },
+  {
+    "topic": "t5",
+    "aspect": "key numbers, amounts, results and statistics",
+    "in": 77,
+    "out": 918,
+    "searches": 3,
+    "usd": 0.043396250000000004
+  },
+  {
+    "topic": "t5",
+    "aspect": "the people, companies and organisations involved and their roles",
+    "in": 79,
+    "out": 921,
+    "searches": 4,
+    "usd": 0.05740125
+  },
+  {
+    "topic": "t5",
+    "aspect": "the latest developments and what is expected next",
+    "in": 77,
+    "out": 984,
+    "searches": 3,
+    "usd": 0.04349525
+  },
+  {
+    "topic": "t6",
+    "aspect": "an overview: what it is, who is involved, where and when",
+    "in": 97,
+    "out": 1089,
+    "searches": 4,
+    "usd": 0.05765775
+  },
+  {
+    "topic": "t6",
+    "aspect": "a timeline of key events with exact dates",
+    "in": 91,
+    "out": 816,
+    "searches": 4,
+    "usd": 0.05724675
+  },
+  {
+    "topic": "t6",
+    "aspect": "key numbers, amounts, results and statistics",
+    "in": 91,
+    "out": 1279,
+    "searches": 5,
+    "usd": 0.07194125000000001
+  },
+  {
+    "topic": "t6",
+    "aspect": "the people, companies and organisations involved and their roles",
+    "in": 93,
+    "out": 829,
+    "searches": 0,
+    "usd": 0.00126675
+  },
+  {
+    "topic": "t6",
+    "aspect": "the latest developments and what is expected next",
+    "in": 91,
+    "out": 1088,
+    "searches": 4,
+    "usd": 0.057654750000000005
+  }
+]

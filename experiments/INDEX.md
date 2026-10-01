@@ -44,6 +44,7 @@ E16 was used twice on 2026-09-29 by two sessions; the later pair
 messages keep the old numbers.
 
 | E30 | `control_facts` | Control facts: can a checker catch answers and actions that ignore what the user said? | ◐ C2 flash-lite ✅ all gates (97.2% caught, 2.8% false alarms, cross-language 100%); C1 qwen 4B local ❌ (71.1% / 14.3%); C0 no model ❌ | — (opt-in API checker candidate) |
+| E30b | `control_facts` (b) | Control facts on larger local models (Qwen3.5-4B, Gemma 4 E4B, Qwen3-4B Q8, Phi-4-mini, Hunyuan-7B) | ❌ none pass; best Qwen3.5-4B 88.3% caught but 21.7% false alarms, 12 GB RAM | — (opt-in API checker) |
 | E31 | `embedding_need` | Does Aura need semantic embeddings (EMB vs LEX, the desktop default)? | radical: LongMemEval evidence@10 95.8% vs 80.8% (preferences −30 pp, assistant turns −45 pp); E22b at ceiling | — (lightest option next) |
 | E32 | `memory_spaces` | Memory spaces from provenance: global vs hard walls vs soft preference | ❌ soft +4.2 pp in-space but cross-space 93→45%; global best (84.6% LEX, 96.2% EMB); identity paraphrase 68% LEX vs 95% EMB | — (spaces only as UI grouping) |
 | E34 | `embedding_choice` | Which small embedding model for opt-in smart search (5 candidates, 15 languages, cross-lingual) | ✅ EmbeddingGemma 300M by rule (334 MB, cross-lingual 95.8 best, 2.5× faster than bge-m3 on CPU); bge-m3 (MIT) also qualifies; Qwen3/Harrier not better and 3.4 GB RAM | — (owner decides Gemma terms vs bge-m3) |

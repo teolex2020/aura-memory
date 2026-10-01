@@ -13,6 +13,7 @@
   - **Help:** getting started, what every tool and screen means, troubleshooting, developer notes, FAQ, updates and uninstalling.
   - **Custom connection:** copyable MCP JSON, CLI, HTTP, Python (`mcp>=2`) and JavaScript snippets. The access key now persists across restarts (`token.txt`) and can be replaced from the app (`SharedToken`). The Python and JavaScript snippets were checked against a running app.
   - **Themes:** system, light or dark.
+  - **Smart search (opt-in local embeddings).** Settings can download llama.cpp b9870 (CPU build, 17 MB) and a model into a folder the user picks: EmbeddingGemma 300M (334 MB, the E34 winner) or bge-m3 (635 MB, MIT). Both files are checked against pinned SHA-256s, and a model already in the folder or its `embeddings` subfolder is reused. The app runs a local `llama-server` and indexes existing memory in the background with progress. Nothing leaves the computer. Without it, recall stays as before; E31 measured 95.8% vs 80.8% evidence recall. The core gains a native `aura::embedding::Embedder` hook (`Aura::set_embedder`) that embeds stored text as documents and recall queries as queries (models format the two differently), plus `records_without_embedding`, `embed_document` and `clear_embeddings`. The Python `set_embedding_fn` is unchanged.
   - **Privacy controls:**
     - **Private memories:** cloud AI apps never receive them; only apps marked as local models do.
     - **Per-app "What it sees":** facts about you, other apps' memories, imported documents, outside content, and whether the model runs locally.

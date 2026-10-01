@@ -116,6 +116,7 @@ tests/*
 !tests/identity_block.rs
 !tests/mcp_bridge.rs
 !tests/recall_scope.rs
+!tests/native_embedder.rs
 
 # Marketing materials (strategy — not public)
 marketing/

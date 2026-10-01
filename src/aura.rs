@@ -251,6 +251,7 @@ pub struct Aura {
 
     // ── Optional Embedding Support ──
     embedding_store: EmbeddingStore,
+    embedder: RwLock<Option<Arc<dyn crate::embedding::Embedder>>>,
     #[cfg(feature = "python")]
     embedding_fn: RwLock<Option<Arc<PyObject>>>,
     // ── Claim certainty ──
@@ -1088,6 +1089,7 @@ impl Aura {
             prev_policy_keys: RwLock::new(HashSet::new()),
             // Optional embedding support
             embedding_store,
+            embedder: RwLock::new(None),
             #[cfg(feature = "python")]
             embedding_fn: RwLock::new(None),
             claim_classifier: RwLock::new(None),
@@ -1860,7 +1862,7 @@ impl Aura {
         }
 
         // Compute embedding if embedding_fn is set (Python only)
-        if let Some(embedding) = self.embed_text(content) {
+        if let Some(embedding) = self.embed_text(content, crate::embedding::EmbedKind::Document) {
             // The authoritative record is already committed. Optional
             // indexing must not report a failed store for that record
             // or skip cache invalidation and the remaining bookkeeping.
@@ -5892,12 +5894,15 @@ impl Aura {
             .then(|| crate::certainty::classify(text))
     }
 
-    /// Run the Python embedding callback, if one is set.
+    /// Run the native embedder or, failing that, the Python callback.
     ///
     /// Callers must not hold any store lock: the callback needs the GIL, and a
     /// Python thread holding the GIL may be waiting on those same locks.
     #[allow(unused_variables)]
-    fn embed_text(&self, text: &str) -> Option<Vec<f32>> {
+    fn embed_text(&self, text: &str, kind: crate::embedding::EmbedKind) -> Option<Vec<f32>> {
+        if let Some(embedder) = self.embedder.read().clone() {
+            return embedder.embed(text, kind);
+        }
         #[cfg(feature = "python")]
         {
             // Clone the callback out so the RwLock is not held while waiting for the GIL.
@@ -5924,7 +5929,39 @@ impl Aura {
         if !self.embedding_store.is_active() {
             return None;
         }
-        self.embed_text(query)
+        self.embed_text(query, crate::embedding::EmbedKind::Query)
+    }
+
+    /// Set (or clear) a native embedder. New records are embedded as
+    /// documents and recall queries as queries. Existing records are not
+    /// re-embedded here: use [`Aura::records_without_embedding`] and
+    /// [`Aura::store_embedding`] to index them.
+    pub fn set_embedder(&self, embedder: Option<Arc<dyn crate::embedding::Embedder>>) {
+        *self.embedder.write() = embedder;
+        self.runtime.clear_recall_caches();
+    }
+
+    /// Embed one text with the native embedder, outside any store lock.
+    pub fn embed_document(&self, text: &str) -> Option<Vec<f32>> {
+        self.embed_text(text, crate::embedding::EmbedKind::Document)
+    }
+
+    /// Records that have no embedding yet: (id, content).
+    pub fn records_without_embedding(&self) -> Vec<(String, String)> {
+        let have = self.embedding_store.snapshot();
+        self.records
+            .read()
+            .values()
+            .filter(|r| !have.contains_key(&r.id))
+            .map(|r| (r.id.clone(), r.content.clone()))
+            .collect()
+    }
+
+    /// Drop every stored embedding (for example when the model changes).
+    pub fn clear_embeddings(&self) -> Result<()> {
+        self.embedding_store.clear()?;
+        self.runtime.clear_recall_caches();
+        Ok(())
     }
 
     /// Embedding similarity signal for the recall pipeline from a precomputed query embedding.

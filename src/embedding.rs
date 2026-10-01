@@ -11,6 +11,21 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+/// Whether a text is stored (a document) or searched for (a query). Many
+/// embedding models format the two differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbedKind {
+    Document,
+    Query,
+}
+
+/// A native embedding provider (for example a local model server). It
+/// returns `None` when it cannot embed a text right now; Aura then works
+/// without the embedding signal for that text.
+pub trait Embedder: Send + Sync {
+    fn embed(&self, text: &str, kind: EmbedKind) -> Option<Vec<f32>>;
+}
+
 /// Minimum number of logged inserts before the log is folded into the snapshot.
 const MIN_LOG_FRAMES_BEFORE_COMPACTION: usize = 1024;
 

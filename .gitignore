@@ -149,3 +149,11 @@ experiments/agent_outcome_signals/signals.jsonl
 experiments/agent_outcome_signals/*.log
 experiments/stale_facts/cache/
 experiments/stale_facts/*.log
+
+# Raw experiment outputs stay local (archived outside the repo); commit
+# protocols, scripts, RESULTS and small summaries only.
+experiments/**/outputs/
+experiments/locomo_retrieval/results_*.json
+experiments/recall_determinism/rankings_*.json
+experiments/**/retrieved.jsonl
+experiments/research_cache/results/cache.jsonl

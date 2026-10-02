@@ -108,4 +108,4 @@ Public documentation is intentionally kept lightweight. Internal design notes, r
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
 
-Note: The core cognitive architecture is Patent Pending (US 63/969,703). Contributions to the open-source SDK remain MIT-licensed. See [PATENT](PATENT) for details.
+Contributions are licensed under MIT, like the rest of the project.

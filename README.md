@@ -12,7 +12,6 @@
   <a href="https://pypi.org/project/aura-memory/"><img src="https://img.shields.io/pypi/dm/aura-memory.svg" alt="Downloads"></a>
   <a href="https://github.com/teolex2020/aura-memory/stargazers"><img src="https://img.shields.io/github/stars/teolex2020/aura-memory?style=social" alt="GitHub stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://www.uspto.gov/"><img src="https://img.shields.io/badge/Patent_Pending-US_63%2F969%2C703-blue.svg" alt="Patent Pending"></a>
 </p>
 
 <p align="center">
@@ -24,6 +23,8 @@
 ---
 
 Your AI model is smart. But it forgets everything after every conversation.
+
+> **New: [Aura for Windows](https://www.aurasdk.dev/desktop)** — a free desktop app built on this library that gives Claude Code, Cursor, Codex, Copilot and other AI tools one shared local memory.
 
 Aura is a local cognitive runtime that runs alongside any frozen model. It gives agents durable memory, explainability, governed correction, bounded recall reranking, and bounded self-adaptation through experience — all locally, without fine-tuning or cloud training.
 
@@ -1171,11 +1172,9 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instruct
 
 ---
 
-## License & Intellectual Property
+## License
 
-- **Code License:** MIT — see [LICENSE](LICENSE).
-- **Patent Notice:** Core architectural concepts are **Patent Pending** (US Provisional Application No. **63/969,703**). See [PATENT](PATENT) for details. The SDK source code is available under MIT. Separate commercial licensing is available for organizations that want contractual rights around patented architecture, OEM embedding, enterprise deployment, or dedicated support.
-- **Commercial Licensing:** If you want to embed Aura's architecture into a commercial product, see [COMMERCIAL.md](COMMERCIAL.md).
+MIT — see [LICENSE](LICENSE). There are no patent or commercial-licensing terms: use Aura in any project, including commercial ones.
 
 ---
 

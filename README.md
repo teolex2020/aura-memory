@@ -54,6 +54,18 @@ for hint in brain.get_surfaced_policy_hints():
 
 No API keys. No embeddings required. No cloud. The model stays the same — the cognitive layer becomes more structured, more inspectable, and more useful over time.
 
+### What's new in 1.61
+
+- **Your words stay apart from outside text.** `recall()` now returns the provenance context by default: first-hand memory first, then web, document and tool content fenced and quoted as data. **Upgrade note:** code that parses the old `=== COGNITIVE CONTEXT ===` text should pass `format="levels"`.
+- **Security profiles.** `Aura(path, security="strict")`, `set_security_profile()` and `security_report()`. Memories written by a model through MCP are stored as `inferred`, not as the user's word. One untrusted source repeating a claim can no longer crowd out a first-hand fact.
+- **Better recall context.** A short block of lasting facts about the user, event dates on first-hand memory, and relevance-trimmed context.
+- **One memory for many AI tools.** The Rust features `mcp-http` and `mcp-bridge` add a token-protected loopback MCP server and the `aura-bridge` stdio bridge, so several clients share one store. This is what the [Aura for Windows](https://www.aurasdk.dev/desktop) app runs on.
+- **Conversation capture.** `python -m aura capture` is a Claude Code hook that keeps the user's words as first-hand memory.
+- **Safer HTTP server.** `python -m aura serve` refuses to listen beyond localhost without an API key. Install it with `pip install "aura-memory[http]"`.
+- **Plain MIT.** The license-enforcement module is gone.
+
+The full list is in the [changelog](CHANGELOG.md).
+
 > **⭐ If Aura is useful to you, a [GitHub star](https://github.com/teolex2020/aura-memory) helps us get funding to continue development from Kyiv.**
 
 ---

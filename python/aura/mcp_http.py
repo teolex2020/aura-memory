@@ -379,14 +379,20 @@ def run_http(
     api_key: str | None = None,
     security: str | None = None,
 ):
-    import uvicorn
     if api_key:
         os.environ["AURA_API_KEY"] = api_key
+    # The safety check comes first, so it holds even without the server extra.
     if not _is_loopback(host) and _configured_api_key() is None:
         raise SystemExit(
             f"Refusing to bind {host} without an API key. "
             "Pass --api-key or set AURA_API_KEY, or bind 127.0.0.1."
         )
+    try:
+        import uvicorn
+    except ImportError:
+        raise SystemExit(
+            "The HTTP server needs the http extra: pip install 'aura-memory[http]'"
+        ) from None
     os.environ["AURA_BRAIN_PATH"] = path
     if password:
         os.environ["AURA_PASSWORD"] = password

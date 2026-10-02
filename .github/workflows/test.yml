@@ -84,6 +84,16 @@ jobs:
       - name: Run library tests
         run: cargo test --lib --tests --no-default-features --features "encryption,audit,capsule" -- --test-threads=2
 
+  rust-mcp:
+    name: Rust MCP bridge and privacy tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --no-default-features --features "mcp-http mcp-bridge encryption" --test mcp_bridge --test recall_scope --test native_embedder --bin aura-bridge
+
   rust-minimal:
     name: Rust Tests (no default features)
     runs-on: ubuntu-latest
@@ -167,6 +177,7 @@ jobs:
           .venv/bin/python tests/python_concurrency_smoke.py
           .venv/bin/python tests/python_http_security_smoke.py
           .venv/bin/python tests/python_capture_smoke.py
+          .venv/bin/python tests/python_security_profile_smoke.py
       - name: Run Python context and citation API smoke (Windows)
         if: runner.os == 'Windows'
         run: |
@@ -181,6 +192,8 @@ jobs:
           .venv\Scripts\python tests\python_http_security_smoke.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .venv\Scripts\python tests\python_capture_smoke.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python tests\python_security_profile_smoke.py
       - name: Run Python storage regressions
         run: .venv/bin/python scripts/python_audit_smoke.py
         if: runner.os != 'Windows'

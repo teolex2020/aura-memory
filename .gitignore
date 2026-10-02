@@ -143,3 +143,5 @@ experiments/value_net_transfer/cache/
 experiments/value_net_transfer/*.log
 experiments/value_signals/cache/
 experiments/value_signals/*.log
+experiments/prefeval_checker/cache/
+experiments/prefeval_checker/*.log

@@ -1,0 +1,175 @@
+{
+ "overall": {
+  "n": 2000,
+  "ref_violations": 904,
+  "caught_percent": 84.3,
+  "false_alarm_percent": 4.1,
+  "kappa": 0.809
+ },
+ "by_arm": {
+  "A0": {
+   "n": 1000,
+   "ref_violations": 898,
+   "caught_percent": 84.3,
+   "false_alarm_percent": 16.7,
+   "kappa": 0.44
+  },
+  "A1": {
+   "n": 1000,
+   "ref_violations": 6,
+   "caught_percent": 83.3,
+   "false_alarm_percent": 2.8,
+   "kappa": 0.249
+  }
+ },
+ "by_topic": {
+  "education_learning_styles": {
+   "n": 62,
+   "ref_violations": 22,
+   "caught_percent": 90.9,
+   "false_alarm_percent": 2.5,
+   "kappa": 0.893
+  },
+  "education_resources": {
+   "n": 108,
+   "ref_violations": 38,
+   "caught_percent": 81.6,
+   "false_alarm_percent": 1.4,
+   "kappa": 0.832
+  },
+  "entertain_games": {
+   "n": 102,
+   "ref_violations": 46,
+   "caught_percent": 91.3,
+   "false_alarm_percent": 8.9,
+   "kappa": 0.822
+  },
+  "entertain_music_book": {
+   "n": 112,
+   "ref_violations": 55,
+   "caught_percent": 85.5,
+   "false_alarm_percent": 3.5,
+   "kappa": 0.821
+  },
+  "entertain_shows": {
+   "n": 124,
+   "ref_violations": 56,
+   "caught_percent": 92.9,
+   "false_alarm_percent": 8.8,
+   "kappa": 0.838
+  },
+  "entertain_sports": {
+   "n": 104,
+   "ref_violations": 51,
+   "caught_percent": 84.3,
+   "false_alarm_percent": 1.9,
+   "kappa": 0.826
+  },
+  "lifestyle_beauty": {
+   "n": 106,
+   "ref_violations": 45,
+   "caught_percent": 86.7,
+   "false_alarm_percent": 6.6,
+   "kappa": 0.806
+  },
+  "lifestyle_dietary": {
+   "n": 114,
+   "ref_violations": 55,
+   "caught_percent": 87.3,
+   "false_alarm_percent": 3.4,
+   "kappa": 0.841
+  },
+  "lifestyle_fit": {
+   "n": 104,
+   "ref_violations": 47,
+   "caught_percent": 95.7,
+   "false_alarm_percent": 3.5,
+   "kappa": 0.922
+  },
+  "lifestyle_health": {
+   "n": 98,
+   "ref_violations": 45,
+   "caught_percent": 88.9,
+   "false_alarm_percent": 7.5,
+   "kappa": 0.815
+  },
+  "pet_ownership": {
+   "n": 86,
+   "ref_violations": 37,
+   "caught_percent": 89.2,
+   "false_alarm_percent": 2.0,
+   "kappa": 0.88
+  },
+  "professional_work_location_style": {
+   "n": 72,
+   "ref_violations": 30,
+   "caught_percent": 40.0,
+   "false_alarm_percent": 7.1,
+   "kappa": 0.354
+  },
+  "shop_fashion": {
+   "n": 108,
+   "ref_violations": 52,
+   "caught_percent": 78.8,
+   "false_alarm_percent": 1.8,
+   "kappa": 0.776
+  },
+  "shop_home": {
+   "n": 112,
+   "ref_violations": 47,
+   "caught_percent": 91.5,
+   "false_alarm_percent": 4.6,
+   "kappa": 0.871
+  },
+  "shop_motors": {
+   "n": 90,
+   "ref_violations": 40,
+   "caught_percent": 82.5,
+   "false_alarm_percent": 0.0,
+   "kappa": 0.84
+  },
+  "shop_technology": {
+   "n": 70,
+   "ref_violations": 35,
+   "caught_percent": 77.1,
+   "false_alarm_percent": 0.0,
+   "kappa": 0.771
+  },
+  "travel_activities": {
+   "n": 116,
+   "ref_violations": 57,
+   "caught_percent": 94.7,
+   "false_alarm_percent": 3.4,
+   "kappa": 0.914
+  },
+  "travel_hotel": {
+   "n": 108,
+   "ref_violations": 46,
+   "caught_percent": 71.7,
+   "false_alarm_percent": 8.1,
+   "kappa": 0.651
+  },
+  "travel_restaurant": {
+   "n": 112,
+   "ref_violations": 55,
+   "caught_percent": 83.6,
+   "false_alarm_percent": 3.5,
+   "kappa": 0.803
+  },
+  "travel_transportation": {
+   "n": 92,
+   "ref_violations": 45,
+   "caught_percent": 73.3,
+   "false_alarm_percent": 0.0,
+   "kappa": 0.738
+  }
+ },
+ "unparsed_reference": 0,
+ "unparsed_checker": 0,
+ "gates": {
+  "P0": true,
+  "P1": false,
+  "P2": true
+ },
+ "usd": 3.033
+}

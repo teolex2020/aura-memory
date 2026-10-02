@@ -145,3 +145,5 @@ experiments/value_signals/cache/
 experiments/value_signals/*.log
 experiments/prefeval_checker/cache/
 experiments/prefeval_checker/*.log
+experiments/agent_outcome_signals/signals.jsonl
+experiments/agent_outcome_signals/*.log

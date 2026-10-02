@@ -2421,6 +2421,7 @@ mod tests {
             false,
         )?;
         memory.process("JavaScript runs in web browsers and Node.js servers", false)?;
+        memory.flush_consolidation();
 
         // Retrieve should still return relevant results
         let results = memory.retrieve("Rust systems programming language", 3)?;

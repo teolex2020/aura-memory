@@ -28,3 +28,37 @@ It's an early preview, Windows only. Feedback from people who use several AI too
 https://www.aurasdk.dev/desktop
 
 #AI #DeveloperTools #LLM
+
+---
+
+# Memory research posts
+
+## X / Twitter
+
+I spent 3 months teaching AI memory what matters. Most clever ideas lost.
+
+LLM summaries answered 25% of questions about past chats; the user's own words, 79%. "Keep what's retrieved most" was the worst rule.
+
+Aura Memory, open source:
+https://github.com/teolex2020/aura-memory
+
+---
+
+## LinkedIn
+
+For three months I tried to teach AI memory to decide for itself what is worth keeping. I ran ten experiments, each with its pass/fail thresholds fixed before the run. Most of my clever ideas lost.
+
+What held up:
+
+• Keep the user's words; don't summarize them. On LongMemEval the user's own messages answered 79% of questions at 12% of the text. LLM session summaries answered 25%.
+• "Keep what gets retrieved most" was the worst forgetting rule I tested, worse than simply forgetting the oldest.
+• Value can be learned from consequences: a tiny network trained on "removing this memory broke a correct answer" beat time-based forgetting by 13.5 points.
+• An agent's own signals don't show success. On 67,000 coding-agent runs, exit codes and the agent's passing tests predicted real success barely better than chance. Real outcome signals come from people.
+
+My takeaway: memory doesn't need a smarter brain at write time. It needs to keep what you said, deliver it at the right moment with its source, and learn what matters from real consequences.
+
+Aura Memory is open source (MIT, Rust with Python bindings). Version 1.60.1 is out with a fix for a data-loss bug in consolidation.
+
+https://github.com/teolex2020/aura-memory
+
+#AI #MachineLearning #LLM #AIAgents

@@ -1,0 +1,23 @@
+{
+ "messages": 319,
+ "missing_labels": [],
+ "D_percent": 45.5,
+ "durable": 145,
+ "kinds": {
+  "fact": 64,
+  "correction": 14,
+  "preference": 34,
+  "decision": 30,
+  "other": 3
+ },
+ "restates": 12,
+ "R_percent_of_durable": 8.3,
+ "restated_kinds": {
+  "decision": 4,
+  "preference": 3,
+  "fact": 4,
+  "correction": 1
+ },
+ "K1_pass": true,
+ "noise_rule_applies": false
+}

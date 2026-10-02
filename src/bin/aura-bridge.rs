@@ -193,14 +193,27 @@ mod hook {
     /// The shared name of an agent's event, and whether it reports a failure.
     fn canonical(source: &str) -> Option<(&'static str, bool)> {
         Some(match source {
-            "UserPromptSubmit" | "userPromptSubmitted" | "beforeSubmitPrompt" | "BeforeAgent"
+            "UserPromptSubmit"
+            | "userPromptSubmitted"
+            | "beforeSubmitPrompt"
+            | "BeforeAgent"
             | "pre_user_prompt" => ("UserPromptSubmit", false),
             "PreToolUse" | "preToolUse" | "BeforeTool" => ("PreToolUse", false),
-            "PostToolUse" | "postToolUse" | "AfterTool" | "afterShellExecution"
-            | "afterMCPExecution" | "afterFileEdit" | "post_run_command" | "post_mcp_tool_use"
+            "PostToolUse"
+            | "postToolUse"
+            | "AfterTool"
+            | "afterShellExecution"
+            | "afterMCPExecution"
+            | "afterFileEdit"
+            | "post_run_command"
+            | "post_mcp_tool_use"
             | "post_write_code" => ("PostToolUse", false),
             "PostToolUseFailure" | "postToolUseFailure" => ("PostToolUse", true),
-            "Stop" | "agentStop" | "AfterAgent" | "afterAgentResponse" | "post_cascade_response"
+            "Stop"
+            | "agentStop"
+            | "AfterAgent"
+            | "afterAgentResponse"
+            | "post_cascade_response"
             | "post_cascade_response_with_transcript" => ("Stop", false),
             "SessionStart" | "sessionStart" => ("SessionStart", false),
             "SessionEnd" | "sessionEnd" => ("SessionEnd", false),
@@ -239,7 +252,16 @@ mod hook {
         };
         put(
             "session_id",
-            first(raw, &["session_id", "sessionId", "conversation_id", "trajectory_id"]).cloned(),
+            first(
+                raw,
+                &[
+                    "session_id",
+                    "sessionId",
+                    "conversation_id",
+                    "trajectory_id",
+                ],
+            )
+            .cloned(),
         );
         put(
             "cwd",
@@ -247,29 +269,44 @@ mod hook {
         );
         put(
             "transcript_path",
-            first(raw, &["transcript_path", "transcriptPath", "tool_info.transcript_path"]).cloned(),
+            first(
+                raw,
+                &[
+                    "transcript_path",
+                    "transcriptPath",
+                    "tool_info.transcript_path",
+                ],
+            )
+            .cloned(),
         );
         match name {
             "UserPromptSubmit" => {
-                put("prompt", text(raw, &["prompt", "tool_info.user_prompt"]).map(Value::from));
+                put(
+                    "prompt",
+                    text(raw, &["prompt", "tool_info.user_prompt"]).map(Value::from),
+                );
             }
             "PreToolUse" | "PostToolUse" => {
-                let tool = text(raw, &["tool_name", "toolName", "tool_info.mcp_tool_name"]).or_else(|| {
-                    match source {
+                let tool = text(raw, &["tool_name", "toolName", "tool_info.mcp_tool_name"])
+                    .or_else(|| match source {
                         "afterShellExecution" | "post_run_command" => Some("Shell".into()),
                         "post_write_code" | "afterFileEdit" => Some("Edit".into()),
                         _ => None,
-                    }
-                });
-                put("tool_name", tool.map(Value::from));
-                let input = first(raw, &["tool_input", "toolArgs", "tool_info.mcp_tool_arguments"])
-                    .cloned()
-                    .or_else(|| {
-                        text(raw, &["command", "tool_info.command_line"]).map(|c| json!({ "command": c }))
-                    })
-                    .or_else(|| {
-                        text(raw, &["file_path", "tool_info.file_path"]).map(|f| json!({ "file_path": f }))
                     });
+                put("tool_name", tool.map(Value::from));
+                let input = first(
+                    raw,
+                    &["tool_input", "toolArgs", "tool_info.mcp_tool_arguments"],
+                )
+                .cloned()
+                .or_else(|| {
+                    text(raw, &["command", "tool_info.command_line"])
+                        .map(|c| json!({ "command": c }))
+                })
+                .or_else(|| {
+                    text(raw, &["file_path", "tool_info.file_path"])
+                        .map(|f| json!({ "file_path": f }))
+                });
                 put("tool_input", input);
                 put(
                     "tool_response",
@@ -287,7 +324,10 @@ mod hook {
                     )
                     .cloned(),
                 );
-                put("tool_use_id", first(raw, &["tool_use_id", "toolUseId"]).cloned());
+                put(
+                    "tool_use_id",
+                    first(raw, &["tool_use_id", "toolUseId"]).cloned(),
+                );
                 let result_type = text(raw, &["toolResult.resultType", "tool_result.result_type"]);
                 if failed || result_type.is_some_and(|t| t != "success") {
                     put("failed", Some(Value::Bool(true)));
@@ -298,7 +338,12 @@ mod hook {
                     "last_assistant_message",
                     text(
                         raw,
-                        &["last_assistant_message", "text", "prompt_response", "tool_info.response"],
+                        &[
+                            "last_assistant_message",
+                            "text",
+                            "prompt_response",
+                            "tool_info.response",
+                        ],
                     )
                     .map(Value::from),
                 );
@@ -437,7 +482,6 @@ mod hook {
     mod tests {
         use super::*;
 
-
         fn n(raw: Value, arg: Option<&str>) -> Value {
             let source = source_event(&raw, arg);
             normalize(&raw, source.as_deref()).expect("a journal event")
@@ -445,38 +489,114 @@ mod hook {
 
         #[test]
         fn cursor_prompt_and_reply() {
-            let p = n(json!({"hook_event_name": "beforeSubmitPrompt", "conversation_id": "c1",
-                             "workspace_roots": ["D:/proj"], "prompt": "hi", "cursor_version": "1.9"}), None);
+            let p = n(
+                json!({"hook_event_name": "beforeSubmitPrompt", "conversation_id": "c1",
+                             "workspace_roots": ["D:/proj"], "prompt": "hi", "cursor_version": "1.9"}),
+                None,
+            );
             assert_eq!(p["hook_event_name"], "UserPromptSubmit");
-            assert_eq!((p["session_id"].as_str(), p["cwd"].as_str(), p["prompt"].as_str()), (Some("c1"), Some("D:/proj"), Some("hi")));
+            assert_eq!(
+                (
+                    p["session_id"].as_str(),
+                    p["cwd"].as_str(),
+                    p["prompt"].as_str()
+                ),
+                (Some("c1"), Some("D:/proj"), Some("hi"))
+            );
             assert_eq!(agent_of(&json!({"cursor_version": "1.9"})), Some("cursor"));
-            let r = n(json!({"hook_event_name": "afterAgentResponse", "conversation_id": "c1", "text": "done"}), None);
-            assert_eq!((r["hook_event_name"].as_str(), r["last_assistant_message"].as_str()), (Some("Stop"), Some("done")));
-            let t = n(json!({"hook_event_name": "afterShellExecution", "conversation_id": "c1", "command": "cargo test", "output": "ok"}), None);
-            assert_eq!((t["tool_name"].as_str(), t["tool_input"]["command"].as_str(), t["tool_response"].as_str()), (Some("Shell"), Some("cargo test"), Some("ok")));
+            let r = n(
+                json!({"hook_event_name": "afterAgentResponse", "conversation_id": "c1", "text": "done"}),
+                None,
+            );
+            assert_eq!(
+                (
+                    r["hook_event_name"].as_str(),
+                    r["last_assistant_message"].as_str()
+                ),
+                (Some("Stop"), Some("done"))
+            );
+            let t = n(
+                json!({"hook_event_name": "afterShellExecution", "conversation_id": "c1", "command": "cargo test", "output": "ok"}),
+                None,
+            );
+            assert_eq!(
+                (
+                    t["tool_name"].as_str(),
+                    t["tool_input"]["command"].as_str(),
+                    t["tool_response"].as_str()
+                ),
+                (Some("Shell"), Some("cargo test"), Some("ok"))
+            );
         }
 
         #[test]
         fn gemini_codex_copilot_windsurf() {
-            let g = n(json!({"hook_event_name": "AfterAgent", "session_id": "g", "prompt": "q", "prompt_response": "a"}), None);
-            assert_eq!((g["hook_event_name"].as_str(), g["last_assistant_message"].as_str()), (Some("Stop"), Some("a")));
+            let g = n(
+                json!({"hook_event_name": "AfterAgent", "session_id": "g", "prompt": "q", "prompt_response": "a"}),
+                None,
+            );
+            assert_eq!(
+                (
+                    g["hook_event_name"].as_str(),
+                    g["last_assistant_message"].as_str()
+                ),
+                (Some("Stop"), Some("a"))
+            );
             assert!(g.get("prompt").is_none(), "a reply event carries no prompt");
-            let c = n(json!({"hook_event_name": "PostToolUse", "session_id": "x", "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"stdout": "a"}}), None);
-            assert_eq!((c["tool_name"].as_str(), c["tool_response"]["stdout"].as_str()), (Some("Bash"), Some("a")));
+            let c = n(
+                json!({"hook_event_name": "PostToolUse", "session_id": "x", "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"stdout": "a"}}),
+                None,
+            );
+            assert_eq!(
+                (
+                    c["tool_name"].as_str(),
+                    c["tool_response"]["stdout"].as_str()
+                ),
+                (Some("Bash"), Some("a"))
+            );
             // Copilot CLI camelCase payloads carry no event name: it comes from --event.
-            let cp = n(json!({"sessionId": "s", "toolName": "bash", "toolArgs": "{}", "toolResult": {"resultType": "failure", "textResultForLlm": "boom"}}), Some("postToolUse"));
-            assert_eq!((cp["hook_event_name"].as_str(), cp["session_id"].as_str(), cp["failed"].as_bool()), (Some("PostToolUse"), Some("s"), Some(true)));
-            let w = n(json!({"agent_action_name": "pre_user_prompt", "trajectory_id": "t", "tool_info": {"user_prompt": "hello"}}), None);
-            assert_eq!((w["session_id"].as_str(), w["prompt"].as_str()), (Some("t"), Some("hello")));
-            let wm = n(json!({"agent_action_name": "post_mcp_tool_use", "trajectory_id": "t", "tool_info": {"mcp_tool_name": "recall", "mcp_tool_arguments": {"query": "x"}, "mcp_result": "r"}}), None);
-            assert_eq!((wm["tool_name"].as_str(), wm["tool_response"].as_str()), (Some("recall"), Some("r")));
-            let f = n(json!({"hook_event_name": "postToolUseFailure", "tool_name": "Shell"}), None);
+            let cp = n(
+                json!({"sessionId": "s", "toolName": "bash", "toolArgs": "{}", "toolResult": {"resultType": "failure", "textResultForLlm": "boom"}}),
+                Some("postToolUse"),
+            );
+            assert_eq!(
+                (
+                    cp["hook_event_name"].as_str(),
+                    cp["session_id"].as_str(),
+                    cp["failed"].as_bool()
+                ),
+                (Some("PostToolUse"), Some("s"), Some(true))
+            );
+            let w = n(
+                json!({"agent_action_name": "pre_user_prompt", "trajectory_id": "t", "tool_info": {"user_prompt": "hello"}}),
+                None,
+            );
+            assert_eq!(
+                (w["session_id"].as_str(), w["prompt"].as_str()),
+                (Some("t"), Some("hello"))
+            );
+            let wm = n(
+                json!({"agent_action_name": "post_mcp_tool_use", "trajectory_id": "t", "tool_info": {"mcp_tool_name": "recall", "mcp_tool_arguments": {"query": "x"}, "mcp_result": "r"}}),
+                None,
+            );
+            assert_eq!(
+                (wm["tool_name"].as_str(), wm["tool_response"].as_str()),
+                (Some("recall"), Some("r"))
+            );
+            let f = n(
+                json!({"hook_event_name": "postToolUseFailure", "tool_name": "Shell"}),
+                None,
+            );
             assert_eq!(f["failed"], true);
         }
 
         #[test]
         fn unknown_or_missing_events_are_dropped() {
-            assert!(normalize(&json!({"hook_event_name": "PreCompact"}), Some("PreCompact")).is_none());
+            assert!(normalize(
+                &json!({"hook_event_name": "PreCompact"}),
+                Some("PreCompact")
+            )
+            .is_none());
             assert!(normalize(&json!({}), None).is_none());
         }
 

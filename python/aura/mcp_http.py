@@ -30,7 +30,7 @@ import json
 import os
 import threading
 import uuid
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Optional
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -313,15 +313,17 @@ async def message_endpoint(request: Request, session_id: str):
 
 
 # ── Plain REST endpoints (for Make.com HTTP module / n8n) ──
+# Pydantic and FastAPI evaluate these annotations at runtime, so they use
+# typing.Optional/List: `X | None` breaks on Python 3.9.
 
 class StoreRequest(BaseModel):
     content: str
-    level: str | None = None
-    tags: list[str] | None = None
+    level: Optional[str] = None
+    tags: Optional[List[str]] = None
 
 class RecallRequest(BaseModel):
     query: str
-    token_budget: int | None = None
+    token_budget: Optional[int] = None
     top_k: int = 20
 
 @app.post("/store")
@@ -343,7 +345,7 @@ def rest_recall_structured(req: RecallRequest):
     return {"results": results}
 
 @app.get("/search")
-def rest_search(query: str | None = None, level: str | None = None, tags: str | None = None):
+def rest_search(query: Optional[str] = None, level: Optional[str] = None, tags: Optional[str] = None):
     brain = get_brain()
     tag_list = tags.split(",") if tags else None
     lv = _parse_level(level) if level else None

@@ -47,7 +47,7 @@ from aura._core import (
 
 from aura.events import AuraEvents
 
-__version__ = "1.60.1"
+__version__ = "1.61.0"
 __all__ = [
     "Aura",
     "AuraEvents",

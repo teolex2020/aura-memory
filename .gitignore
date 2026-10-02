@@ -135,3 +135,5 @@ experiments/capture_value/cache/
 experiments/capture_value/retrieved.jsonl
 experiments/capture_value/*.log
 experiments/real_conversations/data/
+experiments/outcome_memory/cache/
+experiments/outcome_memory/*.log

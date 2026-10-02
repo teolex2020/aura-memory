@@ -6,15 +6,16 @@
 //! app's loopback HTTP endpoint. One app owns the store; every client shares
 //! it.
 //!
-//! As `aura-bridge hook --client NAME` it is an agent hook command (Claude
-//! Code `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`): it reads
-//! the hook event from stdin and posts it to the app's journal. It never
-//! blocks or changes the agent: no output, exit 0, and the event is dropped
-//! when Aura is not running.
+//! As `aura-bridge hook --client NAME [--event NAME]` it is an agent hook
+//! command for Claude Code, Cursor, Codex, Gemini CLI, Copilot and Windsurf:
+//! it reads the hook event from stdin, normalizes it to one shape and posts it
+//! to the app's journal. It never blocks or changes the agent: exit 0, no
+//! output (except Cursor's required `{"continue": true}`), and the event is
+//! dropped when Aura is not running.
 //!
 //! # Usage
 //!     aura-bridge [--client NAME]
-//!     aura-bridge hook --client NAME
+//!     aura-bridge hook --client NAME [--event NAME]
 
 use std::time::Duration;
 
@@ -40,7 +41,13 @@ async fn main() -> anyhow::Result<()> {
 
     let client = client_name();
     if std::env::args().nth(1).as_deref() == Some("hook") {
-        hook::run(client.as_deref()).await;
+        let args: Vec<String> = std::env::args().collect();
+        let event = args
+            .iter()
+            .position(|a| a == "--event")
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str);
+        hook::run(client.as_deref(), event).await;
         return Ok(());
     }
     let link = reach_app().await?;
@@ -124,30 +131,183 @@ fn installed_app() -> Option<String> {
 }
 
 mod hook {
-    //! Agent hook events for the app's journal.
+    //! Agent hook events for the app's journal, from any agent.
+    //!
+    //! Claude Code, Cursor, Codex, Gemini CLI, Copilot (VS Code and CLI) and
+    //! Windsurf each report the same moments with their own names and fields.
+    //! Every event is normalized to one shape (Claude Code's names) before it
+    //! is posted, so the app reads a single format:
+    //!
+    //! `hook_event_name` (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+    //! `Stop`, `SessionStart`, `SessionEnd`), `session_id`, `cwd`, `prompt`,
+    //! `tool_name`, `tool_input`, `tool_response`, `tool_use_id`, `failed`,
+    //! `last_assistant_message`, `transcript_path`, `source_event`, `agent`.
+    //!
+    //! Nothing is printed except what an agent requires to go on (Cursor's
+    //! `beforeSubmitPrompt` needs `{"continue": true}`): plain output on a
+    //! prompt event would be added to the model's context by some agents.
 
     use std::time::Duration;
 
     use aura::mcp::link;
-    use serde_json::Value;
+    use serde_json::{json, Map, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// Text fields are cut to this many characters: enough to read, small
     /// enough that a large file read never bloats the journal.
     const MAX_TEXT: usize = 16_000;
 
-    pub async fn run(client: Option<&str>) {
+    pub async fn run(client: Option<&str>, event_arg: Option<&str>) {
         let mut input = String::new();
-        if tokio::io::stdin().read_to_string(&mut input).await.is_err() {
-            return;
+        let _ = tokio::io::stdin().read_to_string(&mut input).await;
+        let raw = serde_json::from_str::<Value>(&input).unwrap_or(Value::Null);
+        let source = source_event(&raw, event_arg);
+        // Answer first: the agent may be waiting on this before it goes on.
+        if source.as_deref() == Some("beforeSubmitPrompt") {
+            println!("{}", json!({"continue": true}));
         }
-        let Ok(mut event) = serde_json::from_str::<Value>(&input) else {
+        let Some(mut event) = normalize(&raw, source.as_deref()) else {
             return;
         };
         prepare(&mut event);
+        let client = agent_of(&raw).or(client);
         let Some(link) = link::read() else { return };
         let body = event.to_string();
         let _ = tokio::time::timeout(Duration::from_secs(2), post(&link, client, &body)).await;
+    }
+
+    /// The agent's own name for this event: the payload's, else `--event`.
+    fn source_event(raw: &Value, event_arg: Option<&str>) -> Option<String> {
+        ["hook_event_name", "agent_action_name", "hookEventName"]
+            .iter()
+            .find_map(|k| raw.get(*k).and_then(Value::as_str))
+            .or(event_arg)
+            .map(str::to_owned)
+    }
+
+    /// Cursor also runs hooks written for Claude Code; its payload says so.
+    fn agent_of(raw: &Value) -> Option<&'static str> {
+        raw.get("cursor_version").map(|_| "cursor")
+    }
+
+    /// The shared name of an agent's event, and whether it reports a failure.
+    fn canonical(source: &str) -> Option<(&'static str, bool)> {
+        Some(match source {
+            "UserPromptSubmit" | "userPromptSubmitted" | "beforeSubmitPrompt" | "BeforeAgent"
+            | "pre_user_prompt" => ("UserPromptSubmit", false),
+            "PreToolUse" | "preToolUse" | "BeforeTool" => ("PreToolUse", false),
+            "PostToolUse" | "postToolUse" | "AfterTool" | "afterShellExecution"
+            | "afterMCPExecution" | "afterFileEdit" | "post_run_command" | "post_mcp_tool_use"
+            | "post_write_code" => ("PostToolUse", false),
+            "PostToolUseFailure" | "postToolUseFailure" => ("PostToolUse", true),
+            "Stop" | "agentStop" | "AfterAgent" | "afterAgentResponse" | "post_cascade_response"
+            | "post_cascade_response_with_transcript" => ("Stop", false),
+            "SessionStart" | "sessionStart" => ("SessionStart", false),
+            "SessionEnd" | "sessionEnd" => ("SessionEnd", false),
+            _ => return None,
+        })
+    }
+
+    fn first<'a>(raw: &'a Value, paths: &[&str]) -> Option<&'a Value> {
+        paths.iter().find_map(|path| {
+            let mut value = raw;
+            for key in path.split('.') {
+                value = match key.parse::<usize>() {
+                    Ok(index) => value.get(index)?,
+                    Err(_) => value.get(key)?,
+                };
+            }
+            (!value.is_null()).then_some(value)
+        })
+    }
+
+    fn text(raw: &Value, paths: &[&str]) -> Option<String> {
+        first(raw, paths).and_then(Value::as_str).map(str::to_owned)
+    }
+
+    /// One shape for every agent; `None` for events the journal does not use.
+    pub fn normalize(raw: &Value, source: Option<&str>) -> Option<Value> {
+        let source = source?;
+        let (name, failed) = canonical(source)?;
+        let mut out = Map::new();
+        out.insert("hook_event_name".into(), name.into());
+        out.insert("source_event".into(), source.into());
+        let mut put = |key: &str, value: Option<Value>| {
+            if let Some(value) = value {
+                out.insert(key.into(), value);
+            }
+        };
+        put(
+            "session_id",
+            first(raw, &["session_id", "sessionId", "conversation_id", "trajectory_id"]).cloned(),
+        );
+        put(
+            "cwd",
+            first(raw, &["cwd", "workspace_roots.0", "tool_info.cwd"]).cloned(),
+        );
+        put(
+            "transcript_path",
+            first(raw, &["transcript_path", "transcriptPath", "tool_info.transcript_path"]).cloned(),
+        );
+        match name {
+            "UserPromptSubmit" => {
+                put("prompt", text(raw, &["prompt", "tool_info.user_prompt"]).map(Value::from));
+            }
+            "PreToolUse" | "PostToolUse" => {
+                let tool = text(raw, &["tool_name", "toolName", "tool_info.mcp_tool_name"]).or_else(|| {
+                    match source {
+                        "afterShellExecution" | "post_run_command" => Some("Shell".into()),
+                        "post_write_code" | "afterFileEdit" => Some("Edit".into()),
+                        _ => None,
+                    }
+                });
+                put("tool_name", tool.map(Value::from));
+                let input = first(raw, &["tool_input", "toolArgs", "tool_info.mcp_tool_arguments"])
+                    .cloned()
+                    .or_else(|| {
+                        text(raw, &["command", "tool_info.command_line"]).map(|c| json!({ "command": c }))
+                    })
+                    .or_else(|| {
+                        text(raw, &["file_path", "tool_info.file_path"]).map(|f| json!({ "file_path": f }))
+                    });
+                put("tool_input", input);
+                put(
+                    "tool_response",
+                    first(
+                        raw,
+                        &[
+                            "tool_response",
+                            "tool_output",
+                            "tool_result",
+                            "toolResult",
+                            "result_json",
+                            "output",
+                            "tool_info.mcp_result",
+                        ],
+                    )
+                    .cloned(),
+                );
+                put("tool_use_id", first(raw, &["tool_use_id", "toolUseId"]).cloned());
+                let result_type = text(raw, &["toolResult.resultType", "tool_result.result_type"]);
+                if failed || result_type.is_some_and(|t| t != "success") {
+                    put("failed", Some(Value::Bool(true)));
+                }
+            }
+            "Stop" => {
+                put(
+                    "last_assistant_message",
+                    text(
+                        raw,
+                        &["last_assistant_message", "text", "prompt_response", "tool_info.response"],
+                    )
+                    .map(Value::from),
+                );
+            }
+            _ => {
+                put("source", first(raw, &["source", "reason"]).cloned());
+            }
+        }
+        Some(Value::Object(out))
     }
 
     /// Add the assistant's reply to a `Stop` event, stamp the time, and cut
@@ -276,6 +436,49 @@ mod hook {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+
+        fn n(raw: Value, arg: Option<&str>) -> Value {
+            let source = source_event(&raw, arg);
+            normalize(&raw, source.as_deref()).expect("a journal event")
+        }
+
+        #[test]
+        fn cursor_prompt_and_reply() {
+            let p = n(json!({"hook_event_name": "beforeSubmitPrompt", "conversation_id": "c1",
+                             "workspace_roots": ["D:/proj"], "prompt": "hi", "cursor_version": "1.9"}), None);
+            assert_eq!(p["hook_event_name"], "UserPromptSubmit");
+            assert_eq!((p["session_id"].as_str(), p["cwd"].as_str(), p["prompt"].as_str()), (Some("c1"), Some("D:/proj"), Some("hi")));
+            assert_eq!(agent_of(&json!({"cursor_version": "1.9"})), Some("cursor"));
+            let r = n(json!({"hook_event_name": "afterAgentResponse", "conversation_id": "c1", "text": "done"}), None);
+            assert_eq!((r["hook_event_name"].as_str(), r["last_assistant_message"].as_str()), (Some("Stop"), Some("done")));
+            let t = n(json!({"hook_event_name": "afterShellExecution", "conversation_id": "c1", "command": "cargo test", "output": "ok"}), None);
+            assert_eq!((t["tool_name"].as_str(), t["tool_input"]["command"].as_str(), t["tool_response"].as_str()), (Some("Shell"), Some("cargo test"), Some("ok")));
+        }
+
+        #[test]
+        fn gemini_codex_copilot_windsurf() {
+            let g = n(json!({"hook_event_name": "AfterAgent", "session_id": "g", "prompt": "q", "prompt_response": "a"}), None);
+            assert_eq!((g["hook_event_name"].as_str(), g["last_assistant_message"].as_str()), (Some("Stop"), Some("a")));
+            assert!(g.get("prompt").is_none(), "a reply event carries no prompt");
+            let c = n(json!({"hook_event_name": "PostToolUse", "session_id": "x", "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"stdout": "a"}}), None);
+            assert_eq!((c["tool_name"].as_str(), c["tool_response"]["stdout"].as_str()), (Some("Bash"), Some("a")));
+            // Copilot CLI camelCase payloads carry no event name: it comes from --event.
+            let cp = n(json!({"sessionId": "s", "toolName": "bash", "toolArgs": "{}", "toolResult": {"resultType": "failure", "textResultForLlm": "boom"}}), Some("postToolUse"));
+            assert_eq!((cp["hook_event_name"].as_str(), cp["session_id"].as_str(), cp["failed"].as_bool()), (Some("PostToolUse"), Some("s"), Some(true)));
+            let w = n(json!({"agent_action_name": "pre_user_prompt", "trajectory_id": "t", "tool_info": {"user_prompt": "hello"}}), None);
+            assert_eq!((w["session_id"].as_str(), w["prompt"].as_str()), (Some("t"), Some("hello")));
+            let wm = n(json!({"agent_action_name": "post_mcp_tool_use", "trajectory_id": "t", "tool_info": {"mcp_tool_name": "recall", "mcp_tool_arguments": {"query": "x"}, "mcp_result": "r"}}), None);
+            assert_eq!((wm["tool_name"].as_str(), wm["tool_response"].as_str()), (Some("recall"), Some("r")));
+            let f = n(json!({"hook_event_name": "postToolUseFailure", "tool_name": "Shell"}), None);
+            assert_eq!(f["failed"], true);
+        }
+
+        #[test]
+        fn unknown_or_missing_events_are_dropped() {
+            assert!(normalize(&json!({"hook_event_name": "PreCompact"}), Some("PreCompact")).is_none());
+            assert!(normalize(&json!({}), None).is_none());
+        }
 
         #[test]
         fn stop_event_gets_the_reply_from_the_transcript() {

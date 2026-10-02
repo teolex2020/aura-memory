@@ -58,5 +58,6 @@ messages keep the old numbers.
 | E41 | `value_signals` | What predicts memory value: length, surprisal (local Qwen3-4B), LLM judge of meaning; LoCoMo consequence labels and the owner's durable messages | ❌ surprisal per token AUC 0.545 / 0.405, adds +0.008 over length; total surprisal ≈ length; LLM judge of meaning adds +0.044…+0.066 AUC over length | — (value is meaning + consequences, not token statistics) |
 | E42 | `prefeval_checker` | The E30 control-fact checker on PrefEval (1,000 items × answers with/without the preference), official judge on gemini-2.5-flash | ◐ P1 ❌ caught 84.3% (gate 90), P2 ✅ false alarms 4.1%, kappa 0.81; delivering the preference cuts violations 90% → 0.6% | — (memory delivery matters most; checker definition to align with people) |
 | E45 | `agent_outcome_signals` | Do agent-visible signals (exit codes, own tests, finishing) predict real success? 67k OpenHands trajectories | ❌ exit codes / tests AUC 0.51–0.53; all signals CV AUC 0.660; 'tests ok + submitted' 51.7% vs base 47.9% | — (outcome labels must come from people: corrections, repeats, commits) |
+| E46 | `stale_facts` | Supersession (keep the newer of near-duplicate records) on MemoryAgentBench FactConsolidation, 800 questions | ❌ C1: no change (sh 75–92% either way, mh 7–16%); conflicting facts rarely co-retrieved above threshold; showing serial/time already resolves single-hop | — (show record time; no supersession rule) |
 
-Next free number: **E47** (E46 running; E43, E44 planned).
+Next free number: **E47** (E43, E44 planned).

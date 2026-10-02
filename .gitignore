@@ -138,3 +138,4 @@ experiments/real_conversations/data/
 experiments/outcome_memory/cache/
 experiments/outcome_memory/*.log
 experiments/value_net/*.log
+experiments/value_net_robustness/*.log

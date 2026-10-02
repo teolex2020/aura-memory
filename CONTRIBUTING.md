@@ -109,3 +109,5 @@ Public documentation is intentionally kept lightweight. Internal design notes, r
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
+
+Contributions are licensed under MIT, like the rest of the project.

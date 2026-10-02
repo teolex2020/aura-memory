@@ -24,6 +24,8 @@
 
 Your AI model is smart. But it forgets everything after every conversation.
 
+> **New: [Aura for Windows](https://www.aurasdk.dev/desktop)** — a free desktop app built on this library that gives Claude Code, Cursor, Codex, Copilot and other AI tools one shared local memory.
+
 Aura is a local cognitive runtime that runs alongside any frozen model. It gives agents durable memory, explainability, governed correction, bounded recall reranking, and bounded self-adaptation through experience — all locally, without fine-tuning or cloud training.
 
 ```bash
@@ -1313,7 +1315,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instruct
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Free for any use, including commercial. For support or integration help, contact aura@aurasdk.dev.
+MIT — see [LICENSE](LICENSE). There are no patent or commercial-licensing terms: use Aura in any project, including commercial ones.
 
 ---
 

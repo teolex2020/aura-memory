@@ -41,7 +41,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "aura"
-version = "1.60.0"
+version = "1.60.1"
 dependencies = [
  "ahash",
  "anyhow",

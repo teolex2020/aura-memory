@@ -1,6 +1,6 @@
 [package]
 name = "aura"
-version = "1.60.0"
+version = "1.60.1"
 edition = "2021"
 authors = ["Alexander Tepliuk <aura@aurasdk.dev>"]
 description = "Adaptive cognitive layer for AI agents. Local recall, zero required LLM calls, pure Rust."

@@ -80,6 +80,13 @@
 - Managed audit history purge filters every journal before rewriting any, stages all replacements, and swaps each with one atomic rename, so a decode error or crash can no longer leave the journal half-rewritten or missing.
 - Recall no longer clones the whole store on every query once any record has a validity window; a copy is built only when some record is currently outside its window.
 
+## 1.60.1
+
+### Fixed
+
+- **Maintenance no longer destroys distinct memories.** Consolidation merged any same-namespace pair with MinHash similarity ≥ 0.85 and kept only one record's text, so facts that differed only by an identifier, number or negation were silently lost (in a 40-fact test, one `run_maintenance()` left a single record). A merge now happens only when both records contain exactly the same words, numbers and identifiers (ignoring case and punctuation), so an extra word in any language — a number, an identifier or a negation — keeps both records.
+- Merged-away records are removed from the SDR, lexical and embedding indexes and the binary store, instead of lingering as stale index entries.
+
 ## 1.60.0
 
 ### Fixed

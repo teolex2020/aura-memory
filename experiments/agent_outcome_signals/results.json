@@ -1,0 +1,20 @@
+{
+ "trajectories": 67074,
+ "base_rate_resolved": 0.479,
+ "auc_single_signal": {
+  "fail_share": 0.527,
+  "last_exit_ok": 0.51,
+  "last_test_ok": 0.523,
+  "steps": 0.657,
+  "submitted": 0.557,
+  "R_pred_passes_gen_tests": 0.533
+ },
+ "cv_auc_S1_S5": 0.66,
+ "precision_tests_ok_and_submitted": 0.517,
+ "share_tests_ok_and_submitted": 0.814,
+ "no_test_command_share": 0.014,
+ "gates": {
+  "O1": false,
+  "O2": false
+ }
+}

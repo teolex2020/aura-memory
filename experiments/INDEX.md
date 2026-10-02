@@ -56,5 +56,6 @@ messages keep the old numbers.
 | E39 | `value_net_robustness` | E38's value net across 6 splits × 2 seeds; structural-only twin | ◐ R1 ✅ +13.5 over decay in 6/6; R2 ❌ +2.7 over length (6/6 but below 3); R3 ❌ embedding adds +0.7 over 4 structural numbers | — (forget by content structure, not time; length rule enough for now) |
 | E40 | `value_net_transfer` | Value net trained on LoCoMo consequences decides what to forget in LongMemEval (user–assistant), capacity 25% | ✅ all gates: 45.0% vs recency 31.7 (+13.3, CI +2.5…+24.2), length 38.3 (keeps 98% assistant turns, 5% evidence), structure-only 40.0; no-forgetting 85.8 | — (content matters on product-like data; far from no-forgetting) |
 | E41 | `value_signals` | What predicts memory value: length, surprisal (local Qwen3-4B), LLM judge of meaning; LoCoMo consequence labels and the owner's durable messages | ❌ surprisal per token AUC 0.545 / 0.405, adds +0.008 over length; total surprisal ≈ length; LLM judge of meaning adds +0.044…+0.066 AUC over length | — (value is meaning + consequences, not token statistics) |
+| E45 | `agent_outcome_signals` | Do agent-visible signals (exit codes, own tests, finishing) predict real success? 67k OpenHands trajectories | ❌ exit codes / tests AUC 0.51–0.53; all signals CV AUC 0.660; 'tests ok + submitted' 51.7% vs base 47.9% | — (outcome labels must come from people: corrections, repeats, commits) |
 
-Next free number: **E42**.
+Next free number: **E47** (E42, E46 running; E43, E44 planned).

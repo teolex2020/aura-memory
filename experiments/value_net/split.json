@@ -1,0 +1,16 @@
+{
+ "train": [
+  "conv-26",
+  "conv-30",
+  "conv-41",
+  "conv-47",
+  "conv-50"
+ ],
+ "test": [
+  "conv-42",
+  "conv-43",
+  "conv-44",
+  "conv-48",
+  "conv-49"
+ ]
+}

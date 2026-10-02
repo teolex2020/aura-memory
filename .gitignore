@@ -137,3 +137,4 @@ experiments/capture_value/*.log
 experiments/real_conversations/data/
 experiments/outcome_memory/cache/
 experiments/outcome_memory/*.log
+experiments/value_net/*.log

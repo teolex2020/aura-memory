@@ -20,7 +20,7 @@ So I built Aura, a free Windows app that gives all your AI tools one local memor
 
 • One click connects Claude Code, Cursor, Codex, Gemini CLI, Copilot in VS Code, Windsurf, Claude Desktop and LM Studio.
 • It keeps your words as you said them, not AI summaries: 79% of questions answered vs 25% with summaries (LongMemEval).
-• Every memory is labelled with its source, so text from a page or document can't pass as something you said.
+• Every memory is labelled with its source, so text from a page or document is never stored as something you said.
 • A journal shows exactly what each AI received. Everything stays on your computer.
 
 It's an early preview, Windows only. Feedback from people who use several AI tools a day is very welcome.

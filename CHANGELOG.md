@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`supersede()` left the new version out of the lexical index (BM25) and the embedding store.** Until the brain was reopened, the updated fact could be missing from recall among similar records. The new version is now indexed like a stored record (`tests/supersede_index.rs`).
+
 ## 1.61.0
 
 ### Added

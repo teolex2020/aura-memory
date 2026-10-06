@@ -11057,6 +11057,18 @@ impl Aura {
 
         self.index.add(&new_rec.id, &sdr_indices);
         self.ngram_index.write().add(&new_rec.id, new_content);
+        // The new version must be as findable as a stored record: without the
+        // lexical entry and embedding it was invisible to BM25 and embedding
+        // recall until the next reopen rebuilt the lexical index.
+        self.lexical_index
+            .write()
+            .add(&new_rec.id, new_content, &new_rec.namespace);
+        if let Some(embedding) = self.embed_text(new_content, crate::embedding::EmbedKind::Document)
+        {
+            if let Err(error) = self.embedding_store.insert(&new_rec.id, embedding) {
+                tracing::warn!(record_id = %new_rec.id, %error, "Optional embedding was not stored");
+            }
+        }
         {
             let mut tag_index = self.tag_index.write();
             for tag in &new_rec.tags {

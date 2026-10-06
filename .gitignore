@@ -168,3 +168,6 @@ experiments/recall_determinism/rankings_*.json
 experiments/**/retrieved.jsonl
 experiments/research_cache/results/cache.jsonl
 experiments/agentdojo_fence/*.log
+experiments/memory_laundering/cache/
+experiments/memory_laundering/results/
+experiments/memory_laundering/*.log

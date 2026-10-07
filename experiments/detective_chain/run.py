@@ -54,6 +54,15 @@ Do exactly one step. Reply with one JSON object only:
  "next": "<the next single-fact question to look up>"}}
 or, when the chain answers the question:
 {{"link": {{"fact": <serial>, "finding": "<answer>"}}, "final": "<concise answer>"}}"""
+NEWER = """
+
+Your step used fact #{serial}: "{text}".
+Newer facts that may be about the same thing:
+{candidates}
+Rule: a larger serial number is newer and overrides an older fact about the same thing.
+If one of these newer facts states the same relation with a different value, use the newest such fact instead.
+Reply with the same JSON step format."""
+NEIGHBOURS = 8
 RETRY = "\n\nYour previous step cited fact #{fact}, but that fact does not state \"{finding}\". Cite a fact from the pool that states your finding."
 
 # ------------------------------------------------------------------ query embeddings (own cache)
@@ -155,9 +164,20 @@ def parse(text: str) -> dict:
 # ------------------------------------------------------------------ the chain
 
 
-def run_chain(task: dict, mat: np.ndarray, question: str, verify: bool) -> dict:
+def newer_neighbours(task: dict, mat: np.ndarray, serial: int) -> list[str]:
+    """E52b: the records most similar to the cited one that are newer than it."""
+    row_of = {s: i for i, (s, _) in enumerate(task["facts"])}
+    i = row_of.get(serial)
+    if i is None:
+        return []
+    order = [j for j in np.argsort(-(mat @ mat[i])) if j != i][:NEIGHBOURS]
+    return [task["facts"][j][1] for j in order if task["facts"][j][0] > serial]
+
+
+def run_chain(task: dict, mat: np.ndarray, question: str, verify: bool, newest: bool = False) -> dict:
     serial_of = [s for s, _ in task["facts"]]
     by_serial = {s: t for s, t in task["facts"]}
+    changed = 0
     chain: list[tuple[int, str]] = []
     lookup = question
     shown_text = []
@@ -173,6 +193,21 @@ def run_chain(task: dict, mat: np.ndarray, question: str, verify: bool) -> dict:
         prompt = STEP.format(pool=pool, question=question, chain=chain_text)
         step = parse(gemini(prompt))
         link = step.get("link") if isinstance(step.get("link"), dict) else {}
+        if newest:
+            try:
+                cited = int(link.get("fact"))
+            except (TypeError, ValueError):
+                cited = None
+            cands = newer_neighbours(task, mat, cited) if cited in by_serial else []
+            if cands:
+                shown_text.append("\n".join(cands))
+                again = parse(gemini(prompt + NEWER.format(serial=cited, text=by_serial[cited],
+                                                           candidates="\n".join(cands))))
+                new_link = again.get("link") if isinstance(again.get("link"), dict) else {}
+                if new_link:
+                    if str(new_link.get("fact")) != str(link.get("fact")):
+                        changed += 1
+                    step, link = again, new_link
         if verify:
             ok = _verified(link, shown, by_serial)
             if not ok:
@@ -197,7 +232,8 @@ def run_chain(task: dict, mat: np.ndarray, question: str, verify: bool) -> dict:
             break
         lookup = nxt
     pred = final if final is not None else (chain[-1][1] if chain else "")
-    return {"pred": pred, "steps": steps, "chain": chain, "unsupported": False, "pools": shown_text}
+    return {"pred": pred, "steps": steps, "chain": chain, "unsupported": False, "pools": shown_text,
+            "changed": changed}
 
 
 def _verified(link: dict, shown: set[int], by_serial: dict[int, str]) -> bool:
@@ -211,13 +247,13 @@ def _verified(link: dict, shown: set[int], by_serial: dict[int, str]) -> bool:
 # ------------------------------------------------------------------ jobs
 
 
-def jobs() -> list:
+def jobs(arms=("CH", "CV")) -> list:
     """Built in full before any worker starts, so the fact matrices are read from sqlite on one thread."""
     out = []
     for task in e46.tasks():
         mat = e46.vecs([t for _, t in task["facts"]])
         for qi in range(len(task["questions"])):
-            for arm in ("CH", "CV"):
+            for arm in arms:
                 out.append((task, mat, qi, arm))
     return out
 
@@ -225,13 +261,14 @@ def jobs() -> list:
 def run_job(job) -> dict | None:
     task, mat, qi, arm = job
     try:
-        out = run_chain(task, mat, task["questions"][qi], verify=(arm == "CV"))
+        out = run_chain(task, mat, task["questions"][qi], verify=(arm == "CV"), newest=(arm == "CN"))
     except BudgetStop:
         return None
     golds = task["answers"][qi] if isinstance(task["answers"][qi], list) else [task["answers"][qi]]
     pools = "\n".join(out["pools"]).lower()
     return {"name": task["name"], "hop": task["hop"], "size": task["size"], "q": qi, "arm": arm,
             "pred": out["pred"], "steps": out["steps"], "chain": out["chain"], "unsupported": out["unsupported"],
+            "changed": out.get("changed", 0),
             "correct": (not out["unsupported"]) and any(e46.SUB_EM(out["pred"], str(g)) for g in golds),
             "gold_seen": any(str(g).lower() in pools for g in golds)}
 
@@ -291,5 +328,46 @@ def analyze() -> None:
     print(json.dumps(result, indent=1, ensure_ascii=False))
 
 
+def answer_b() -> None:
+    rows = []
+    with ThreadPoolExecutor(8) as ex:
+        for n, r in enumerate(ex.map(run_job, jobs(("CN",))), 1):
+            if r is not None:
+                rows.append(r)
+            if n % 200 == 0:
+                print(json.dumps({"done": n, "usd": round(spent(), 3)}), flush=True)
+    (HERE / "rows_b.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + chr(10) for r in rows), encoding="utf-8")
+    print(json.dumps({"rows": len(rows), "usd": round(spent(), 3)}))
+
+
+def analyze_b() -> None:
+    load = lambda p: [json.loads(x) for x in p.read_text(encoding="utf-8").split(chr(10)) if x.strip()]
+    rows = [r for r in load(HERE / "rows.jsonl") if r["arm"] == "CH"] + load(HERE / "rows_b.jsonl")
+    rows += [dict(r, arm="R0") for r in load(E46_DIR / "rows.jsonl") if r["arm"] == "R0"]
+
+    def acc(rs):
+        return round(100 * sum(r["correct"] for r in rs) / len(rs), 1) if rs else None
+
+    arms = ("R0", "CH", "CN")
+    table = {f"{hop}_{s}": {a: acc([r for r in rows if r["hop"] == hop and r["size"] == s and r["arm"] == a]) for a in arms}
+             for hop in ("sh", "mh") for s in SIZES}
+    means = {hop: {a: round(sum(table[f"{hop}_{s}"][a] for s in SIZES) / len(SIZES), 1) for a in arms} for hop in ("sh", "mh")}
+    cn = [r for r in rows if r["arm"] == "CN"]
+    mh = [r for r in cn if r["hop"] == "mh"]
+    seen = [r for r in mh if r["gold_seen"]]
+    result = {
+        "accuracy": table, "means": means,
+        "cn_links_changed_per_question": {hop: round(sum(r["changed"] for r in cn if r["hop"] == hop)
+                                                     / max(1, sum(r["hop"] == hop for r in cn)), 3) for hop in ("sh", "mh")},
+        "cn_mh_gold_seen_percent": round(100 * len(seen) / max(1, len(mh)), 1),
+        "cn_mh_correct_when_seen_percent": round(100 * sum(r["correct"] for r in seen) / max(1, len(seen)), 1),
+        "gates": {"N1": means["mh"]["CN"] - means["mh"]["CH"] >= 10, "N2": means["sh"]["CN"] - means["sh"]["CH"] >= -2},
+        "rows": {a: sum(r["arm"] == a for r in rows) for a in arms},
+        "usd_total_e52_e52b": round(spent(), 3),
+    }
+    (HERE / "results_b.json").write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps(result, indent=1, ensure_ascii=False))
+
+
 if __name__ == "__main__":
-    {"answer": answer, "analyze": analyze}[sys.argv[1]]()
+    {"answer": answer, "analyze": analyze, "answer_b": answer_b, "analyze_b": analyze_b}[sys.argv[1]]()

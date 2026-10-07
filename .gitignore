@@ -193,3 +193,5 @@ experiments/memory_when_to_recall/cache/
 experiments/memory_when_to_recall/scores.jsonl
 experiments/memory_when_to_recall/rows.jsonl
 experiments/memory_when_to_recall/*.log
+experiments/real_sessions_tiers/private/
+experiments/real_sessions_tiers/*.log

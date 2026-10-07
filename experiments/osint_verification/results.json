@@ -1,0 +1,190 @@
+{
+ "pooled": {
+  "N": {
+   "n": 1000,
+   "accuracy": 44.4,
+   "macro_f1": 34.6,
+   "f1": {
+    "Supported": 46.0,
+    "Refuted": 61.7,
+    "Not Enough Evidence": 16.6,
+    "Conflicting Evidence/Cherrypicking": 13.9
+   },
+   "false_support": 4.9,
+   "evidence_recall": null,
+   "invalid": 3
+  },
+  "D": {
+   "n": 1000,
+   "accuracy": 78.7,
+   "macro_f1": 64.0,
+   "f1": {
+    "Supported": 85.0,
+    "Refuted": 87.2,
+    "Not Enough Evidence": 47.6,
+    "Conflicting Evidence/Cherrypicking": 36.0
+   },
+   "false_support": 2.8,
+   "evidence_recall": 83.4,
+   "invalid": 0
+  },
+  "DS": {
+   "n": 1000,
+   "accuracy": 75.7,
+   "macro_f1": 59.6,
+   "f1": {
+    "Supported": 80.0,
+    "Refuted": 86.7,
+    "Not Enough Evidence": 35.2,
+    "Conflicting Evidence/Cherrypicking": 36.6
+   },
+   "false_support": 1.9,
+   "evidence_recall": 83.4,
+   "invalid": 0
+  },
+  "O": {
+   "n": 1000,
+   "accuracy": 77.0,
+   "macro_f1": 60.4,
+   "f1": {
+    "Supported": 78.5,
+    "Refuted": 88.2,
+    "Not Enough Evidence": 36.5,
+    "Conflicting Evidence/Cherrypicking": 38.2
+   },
+   "false_support": 1.7,
+   "evidence_recall": 76.2,
+   "invalid": 1
+  }
+ },
+ "by_model": {
+  "gemini-3.1-flash-lite": {
+   "N": {
+    "n": 500,
+    "accuracy": 63.6,
+    "macro_f1": 44.6,
+    "f1": {
+     "Supported": 61.4,
+     "Refuted": 76.7,
+     "Not Enough Evidence": 22.6,
+     "Conflicting Evidence/Cherrypicking": 17.9
+    },
+    "false_support": 9.5,
+    "evidence_recall": null,
+    "invalid": 1
+   },
+   "D": {
+    "n": 500,
+    "accuracy": 81.0,
+    "macro_f1": 65.7,
+    "f1": {
+     "Supported": 86.2,
+     "Refuted": 89.0,
+     "Not Enough Evidence": 48.0,
+     "Conflicting Evidence/Cherrypicking": 39.5
+    },
+    "false_support": 2.6,
+    "evidence_recall": 83.4,
+    "invalid": 0
+   },
+   "DS": {
+    "n": 500,
+    "accuracy": 75.6,
+    "macro_f1": 59.6,
+    "f1": {
+     "Supported": 75.4,
+     "Refuted": 87.6,
+     "Not Enough Evidence": 42.9,
+     "Conflicting Evidence/Cherrypicking": 32.7
+    },
+    "false_support": 1.9,
+    "evidence_recall": 83.4,
+    "invalid": 0
+   },
+   "O": {
+    "n": 500,
+    "accuracy": 78.2,
+    "macro_f1": 61.3,
+    "f1": {
+     "Supported": 76.0,
+     "Refuted": 90.1,
+     "Not Enough Evidence": 38.3,
+     "Conflicting Evidence/Cherrypicking": 41.0
+    },
+    "false_support": 1.9,
+    "evidence_recall": 75.6,
+    "invalid": 0
+   }
+  },
+  "gemini-2.5-flash": {
+   "N": {
+    "n": 500,
+    "accuracy": 25.2,
+    "macro_f1": 20.9,
+    "f1": {
+     "Supported": 20.4,
+     "Refuted": 39.4,
+     "Not Enough Evidence": 14.9,
+     "Conflicting Evidence/Cherrypicking": 8.9
+    },
+    "false_support": 0.3,
+    "evidence_recall": null,
+    "invalid": 2
+   },
+   "D": {
+    "n": 500,
+    "accuracy": 76.4,
+    "macro_f1": 62.5,
+    "f1": {
+     "Supported": 83.8,
+     "Refuted": 85.5,
+     "Not Enough Evidence": 47.2,
+     "Conflicting Evidence/Cherrypicking": 33.3
+    },
+    "false_support": 2.9,
+    "evidence_recall": 83.4,
+    "invalid": 0
+   },
+   "DS": {
+    "n": 500,
+    "accuracy": 75.8,
+    "macro_f1": 59.5,
+    "f1": {
+     "Supported": 84.3,
+     "Refuted": 85.9,
+     "Not Enough Evidence": 27.2,
+     "Conflicting Evidence/Cherrypicking": 40.4
+    },
+    "false_support": 1.9,
+    "evidence_recall": 83.4,
+    "invalid": 0
+   },
+   "O": {
+    "n": 500,
+    "accuracy": 75.8,
+    "macro_f1": 59.4,
+    "f1": {
+     "Supported": 80.9,
+     "Refuted": 86.4,
+     "Not Enough Evidence": 34.5,
+     "Conflicting Evidence/Cherrypicking": 35.8
+    },
+    "false_support": 1.6,
+    "evidence_recall": 76.8,
+    "invalid": 1
+   }
+  }
+ },
+ "gold_distribution": {
+  "Refuted": 305,
+  "Supported": 122,
+  "Not Enough Evidence": 35,
+  "Conflicting Evidence/Cherrypicking": 38
+ },
+ "gates": {
+  "O1": false,
+  "O2": false,
+  "O3": true
+ },
+ "usd": 2.937
+}

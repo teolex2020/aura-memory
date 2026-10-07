@@ -182,3 +182,6 @@ experiments/detective_shortcut/*.log
 experiments/user_is_right/cache/
 experiments/user_is_right/results/
 experiments/user_is_right/*.log
+experiments/osint_verification/cache/
+experiments/osint_verification/results/
+experiments/osint_verification/*.log

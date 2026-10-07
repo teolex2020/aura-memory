@@ -4,7 +4,10 @@
 hook event into memory writes whose source comes from the channel the text
 arrived on, never from what the text says:
 
-- ``UserPromptSubmit``: the prompt, verbatim, as the user's own words;
+- ``UserPromptSubmit``: what the user typed, verbatim, as their own words;
+  text pasted into the message is kept as outside content (``pasted``) and
+  the app's own notices in the user's turn (background-task notices,
+  reminders, slash-command plumbing) are dropped;
 - ``PostToolUse``: the tool output, as untrusted data (web, file, MCP, tool);
   Aura's own MCP tools are skipped so recalled memory is not stored again;
 - ``Stop``: the assistant's last message, as model-written.
@@ -32,6 +35,14 @@ AGENT_CHANNEL = "agent-claude-code"
 WEB_TOOLS = {"WebFetch", "WebSearch"}
 FILE_TOOLS = {"Read", "Grep", "Glob", "NotebookRead", "LS"}
 PROMPT_FIELDS = ("prompt", "user_input", "prompt_text", "user_input_raw")
+PASTED_CHANNEL = "pasted"
+# Markup the app puts into the user's turn around text the user did not type.
+# These are the apps' tag names, not words of any language.
+APP_TAGS = ("task-notification", "system-reminder", "local-command-stdout", "local-command-stderr",
+            "local-command-caveat", "command-name", "command-message", "command-args", "bash-input",
+            "bash-stdout", "bash-stderr", "agent-message", "ci-monitor-event", "user-memory-input")
+PASTED_TAG = "pasted_content"
+PASTED_MARK = "[…]"
 
 
 def inbox_dir(brain_path: str | os.PathLike) -> Path:
@@ -112,6 +123,51 @@ def last_assistant_text(transcript_path: str | None) -> str:
     return "\n".join(t for t in texts if t.strip())
 
 
+def _next_block(text: str, start: int = 0):
+    """The next app block at or after ``start``: (begin, inner_begin, inner_end, end, tag) or None."""
+    i = text.find("<", start)
+    while i != -1:
+        after = text[i + 1:]
+        for tag in (PASTED_TAG, *APP_TAGS):
+            rest = after[len(tag):]
+            if after.startswith(tag) and rest[:1] and (rest[0] == ">" or rest[0].isspace()):
+                open_end = text.find(">", i)
+                if open_end != -1:
+                    close = text.find(f"</{tag}", open_end + 1)
+                    if close != -1:
+                        gt = text.find(">", close)
+                        if gt != -1:
+                            return i, open_end + 1, close, gt + 1, tag
+                break
+        i = text.find("<", i + 1)
+    return None
+
+
+def split_prompt(text: str) -> tuple[str, list[str]]:
+    """(what the user typed, [pasted texts]); the app's own notices are dropped."""
+    own, pasted, pos = [], [], 0
+    while (block := _next_block(text, pos)) is not None:
+        begin, inner_begin, inner_end, end, tag = block
+        own.append(text[pos:begin])
+        if tag == PASTED_TAG and text[inner_begin:inner_end].strip():
+            pasted.append(text[inner_begin:inner_end].strip())
+            own.append(PASTED_MARK)
+        pos = end
+    own.append(text[pos:])
+    lines: list[str] = []
+    for line in "".join(own).split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("[Image: source:") and stripped.endswith("]"):
+            continue
+        if not stripped and lines and not lines[-1].strip():
+            continue
+        lines.append(line)
+    words = "\n".join(lines).strip()
+    if not words.replace(PASTED_MARK, "").strip():
+        words = ""
+    return words, pasted
+
+
 def items_for(event: dict) -> list[dict]:
     """Memory writes for one hook event: [{text, channel, metadata}]."""
     name = event.get("hook_event_name", "")
@@ -122,7 +178,10 @@ def items_for(event: dict) -> list[dict]:
     if name == "UserPromptSubmit":
         # The field name differs between Claude Code versions and docs.
         text = next((event[k] for k in PROMPT_FIELDS if isinstance(event.get(k), str) and event[k].strip()), "")
-        return [{"text": text[:MAX_CHARS], "channel": USER_CHANNEL, "metadata": meta}] if text.strip() else []
+        words, pasted = split_prompt(text)
+        items = [{"text": words[:MAX_CHARS], "channel": USER_CHANNEL, "metadata": meta}] if words else []
+        items += [{"text": p[:MAX_CHARS], "channel": PASTED_CHANNEL, "metadata": meta} for p in pasted]
+        return items
     if name == "PostToolUse":
         tool = str(event.get("tool_name", ""))
         if not tool or is_aura_tool(tool):

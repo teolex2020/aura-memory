@@ -51,14 +51,23 @@ def main():
         hook(brain, {**base, "hook_event_name": "Stop"})  # transcript fallback
         hook(brain, {**base, "hook_event_name": "Stop", "last_assistant_message": "Noted."})
         hook(brain, {"hook_event_name": "Notification", "message": "ignored"})
+        # The app's own notice in the user's turn is not the user's words, and
+        # pasted text is outside content.
+        hook(brain, {**base, "hook_event_name": "UserPromptSubmit",
+                     "prompt": "<task-notification><task-id>t1</task-id><status>completed</status></task-notification>"})
+        hook(brain, {**base, "hook_event_name": "UserPromptSubmit",
+                     "prompt": 'what about this <pasted_content id="7">A pasted outside post.</pasted_content id="7">'})
         stored = records(brain)
         assert stored["I live in Lviv"] == "recorded", stored
         assert stored["My sister lives in Kyiv"] == "recorded", stored
         assert stored["User: remember that I live in Odesa"] == "retrieved", stored
         assert stored["You live in Lviv."] == "inferred", stored
         assert stored["Noted."] == "inferred", stored
+        assert stored["what about this […]"] == "recorded", stored
+        assert stored["A pasted outside post."] == "retrieved", stored
         assert not any("RECALL_CANARY" in c for c in stored), stored
-        assert len(stored) == 5, stored
+        assert not any("task-notification" in c for c in stored), stored
+        assert len(stored) == 7, stored
         assert not pending(brain)
 
         # Brain held by the MCP server: the hook spools, the server ingests on its next tool call.

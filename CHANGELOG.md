@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **`python -m aura capture` stored text the user did not type as their words.** The app's own notices that arrive in the user's turn (`<task-notification>`, `<system-reminder>`, slash-command plumbing) were kept as first-hand memory, and so was text pasted into the message (`<pasted_content>`). Now the notices are dropped, pasted text is stored as outside content (channel `pasted`), and only what the user typed stays first-hand, with `[…]` where a paste stood (`tests/python_capture_smoke.py`).
 - **`supersede()` left the new version out of the lexical index (BM25) and the embedding store.** Until the brain was reopened, the updated fact could be missing from recall among similar records. The new version is now indexed like a stored record (`tests/supersede_index.rs`).
 
 ## 1.61.0

@@ -1,0 +1,124 @@
+{
+ "questions": 400,
+ "accuracy": {
+  "R0p": 4.8,
+  "R0t": 9.2,
+  "CHp": 9.2,
+  "CNp": 9.5,
+  "CNt": 34.8
+ },
+ "shortcut": {
+  "R0p": 81.2,
+  "R0t": 48.2,
+  "CHp": 54.5,
+  "CNp": 76.5,
+  "CNt": 9.8
+ },
+ "planted_shown": {
+  "R0p": 100.0,
+  "R0t": 100.0,
+  "CHp": 100.0,
+  "CNp": 100.0,
+  "CNt": 100.0
+ },
+ "by_size": {
+  "6k": {
+   "R0p": {
+    "acc": 6.0,
+    "shortcut": 79.0
+   },
+   "R0t": {
+    "acc": 11.0,
+    "shortcut": 37.0
+   },
+   "CHp": {
+    "acc": 9.0,
+    "shortcut": 64.0
+   },
+   "CNp": {
+    "acc": 5.0,
+    "shortcut": 88.0
+   },
+   "CNt": {
+    "acc": 38.0,
+    "shortcut": 7.0
+   }
+  },
+  "32k": {
+   "R0p": {
+    "acc": 4.0,
+    "shortcut": 77.0
+   },
+   "R0t": {
+    "acc": 9.0,
+    "shortcut": 37.0
+   },
+   "CHp": {
+    "acc": 14.0,
+    "shortcut": 53.0
+   },
+   "CNp": {
+    "acc": 8.0,
+    "shortcut": 76.0
+   },
+   "CNt": {
+    "acc": 44.0,
+    "shortcut": 10.0
+   }
+  },
+  "64k": {
+   "R0p": {
+    "acc": 7.0,
+    "shortcut": 79.0
+   },
+   "R0t": {
+    "acc": 11.0,
+    "shortcut": 58.0
+   },
+   "CHp": {
+    "acc": 11.0,
+    "shortcut": 49.0
+   },
+   "CNp": {
+    "acc": 13.0,
+    "shortcut": 74.0
+   },
+   "CNt": {
+    "acc": 36.0,
+    "shortcut": 11.0
+   }
+  },
+  "262k": {
+   "R0p": {
+    "acc": 2.0,
+    "shortcut": 90.0
+   },
+   "R0t": {
+    "acc": 6.0,
+    "shortcut": 61.0
+   },
+   "CHp": {
+    "acc": 3.0,
+    "shortcut": 52.0
+   },
+   "CNp": {
+    "acc": 12.0,
+    "shortcut": 68.0
+   },
+   "CNt": {
+    "acc": 21.0,
+    "shortcut": 11.0
+   }
+  }
+ },
+ "unplanted_reference": {
+  "R0": 10.2,
+  "CH": 26.0,
+  "CN": 40.0
+ },
+ "gates": {
+  "P1": false,
+  "P2": false
+ },
+ "usd": 0.529
+}

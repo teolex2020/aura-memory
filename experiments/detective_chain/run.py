@@ -174,7 +174,8 @@ def newer_neighbours(task: dict, mat: np.ndarray, serial: int) -> list[str]:
     return [task["facts"][j][1] for j in order if task["facts"][j][0] > serial]
 
 
-def run_chain(task: dict, mat: np.ndarray, question: str, verify: bool, newest: bool = False) -> dict:
+def run_chain(task: dict, mat: np.ndarray, question: str, verify: bool, newest: bool = False,
+              step_template: str = STEP) -> dict:
     serial_of = [s for s, _ in task["facts"]]
     by_serial = {s: t for s, t in task["facts"]}
     changed = 0
@@ -190,7 +191,7 @@ def run_chain(task: dict, mat: np.ndarray, question: str, verify: bool, newest: 
         pool = "\n".join(task["facts"][i][1] for i in idx)
         shown_text.append(pool)
         chain_text = "\n".join(f"{n}. fact #{s}: {f}" for n, (s, f) in enumerate(chain, 1)) or "(none)"
-        prompt = STEP.format(pool=pool, question=question, chain=chain_text)
+        prompt = step_template.format(pool=pool, question=question, chain=chain_text)
         step = parse(gemini(prompt))
         link = step.get("link") if isinstance(step.get("link"), dict) else {}
         if newest:

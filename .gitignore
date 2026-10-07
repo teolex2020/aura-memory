@@ -172,3 +172,6 @@ experiments/agentdojo_fence/*.log
 experiments/memory_laundering/cache/
 experiments/memory_laundering/results/
 experiments/memory_laundering/*.log
+experiments/detective_chain/cache/
+experiments/detective_chain/rows.jsonl
+experiments/detective_chain/*.log

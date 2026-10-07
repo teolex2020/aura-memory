@@ -1,0 +1,41 @@
+{
+ "prompts": 163,
+ "sessions": 8,
+ "p_real_needs_past": 10.4,
+ "durable_share": 14.7,
+ "auc_top1_vs_needs_past": 0.522,
+ "auc_top1_vs_useful": 0.835,
+ "useful_share_of_all_recalls": 98.1,
+ "recall_ms": {
+  "median": 196.49,
+  "max": 879.3
+ },
+ "profile_chars": {
+  "median": 284.5,
+  "max": 2851
+ },
+ "level1_coverage_of_needs": 70.6,
+ "level2": {
+  "0.52": {
+   "injection_rate": 92.6,
+   "useful_share_of_injections": 99.3,
+   "needs_past_caught": 94.1
+  },
+  "0.55": {
+   "injection_rate": 73.6,
+   "useful_share_of_injections": 99.2,
+   "needs_past_caught": 76.5
+  },
+  "0.57": {
+   "injection_rate": 44.8,
+   "useful_share_of_injections": 100.0,
+   "needs_past_caught": 41.2
+  }
+ },
+ "combined_helped_of_needs": 100.0,
+ "gates": {
+  "R1": false,
+  "R2": true,
+  "R3": true
+ }
+}

@@ -189,3 +189,7 @@ experiments/journal_lookup/cache/
 experiments/journal_lookup/rows.jsonl
 experiments/journal_lookup/*.log
 experiments/memory_self_audit/private/
+experiments/memory_when_to_recall/cache/
+experiments/memory_when_to_recall/scores.jsonl
+experiments/memory_when_to_recall/rows.jsonl
+experiments/memory_when_to_recall/*.log

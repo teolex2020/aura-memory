@@ -1,0 +1,27 @@
+{
+ "trajectories": 2000,
+ "user_messages_per_run": {
+  "n": 2000,
+  "median": 1.0,
+  "p90": 1,
+  "mean": 1.0
+ },
+ "model_calls_per_user_message": {
+  "n": 2000,
+  "median": 60.0,
+  "p90": 96.0,
+  "mean": 63.9
+ },
+ "context_chars_at_first_call": {
+  "n": 2000,
+  "median": 16172.0,
+  "p90": 18451,
+  "mean": 16828.1
+ },
+ "context_chars_at_last_call": {
+  "n": 2000,
+  "median": 179397.5,
+  "p90": 258354,
+  "mean": 184999.3
+ }
+}

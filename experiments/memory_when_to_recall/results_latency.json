@@ -1,0 +1,94 @@
+{
+ "query_embedding_bge_m3": {
+  "median_ms": 188.68,
+  "p95_ms": 211.22,
+  "n": 29
+ },
+ "bridge_start_and_handshake": {
+  "median_ms": 5.67,
+  "p95_ms": 5.96,
+  "n": 20
+ },
+ "model_latency": {
+  "gemini-3.1-flash-lite_0": {
+   "median_ms": 796.77,
+   "p95_ms": 856.08,
+   "n": 5,
+   "prompt_tokens": 13
+  },
+  "gemini-3.1-flash-lite_1000": {
+   "median_ms": 886.84,
+   "p95_ms": 948.53,
+   "n": 5,
+   "prompt_tokens": 957
+  },
+  "gemini-3.1-flash-lite_4000": {
+   "median_ms": 882.3,
+   "p95_ms": 1069.65,
+   "n": 5,
+   "prompt_tokens": 3879
+  },
+  "gemini-3.1-flash-lite_16000": {
+   "median_ms": 909.04,
+   "p95_ms": 914.34,
+   "n": 5,
+   "prompt_tokens": 16466
+  },
+  "gemini-2.5-flash_0": {
+   "median_ms": 743.71,
+   "p95_ms": 789.53,
+   "n": 5,
+   "prompt_tokens": 13
+  },
+  "gemini-2.5-flash_1000": {
+   "median_ms": 785.9,
+   "p95_ms": 788.18,
+   "n": 5,
+   "prompt_tokens": 957
+  },
+  "gemini-2.5-flash_4000": {
+   "median_ms": 869.22,
+   "p95_ms": 885.2,
+   "n": 5,
+   "prompt_tokens": 3879
+  },
+  "gemini-2.5-flash_16000": {
+   "median_ms": 1073.33,
+   "p95_ms": 1203.49,
+   "n": 5,
+   "prompt_tokens": 16466
+  }
+ },
+ "recall": {
+  "300_embeddings": {
+   "median_ms": 1.98,
+   "p95_ms": 3.2,
+   "n": 50,
+   "build_s": 75.8
+  },
+  "300_lexical": {
+   "median_ms": 1.76,
+   "p95_ms": 2.48,
+   "n": 50,
+   "build_s": 0.4
+  },
+  "3000_embeddings": {
+   "median_ms": 13.89,
+   "p95_ms": 20.11,
+   "n": 50,
+   "build_s": 473.5
+  },
+  "3000_lexical": {
+   "median_ms": 9.89,
+   "p95_ms": 20.91,
+   "n": 50,
+   "build_s": 8.9
+  },
+  "30000_lexical": {
+   "median_ms": 142.78,
+   "p95_ms": 279.63,
+   "n": 50,
+   "build_s": 857.7
+  }
+ }
+}

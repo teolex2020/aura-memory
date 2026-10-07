@@ -185,3 +185,6 @@ experiments/user_is_right/*.log
 experiments/osint_verification/cache/
 experiments/osint_verification/results/
 experiments/osint_verification/*.log
+experiments/journal_lookup/cache/
+experiments/journal_lookup/rows.jsonl
+experiments/journal_lookup/*.log

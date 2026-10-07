@@ -1,0 +1,70 @@
+{
+ "accuracy": {
+  "N": 9.2,
+  "U": 79.2,
+  "F": 85.0,
+  "JR": 86.7,
+  "JA": 86.7
+ },
+ "by_type": {
+  "knowledge-update": {
+   "N": 0.0,
+   "U": 100.0,
+   "F": 90.0,
+   "JR": 95.0,
+   "JA": 95.0
+  },
+  "multi-session": {
+   "N": 0.0,
+   "U": 80.0,
+   "F": 85.0,
+   "JR": 85.0,
+   "JA": 80.0
+  },
+  "single-session-assistant": {
+   "N": 35.0,
+   "U": 40.0,
+   "F": 95.0,
+   "JR": 90.0,
+   "JA": 95.0
+  },
+  "single-session-preference": {
+   "N": 15.0,
+   "U": 80.0,
+   "F": 75.0,
+   "JR": 80.0,
+   "JA": 75.0
+  },
+  "single-session-user": {
+   "N": 0.0,
+   "U": 85.0,
+   "F": 90.0,
+   "JR": 90.0,
+   "JA": 95.0
+  },
+  "temporal-reasoning": {
+   "N": 5.0,
+   "U": 90.0,
+   "F": 75.0,
+   "JR": 80.0,
+   "JA": 80.0
+  }
+ },
+ "other_five_types": {
+  "N": 4.0,
+  "U": 87.0,
+  "F": 83.0,
+  "JR": 86.0,
+  "JA": 85.0
+ },
+ "router": {
+  "recall_on_assistant_questions": 95.0,
+  "yes_rate_on_other_types": 58.0
+ },
+ "gates": {
+  "J1": true,
+  "J2": true,
+  "J3": true
+ },
+ "usd": 0.164
+}

@@ -188,3 +188,4 @@ experiments/osint_verification/*.log
 experiments/journal_lookup/cache/
 experiments/journal_lookup/rows.jsonl
 experiments/journal_lookup/*.log
+experiments/memory_self_audit/private/

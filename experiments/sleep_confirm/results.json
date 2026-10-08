@@ -1,0 +1,57 @@
+{
+ "factconsolidation_262k": {
+  "sh": {
+   "R0": 80.0,
+   "K2": 87.0,
+   "CN": 95.0
+  },
+  "mh": {
+   "R0": 7.0,
+   "K2": 10.0,
+   "CN": 22.0
+  },
+  "idle": {
+   "pools": 1,
+   "facts": 18332,
+   "seeds": 17004,
+   "calls": 1701,
+   "links": 7376,
+   "in_tokens": 1872346,
+   "out_tokens": 129703,
+   "usd": 0.663,
+   "usd_per_1000_facts": 0.036,
+   "approx_precision": 86.9
+  }
+ },
+ "longmemeval_fresh": {
+  "knowledge-update": {
+   "n": 40,
+   "Cp": 85.0,
+   "K2": 90.0,
+   "fixed": 3,
+   "broke": 1,
+   "with_mark_in_top10": 100.0
+  },
+  "temporal-reasoning": {
+   "n": 40,
+   "Cp": 82.5,
+   "K2": 77.5,
+   "fixed": 1,
+   "broke": 3,
+   "with_mark_in_top10": 100.0
+  },
+  "idle": {
+   "records": 19360,
+   "seeds": 13534,
+   "calls": 1394,
+   "links": 16254,
+   "all_calls_usd": 1.167
+  }
+ },
+ "hypotheses": {
+  "Y1_fc262k_sh": false,
+  "Y2_lme_ku": true,
+  "Y3_lme_temporal_no_harm": false
+ },
+ "usd_total": 1.854
+}

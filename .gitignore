@@ -208,3 +208,6 @@ experiments/chain_on_lookups/*.log
 experiments/idle_consolidation/cache/
 experiments/idle_consolidation/rows_*.jsonl
 experiments/idle_consolidation/*.log
+experiments/sleep_confirm/cache/
+experiments/sleep_confirm/rows_*.jsonl
+experiments/sleep_confirm/*.log

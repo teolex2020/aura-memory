@@ -1,0 +1,63 @@
+{
+ "questions": 120,
+ "accuracy": {
+  "C": 79.2,
+  "P1": 75.0,
+  "P2": 76.7
+ },
+ "by_type": {
+  "knowledge-update": {
+   "C": 100.0,
+   "P1": 90.0,
+   "P2": 90.0
+  },
+  "multi-session": {
+   "C": 80.0,
+   "P1": 85.0,
+   "P2": 90.0
+  },
+  "single-session-assistant": {
+   "C": 40.0,
+   "P1": 20.0,
+   "P2": 25.0
+  },
+  "single-session-preference": {
+   "C": 80.0,
+   "P1": 80.0,
+   "P2": 75.0
+  },
+  "single-session-user": {
+   "C": 85.0,
+   "P1": 95.0,
+   "P2": 95.0
+  },
+  "temporal-reasoning": {
+   "C": 90.0,
+   "P1": 80.0,
+   "P2": 85.0
+  }
+ },
+ "P2_vs_C": {
+  "fixed": 6,
+  "broke": 9
+ },
+ "chain": {
+  "steps_mean": 1.25,
+  "calls_mean": 2.38,
+  "tokens_median": 2472.5,
+  "ms_median": 1673.0,
+  "ms_p90": 3438,
+  "reader_ms_median": 759.5,
+  "nothing_found": 0.0
+ },
+ "hypotheses": {
+  "K1_no_harm": false,
+  "K2_helps_on_versions": false,
+  "K2_values": {
+   "C": 95.0,
+   "P2": 87.5
+  },
+  "K3_added_ms_under_3s": true
+ },
+ "usd": 0.19
+}

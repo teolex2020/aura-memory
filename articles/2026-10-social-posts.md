@@ -62,3 +62,44 @@ Aura Memory is open source (MIT, Rust with Python bindings). Version 1.60.1 is o
 https://github.com/teolex2020/aura-memory
 
 #AI #MachineLearning #LLM #AIAgents
+
+---
+
+# "AI memory is about noticing what changed" (article, 2026-10)
+
+Replace `https://dev.to/LINK` with the article's address once it is published.
+
+## X / Twitter
+
+Does AI need memory if it can reread your whole chat? I tested it for a week.
+
+Mostly no: only 1 in 10 questions needed the past.
+
+When it did, AI failed not by forgetting but by missing that a fact had changed, even with the newer fact right there.
+
+https://dev.to/LINK
+
+---
+
+## LinkedIn
+
+Does an AI assistant need memory if it can simply reread your whole chat history? I spent a week measuring it instead of arguing about it.
+
+What I found:
+
+→ Most of the time, no memory is needed. In four days of my own work with AI assistants, only 1 question in 10 needed anything from an earlier conversation. A short "about me" note covered 7 of those 10.
+
+→ Rereading everything works for simple questions, but it reads about 150 times more text than looking up the right few notes, for the same accuracy. In AI agents, where one request turns into ~60 rounds of work, that cost multiplies.
+
+→ The real failure is change. Tell the assistant in March that you play tennis weekly, and in July that it's now every other week. Ask in September, and it often says "weekly". When facts changed, rereading everything got 15% right and plain look-up 13%. Checking step by step "is there anything newer?" got 44%.
+
+→ The AI often had the newer fact right in front of it and still picked the old one. An explicit "outdated" label helped a lot on some questions and hurt on others. Finishing a book is not the same as replacing the fact that you started it.
+
+→ And one humbling lesson: I almost concluded that "AI doesn't use memory on its own". The real cause was that my connector had silently stopped working after a client update. Check the wiring before blaming the model.
+
+Memory, it turns out, is less about remembering and more about noticing what changed.
+
+All tests, code and results are open, including the ones that failed. Full write-up:
+https://dev.to/LINK
+
+#AI #LLM #MachineLearning #OpenSource

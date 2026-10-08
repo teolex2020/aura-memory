@@ -1,0 +1,115 @@
+{
+ "longmemeval": {
+  "questions": 60,
+  "A_none": 10.0,
+  "C_retrieved_user_words": 81.7,
+  "C2_retrieved_full_turns": 86.7,
+  "B_whole_history": 78.3,
+  "D_brief": 76.7,
+  "by_type": {
+   "knowledge-update": {
+    "A": 0.0,
+    "B": 80.0,
+    "C": 100.0,
+    "D": 90.0
+   },
+   "multi-session": {
+    "A": 0.0,
+    "B": 70.0,
+    "C": 70.0,
+    "D": 70.0
+   },
+   "single-session-assistant": {
+    "A": 40.0,
+    "B": 100.0,
+    "C": 50.0,
+    "D": 40.0
+   },
+   "single-session-preference": {
+    "A": 20.0,
+    "B": 60.0,
+    "C": 70.0,
+    "D": 70.0
+   },
+   "single-session-user": {
+    "A": 0.0,
+    "B": 80.0,
+    "C": 100.0,
+    "D": 100.0
+   },
+   "temporal-reasoning": {
+    "A": 0.0,
+    "B": 80.0,
+    "C": 100.0,
+    "D": 90.0
+   }
+  },
+  "cost": {
+   "B_input_tokens_median": 109407.0,
+   "B_answer_ms_median": 2575.5,
+   "C_memory_tokens_median_est": 730,
+   "D_brief_tokens_median_est": 48,
+   "D_answer_input_tokens_median": 121.0,
+   "D_processor_input_tokens_median": 940.5,
+   "D_ms_median_answer_plus_processor": 2275.0
+  }
+ },
+ "factconsolidation": {
+  "questions": 150,
+  "sh": {
+   "B_long_context": 90.7,
+   "C_retrieved": 82.7,
+   "D_chain_newest": 89.3,
+   "by_size": {
+    "6k": {
+     "B": 96.0,
+     "C": 96.0,
+     "D": 88.0
+    },
+    "32k": {
+     "B": 88.0,
+     "C": 84.0,
+     "D": 88.0
+    },
+    "64k": {
+     "B": 88.0,
+     "C": 68.0,
+     "D": 92.0
+    }
+   }
+  },
+  "mh": {
+   "B_long_context": 14.7,
+   "C_retrieved": 13.3,
+   "D_chain_newest": 44.0,
+   "by_size": {
+    "6k": {
+     "B": 16.0,
+     "C": 16.0,
+     "D": 64.0
+    },
+    "32k": {
+     "B": 12.0,
+     "C": 8.0,
+     "D": 28.0
+    },
+    "64k": {
+     "B": 16.0,
+     "C": 16.0,
+     "D": 40.0
+    }
+   }
+  },
+  "B_input_chars_median": 136539.0,
+  "B_answer_ms_median": 1157.5
+ },
+ "hypotheses": {
+  "H1_context_enough_on_lme": false,
+  "H2_long_context_fails_on_conflicts": true,
+  "H3_brief_as_good_and_short": false
+ },
+ "usd": {
+  "lme": 1.705,
+  "mab": 1.552
+ }
+}

@@ -1,130 +1,135 @@
 ---
-title: "Most Messages Don't Need Memory. The Ones That Do Need More Than Retrieval"
+title: "AI Memory Isn't About Remembering. It's About Noticing What Changed"
 published: false
-description: "Seven experiments on whether LLMs still need memory when context windows are huge: how often memory is needed, what a long context costs, where both fail, and why I could not find a cheap way to decide when to think harder."
+description: "Does ChatGPT or Claude need to remember your past chats, or can it just reread everything? I tested it for a week. Mostly it needs no memory at all. When it does, it fails not because it forgot, but because it missed that something changed."
 tags: ai, llm, machinelearning, opensource
 ---
 
-Two camps keep talking past each other. One says context windows are now so large that memory is a solved problem: put the history in the prompt. The other says every agent needs a memory layer.
+When you talk to ChatGPT or Claude, should it remember your earlier conversations?
 
-I build a memory layer ([Aura Memory](https://github.com/teolex2020/aura-memory)), so I had a reason to want the second camp to be right. Instead of arguing, I spent a week measuring. I ran seven experiments on public benchmarks and on my own working sessions. Every protocol, with its pass/fail thresholds, was committed **before** the run. Runs that missed are reported as misses. Total API cost: about $6.60.
+One camp says yes: without memory the AI meets you from scratch every time. The other says no: modern models can read hundreds of pages at once, so just give them the whole chat history.
 
-Short version: both camps are right, about different things.
+I build an open-source memory layer for AI assistants ([Aura Memory](https://github.com/teolex2020/aura-memory)), so I had a reason to want the first camp to win. Instead of arguing, I spent a week testing it. I used my own real chats with AI coding assistants and public test sets built for exactly this question.
 
-## 1. How often does a message need memory at all?
+What I found surprised me. Most of the time, the AI does not need to remember anything. When it does, it rarely fails because it *forgot*. It fails because it did not notice that **something changed**.
 
-I took my own real sessions with coding agents over four days: 163 messages in 8 sessions. A local model (`qwen3:4b` in Ollama; nothing left the machine) judged each message: does answering it need something from an *earlier, separate* conversation?
+*How I tested: I wrote down the rules and the pass/fail line of every test before running it, and failed tests are reported as failures. Almost everything ran on one small, cheap model (Google's `gemini-3.1-flash-lite`). The whole week cost about $6.60 in API fees.*
 
-- **10.4%** of messages needed the past (17 of 163). The rest were about the current conversation or task.
-- A short **profile** built from earlier durable statements (decisions, facts, preferences, plans; median 285 characters) covered **71%** of those needs.
-- Retrieval similarity could **not** tell which messages needed memory: AUC **0.52**, a coin flip. When every message is about the same project, something similar is always found.
+## 1. Most of the time, the AI needs no memory at all
 
-So for everyday work, most messages need no memory at all. A small profile at the start of a session handles most of the rest.
+I went through four days of my own work with AI coding assistants: 163 questions and requests in 8 conversations. For each one, a small AI model running on my own computer (nothing left the machine) answered a simple question: *to reply to this, does the assistant need something from an earlier, separate conversation?*
 
-## 2. When memory is needed, it matters a lot. When it isn't, it barely hurts
+- Only **1 in 10** did. The other nine were about what we were doing right then.
+- For those that did, a short "about me" note was enough **7 times out of 10**. It held my recent decisions, facts and plans, about the length of a tweet or two.
+- Whether the past mattered could not be guessed from the question itself. The obvious trick is "if an old note looks similar to the question, it's probably needed". That did **no better than a coin toss**. All my conversations are about the same project, so some old note always looks similar.
 
-Same reader model (`gemini-3.1-flash-lite`), same judge:
+## 2. When memory is needed, it matters enormously. When it isn't, it barely hurts
 
-| | No memory | With memory |
+I used LongMemEval, a public test made of long, realistic chat histories. Each history comes with questions about things said weeks earlier.
+
+| | AI without memory | AI with memory |
 |---|---|---|
-| LongMemEval (memory needed), 120 questions | 9.2% | **79.2%** |
-| TruthfulQA (memory not needed, 10 unrelated memories added) | 80.8% | 80.0% |
+| Questions about earlier chats | 9% right | **79%** right |
+| General-knowledge questions, with 10 unrelated notes about the user mixed in | 81% right | 80% right |
 
-Models mostly ignore irrelevant memories. Adding memory when it isn't needed costs tokens, not accuracy.
+So memory helps a lot when it is needed. When it is not needed, the AI mostly ignores the extra notes. You pay for the extra text, not with wrong answers.
 
-## 3. Agents change the economics
+## 3. "Just give it the whole chat" works, at a price
 
-I counted model calls in 2,000 real OpenHands trajectories (SWE-rebench). One human message leads to a median of **60 model calls** (p90: 96).
+Then the big question: why bother with memory if the AI can reread everything?
 
-That decides *where* memory goes. Injected once per user message, it costs one lookup (~0.2 s). Injected on every model call (a proxy does this), it costs 60 lookups and ~60k extra input tokens for the same information, which the agent already carries in its conversation.
+On the same test, I compared two setups:
+- **rereading the whole chat history** before every answer, about the length of a novel;
+- **looking up the 10 most relevant notes**, about a page.
 
-## 4. Long context vs retrieval
-
-Now the main question. On LongMemEval (60 questions, ~115k tokens of history each):
-
-| The model gets | Correct | Input per question |
+| What the AI reads before answering | Right answers | How much it reads |
 |---|---|---|
-| nothing | 10.0% | — |
-| the **whole history** in context | 78.3% | ~109,000 tokens |
-| 10 retrieved records (the user's own words) | **81.7%** | ~730 tokens |
-| 10 retrieved records (both sides of the chat) | 86.7% | — |
+| nothing | 10% | — |
+| the whole chat history | 78% | ~110,000 tokens (a novel) |
+| 10 relevant notes | **82%** | ~730 tokens (a page) |
 
-For lookups, a long context is about as good as retrieval, at **~150 times the input**. It wins on one question type, "what did the assistant tell me?" (100% vs 50%), because the assistant's turns are in the history and not in a store of the user's words. On updated facts and time questions it is 20 points *worse* than retrieval: among 115k tokens the model more often picks a stale fact.
+Rereading everything works about as well as notes, but it reads **about 150 times more text** for every single answer. The gap grows with AI agents, the assistants that work on a task by themselves. I counted 2,000 real agent sessions: one request from a person turned into about **60 rounds** of the AI reading and acting. Give the agent the novel on every round, and you pay for it 60 times.
 
-Then I gave it facts that change over time. MemoryAgentBench FactConsolidation is a synthetic set where facts get overwritten ("the CEO of X is now Y"). Multi-hop questions chain several such facts:
+The whole history won in one place: questions like *"what did you tell me last time?"*. My notes kept only what the person said, not what the AI said. It lost where something had changed. Buried in a novel-length history, the AI more often grabbed the old version.
 
-| | Whole pool in context | Retrieval | Step-by-step chain with a newest-fact check |
-|---|---|---|---|
-| single-hop | 90.7% | 82.7% | 89.3% |
-| multi-hop | 14.7% | 13.3% | **44.0%** |
+## 4. The real problem: facts change
 
-Neither a long context nor retrieval can reason over facts that changed. What worked was **processing**: answer one fact per step, and at each step check whether a newer record overrides the one just used.
+Here is a typical failure. In March you tell the assistant you play tennis every week. In July you mention you now play every other week. In September you ask: *"How often do I play tennis?"*
 
-So the useful framing is not "memory vs context". Memory matters as **analysis**, not as storage, and only when you are actually analysing something.
+The assistant has both statements. It still often answers "every week".
 
-## 5. When should the processor switch on?
+To measure this properly, I used a test where facts are deliberately overwritten: "X lives in Paris", then later "X lives in Rome". Some questions need to connect several facts, the way a detective connects clues: who is X married to, and where does *that* person live now?
 
-The chain costs ~3 model calls instead of 1, so you want it only when it helps. With hindsight ("oracle"), it was needed on **23.5%** of FactConsolidation questions. Running it only there gives 69.9% at 1.6 calls per question; running it always gives 68.1% at 3.2.
-
-I tried three cheap ways to find those questions:
-
-| Router | What went wrong |
+| How the AI works | Right answers on "connect the clues" questions |
 |---|---|
-| local 4B model, reading the question | fired on 46% of my real messages, *equally often* whether they needed the past or not (47% vs 46%) |
-| local 4B model, question + retrieved memories | fired on 93% of my messages (every project memory looks like "a version of the same fact"), and on only 10% of FactConsolidation, where versions really exist |
-| the reader flags "needs analysis" itself | kept 95% of the gain, but fired on 82% / 50% of questions and cost more than always-on |
+| rereads everything | 15% |
+| looks up relevant notes | 13% |
+| **checks clue by clue**, asking each time *"is there anything newer about this?"* | **44%** |
 
-The last one had a side effect: asking the reader to judge whether it needed help made its own answers **worse**, 81.7% → 71.7% on LongMemEval.
+Neither rereading nor looking things up helps here. What helps is **thinking step by step and checking for newer information**. So the value of memory is not the storage. It is a small analyst that notices what changed.
 
-## 6. Then just run it always?
+## 5. But when should you call the analyst?
 
-No. On plain lookups (LongMemEval, 120 questions), adding the chain's notes to the retrieved memories gave **76.7% vs 79.2%** without them: 6 answers fixed, 9 broken. It also added 2.4 calls and 1.7 s per question.
+The step-by-step analyst costs about three times more per answer. You want it only when it helps. Looking back at the results, it was needed for about **1 in 4** of those tricky questions.
 
-The worst breakage came from the very rule that makes the chain work. Asked *"What was my **previous** personal best?"*, the chain applied "newer overrides older" and returned the newest one.
+I tried three cheap ways to guess when to call it. All three failed:
+- **A small AI reads the question and decides.** It called the analyst for almost half of my real questions, and just as often for questions that needed no past at all as for those that did.
+- **A small AI reads the question and the notes found.** It called the analyst for 93% of my questions: every note about my project looked like "an old version of something". On the test where facts really had changed, it almost never called it.
+- **The assistant decides for itself whether it needs help.** It asked for help far too often, so this cost more than calling the analyst every time. Worse, just being asked made its own answers worse: **82% → 72%** right.
 
-## 7. Then do the analysis while idle
+## 6. Then call the analyst every time?
 
-Humans consolidate memories in sleep, so I tried that. An idle pass links versions of facts ahead of time, and the answer stays one cheap call.
+No. On ordinary questions, adding the analyst's notes made answers slightly **worse**: 77% right instead of 79%, and 1.7 seconds slower.
 
-Linking alone did nothing (82.7% vs 83.3% on single-hop). The diagnosis surprised me. In **all 50** failures, the newer fact was **already among the retrieved records**. The model still picked the old one, or its own world knowledge. Asked for the official language of the United States, it answered "American English" while the newer fact in memory said "German".
+The worst mistakes came from the analyst's own rule, "newer beats older". Asked *"What was my **previous** personal best?"*, it proudly returned the newest one.
 
-What was missing was not the fact but an explicit signal. Marking the older record `[outdated: updated by fact #N]` raised single-hop to **94.7%** at one call, against 96.7% for the chain at ~3 calls. I added that arm after the diagnosis, so I re-ran it unchanged on data it had never seen:
+## 7. Then let the AI think while it is idle, like sleep
 
-| | Without marks | With marks |
+People sort out their memories while they sleep. So I let the AI tidy its notes in its free time: link old and new versions of the same fact. Then a question can be answered in one cheap step.
+
+Linking alone did nothing. Then I looked at all 50 wrong answers. In **every one**, the newer fact was **already sitting among the notes** the AI was given. It picked the old one anyway, or its own general knowledge.
+
+My favourite example: in that test the "official language of the United States" had been deliberately changed to German. The newer note said German. The AI answered "American English". It trusted what it "knew" over what it was told.
+
+The fix was an explicit label. I marked old notes **"outdated: updated later"**, and right answers on single-fact questions jumped from 83% to **95%**, almost as good as the full step-by-step analyst, at a third of the cost.
+
+I came up with that label *after* seeing the failures, so I re-ran it, unchanged, on questions it had never seen:
+
+| | Without labels | With "outdated" labels |
 |---|---|---|
-| FactConsolidation, 262k-token pool | 80% | 87% (chain: 95%) |
-| LongMemEval, knowledge-update (40 new questions) | 85% | **90%** |
-| LongMemEval, temporal reasoning (40 new questions) | 82.5% | **77.5%** |
+| A much larger set of changing facts | 80% | 87% |
+| Chat histories: "what is it now?" questions | 85% | **90%** ✅ |
+| Chat histories: "how long / when" questions | 82.5% | **77.5%** ❌ |
 
-Half a confirmation. On real conversations the idle pass linked far too much: 16,254 "updates" across 19,360 records. "I started reading the book on Jan 10" got marked outdated by "I finished it on Jan 31", and then the model could not count the days. A real replacement (alarm 8:00 → 7:30) is not the same as an event that continues another, and my linker could not tell them apart. Not ready.
+Only half a win. On chat histories the "sleep" tidied far too much: it found 16,254 "updates" among 19,360 notes. "I started reading the book on January 10" got marked outdated by "I finished it on January 31". After that, the AI could no longer count how many days the book took. Changing your alarm from 8:00 to 7:30 replaces a fact. Finishing a book does not replace starting it. My system could not tell the two apart yet.
 
 ## 8. The bug that almost fooled me
 
-Before all this, I audited my own memory store: 298 records, **one** memory tool call in 8,239 agent hook events. I wrote it down as a finding: *models don't call memory tools on their own*.
+Before all of this, I had checked how often the AI actually used its memory. The answer: **once** in about 8,000 actions over several days. I wrote it down as a finding: *AI assistants don't use memory on their own.*
 
-Then, while looking into a connection timeout, I read the MCP client logs. Since October 2, Claude Code had been sending a newer protocol's `server/discover` probe before `initialize`. My stdio bridge, built on rmcp, could not parse it, logged a serde error, stopped reading, and hung until the 30-second timeout. For six days the memory tools were missing from **every** Claude Code session. Hooks kept working, so everything looked alive.
+That was wrong. While chasing an unrelated timeout, I found that a Claude Code update had changed how it says hello to the tools it connects to. My connector did not understand the new greeting and froze. For six days the memory tool was simply **missing**, from every conversation. Everything else kept working, so nothing looked broken.
 
-The fix is a few lines (answer unknown requests with JSON-RPC `-32601`) and shipped in 1.61.1. The lesson was bigger: before drawing conclusions about model behaviour, check the pipe. My "finding" is now a hypothesis to test again.
+The fix was a few lines of code. The lesson was bigger: **before drawing conclusions about the AI, check the wiring.**
 
-## What I take from this
+## What I would build from this
 
-| Level | What | When |
-|---|---|---|
-| 0 | the conversation itself | always, free |
-| 1 | a small profile of durable facts and decisions | once per session |
-| 2 | retrieval, no similarity gate | once per user message, never per agent step |
-| 3 | analysis (chains, newest-fact checks) | only when someone actually asks for analysis |
+1. **The conversation itself**: free, always there.
+2. **A short "about me" note at the start of each conversation**: covers most real needs for memory.
+3. **A quick look-up of relevant notes once per question**: never at every step of an agent.
+4. **The step-by-step analyst only when you actually ask for analysis**, like "what changed?", "compare", "what did we decide and why?".
 
-Things I would not build yet: an always-on processor, a cheap router that guesses when to think harder, and idle "sleep" marks. The last one is the most promising. It needs narrower linking (one property, new value) and a softer mark ("a newer value exists") than "outdated".
+What I would *not* build yet:
+- an analyst that always runs;
+- a cheap trick that guesses when to think harder;
+- the "sleep" labels. They are the most promising idea here, but they need to learn the difference between a fact that was replaced and an event that simply continued.
 
-## Limits
+## Honest limits
 
-- One small model (`gemini-3.1-flash-lite`) for almost everything.
-- FactConsolidation is synthetic, so it tests the mechanism, not the real world.
-- 60–120 LongMemEval questions per run: differences of 2–3 points are noise.
-- The real-session numbers are one person over four days, labelled by a local 4B judge (17 "needs the past" cases).
-- The "outdated marks" result came from an arm added after diagnosis. Its fresh-data rerun is the number to trust.
+- Almost everything ran on one small model. Bigger models may behave differently.
+- The "changing facts" test is artificial. It shows the mechanism, not real life.
+- The real-chat numbers come from one person (me) over four days, judged by a small local AI. Only 17 questions needed the past.
+- Test sets of 60–120 questions: differences of 2–3 points can be chance.
 
-Protocols, code and results for every experiment are in the repo under [`experiments/`](https://github.com/teolex2020/aura-memory/tree/main/experiments) (E57–E63). Benchmarks: LongMemEval (MIT), MemoryAgentBench (MIT), TruthfulQA, and SWE-rebench OpenHands trajectories.
+Everything is public: the rules of each test, the code and the results are in the repo under [`experiments/`](https://github.com/teolex2020/aura-memory/tree/main/experiments) (E57–E63). Test sets used: LongMemEval and MemoryAgentBench (both MIT-licensed), TruthfulQA, and SWE-rebench OpenHands agent sessions.
 
-If you have measured any of this on a bigger model, I would like to know whether the numbers hold.
+If you have tried any of this with a bigger model, I would love to know whether it holds up.

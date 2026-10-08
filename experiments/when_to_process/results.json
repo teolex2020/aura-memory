@@ -1,0 +1,174 @@
+{
+ "factconsolidation": {
+  "never": {
+   "accuracy": 46.4,
+   "fires": 0.0,
+   "calls_mean": 1,
+   "sh": {
+    "accuracy": 82.5,
+    "fires": 0.0
+   },
+   "mh": {
+    "accuracy": 10.2,
+    "fires": 0.0
+   }
+  },
+  "always": {
+   "accuracy": 68.1,
+   "fires": 100.0,
+   "calls_mean": 3.18,
+   "sh": {
+    "accuracy": 96.2,
+    "fires": 100.0
+   },
+   "mh": {
+    "accuracy": 40.0,
+    "fires": 100.0
+   }
+  },
+  "oracle": {
+   "accuracy": 69.9,
+   "fires": 23.5,
+   "calls_mean": 1.61,
+   "sh": {
+    "accuracy": 97.5,
+    "fires": 15.0
+   },
+   "mh": {
+    "accuracy": 42.2,
+    "fires": 32.0
+   }
+  },
+  "L": {
+   "accuracy": 58.5,
+   "fires": 51.6,
+   "calls_mean": 2.31,
+   "sh": {
+    "accuracy": 89.2,
+    "fires": 42.5
+   },
+   "mh": {
+    "accuracy": 27.8,
+    "fires": 60.8
+   }
+  },
+  "LM": {
+   "accuracy": 47.2,
+   "fires": 9.6,
+   "calls_mean": 1.15,
+   "sh": {
+    "accuracy": 82.8,
+    "fires": 14.0
+   },
+   "mh": {
+    "accuracy": 11.8,
+    "fires": 5.2
+   }
+  },
+  "S": {
+   "accuracy": 67.1,
+   "fires": 81.6,
+   "calls_mean": 3.8,
+   "sh": {
+    "accuracy": 95.5,
+    "fires": 66.5
+   },
+   "mh": {
+    "accuracy": 38.8,
+    "fires": 96.8
+   }
+  },
+  "S_own_answer_accuracy": {
+   "sh": 82.8,
+   "mh": 8.2
+  }
+ },
+ "longmemeval": {
+  "questions": 60,
+  "S_own_answer_accuracy": 71.7,
+  "C_accuracy": 81.7,
+  "L": {
+   "fires": 5.0,
+   "C_accuracy_when_fired": 100.0,
+   "C_accuracy_when_not": 80.7,
+   "by_type": {
+    "knowledge-update": 0.0,
+    "multi-session": 10.0,
+    "single-session-assistant": 10.0,
+    "single-session-preference": 0.0,
+    "single-session-user": 0.0,
+    "temporal-reasoning": 10.0
+   }
+  },
+  "LM": {
+   "fires": 25.0,
+   "C_accuracy_when_fired": 100.0,
+   "C_accuracy_when_not": 75.6,
+   "by_type": {
+    "knowledge-update": 70.0,
+    "multi-session": 0.0,
+    "single-session-assistant": 0.0,
+    "single-session-preference": 10.0,
+    "single-session-user": 50.0,
+    "temporal-reasoning": 20.0
+   }
+  },
+  "S": {
+   "fires": 50.0,
+   "C_accuracy_when_fired": 80.0,
+   "C_accuracy_when_not": 83.3,
+   "by_type": {
+    "knowledge-update": 50.0,
+    "multi-session": 90.0,
+    "single-session-assistant": 20.0,
+    "single-session-preference": 30.0,
+    "single-session-user": 10.0,
+    "temporal-reasoning": 100.0
+   }
+  }
+ },
+ "owner": {
+  "messages": 163,
+  "needs_past": 17,
+  "L": {
+   "fires": 46.0,
+   "fires_when_needs_past": 47.1,
+   "fires_when_not": 45.9
+  },
+  "LM": {
+   "fires": 92.6,
+   "fires_when_needs_past": 94.1,
+   "fires_when_not": 92.5
+  }
+ },
+ "local_ms_median": {
+  "L": 373,
+  "LM": 978
+ },
+ "hypotheses": {
+  "L": {
+   "W1_keeps_90pct_gain": false,
+   "W2_quiet_elsewhere": false,
+   "gain_kept_pct": 55.8
+  },
+  "LM": {
+   "W1_keeps_90pct_gain": false,
+   "W2_quiet_elsewhere": false,
+   "gain_kept_pct": 3.7
+  },
+  "S": {
+   "W1_keeps_90pct_gain": true,
+   "W2_quiet_elsewhere": false,
+   "gain_kept_pct": 95.4
+  },
+  "W1_and_W2_some_router": false,
+  "W3_local_under_1s": {
+   "L": true,
+   "LM": true
+  }
+ },
+ "usd": {
+  "fc": 0.108,
+  "lme": 0.021
+ }
+}

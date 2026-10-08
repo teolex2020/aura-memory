@@ -198,3 +198,7 @@ experiments/real_sessions_tiers/*.log
 experiments/memory_vs_context/cache/
 experiments/memory_vs_context/rows_*.jsonl
 experiments/memory_vs_context/*.log
+experiments/when_to_process/cache/
+experiments/when_to_process/private/
+experiments/when_to_process/rows_*.jsonl
+experiments/when_to_process/*.log

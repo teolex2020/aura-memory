@@ -1,0 +1,42 @@
+{
+ "questions": 51,
+ "accuracy": {
+  "A": 100.0,
+  "B": 27.5,
+  "C": 19.6,
+  "D": 21.6
+ },
+ "gold_in_reply": {
+  "orig": 92.2,
+  "C": 25.5,
+  "D": 25.5
+ },
+ "C_and_D": {
+  "both_right": 7,
+  "only_C": 3,
+  "only_D": 4,
+  "neither": 37
+ },
+ "same_model_again_vs_first": {
+  "same": 9.8,
+  "partly": 72.5,
+  "different": 17.6,
+  "other": 0.0
+ },
+ "other_model_vs_first": {
+  "same": 2.0,
+  "partly": 45.1,
+  "different": 52.9,
+  "other": 0.0
+ },
+ "recovered_share": {
+  "C": -0.11,
+  "D": -0.08
+ },
+ "hypotheses": {
+  "G1_regeneration_recovers_little": true,
+  "G2_model_matters": false,
+  "G3_gold_survives_under_half": true
+ },
+ "usd": 0.276
+}

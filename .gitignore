@@ -211,3 +211,6 @@ experiments/idle_consolidation/*.log
 experiments/sleep_confirm/cache/
 experiments/sleep_confirm/rows_*.jsonl
 experiments/sleep_confirm/*.log
+experiments/reply_regeneration/cache/
+experiments/reply_regeneration/rows.jsonl
+experiments/reply_regeneration/*.log

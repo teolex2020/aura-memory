@@ -1,0 +1,133 @@
+{
+ "factconsolidation": {
+  "sh": {
+   "R0": 83.3,
+   "K": 82.7,
+   "K2": 94.7,
+   "CN": 96.7,
+   "by_size": {
+    "6k": {
+     "R0": 92.0,
+     "K": 91.0,
+     "K2": 95.0,
+     "CN": 96.0
+    },
+    "32k": {
+     "R0": 83.0,
+     "K": 81.0,
+     "K2": 93.0,
+     "CN": 96.0
+    },
+    "64k": {
+     "R0": 75.0,
+     "K": 76.0,
+     "K2": 96.0,
+     "CN": 98.0
+    }
+   },
+   "questions_with_marked_fact": 100.0,
+   "questions_with_added_version": 87.3
+  },
+  "mh": {
+   "R0": 11.3,
+   "K": 15.0,
+   "K2": 23.3,
+   "CN": 46.0,
+   "by_size": {
+    "6k": {
+     "R0": 16.0,
+     "K": 19.0,
+     "K2": 33.0,
+     "CN": 53.0
+    },
+    "32k": {
+     "R0": 9.0,
+     "K": 12.0,
+     "K2": 19.0,
+     "CN": 41.0
+    },
+    "64k": {
+     "R0": 9.0,
+     "K": 14.0,
+     "K2": 18.0,
+     "CN": 44.0
+    }
+   },
+   "questions_with_marked_fact": 100.0,
+   "questions_with_added_version": 85.0
+  },
+  "idle": {
+   "pools": 3,
+   "seeds_checked": 6819,
+   "calls": 684,
+   "links": 2943,
+   "facts": 7345,
+   "in_tokens": 711764,
+   "out_tokens": 47825,
+   "usd": 0.25,
+   "usd_per_1000_facts": 0.034
+  }
+ },
+ "longmemeval": {
+  "questions": 120,
+  "accuracy": {
+   "C": 79.2,
+   "Cp": 76.7,
+   "K": 79.2
+  },
+  "by_type": {
+   "knowledge-update": {
+    "C": 100.0,
+    "Cp": 85.0,
+    "K": 90.0
+   },
+   "multi-session": {
+    "C": 80.0,
+    "Cp": 90.0,
+    "K": 90.0
+   },
+   "single-session-assistant": {
+    "C": 40.0,
+    "Cp": 40.0,
+    "K": 40.0
+   },
+   "single-session-preference": {
+    "C": 80.0,
+    "Cp": 75.0,
+    "K": 75.0
+   },
+   "single-session-user": {
+    "C": 85.0,
+    "Cp": 90.0,
+    "K": 95.0
+   },
+   "temporal-reasoning": {
+    "C": 90.0,
+    "Cp": 80.0,
+    "K": 85.0
+   }
+  },
+  "K_vs_Cp": {
+   "fixed": 4,
+   "broke": 1
+  },
+  "notes_per_haystack_mean": 12.4,
+  "questions_with_note_in_top10": 53.3,
+  "all_calls_cost": {
+   "in_tokens": 2203500,
+   "out_tokens": 78128,
+   "usd": 0.668
+  }
+ },
+ "hypotheses": {
+  "Z1_links_fix_single_hop": false,
+  "Z1_exploratory_K2_marked": true,
+  "Z2_notes_do_not_hurt": true,
+  "Z3_notes_help_versions_and_counts": false,
+  "Z3_values": {
+   "Cp": 85.0,
+   "K": 88.3
+  }
+ },
+ "usd_total": 1.048
+}

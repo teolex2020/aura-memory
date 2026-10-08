@@ -1,6 +1,6 @@
 {
   "name": "aura-memory",
-  "version": "1.61.0",
+  "version": "1.61.1",
   "description": "Cognitive memory layer for AI agents. Gives Claude persistent, self-organizing memory with hierarchical decay, belief formation, and causal reasoning. Local memory operations need no LLM call; uncached recall latency depends on corpus and query.",
   "author": "Alexander Tepliuk",
   "license": "MIT",

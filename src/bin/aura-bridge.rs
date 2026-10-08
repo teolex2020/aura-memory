@@ -21,11 +21,13 @@ use std::time::Duration;
 
 use anyhow::{bail, Context};
 use aura::mcp::link;
+use rmcp::model::{ClientJsonRpcMessage, ServerJsonRpcMessage};
 use rmcp::transport::{
-    streamable_http_client::StreamableHttpClientTransportConfig, IntoTransport,
-    StreamableHttpClientTransport, Transport,
+    streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
+    Transport,
 };
-use rmcp::{RoleClient, RoleServer};
+use rmcp::RoleClient;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 const START_WAIT: Duration = Duration::from_secs(20);
 
@@ -59,22 +61,74 @@ async fn main() -> anyhow::Result<()> {
     let mut config = StreamableHttpClientTransportConfig::with_uri(uri);
     config.auth_header = Some(link.token);
     let mut remote = StreamableHttpClientTransport::from_config(config);
-    let mut local = IntoTransport::<RoleServer, _, _>::into_transport(rmcp::transport::stdio());
+    // The client side is read line by line here rather than through rmcp's
+    // stdio transport: a message rmcp cannot type (a newer protocol's
+    // `server/discover` probe, sent before `initialize`) would otherwise stall
+    // the stream, and the client would time out instead of falling back.
+    let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    let mut stdout = tokio::io::stdout();
 
     loop {
         tokio::select! {
-            message = Transport::<RoleServer>::receive(&mut local) => match message {
-                Some(message) => Transport::<RoleClient>::send(&mut remote, message).await?,
+            line = lines.next_line() => match line? {
+                Some(line) => match parse_client(&line) {
+                    Incoming::Message(message) => Transport::<RoleClient>::send(&mut remote, *message).await?,
+                    Incoming::Unknown(Some(reply)) => write_line(&mut stdout, &reply).await?,
+                    Incoming::Unknown(None) => {}
+                },
                 None => break,
             },
             message = Transport::<RoleClient>::receive(&mut remote) => match message {
-                Some(message) => Transport::<RoleServer>::send(&mut local, message).await?,
+                Some(message) => write_line(&mut stdout, &server_line(&message)?).await?,
                 None => bail!("Aura closed the connection"),
             },
         }
     }
     let _ = Transport::<RoleClient>::close(&mut remote).await;
     Ok(())
+}
+
+/// One line from the MCP client.
+enum Incoming {
+    Message(Box<ClientJsonRpcMessage>),
+    /// Not a message this protocol knows. A request gets the JSON-RPC reply
+    /// to send back ("method not found"); anything else is dropped.
+    Unknown(Option<String>),
+}
+
+fn parse_client(line: &str) -> Incoming {
+    if line.trim().is_empty() {
+        return Incoming::Unknown(None);
+    }
+    if let Ok(message) = serde_json::from_str::<ClientJsonRpcMessage>(line) {
+        return Incoming::Message(Box::new(message));
+    }
+    let value = serde_json::from_str::<serde_json::Value>(line).unwrap_or_default();
+    let reply = match (
+        value.get("id"),
+        value.get("method").and_then(|m| m.as_str()),
+    ) {
+        (Some(id), Some(method)) => Some(
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {"code": -32601, "message": format!("Method not found: {method}")},
+            })
+            .to_string(),
+        ),
+        _ => None,
+    };
+    Incoming::Unknown(reply)
+}
+
+fn server_line(message: &ServerJsonRpcMessage) -> anyhow::Result<String> {
+    Ok(serde_json::to_string(message)?)
+}
+
+async fn write_line(out: &mut tokio::io::Stdout, line: &str) -> std::io::Result<()> {
+    out.write_all(line.as_bytes()).await?;
+    out.write_all(b"\n").await?;
+    out.flush().await
 }
 
 fn client_name() -> Option<String> {
@@ -634,5 +688,34 @@ mod hook {
             let text = event["tool_response"].as_str().unwrap();
             assert!(text.chars().count() < MAX_TEXT + 20 && text.ends_with("[cut]"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_newer_protocol_probe_gets_method_not_found() {
+        let Incoming::Unknown(Some(reply)) =
+            parse_client(r#"{"jsonrpc":"2.0","id":0,"method":"server/discover","params":{}}"#)
+        else {
+            panic!("a request rmcp cannot type must be answered");
+        };
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["id"], 0);
+        assert_eq!(reply["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn known_messages_pass_and_noise_is_dropped() {
+        let init = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"c","version":"1"}}}"#;
+        assert!(matches!(parse_client(init), Incoming::Message(_)));
+        assert!(matches!(parse_client(""), Incoming::Unknown(None)));
+        assert!(matches!(parse_client("not json"), Incoming::Unknown(None)));
+        assert!(matches!(
+            parse_client(r#"{"jsonrpc":"2.0","method":"notifications/unknown"}"#),
+            Incoming::Unknown(None)
+        ));
     }
 }

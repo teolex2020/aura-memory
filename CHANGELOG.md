@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.61.1
 
 ### Fixed
 
+- **`aura-bridge` hung for 30 s and never connected to Claude Code.** Since early October, Claude Code first sends a newer protocol's `server/discover` probe and expects a legacy server either to answer "method not found" or to close. rmcp could not type that message: the bridge logged a serde error and stopped reading its input. Claude Code then timed out at 30 s, and the `aura` tools were missing from every session; hooks were not affected. The bridge now reads the client's lines itself. Any request it cannot type gets a JSON-RPC `-32601` reply, and everything else is forwarded as before. Checked against Claude Code 2.1.293: it connects in 168 ms (unit tests in `src/bin/aura-bridge.rs`).
 - **`python -m aura capture` stored text the user did not type as their words.** The app's own notices that arrive in the user's turn (`<task-notification>`, `<system-reminder>`, slash-command plumbing) were kept as first-hand memory, and so was text pasted into the message (`<pasted_content>`). Now the notices are dropped, pasted text is stored as outside content (channel `pasted`), and only what the user typed stays first-hand, with `[…]` where a paste stood (`tests/python_capture_smoke.py`).
 - **`supersede()` left the new version out of the lexical index (BM25) and the embedding store.** Until the brain was reopened, the updated fact could be missing from recall among similar records. The new version is now indexed like a stored record (`tests/supersede_index.rs`).
 

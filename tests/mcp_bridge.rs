@@ -344,6 +344,9 @@ async fn two_bridges_share_one_store() {
         assert!(tools.contains(&format!("\"name\":\"{name}\"")), "{tools}");
     }
     assert_eq!(tools.matches("\"inputSchema\"").count(), 3, "{tools}");
+    // The store is not empty, so recall's description says what memory holds.
+    assert!(tools.contains(aura::recall::MEMORY_MAP_LEAD), "{tools}");
+    assert!(tools.contains("other notes: "), "{tools}");
     let doc = tokio::task::spawn_blocking({
         let home = home2.clone();
         move || {

@@ -876,6 +876,9 @@ pub mod app {
     /// event, for the app's journal.
     pub type EventSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
 
+    /// Topics a memory map lists before "and N more".
+    const MEMORY_MAP_GROUPS: usize = 8;
+
     /// What a client (by its `?client=` name) may receive from memory.
     pub type ScopeFor = Arc<dyn Fn(Option<&str>) -> crate::recall::RecallScope + Send + Sync>;
 
@@ -923,6 +926,12 @@ pub mod app {
                 Some(scope_for) => scope_for(client_name(context).as_deref()),
                 None => crate::recall::RecallScope::all(),
             }
+        }
+
+        /// What memory holds, in a few lines, for the calling app's scope.
+        fn memory_map(&self, context: &rmcp::service::RequestContext<rmcp::RoleServer>) -> String {
+            self.brain
+                .memory_map(&self.scope(context), MEMORY_MAP_GROUPS)
         }
 
         fn emit(
@@ -1136,11 +1145,26 @@ pub mod app {
         async fn list_tools(
             &self,
             _request: Option<rmcp::model::PaginatedRequestParam>,
-            _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+            context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<rmcp::model::ListToolsResult, McpError> {
-            Ok(rmcp::model::ListToolsResult::with_all_items(
-                self.tool_router.list_all(),
-            ))
+            // The map goes into recall's own description too: some clients
+            // show a server's tools but not its instructions.
+            let map = self.memory_map(&context);
+            let mut tools = self.tool_router.list_all();
+            if !map.is_empty() {
+                for tool in tools.iter_mut().filter(|t| t.name == "recall") {
+                    let description = tool.description.as_deref().unwrap_or_default();
+                    tool.description = Some(
+                        format!(
+                            "{description}
+
+{map}"
+                        )
+                        .into(),
+                    );
+                }
+            }
+            Ok(rmcp::model::ListToolsResult::with_all_items(tools))
         }
 
         fn get_info(&self) -> ServerInfo {
@@ -1169,9 +1193,21 @@ pub mod app {
         async fn initialize(
             &self,
             _request: rmcp::model::InitializeRequestParam,
-            _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+            context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<InitializeResult, McpError> {
-            Ok(self.get_info())
+            // What memory holds, for this app's scope: a client that knows
+            // what is there asks memory where it matters (E75).
+            let mut info = self.get_info();
+            let map = self.memory_map(&context);
+            if !map.is_empty() {
+                let base = info.instructions.take().unwrap_or_default();
+                info.instructions = Some(format!(
+                    "{base}
+
+{map}"
+                ));
+            }
+            Ok(info)
         }
     }
 }

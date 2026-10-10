@@ -2517,6 +2517,12 @@ impl Aura {
         )
     }
 
+    /// What memory holds, in a few lines built from metadata only, counting
+    /// just the records `scope` allows (see [`recall::memory_map`]).
+    pub fn memory_map(&self, scope: &recall::RecallScope, max_groups: usize) -> String {
+        recall::memory_map(self.records.read().values(), scope, max_groups)
+    }
+
     /// Recall structured (raw results with trust scoring).    /// Recall structured (raw results with trust scoring).
     #[instrument(skip(self), fields(top_k, min_strength))]
     pub fn recall_structured(

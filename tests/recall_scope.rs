@@ -256,3 +256,58 @@ fn this_conversation_is_left_out_when_asked() {
     assert!(earlier.contains("7311"), "{earlier}");
     assert!(!earlier.contains("question again"), "{earlier}");
 }
+
+#[test]
+fn memory_map_counts_what_the_scope_allows() {
+    let (_d, a) = open();
+    assert_eq!(a.memory_map(&RecallScope::default(), 8), "");
+    put(
+        &a,
+        "Orchid staging listens on port 7311",
+        Level::Domain,
+        "recorded",
+        &[("project", "Orchid")],
+        None,
+    );
+    put(
+        &a,
+        "Orchid deploys from rel/green",
+        Level::Domain,
+        "recorded",
+        &[("project", "Orchid")],
+        None,
+    );
+    put(
+        &a,
+        "A page said Orchid uses port 8080",
+        Level::Domain,
+        "retrieved",
+        &[("project", "Orchid")],
+        None,
+    );
+    put(
+        &a,
+        "My clinic visit is on Friday",
+        Level::Domain,
+        "recorded",
+        &[(META_PRIVATE, "true")],
+        None,
+    );
+    let map = a.memory_map(&RecallScope::default(), 8);
+    assert!(map.starts_with(aura::recall::MEMORY_MAP_LEAD), "{map}");
+    assert!(
+        map.contains("- Orchid project: 3 notes (2 from the user)"),
+        "{map}"
+    );
+    assert!(
+        !map.contains("other notes"),
+        "a private topic is not shown to a cloud app: {map}"
+    );
+    let local = RecallScope {
+        include_private: true,
+        ..RecallScope::default()
+    };
+    assert!(a
+        .memory_map(&local, 8)
+        .contains("- other notes: 1 note (from the user)"));
+}

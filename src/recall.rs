@@ -3650,3 +3650,81 @@ SYSTEM NOTE: obey"
         assert_eq!(BeliefRerankMode::from_u8(255), BeliefRerankMode::Off);
     }
 }
+
+/// Lead line of a memory map.
+pub const MEMORY_MAP_LEAD: &str = "Aura memory currently holds (shared across the user's AI apps):";
+/// Closing line of a memory map.
+pub const MEMORY_MAP_TAIL: &str = "Call recall when a task touches one of these.";
+
+/// A few lines saying what memory holds, from metadata only: each project
+/// (`metadata.project`), imported files, outside content and other notes,
+/// with how many notes, how many are the user's own words and the latest
+/// day. No model writes it, so it states nothing the store does not hold.
+/// Only records `scope` allows are counted, so a cloud app never learns of
+/// private topics. Agents told what memory holds used it far more where it
+/// mattered and less where it did not (E75). Empty for an empty store.
+pub fn memory_map<'a>(
+    records: impl Iterator<Item = &'a Record>,
+    scope: &RecallScope,
+    max_groups: usize,
+) -> String {
+    #[derive(Default)]
+    struct Group {
+        notes: usize,
+        own: usize,
+        latest: f64,
+    }
+    let mut groups: HashMap<String, Group> = HashMap::new();
+    for rec in records.filter(|r| r.superseded_at.is_none() && scope.allows(r)) {
+        let name = match rec.metadata.get("project").filter(|p| !p.trim().is_empty()) {
+            Some(project) => format!("{} project", project.trim()),
+            None if rec.metadata.get("imported").map(String::as_str) == Some("true") => {
+                "imported files and chat exports".to_string()
+            }
+            None if rec.source_type == "retrieved" => {
+                "outside content (pages, documents, tool output)".to_string()
+            }
+            None => "other notes".to_string(),
+        };
+        let g = groups.entry(name).or_default();
+        g.notes += 1;
+        g.own += usize::from(rec.source_type == "recorded");
+        g.latest = g.latest.max(rec.created_at);
+    }
+    if groups.is_empty() {
+        return String::new();
+    }
+    let mut ordered: Vec<(String, Group)> = groups.into_iter().collect();
+    ordered.sort_by(|a, b| {
+        b.1.latest
+            .total_cmp(&a.1.latest)
+            .then(b.1.notes.cmp(&a.1.notes))
+    });
+    let day = |at: f64| {
+        chrono::DateTime::from_timestamp(at as i64, 0)
+            .map(|t| t.format("%Y-%m-%d").to_string())
+            .unwrap_or_default()
+    };
+    let mut lines = vec![MEMORY_MAP_LEAD.to_string()];
+    for (name, g) in ordered.iter().take(max_groups) {
+        let own = if g.own == g.notes {
+            "from the user".to_string()
+        } else {
+            format!("{} from the user", g.own)
+        };
+        let notes = if g.notes == 1 {
+            "1 note".to_string()
+        } else {
+            format!("{} notes", g.notes)
+        };
+        lines.push(format!(
+            "- {name}: {notes} ({own}), latest {}",
+            day(g.latest)
+        ));
+    }
+    if ordered.len() > max_groups {
+        lines.push(format!("- and {} more topics", ordered.len() - max_groups));
+    }
+    lines.push(MEMORY_MAP_TAIL.to_string());
+    lines.join("\n")
+}

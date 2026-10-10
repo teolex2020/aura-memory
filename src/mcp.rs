@@ -879,6 +879,14 @@ pub mod app {
     /// What a client (by its `?client=` name) may receive from memory.
     pub type ScopeFor = Arc<dyn Fn(Option<&str>) -> crate::recall::RecallScope + Send + Sync>;
 
+    /// Memory to hand an agent together with the user's message, asked for by
+    /// `aura-bridge hook` before the agent starts. Gets the client's name and
+    /// the hook's `{prompt, session_id, cwd}`; `None` sends nothing. Agents
+    /// rarely call a memory tool during real tasks (E72–E74), so the app
+    /// gives memory with the message instead of waiting to be asked.
+    pub type ContextFor =
+        Arc<dyn Fn(Option<&str>, serde_json::Value) -> Option<String> + Send + Sync>;
+
     #[derive(Clone)]
     pub struct AppMcpServer {
         brain: Arc<Aura>,
@@ -1189,6 +1197,7 @@ pub async fn serve_http(
     advanced: Arc<std::sync::atomic::AtomicBool>,
     sink: Option<app::EventSink>,
     scope_for: Option<app::ScopeFor>,
+    context_for: Option<app::ContextFor>,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     use axum::{
@@ -1260,9 +1269,36 @@ pub async fn serve_http(
             }
         },
     );
+    // Memory for the message an agent is about to answer, asked for by
+    // `aura-bridge hook`: `{"context": "..."}`, or 204 when there is none.
+    let context = axum::routing::post(
+        move |query: axum::extract::RawQuery,
+              axum::Json(request): axum::Json<serde_json::Value>| {
+            let context_for = context_for.clone();
+            async move {
+                use axum::response::IntoResponse;
+                let Some(context_for) = context_for else {
+                    return StatusCode::NO_CONTENT.into_response();
+                };
+                let client = query.0.as_deref().and_then(client_from_query);
+                let text =
+                    tokio::task::spawn_blocking(move || context_for(client.as_deref(), request))
+                        .await
+                        .ok()
+                        .flatten();
+                match text {
+                    Some(text) if !text.trim().is_empty() => {
+                        axum::Json(serde_json::json!({"context": text})).into_response()
+                    }
+                    _ => StatusCode::NO_CONTENT.into_response(),
+                }
+            }
+        },
+    );
     let app = axum::Router::new()
         .nest_service("/mcp", service)
         .route("/events", events)
+        .route("/context", context)
         .layer(middleware::from_fn(guard));
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)

@@ -1051,6 +1051,9 @@ pub struct RecallScope {
     pub include_imported: bool,
     /// Outside content: web pages, documents, tool output.
     pub include_outside: bool,
+    /// Records captured in this conversation (`metadata.session_id`) are left
+    /// out: the agent already has them in its own context.
+    pub exclude_session: Option<String>,
 }
 
 impl Default for RecallScope {
@@ -1061,6 +1064,7 @@ impl Default for RecallScope {
             only_client: None,
             include_imported: true,
             include_outside: true,
+            exclude_session: None,
         }
     }
 }
@@ -1096,18 +1100,24 @@ impl RecallScope {
         {
             return false;
         }
+        if let (Some(session), Some(own)) = (&self.exclude_session, meta("session_id")) {
+            if session == own {
+                return false;
+            }
+        }
         true
     }
 
     /// Stable text for the recall cache key.
     pub fn key(&self) -> String {
         format!(
-            "p{}i{}c{}m{}o{}",
+            "p{}i{}c{}m{}o{}s{}",
             u8::from(self.include_private),
             u8::from(self.include_identity),
             self.only_client.as_deref().unwrap_or("*"),
             u8::from(self.include_imported),
             u8::from(self.include_outside),
+            self.exclude_session.as_deref().unwrap_or("*"),
         )
     }
 }

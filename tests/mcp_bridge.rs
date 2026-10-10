@@ -44,6 +44,13 @@ async fn start(
             include_private: client == Some("lm-studio"),
             ..Default::default()
         })),
+        // Memory with the message: echoes who asked and what, nothing for "quiet".
+        Some(Arc::new(
+            |client: Option<&str>, request: serde_json::Value| {
+                let prompt = request["prompt"].as_str().unwrap_or_default().to_string();
+                (prompt != "quiet").then(|| format!("for {}: {prompt}", client.unwrap_or("?")))
+            },
+        )),
         async {
             let _ = stopped.await;
         },
@@ -81,6 +88,66 @@ async fn raw_request(port: u16, host: &str, auth: Option<&str>, path: &str, body
     let mut response = String::new();
     let _ = stream.read_to_string(&mut response).await;
     response.lines().next().unwrap_or_default().to_string()
+}
+
+async fn full_post(port: u16, auth: Option<&str>, path: &str, body: &str) -> (String, String) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut request = format!(
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\nConnection: close\r\n",
+        body.len()
+    );
+    if let Some(auth) = auth {
+        request.push_str(&format!("Authorization: {auth}\r\n"));
+    }
+    request.push_str("\r\n");
+    request.push_str(body);
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .unwrap();
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut response = String::new();
+    let _ = stream.read_to_string(&mut response).await;
+    let status = response.lines().next().unwrap_or_default().to_string();
+    let body = response
+        .split("\r\n\r\n")
+        .nth(1)
+        .unwrap_or_default()
+        .to_string();
+    (status, body)
+}
+
+#[tokio::test]
+async fn context_endpoint_gives_memory_with_the_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, _stop, _, _, _) = start(dir.path()).await;
+    let bearer = format!("Bearer {TOKEN}");
+    let (status, body) = full_post(
+        port,
+        Some(&bearer),
+        "/context?client=claude-code",
+        r#"{"prompt":"which port?"}"#,
+    )
+    .await;
+    assert!(status.contains("200"), "{status}");
+    let json: serde_json::Value = serde_json::from_str(body.trim()).unwrap();
+    assert_eq!(json["context"], "for claude-code: which port?");
+    let (status, _) = full_post(
+        port,
+        Some(&bearer),
+        "/context?client=claude-code",
+        r#"{"prompt":"quiet"}"#,
+    )
+    .await;
+    assert!(status.contains("204"), "{status}");
+    let (status, _) = full_post(
+        port,
+        None,
+        "/context?client=claude-code",
+        r#"{"prompt":"which port?"}"#,
+    )
+    .await;
+    assert!(status.contains("401"), "{status}");
 }
 
 #[tokio::test]

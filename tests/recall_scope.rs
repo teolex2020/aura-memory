@@ -220,3 +220,39 @@ fn plain_recall_is_unchanged() {
     assert!(ctx.contains("HIV"), "{ctx}");
     assert!(RecallScope::all().include_private);
 }
+
+#[test]
+fn this_conversation_is_left_out_when_asked() {
+    let (_d, a) = open();
+    put(
+        &a,
+        "Orchid staging listens on port 7311",
+        Level::Domain,
+        "recorded",
+        &[("session_id", "s-old")],
+        None,
+    );
+    put(
+        &a,
+        "Orchid staging port question again",
+        Level::Domain,
+        "recorded",
+        &[("session_id", "s-now")],
+        None,
+    );
+    let q = "Orchid staging port";
+    let all = a
+        .recall_provenance_scoped(q, None, &RecallScope::default())
+        .unwrap();
+    assert!(
+        all.contains("7311") && all.contains("question again"),
+        "{all}"
+    );
+    let other = RecallScope {
+        exclude_session: Some("s-now".into()),
+        ..RecallScope::default()
+    };
+    let earlier = a.recall_provenance_scoped(q, None, &other).unwrap();
+    assert!(earlier.contains("7311"), "{earlier}");
+    assert!(!earlier.contains("question again"), "{earlier}");
+}

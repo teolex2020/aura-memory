@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.61.1
+## 1.62.0
+
+### Added
+
+- **Memory with the message: the app's HTTP endpoint gains `/context`.** `aura-bridge hook` uses it on a prompt event of Claude Code and Codex (`UserPromptSubmit`) or Gemini CLI (`BeforeAgent`).
+  - **Order:** before posting the event, the bridge asks the app for memory relevant to the user's message (`{prompt, session_id, cwd}`).
+  - **Output:** it prints the answer as the hook's `hookSpecificOutput.additionalContext`, so the model gets the memory with the message.
+  - **Exclusions:** Cursor, Copilot and Windsurf cannot take context from a prompt hook and get nothing.
+  - **Who decides:** the embedding app supplies the content through the new `serve_http` argument `context_for: Option<app::ContextFor>`. With `None` the endpoint answers 204.
+  - **Failure:** if the app gives nothing in 3 s, the bridge prints nothing.
+  - **Why:** in real tasks agents rarely call a memory tool. Claude Code called it on 35% of tasks, Gemini CLI on 20%. With memory injected at the prompt, the newer value reached 80–100% of the work (experiments E72–E74).
+- **`RecallScope::exclude_session`.** It leaves out records captured in the given conversation (`metadata.session_id`), which the agent already has in its own context. It is part of the recall cache key.
 
 ### Fixed
 

@@ -9,9 +9,11 @@
 //! As `aura-bridge hook --client NAME [--event NAME]` it is an agent hook
 //! command for Claude Code, Cursor, Codex, Gemini CLI, Copilot and Windsurf:
 //! it reads the hook event from stdin, normalizes it to one shape and posts it
-//! to the app's journal. It never blocks or changes the agent: exit 0, no
-//! output (except Cursor's required `{"continue": true}`), and the event is
-//! dropped when Aura is not running.
+//! to the app's journal. It never blocks the agent: exit 0, and the event is
+//! dropped when Aura is not running. It prints nothing except Cursor's
+//! required `{"continue": true}` and, on a prompt event of Claude Code, Codex
+//! or Gemini CLI, the memory the app gives with the message (as the hook's
+//! `additionalContext`; the app decides per agent whether to give any).
 //!
 //! # Usage
 //!     aura-bridge [--client NAME]
@@ -198,8 +200,9 @@ mod hook {
     //! `last_assistant_message`, `transcript_path`, `source_event`, `agent`.
     //!
     //! Nothing is printed except what an agent requires to go on (Cursor's
-    //! `beforeSubmitPrompt` needs `{"continue": true}`): plain output on a
-    //! prompt event would be added to the model's context by some agents.
+    //! `beforeSubmitPrompt` needs `{"continue": true}`) and the memory the app
+    //! gives with a prompt (`hookSpecificOutput.additionalContext`): any other
+    //! output on a prompt event would be added to the model's context.
 
     use std::time::Duration;
 
@@ -226,8 +229,79 @@ mod hook {
         prepare(&mut event);
         let client = agent_of(&raw).or(client);
         let Some(link) = link::read() else { return };
+        // Memory with the message: asked for before the event is posted, since
+        // posting keeps the prompt itself as a memory.
+        if let (Some(name), Some(prompt)) = (
+            inject_event(source.as_deref(), client),
+            event.get("prompt").and_then(Value::as_str),
+        ) {
+            let request = json!({"prompt": prompt, "session_id": event.get("session_id"), "cwd": event.get("cwd")});
+            if let Ok(Some(context)) = tokio::time::timeout(
+                Duration::from_secs(3),
+                fetch_context(&link, client, &request.to_string()),
+            )
+            .await
+            {
+                println!("{}", inject_output(name, &context));
+            }
+        }
         let body = event.to_string();
         let _ = tokio::time::timeout(Duration::from_secs(2), post(&link, client, &body)).await;
+    }
+
+    /// The prompt event whose hook may add context for the model, and the
+    /// name its answer must carry: Claude Code and Codex (`UserPromptSubmit`)
+    /// and Gemini CLI (`BeforeAgent`). Cursor, Copilot and Windsurf cannot add
+    /// context from a prompt hook; Cursor also runs Claude Code's hooks, so its
+    /// copy is left out by client.
+    pub fn inject_event(source: Option<&str>, client: Option<&str>) -> Option<&'static str> {
+        if client == Some("cursor") {
+            return None;
+        }
+        match source? {
+            "UserPromptSubmit" => Some("UserPromptSubmit"),
+            "BeforeAgent" => Some("BeforeAgent"),
+            _ => None,
+        }
+    }
+
+    /// The hook's answer that hands `context` to the model.
+    pub fn inject_output(event_name: &str, context: &str) -> String {
+        json!({"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context}})
+            .to_string()
+    }
+
+    /// The app's memory for this message (`/context`), if it gives any.
+    async fn fetch_context(link: &link::Link, client: Option<&str>, body: &str) -> Option<String> {
+        let mut path = String::from("/context");
+        if let Some(client) = client {
+            path.push_str("?client=");
+            path.push_str(client);
+        }
+        let request = format!(
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\n\
+             Content-Type: application/json\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{body}",
+            port = link.port,
+            token = link.token,
+            len = body.len(),
+        );
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", link.port))
+            .await
+            .ok()?;
+        stream.write_all(request.as_bytes()).await.ok()?;
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.ok()?;
+        let response = String::from_utf8_lossy(&response);
+        let (head, payload) = response.split_once("\r\n\r\n")?;
+        if !head.starts_with("HTTP/1.1 200") {
+            return None;
+        }
+        let value: Value = serde_json::from_str(payload.trim()).ok()?;
+        value
+            .get("context")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .filter(|c| !c.trim().is_empty())
     }
 
     /// The agent's own name for this event: the payload's, else `--event`.
@@ -642,6 +716,33 @@ mod hook {
                 None,
             );
             assert_eq!(f["failed"], true);
+        }
+
+        #[test]
+        fn memory_goes_with_prompts_of_agents_that_take_context() {
+            assert_eq!(
+                inject_event(Some("UserPromptSubmit"), Some("claude-code")),
+                Some("UserPromptSubmit")
+            );
+            assert_eq!(
+                inject_event(Some("UserPromptSubmit"), Some("codex")),
+                Some("UserPromptSubmit")
+            );
+            assert_eq!(
+                inject_event(Some("BeforeAgent"), Some("gemini-cli")),
+                Some("BeforeAgent")
+            );
+            // Cursor runs Claude Code's hooks too, but cannot take context from them.
+            assert_eq!(inject_event(Some("UserPromptSubmit"), Some("cursor")), None);
+            assert_eq!(
+                inject_event(Some("beforeSubmitPrompt"), Some("cursor")),
+                None
+            );
+            assert_eq!(inject_event(Some("PreToolUse"), Some("claude-code")), None);
+            let out: Value =
+                serde_json::from_str(&inject_output("BeforeAgent", "port 7311")).unwrap();
+            assert_eq!(out["hookSpecificOutput"]["hookEventName"], "BeforeAgent");
+            assert_eq!(out["hookSpecificOutput"]["additionalContext"], "port 7311");
         }
 
         #[test]

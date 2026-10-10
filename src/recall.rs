@@ -3662,7 +3662,7 @@ pub const MEMORY_MAP_TAIL: &str = "Call recall when a task touches one of these.
 /// day. No model writes it, so it states nothing the store does not hold.
 /// Only records `scope` allows are counted, so a cloud app never learns of
 /// private topics. Agents told what memory holds used it far more where it
-/// mattered and less where it did not (E75). Empty for an empty store.
+/// mattered and less where it did not (E77). Empty for an empty store.
 pub fn memory_map<'a>(
     records: impl Iterator<Item = &'a Record>,
     scope: &RecallScope,

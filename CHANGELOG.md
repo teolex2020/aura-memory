@@ -15,7 +15,7 @@
 - **A map of what memory holds.** `Aura::memory_map(scope, max_groups)` (and `recall::memory_map`) builds a few lines, from metadata only, listing each project (`metadata.project`), imported files, outside content and other notes. Each line has the number of notes, how many are the user's own words, and the latest day.
   - **Scope:** only records the scope allows are counted, so a cloud app never learns of private topics.
   - **Where it goes:** the app's MCP server adds the map, for the calling app's scope, to its instructions at `initialize` and to `recall`'s description in `tools/list`.
-  - **Why:** in experiment E75, agents told what memory holds gave the newer value in 80% of tasks against 47%, called memory less on tasks that did not need it, and cost 7–12% less per task.
+  - **Why:** in experiment E77, agents told what memory holds gave the newer value in 80% of tasks against 47%, called memory less on tasks that did not need it, and cost 7–12% less per task.
 
 ### Fixed
 

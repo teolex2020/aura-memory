@@ -1196,7 +1196,7 @@ pub mod app {
             context: rmcp::service::RequestContext<rmcp::RoleServer>,
         ) -> Result<InitializeResult, McpError> {
             // What memory holds, for this app's scope: a client that knows
-            // what is there asks memory where it matters (E75).
+            // what is there asks memory where it matters (E77).
             let mut info = self.get_info();
             let map = self.memory_map(&context);
             if !map.is_empty() {

@@ -215,5 +215,7 @@ experiments/reply_regeneration/cache/
 experiments/reply_regeneration/rows.jsonl
 experiments/reply_regeneration/*.log
 
-# experiments are kept private, on the developer's disk only
-experiments/
+# experiments are kept private, on the developer's disk only; the quality
+# gate CI runs stays in the repository
+experiments/*
+!experiments/memory_quality_eval/

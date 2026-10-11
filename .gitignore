@@ -214,3 +214,6 @@ experiments/sleep_confirm/*.log
 experiments/reply_regeneration/cache/
 experiments/reply_regeneration/rows.jsonl
 experiments/reply_regeneration/*.log
+
+# experiments are kept private, on the developer's disk only
+experiments/

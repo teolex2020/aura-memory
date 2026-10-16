@@ -339,7 +339,12 @@ impl Record {
         self.activation_velocity =
             EMA_ALPHA * instant_rate + (1.0 - EMA_ALPHA) * self.activation_velocity;
 
-        self.strength = (self.strength + 0.2).min(1.0);
+        // E101 fix: a record judged unhelpful more often than helpful is not
+        // strengthened by being recalled (recall would otherwise undo feedback)
+        let count = |k: &str| self.metadata.get(k).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+        if count("feedback_negative") <= count("feedback_positive") {
+            self.strength = (self.strength + 0.2).min(1.0);
+        }
         self.activation_count += 1;
         self.last_activated = now;
     }

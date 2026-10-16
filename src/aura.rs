@@ -18924,6 +18924,41 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn recall_does_not_undo_negative_feedback() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let aura = Aura::open(dir.path().to_str().unwrap())?;
+        let store = |content: &str| {
+            aura.store(content, Some(Level::Decisions), None, None, None, None, None,
+                Some(false), None, None, None)
+        };
+        let bad = store("zephyr lesson: always block when the opponent is adjacent")?;
+        let mixed = store("zephyr lesson: step back when the opponent winds up")?;
+
+        // Each round the lesson is recalled, used, and judged. Recall used to add +0.2
+        // strength, outweighing the -0.15 of negative feedback, so a lesson that kept
+        // failing ended stronger than a fresh one and became a promotion candidate.
+        for round in 0..6 {
+            let hits = aura.recall_structured(
+                &format!("zephyr lesson opponent round {round}"), Some(10), Some(0.0),
+                None, None, None)?;
+            assert!(hits.iter().any(|(_, r)| r.id == bad.id), "round {round}: bad lesson not recalled");
+            aura.feedback(&bad.id, false)?;
+            aura.feedback(&mixed.id, round % 2 == 0)?;
+        }
+
+        let bad_now = aura.get(&bad.id).unwrap();
+        assert!(bad_now.strength < 0.5, "failing lesson kept strength {}", bad_now.strength);
+        assert!(bad_now.activation_count >= 6, "recalls are still counted");
+        assert!(!aura.promotion_candidates(None, None).iter().any(|r| r.id == bad.id));
+
+        // Balanced feedback (negatives never exceed positives) keeps the normal recall boost.
+        let mixed_before = aura.get(&mixed.id).unwrap().strength;
+        aura.recall_structured("zephyr lesson step back winds", Some(10), Some(0.0), None, None, None)?;
+        assert!(aura.get(&mixed.id).unwrap().strength > mixed_before);
+        Ok(())
+    }
+
     #[cfg(not(feature = "encryption"))]
     #[test]
     fn non_encryption_build_opens_plain_storage_and_rejects_passwords() -> Result<()> {

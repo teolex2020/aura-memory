@@ -143,6 +143,8 @@ pub struct AuraMemory {
     _anchor_threshold: f32,
     resonance_threshold: f32,
     write_counter: AtomicU64,
+    /// Last millisecond handed out for a record ID (see `next_id_millis`).
+    last_id_millis: AtomicU64,
 
     // Encryption (optional)
     encryption_key: Option<EncryptionKey>,
@@ -282,6 +284,7 @@ impl AuraMemory {
             _anchor_threshold: 3.0,
             resonance_threshold: 0.2,
             write_counter: AtomicU64::new(0),
+            last_id_millis: AtomicU64::new(0),
             encryption_key,
             projector,
             learner: None,
@@ -477,10 +480,7 @@ impl AuraMemory {
                 anchor_data.crystallization_trigger,
                 text
             );
-            let new_id = format!(
-                "anchor_{}",
-                SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()
-            );
+            let new_id = format!("anchor_{}", self.next_id_millis()?);
 
             // Identity Conflict Detection
             let entropy = if anchor_data.crystallization_trigger == "identity" {
@@ -560,10 +560,7 @@ impl AuraMemory {
                 "general".to_string()
             };
 
-            let new_id = format!(
-                "syn_{}",
-                SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()
-            );
+            let new_id = format!("syn_{}", self.next_id_millis()?);
             let syn = AuraSynapse {
                 id: new_id.clone(),
                 text: text.to_string(),
@@ -712,7 +709,7 @@ impl AuraMemory {
 
         // Phase 1: Pre-calculate all data (no locks needed)
         // This is the bulk of the CPU work
-        let base_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+        let base_time = self.next_id_millis()?;
 
         let mut records = Vec::with_capacity(count);
         let mut index_data = Vec::with_capacity(count);
@@ -767,6 +764,21 @@ impl AuraMemory {
             .fetch_add(count as u64, Ordering::Relaxed);
 
         Ok(count)
+    }
+
+    /// Wall-clock milliseconds for a new record ID, never repeated within this instance.
+    ///
+    /// Records are keyed by ID in storage and index, so two writes in the same
+    /// millisecond (easy in release builds) would otherwise overwrite each other.
+    fn next_id_millis(&self) -> Result<u64> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+        let prev = self
+            .last_id_millis
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+                Some(now.max(last + 1))
+            })
+            .unwrap_or_else(|last| last);
+        Ok(now.max(prev + 1))
     }
 
     fn save_synapse(&self, syn: &AuraSynapse) -> Result<()> {
@@ -1377,10 +1389,7 @@ impl AuraMemory {
         let new_intensity = (i_max + (i_min / 2.0) * (1.0 - i_max / 10.0)).min(10.0);
 
         // 4. Create Super-Core record
-        let super_id = format!(
-            "super_{}",
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()
-        );
+        let super_id = format!("super_{}", self.next_id_millis()?);
         let syn = AuraSynapse {
             id: super_id.clone(),
             text: new_text,
@@ -2404,6 +2413,31 @@ mod tests {
         assert_eq!(result[0].0, 0, "High relevance must beat recency");
         // The gap should be massive (6.3 vs <0.001 recency diff)
         assert!(result[0].1 - result[1].1 > 5.0);
+    }
+
+    #[test]
+    fn test_record_ids_unique_within_same_millisecond() -> Result<()> {
+        let dir = tempdir()?;
+        let memory = AuraMemory::new(dir.path())?;
+
+        // Back-to-back IDs must never repeat, even when the clock has not moved.
+        let mut last = 0;
+        for _ in 0..1000 {
+            let id = memory.next_id_millis()?;
+            assert!(id > last, "ID millis must strictly increase");
+            last = id;
+        }
+
+        // Writes faster than 1 ms apart must all be kept, not overwrite each other.
+        for i in 0..20 {
+            memory.process(
+                &format!("Distinct fact number {} about topic {}", i, i * 7),
+                false,
+            )?;
+        }
+        assert_eq!(memory.count(), 20);
+
+        Ok(())
     }
 
     #[test]

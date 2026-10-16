@@ -8,6 +8,9 @@
   - **Now:** a record with more negative than positive feedback (`feedback_negative` > `feedback_positive` in its metadata) is not strengthened by recall. Its activation count still grows. Records without feedback, or with at least as many positive as negative marks, behave as before.
   - **Effect:** such a record decays like any unused record until positive feedback arrives. One negative mark with no positive one is enough for this.
   - **Who is affected:** only code that calls `feedback()` (the Python SDK). The app's MCP tools and `aura-bridge` never call it (test `recall_does_not_undo_negative_feedback` in `src/aura.rs`).
+- **The legacy `AuraMemory` lost records written in the same millisecond.** `process()`, anchors, super-cores and `ingest_batch` named records after the wall-clock millisecond, and storage and index key by that name. Two writes within one millisecond, routine in release builds, overwrote each other and only the last survived.
+  - **Now:** names come from a per-instance counter that never repeats a millisecond, in the same format.
+  - **Who is affected:** Rust users of `AuraMemory` and of the multi-tenant `TenantManager` built on it. `Aura` (Python SDK, the app, MCP) names records with random IDs and was not affected (test `test_record_ids_unique_within_same_millisecond` in `src/memory.rs`).
 
 ## 1.62.0
 

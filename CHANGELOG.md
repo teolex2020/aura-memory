@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.62.1
+
+### Fixed
+
+- **Recall undid negative feedback.** `feedback(id, useful=False)` lowers a record's strength by 0.15, but every recall of that record (`Record::activate`, also used when the same text is stored again) added 0.2 back. A record judged unhelpful kept coming back as strong as before.
+  - **Now:** a record with more negative than positive feedback (`feedback_negative` > `feedback_positive` in its metadata) is not strengthened by recall. Its activation count still grows. Records without feedback, or with at least as many positive as negative marks, behave as before.
+  - **Effect:** such a record decays like any unused record until positive feedback arrives. One negative mark with no positive one is enough for this.
+  - **Who is affected:** only code that calls `feedback()` (the Python SDK). The app's MCP tools and `aura-bridge` never call it (test `recall_does_not_undo_negative_feedback` in `src/aura.rs`).
+
 ## 1.62.0
 
 ### Added

@@ -311,3 +311,49 @@ fn memory_map_counts_what_the_scope_allows() {
         .memory_map(&local, 8)
         .contains("- other notes: 1 note (from the user)"));
 }
+
+/// E112: with the agent's project in the scope, the project's own best
+/// record is shown even when other projects' records outrank it globally,
+/// and other projects' records still fill the rest of the budget.
+#[test]
+fn project_records_get_a_share_without_hiding_other_projects() {
+    let (_d, a) = open();
+    for n in 0..30 {
+        put(
+            &a,
+            &format!("We deploy the release branch every Friday for service {n}"),
+            Level::Working,
+            "recorded",
+            &[("project", &format!("other{n}"))],
+            None,
+        );
+    }
+    put(
+        &a,
+        "Lark ships from rel/green now",
+        Level::Working,
+        "recorded",
+        &[("project", "lark")],
+        None,
+    );
+    let q = "which release branch do we deploy";
+    let budget = Some(120);
+    let global = a.recall_provenance_scoped(q, budget, &cloud()).unwrap();
+    assert!(!global.contains("rel/green"), "{global}");
+    let in_lark = RecallScope {
+        project: Some("lark".into()),
+        ..cloud()
+    };
+    let with_project = a.recall_provenance_scoped(q, budget, &in_lark).unwrap();
+    assert!(with_project.contains("rel/green"), "{with_project}");
+    assert!(with_project.contains("for service"), "{with_project}");
+    // a project with no records of its own changes nothing
+    let empty = RecallScope {
+        project: Some("nowhere".into()),
+        ..cloud()
+    };
+    assert_eq!(
+        a.recall_provenance_scoped(q, budget, &empty).unwrap(),
+        global
+    );
+}

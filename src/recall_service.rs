@@ -34,6 +34,8 @@ pub(crate) struct RecallPipelineView<'a> {
     pub(crate) records: &'a HashMap<String, Record>,
     pub(crate) embedding_ranked: Option<Vec<(String, f32)>>,
     pub(crate) trust_config: Option<&'a TrustConfig>,
+    /// `records` is one part of the store (a project's records).
+    pub(crate) subset: bool,
 }
 
 pub(crate) struct RecallRerankView<'a> {
@@ -127,7 +129,7 @@ impl RecallService {
         expand_connections: bool,
         namespaces: Option<&[&str]>,
     ) -> Vec<(f32, Record)> {
-        recall::recall_pipeline(
+        recall::recall_pipeline_subset(
             query,
             top_k,
             min_strength,
@@ -143,6 +145,7 @@ impl RecallService {
             view.embedding_ranked,
             view.trust_config,
             namespaces,
+            view.subset,
         )
     }
 

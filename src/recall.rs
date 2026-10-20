@@ -1054,6 +1054,11 @@ pub struct RecallScope {
     /// Records captured in this conversation (`metadata.session_id`) are left
     /// out: the agent already has them in its own context.
     pub exclude_session: Option<String>,
+    /// The project the agent works in (`metadata.project`). A provenance
+    /// recall then gives the project's best records a share of the budget,
+    /// searched among the project's records only, and fills the rest with
+    /// the global list (E112). Records of other projects are never hidden.
+    pub project: Option<String>,
 }
 
 impl Default for RecallScope {
@@ -1065,6 +1070,7 @@ impl Default for RecallScope {
             include_imported: true,
             include_outside: true,
             exclude_session: None,
+            project: None,
         }
     }
 }
@@ -1111,13 +1117,14 @@ impl RecallScope {
     /// Stable text for the recall cache key.
     pub fn key(&self) -> String {
         format!(
-            "p{}i{}c{}m{}o{}s{}",
+            "p{}i{}c{}m{}o{}s{}j{}",
             u8::from(self.include_private),
             u8::from(self.include_identity),
             self.only_client.as_deref().unwrap_or("*"),
             u8::from(self.include_imported),
             u8::from(self.include_outside),
             self.exclude_session.as_deref().unwrap_or("*"),
+            self.project.as_deref().unwrap_or("*"),
         )
     }
 }
@@ -1330,30 +1337,7 @@ pub fn format_provenance(
     let mut untrusted = Vec::new();
     let mut used = 0usize;
     for (_, rec) in scored {
-        let source = crate::certainty::effective_source_type(rec);
-        let is_trusted = source == "recorded";
-        let block = if is_trusted {
-            format_first_hand(rec, records, dates != ContextDates::Off)
-        } else {
-            let channel = rec
-                .metadata
-                .get("channel")
-                .map(String::as_str)
-                .unwrap_or(source);
-            let date = if dates == ContextDates::All {
-                record_date(rec)
-                    .map(|d| format!(", {d}"))
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            format!(
-                "  - source: {}{date}{}\n{}",
-                inline_untrusted(channel),
-                semantic_label(rec),
-                quote_untrusted(&rec.content)
-            )
-        };
+        let (block, is_trusted) = provenance_block(rec, records, dates);
         let cost = estimate_tokens(&block);
         if used + cost > token_budget {
             break;
@@ -1388,6 +1372,85 @@ pub fn format_provenance(
     }
     output.push_str("=== END MEMORY CONTEXT ===");
     output
+}
+
+/// One record as `format_provenance` shows it, and whether it is first-hand.
+fn provenance_block(
+    rec: &Record,
+    records: &HashMap<String, Record>,
+    dates: ContextDates,
+) -> (String, bool) {
+    let source = crate::certainty::effective_source_type(rec);
+    if source == "recorded" {
+        return (
+            format_first_hand(rec, records, dates != ContextDates::Off),
+            true,
+        );
+    }
+    let channel = rec
+        .metadata
+        .get("channel")
+        .map(String::as_str)
+        .unwrap_or(source);
+    let date = if dates == ContextDates::All {
+        record_date(rec)
+            .map(|d| format!(", {d}"))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let block = format!(
+        "  - source: {}{date}{}\n{}",
+        inline_untrusted(channel),
+        semantic_label(rec),
+        quote_untrusted(&rec.content)
+    );
+    (block, false)
+}
+
+/// Share of a provenance budget kept for the project's own records: a third
+/// (E112 core check on 10,782 real comments: hook hits for the project's
+/// questions 42.7 -> 65.5%, questions about other projects -2.7 pp; half the
+/// budget gained 2.8 pp more but lost 6.4 pp on other projects).
+pub const PROJECT_QUOTA_SHARE: usize = 3;
+
+/// How many leading records of `scored` `format_provenance` shows within
+/// `token_budget` (it stops at the first record that does not fit).
+pub fn provenance_fits(
+    scored: &[(f32, Record)],
+    token_budget: usize,
+    records: &HashMap<String, Record>,
+    dates: ContextDates,
+) -> usize {
+    let mut used = 0usize;
+    for (n, (_, rec)) in scored.iter().enumerate() {
+        let cost = estimate_tokens(&provenance_block(rec, records, dates).0);
+        if used + cost > token_budget {
+            return n;
+        }
+        used += cost;
+    }
+    scored.len()
+}
+
+/// The project's best records within `quota` tokens, then the global list,
+/// then the rest of the project's records; each record shown once (E112).
+pub fn project_first(
+    own: Vec<(f32, Record)>,
+    global: Vec<(f32, Record)>,
+    quota: usize,
+    records: &HashMap<String, Record>,
+    dates: ContextDates,
+) -> Vec<(f32, Record)> {
+    let lead = provenance_fits(&own, quota, records, dates);
+    let mut own = own.into_iter();
+    let head: Vec<_> = own.by_ref().take(lead).collect();
+    let mut seen = HashSet::new();
+    head.into_iter()
+        .chain(global)
+        .chain(own)
+        .filter(|(_, rec)| seen.insert(rec.id.clone()))
+        .collect()
 }
 
 fn format_record(rec: &Record, records: &HashMap<String, Record>) -> String {
@@ -1493,6 +1556,47 @@ pub fn recall_pipeline(
     trust_config: Option<&TrustConfig>,
     namespaces: Option<&[&str]>,
 ) -> Vec<(f32, Record)> {
+    recall_pipeline_subset(
+        query,
+        top_k,
+        min_strength,
+        expand_connections,
+        sdr,
+        inverted_index,
+        storage,
+        ngram_index,
+        lexical_index,
+        tag_index,
+        aura_index,
+        records,
+        embedding_ranked,
+        trust_config,
+        namespaces,
+        false,
+    )
+}
+
+/// `recall_pipeline`; with `subset` the records are one part of the store
+/// (a project) and BM25 takes its statistics from them alone.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn recall_pipeline_subset(
+    query: &str,
+    top_k: usize,
+    min_strength: f32,
+    expand_connections: bool,
+    sdr: &SDRInterpreter,
+    inverted_index: &InvertedIndex,
+    storage: &AuraStorage,
+    ngram_index: &NGramIndex,
+    lexical_index: &LexicalIndex,
+    tag_index: &HashMap<String, HashSet<String>>,
+    aura_index: &HashMap<String, String>,
+    records: &HashMap<String, Record>,
+    embedding_ranked: Option<Vec<(String, f32)>>,
+    trust_config: Option<&TrustConfig>,
+    namespaces: Option<&[&str]>,
+    subset: bool,
+) -> Vec<(f32, Record)> {
     let default_ns = [DEFAULT_NAMESPACE];
     let ns = namespaces.unwrap_or(&default_ns);
 
@@ -1514,7 +1618,7 @@ pub fn recall_pipeline(
             ns,
         )
     });
-    let bm25_ranked = guarded(&|k| collect_bm25(lexical_index, records, query, k, ns));
+    let bm25_ranked = guarded(&|k| lexical_index.search_with(query, k, records, ns, subset));
     let ngram_ranked = guarded(&|k| collect_ngram(ngram_index, records, query, k, ns));
     let tag_ranked = guarded(&|k| collect_tags(tag_index, records, query, k, ns));
 

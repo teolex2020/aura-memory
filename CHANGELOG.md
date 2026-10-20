@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.63.0
+
+### Added
+
+- **The agent's project gets a share of the memory given with each message.** `RecallScope::project` names the project the agent works in (`metadata.project`, the folder name the desktop app records). `recall_provenance_scoped` then searches the project's own records separately and gives its best ones a third of the budget (`recall::PROJECT_QUOTA_SHARE`). The global list fills the rest, so records of other projects are never hidden. Without `project` nothing changes.
+  - **Why:** as memory grows, a project's own notes drown among other projects': on 10,782 real code-review comments from 90 GitHub projects (AIDev), the comment that answered a project's question reached the 600-token hook in 42.7% of questions. With the project's share it reaches it in 65.5%, and questions about other projects lose 2.7 pp (experiments E110–E112). A half share gained 2.8 pp more but lost 6.4 pp on other projects.
+  - **How:** every recall signal can now rank a subset of records instead of the whole store filtered afterwards (a project's records are usually 2–3 of the 100 global candidates, so filtering or boosting those did little); BM25 then takes its statistics from the subset; a record found by both parts is activated once.
+  - **Who is affected:** apps that set `project`. The desktop app does from the next release; Python and MCP calls without it are unchanged.
+
 ## 1.62.1
 
 ### Fixed

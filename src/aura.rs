@@ -103,6 +103,9 @@ const SURPRISE_THRESHOLD: f32 = 0.2;
 const RECORD_SALIENCE_REASON_KEY: &str = "salience_reason";
 const RECORD_SALIENCE_MARKED_AT_KEY: &str = "salience_marked_at";
 const CONTRADICTION_REVIEW_PRIORITY_MAX: f32 = 10.0;
+/// How much longer the embedding list is when recall searches a subset of
+/// records (a project): the embedding store ranks every record.
+const SUBSET_EMBEDDING_WIDENING: usize = 32;
 const MAX_RECALL_REPLAY_BASELINES: usize = 128;
 
 /// Cumulative boundary for an explicit record purge.
@@ -2486,6 +2489,45 @@ impl Aura {
                     recall::RELEVANCE_CUT,
                     recall::RELEVANCE_MIN_KEEP,
                 );
+                if let Some(project) = scope.project.as_deref().filter(|p| !p.is_empty()) {
+                    // E112: the project's own best records, searched among the
+                    // project's records only, take a third of the budget; the global
+                    // list fills the rest, so other projects stay reachable.
+                    let in_project = |record: &Record| {
+                        scope.allows(record)
+                            && record.metadata.get("project").map(String::as_str) == Some(project)
+                    };
+                    let mut own = self.recall_core_within(
+                        query,
+                        recall::RELEVANCE_POOL,
+                        0.1,
+                        true,
+                        None,
+                        None,
+                        Some(&in_project),
+                    )?;
+                    recall::trim_by_relevance(
+                        &mut own,
+                        recall::RELEVANCE_CUT,
+                        recall::RELEVANCE_MIN_KEEP,
+                    );
+                    let global: HashSet<&str> = scored.iter().map(|(_, r)| r.id.as_str()).collect();
+                    let fresh: Vec<(f32, Record)> = own
+                        .iter()
+                        .filter(|(_, r)| !global.contains(r.id.as_str()))
+                        .cloned()
+                        .collect();
+                    self.recall_finalize(&fresh, query, None);
+                    let own_map: HashMap<String, Record> =
+                        own.iter().map(|(_, r)| (r.id.clone(), r.clone())).collect();
+                    scored = recall::project_first(
+                        own,
+                        scored,
+                        budget / recall::PROJECT_QUOTA_SHARE,
+                        &own_map,
+                        self.context_dates(),
+                    );
+                }
                 Ok(scored)
             },
             |scored| {
@@ -2739,6 +2781,7 @@ impl Aura {
                 records: &filtered_records,
                 embedding_ranked,
                 trust_config: Some(&trust_config),
+                subset: false,
             },
             query,
             candidate_top,
@@ -2899,6 +2942,7 @@ impl Aura {
                 records: &time_records,
                 embedding_ranked,
                 trust_config: Some(&trust_config),
+                subset: false,
             },
             query,
             top,
@@ -2959,6 +3003,7 @@ impl Aura {
                 records: &time_records,
                 embedding_ranked,
                 trust_config: Some(&trust_config),
+                subset: false,
             },
             query,
             top,
@@ -3241,6 +3286,25 @@ impl Aura {
         expand_connections: bool,
         namespaces: Option<&[&str]>,
     ) -> Vec<(f32, Record)> {
+        self.recall_raw_within(
+            query,
+            top_k,
+            min_strength,
+            expand_connections,
+            namespaces,
+            None,
+        )
+    }
+
+    fn recall_raw_within(
+        &self,
+        query: &str,
+        top_k: usize,
+        min_strength: f32,
+        expand_connections: bool,
+        namespaces: Option<&[&str]>,
+        within: Option<&dyn Fn(&Record) -> bool>,
+    ) -> Vec<(f32, Record)> {
         let query_embedding = self.query_embedding(query);
         self.recall_raw_embedded(
             query,
@@ -3249,6 +3313,7 @@ impl Aura {
             min_strength,
             expand_connections,
             namespaces,
+            within,
         )
     }
 
@@ -3262,21 +3327,40 @@ impl Aura {
         min_strength: f32,
         expand_connections: bool,
         namespaces: Option<&[&str]>,
+        within: Option<&dyn Fn(&Record) -> bool>,
     ) -> Vec<(f32, Record)> {
         let records = self.records.read();
         let now = now_secs_f64();
         // Only build a filtered copy when some record is actually outside its
         // validity window right now; currently-valid temporal records need none.
-        let temporal_records = records
-            .values()
-            .any(|record| !record.is_valid_at(now))
-            .then(|| Self::records_valid_at(&records, now));
-        let recall_records = temporal_records.as_ref().unwrap_or(&*records);
+        // `within` searches a subset (a project's records): every signal then
+        // ranks only that subset, not a global list filtered afterwards (E110).
+        let filtered = if let Some(keep) = within {
+            Some(
+                records
+                    .iter()
+                    .filter(|(_, record)| record.is_valid_at(now) && keep(record))
+                    .map(|(id, record)| (id.clone(), record.clone()))
+                    .collect(),
+            )
+        } else {
+            records
+                .values()
+                .any(|record| !record.is_valid_at(now))
+                .then(|| Self::records_valid_at(&records, now))
+        };
+        let recall_records = filtered.as_ref().unwrap_or(&*records);
         let ngram = self.ngram_index.read();
         let lexical = self.lexical_index.read();
         let tag_idx = self.tag_index.read();
         let aura_idx = self.aura_index.read();
-        let embedding_ranked = self.embedding_signal(query_embedding, top_k);
+        // the embedding store ranks all records, so a subset needs a wider list
+        let embedding_top = if within.is_some() {
+            top_k.saturating_mul(SUBSET_EMBEDDING_WIDENING)
+        } else {
+            top_k
+        };
+        let embedding_ranked = self.embedding_signal(query_embedding, embedding_top);
         let trust_config = self.config.trust_config.read();
 
         RecallService::raw(
@@ -3291,6 +3375,7 @@ impl Aura {
                 records: recall_records,
                 embedding_ranked,
                 trust_config: Some(&trust_config),
+                subset: within.is_some(),
             },
             query,
             top_k,
@@ -3428,16 +3513,40 @@ impl Aura {
         session_id: Option<&str>,
         namespaces: Option<&[&str]>,
     ) -> Result<Vec<(f32, Record)>> {
+        self.recall_core_within(
+            query,
+            top_k,
+            min_strength,
+            expand_connections,
+            session_id,
+            namespaces,
+            None,
+        )
+    }
+
+    /// `recall_core` among the records `within` keeps (all when `None`).
+    #[allow(clippy::too_many_arguments)]
+    fn recall_core_within(
+        &self,
+        query: &str,
+        top_k: usize,
+        min_strength: f32,
+        expand_connections: bool,
+        session_id: Option<&str>,
+        namespaces: Option<&[&str]>,
+        within: Option<&dyn Fn(&Record) -> bool>,
+    ) -> Result<Vec<(f32, Record)>> {
         // Retrieve a bounded candidate window before belief admission so a
         // highly-ranked losing hypothesis cannot consume the entire requested
         // top-k and hide its winning replacement.
         let candidate_top = top_k.saturating_mul(2).max(top_k).min(100);
-        let mut scored = self.recall_raw(
+        let mut scored = self.recall_raw_within(
             query,
             candidate_top,
             min_strength,
             expand_connections,
             namespaces,
+            within,
         );
 
         let belief_eng = self.belief_engine.read();
@@ -3486,7 +3595,11 @@ impl Aura {
         drop(causal_eng);
         drop(policy_eng);
 
-        self.recall_finalize(&scored, query, session_id);
+        // a subset search is one part of a recall: its caller finalizes what
+        // it shows, so a record found by both parts is activated once
+        if within.is_none() {
+            self.recall_finalize(&scored, query, session_id);
+        }
         Ok(scored)
     }
 
@@ -3619,6 +3732,7 @@ impl Aura {
                 records: &recall_records,
                 embedding_ranked: embedding_ranked.clone(),
                 trust_config: Some(&trust_config),
+                subset: false,
             },
             query,
             candidate_top,
@@ -3647,6 +3761,7 @@ impl Aura {
                 records: &scoped_records,
                 embedding_ranked,
                 trust_config: Some(&trust_config),
+                subset: false,
             },
             query,
             diagnostic_top,
@@ -6003,6 +6118,7 @@ impl Aura {
             top_k,
             min_strength.unwrap_or(0.1),
             expand_connections.unwrap_or(true),
+            None,
             None,
         );
         let rerank_mode = recall::BeliefRerankMode::from_u8(

@@ -113,6 +113,20 @@ impl LexicalIndex {
         records: &HashMap<String, Record>,
         namespaces: &[&str],
     ) -> Vec<(String, f32)> {
+        self.search_with(query, top_k, records, namespaces, false)
+    }
+
+    /// `search`; with `local_stats` the document count, average length and
+    /// term frequencies come from `records` only, so a subset (one project)
+    /// is ranked as if it were its own index (E110, E112).
+    pub fn search_with(
+        &self,
+        query: &str,
+        top_k: usize,
+        records: &HashMap<String, Record>,
+        namespaces: &[&str],
+        local_stats: bool,
+    ) -> Vec<(String, f32)> {
         if top_k == 0 || self.documents.is_empty() {
             return Vec::new();
         }
@@ -126,27 +140,38 @@ impl LexicalIndex {
             return Vec::new();
         }
 
-        let document_count = namespaces
-            .iter()
-            .map(|namespace| {
-                self.namespace_document_counts
-                    .get(*namespace)
-                    .copied()
-                    .unwrap_or(0)
-            })
-            .sum::<usize>() as f32;
+        let in_scope = |record_id: &str| !local_stats || records.contains_key(record_id);
+        let (document_count, total_length) = if local_stats {
+            records
+                .iter()
+                .filter(|(_, record)| namespaces.contains(&record.namespace.as_str()))
+                .filter_map(|(id, _)| self.documents.get(id))
+                .fold((0usize, 0usize), |(n, len), doc| (n + 1, len + doc.length))
+        } else {
+            let count = namespaces
+                .iter()
+                .map(|namespace| {
+                    self.namespace_document_counts
+                        .get(*namespace)
+                        .copied()
+                        .unwrap_or(0)
+                })
+                .sum::<usize>();
+            let length = namespaces
+                .iter()
+                .map(|namespace| {
+                    self.namespace_total_lengths
+                        .get(*namespace)
+                        .copied()
+                        .unwrap_or(0)
+                })
+                .sum::<usize>();
+            (count, length)
+        };
+        let document_count = document_count as f32;
         if document_count == 0.0 {
             return Vec::new();
         }
-        let total_length = namespaces
-            .iter()
-            .map(|namespace| {
-                self.namespace_total_lengths
-                    .get(*namespace)
-                    .copied()
-                    .unwrap_or(0)
-            })
-            .sum::<usize>();
         let average_length = (total_length as f32 / document_count).max(1.0);
         let mut scores: HashMap<String, f32> = HashMap::new();
 
@@ -157,9 +182,10 @@ impl LexicalIndex {
             let document_frequency = posting
                 .iter()
                 .filter(|record_id| {
-                    self.documents
-                        .get(*record_id)
-                        .is_some_and(|document| namespaces.contains(&document.namespace.as_str()))
+                    in_scope(record_id.as_str())
+                        && self.documents.get(*record_id).is_some_and(|document| {
+                            namespaces.contains(&document.namespace.as_str())
+                        })
                 })
                 .count() as f32;
             if document_frequency == 0.0 {

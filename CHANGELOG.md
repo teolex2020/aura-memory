@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Memory given with each message is built 4–8 times faster.** `recall_provenance_scoped` used to copy every record the scope allows before formatting, although the context only reads identity facts and the causal reasons of the records it shows. It now copies only those. On 10,782 real AIDev review comments the call takes 34 ms instead of 273 (with `RecallScope::project`, 76 ms instead of 312), and all 542 hooks of E112's 271 queries are byte-identical to 1.63.0's.
+
 ## 1.63.0
 
 ### Added

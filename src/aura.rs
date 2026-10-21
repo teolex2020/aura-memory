@@ -2531,14 +2531,27 @@ impl Aura {
                 Ok(scored)
             },
             |scored| {
-                let visible: HashMap<String, Record> = self
-                    .records
-                    .read()
-                    .iter()
-                    .filter(|(_, record)| scope.allows(record))
-                    .map(|(id, record)| (id.clone(), record.clone()))
-                    .collect();
-                let (block, used) = if self.identity_block_enabled() && scope.include_identity {
+                // The context reads other records only as identity facts and as
+                // the causal reason of a shown record, so only those visible
+                // records are copied, not the whole store (E114: copying all
+                // records was ~90 of ~200 ms per call on 10,782 records).
+                let with_identity = self.identity_block_enabled() && scope.include_identity;
+                let visible: HashMap<String, Record> = {
+                    let records = self.records.read();
+                    let identity = records
+                        .iter()
+                        .filter(|(_, record)| with_identity && record.level == Level::Identity);
+                    let parents = scored.iter().filter_map(|(_, record)| {
+                        let id = record.caused_by_id.as_ref()?;
+                        records.get_key_value(id)
+                    });
+                    identity
+                        .chain(parents)
+                        .filter(|(_, record)| scope.allows(record))
+                        .map(|(id, record)| (id.clone(), record.clone()))
+                        .collect()
+                };
+                let (block, used) = if with_identity {
                     recall::identity_block(
                         &visible,
                         scored,

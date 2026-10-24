@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **A tag most records carry no longer links them.** `auto_connect` linked each new record to ~20 records sharing any of its tags. The desktop app tags ~99% of its records `conversation`, so every record got ~20 random neighbours (on 10,782 AIDev comments, 537,000 links that changed no recall result, E114). Tags carried by more than half of the records (in stores of at least 20) are now skipped; rarer tags link as before. Links made earlier stay until their weights decay (test `a_tag_most_records_carry_does_not_link`).
+
 - **The record journal grew without limit.** Every maintenance pass appends the new state of most records to `brain.cog`, and the journal was compacted only when one pass archived more than 100 records, which almost never happens. A desktop store of ~1,500 records grew from 30 to 75 MB in three days, had never been compacted or snapshotted, and every open replayed all of it. The record store now tracks the journal's size against its live records and compacts it (with a snapshot) once it is more than three times larger and over 8 MB.
   - **Measured on copies:** the desktop store went from 75 MB to 4.2 MB on the next maintenance pass and opens in 0.22 s instead of 2.7 s; on 10,782 public AIDev comments one maintenance pass left 51 MB instead of 293 MB (reopen 1.4 s instead of 4.7 s). Every record read back after reopening was identical (test `journal_is_compacted_when_superseded_entries_dominate`).
 

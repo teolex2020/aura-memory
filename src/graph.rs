@@ -158,7 +158,16 @@ impl SessionTracker {
     }
 }
 
+/// A tag carried by more than this share of the records says nothing about any
+/// pair of them: the desktop app tags ~99% of its records `conversation`, and
+/// linking through it gave every record ~20 random neighbours that changed no
+/// recall result (E114: 537,000 such links, hooks identical without them).
+const COMMON_TAG_SHARE: f32 = 0.5;
+/// Below this many records every tag still links.
+const COMMON_TAG_MIN_RECORDS: usize = 20;
+
 /// Auto-connect a new record with existing records that share tags.
+/// Tags most records carry are skipped (see `COMMON_TAG_SHARE`).
 ///
 /// Returns the number of connections made.
 pub fn auto_connect(
@@ -170,10 +179,15 @@ pub fn auto_connect(
         return 0;
     }
 
+    let common = |ids: &HashSet<String>| {
+        records.len() >= COMMON_TAG_MIN_RECORDS
+            && ids.len() as f32 > COMMON_TAG_SHARE * records.len() as f32
+    };
+
     // Collect candidate IDs from tag index
     let mut candidates: HashMap<String, usize> = HashMap::new();
     for tag in &new_record.tags {
-        if let Some(ids) = tag_index.get(tag) {
+        if let Some(ids) = tag_index.get(tag).filter(|ids| !common(ids)) {
             for id in ids {
                 if id != &new_record.id {
                     *candidates.entry(id.clone()).or_insert(0) += 1;
@@ -422,6 +436,34 @@ mod tests {
         // Check connections were created
         assert!(records[&id1].connections.contains_key(&id2));
         assert!(records[&id2].connections.contains_key(&id1));
+    }
+
+    #[test]
+    fn a_tag_most_records_carry_does_not_link() {
+        let mut records = HashMap::new();
+        let mut tag_index: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut contacts = HashSet::new();
+        for n in 0..30 {
+            let mut r = Record::new(format!("message {n}"), Level::Working);
+            r.tags = vec!["conversation".into()];
+            if n < 3 {
+                r.tags.push("contact".into());
+                contacts.insert(r.id.clone());
+            }
+            for tag in &r.tags {
+                tag_index
+                    .entry(tag.clone())
+                    .or_default()
+                    .insert(r.id.clone());
+            }
+            records.insert(r.id.clone(), r);
+        }
+
+        let mut new = Record::new("new message".into(), Level::Working);
+        new.tags = vec!["conversation".into(), "contact".into()];
+        let connected = auto_connect(&mut new, &tag_index, &mut records);
+        assert_eq!(connected, 3);
+        assert!(new.connections.keys().all(|id| contacts.contains(id)));
     }
 
     #[test]

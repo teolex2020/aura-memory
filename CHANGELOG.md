@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- **The record journal grew without limit.** Every maintenance pass appends the new state of most records to `brain.cog`, and the journal was compacted only when one pass archived more than 100 records, which almost never happens. A desktop store of ~1,500 records grew from 30 to 75 MB in three days, had never been compacted or snapshotted, and every open replayed all of it. The record store now tracks the journal's size against its live records and compacts it (with a snapshot) once it is more than three times larger and over 8 MB.
+  - **Measured on copies:** the desktop store went from 75 MB to 4.2 MB on the next maintenance pass and opens in 0.22 s instead of 2.7 s; on 10,782 public AIDev comments one maintenance pass left 51 MB instead of 293 MB (reopen 1.4 s instead of 4.7 s). Every record read back after reopening was identical (test `journal_is_compacted_when_superseded_entries_dominate`).
+
 ### Changed
 
 - **Memory given with each message is built 4–8 times faster.** `recall_provenance_scoped` used to copy every record the scope allows before formatting, although the context only reads identity facts and the causal reasons of the records it shows. It now copies only those. On 10,782 real AIDev review comments the call takes 34 ms instead of 273 (with `RecallScope::project`, 76 ms instead of 312), and all 542 hooks of E112's 271 queries are byte-identical to 1.63.0's.

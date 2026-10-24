@@ -37,6 +37,18 @@ const OP_ATOMIC_MUTATIONS: u8 = 0x06;
 
 const SNAP_MAGIC: &[u8; 4] = b"CSN1";
 
+/// The journal is compacted when it is this many times larger than its live
+/// records. Every maintenance pass appends the new state of most records, so
+/// without this a desktop store of ~1,500 records grew from 30 to 75 MB in
+/// three days and was never compacted (nor snapshotted, so every open replayed
+/// all of it).
+const COMPACT_RATIO: u64 = 3;
+/// Journals below this size are never compacted for waste alone.
+#[cfg(not(test))]
+const COMPACT_MIN_BYTES: u64 = 8 * 1024 * 1024;
+#[cfg(test)]
+const COMPACT_MIN_BYTES: u64 = 64 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TypedConnectionPatch {
     #[serde(rename = "i")]
@@ -73,6 +85,11 @@ pub struct CognitiveStore {
     snap_path: PathBuf,
     writer: Mutex<Option<BufWriter<File>>>,
     log_position: Mutex<u64>,
+    /// Bytes in the journal file, kept current by every append.
+    log_bytes: Mutex<u64>,
+    /// Estimated bytes the live records would take in a compacted journal;
+    /// 0 until `load_all` has run.
+    live_bytes: Mutex<u64>,
     codec: crate::persistence::PersistenceCodec,
     #[cfg(test)]
     fail_next_atomic_upsert: AtomicBool,
@@ -113,6 +130,7 @@ impl CognitiveStore {
         }
 
         let writer_file = OpenOptions::new().append(true).open(&log_path)?;
+        let log_bytes = writer_file.metadata()?.len();
         let writer = BufWriter::new(writer_file);
 
         Ok(Self {
@@ -121,6 +139,8 @@ impl CognitiveStore {
             snap_path,
             writer: Mutex::new(Some(writer)),
             log_position: Mutex::new(0),
+            log_bytes: Mutex::new(log_bytes),
+            live_bytes: Mutex::new(0),
             codec,
             #[cfg(test)]
             fail_next_atomic_upsert: AtomicBool::new(false),
@@ -131,7 +151,35 @@ impl CognitiveStore {
     pub fn load_all(&self) -> Result<HashMap<String, Record>> {
         let (records, snap_end_pos) = self.load_from_disk()?;
         *self.log_position.lock() = snap_end_pos;
+        *self.live_bytes.lock() = self.compacted_size(&records)?;
         Ok(records)
+    }
+
+    /// Size of a journal holding just these records (frame headers included).
+    fn compacted_size(&self, records: &HashMap<String, Record>) -> Result<u64> {
+        let mut size = 5u64; // magic + version
+        for rec in records.values() {
+            size += 9 + self.serialize_record(rec)?.len() as u64;
+        }
+        Ok(size)
+    }
+
+    /// Whether the journal is mostly superseded entries.
+    fn wasteful(&self) -> bool {
+        let live = *self.live_bytes.lock();
+        let log = *self.log_bytes.lock();
+        live > 0 && log > COMPACT_MIN_BYTES && log > live.saturating_mul(COMPACT_RATIO)
+    }
+
+    /// Compact when superseded entries dominate the journal. A failure is
+    /// logged, not returned: the append that triggered it already succeeded.
+    fn compact_if_wasteful(&self) {
+        if !self.wasteful() {
+            return;
+        }
+        if let Err(error) = self.compact_durable(None) {
+            tracing::warn!(%error, "cognitive journal compaction failed");
+        }
     }
 
     fn load_from_disk(&self) -> Result<(HashMap<String, Record>, u64)> {
@@ -326,13 +374,20 @@ impl CognitiveStore {
     /// Append a STORE entry for a new record.
     pub fn append_store(&self, rec: &Record) -> Result<()> {
         let payload = self.serialize_record(rec)?;
-        self.append_entry(OP_STORE, &payload)
+        self.append_entry(OP_STORE, &payload)?;
+        let mut live = self.live_bytes.lock();
+        if *live > 0 {
+            *live += 9 + payload.len() as u64;
+        }
+        Ok(())
     }
 
     /// Append an UPDATE entry for an existing record.
     pub fn append_update(&self, rec: &Record) -> Result<()> {
         let payload = self.serialize_record(rec)?;
-        self.append_entry(OP_UPDATE, &payload)
+        self.append_entry(OP_UPDATE, &payload)?;
+        self.compact_if_wasteful();
+        Ok(())
     }
 
     /// Append a DELETE tombstone.
@@ -360,7 +415,9 @@ impl CognitiveStore {
         }
 
         let payload = serde_json::to_vec(records)?;
-        self.append_entry_internal(OP_ATOMIC_UPSERTS, &payload, true)
+        self.append_entry_internal(OP_ATOMIC_UPSERTS, &payload, true)?;
+        self.compact_if_wasteful();
+        Ok(())
     }
 
     /// Atomically persist one lifecycle transition containing record updates and
@@ -382,7 +439,9 @@ impl CognitiveStore {
             deletes: deletes.to_vec(),
         };
         let payload = serde_json::to_vec(&batch)?;
-        self.append_entry_internal(OP_ATOMIC_MUTATIONS, &payload, true)
+        self.append_entry_internal(OP_ATOMIC_MUTATIONS, &payload, true)?;
+        self.compact_if_wasteful();
+        Ok(())
     }
 
     /// Atomically append compact metadata/connection changes.
@@ -391,7 +450,9 @@ impl CognitiveStore {
             return Ok(());
         }
         let payload = serde_json::to_vec(patches)?;
-        self.append_entry_internal(OP_ATOMIC_RECORD_PATCHES, &payload, true)
+        self.append_entry_internal(OP_ATOMIC_RECORD_PATCHES, &payload, true)?;
+        self.compact_if_wasteful();
+        Ok(())
     }
 
     #[cfg(test)]
@@ -420,6 +481,7 @@ impl CognitiveStore {
         if durable {
             w.get_ref().sync_all()?;
         }
+        *self.log_bytes.lock() += 9 + payload.len() as u64;
 
         Ok(())
     }
@@ -525,7 +587,10 @@ impl CognitiveStore {
 
         // Write snapshot at end of new log
         self.write_snapshot(records)?;
-        *self.log_position.lock() = fs::metadata(&self.log_path)?.len();
+        let compacted = fs::metadata(&self.log_path)?.len();
+        *self.log_position.lock() = compacted;
+        *self.log_bytes.lock() = compacted;
+        *self.live_bytes.lock() = compacted;
 
         // Reopen writer
         let file = OpenOptions::new().append(true).open(&self.log_path)?;
@@ -594,6 +659,42 @@ mod tests {
         let records = store.load_all()?;
         assert_eq!(records.len(), 1);
         assert_eq!(records[&rec.id].content, "Hello world");
+        Ok(())
+    }
+
+    #[test]
+    fn journal_is_compacted_when_superseded_entries_dominate() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = CognitiveStore::new(dir.path())?;
+        store.load_all()?;
+        let mut recs: Vec<Record> = (0..50)
+            .map(|i| Record::new(format!("note {i} {}", "x".repeat(200)), Level::Working))
+            .collect();
+        for rec in &recs {
+            store.append_store(rec)?;
+        }
+        // like maintenance passes: the new state of every record, again and again
+        for _ in 0..40 {
+            for rec in recs.iter_mut() {
+                rec.strength *= 0.99;
+            }
+            store.append_atomic_mutations(&recs, &[])?;
+        }
+        let size = fs::metadata(dir.path().join("brain.cog"))?.len();
+        let one_pass = serde_json::to_vec(&recs)?.len() as u64;
+        assert!(
+            size < 8 * one_pass,
+            "journal {size} bytes, one pass {one_pass}"
+        );
+        assert!(dir.path().join("brain.snap").exists());
+        drop(store);
+
+        let again = CognitiveStore::new(dir.path())?.load_all()?;
+        assert_eq!(again.len(), recs.len());
+        for rec in &recs {
+            assert_eq!(again[&rec.id].strength, rec.strength);
+            assert_eq!(again[&rec.id].content, rec.content);
+        }
         Ok(())
     }
 

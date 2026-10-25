@@ -210,19 +210,29 @@ impl NGramIndex {
 
     /// Find all pairs with Jaccard similarity >= threshold.
     pub fn find_similar_pairs(&self, threshold: f32) -> Vec<(String, String, f32)> {
-        let ids: Vec<&String> = self.signatures.keys().collect();
-        let mut pairs = Vec::new();
-
-        for i in 0..ids.len() {
-            for j in (i + 1)..ids.len() {
-                let sim = self.jaccard(ids[i], ids[j]);
-                if sim >= threshold {
-                    pairs.push((ids[i].clone(), ids[j].clone(), sim));
-                }
-            }
-        }
-
-        pairs
+        use rayon::prelude::*;
+        // Same pairs in the same order as comparing `jaccard(ids[i], ids[j])`
+        // for every i < j, without two map lookups per pair; rows run in
+        // parallel and are concatenated in order.
+        let entries: Vec<(&String, &Vec<u64>)> = self.signatures.iter().collect();
+        let similarity = |a: &[u64], b: &[u64]| {
+            let matching = a.iter().zip(b).filter(|(a, b)| a == b).count();
+            matching as f32 / self.num_hashes as f32
+        };
+        let rows: Vec<Vec<(String, String, f32)>> = (0..entries.len())
+            .into_par_iter()
+            .map(|i| {
+                let (id_a, sig_a) = entries[i];
+                entries[i + 1..]
+                    .iter()
+                    .filter_map(|&(id_b, sig_b)| {
+                        let sim = similarity(sig_a, sig_b);
+                        (sim >= threshold).then(|| (id_a.clone(), id_b.clone(), sim))
+                    })
+                    .collect()
+            })
+            .collect();
+        rows.into_iter().flatten().collect()
     }
 
     /// Number of indexed records.
@@ -260,6 +270,29 @@ mod tests {
             first.query("equal ranking telemetry", 3),
             second.query("equal ranking telemetry", 3)
         );
+    }
+
+    #[test]
+    fn similar_pairs_match_comparing_every_pair_in_key_order() {
+        let mut idx = NGramIndex::new(None, None);
+        for n in 0..60 {
+            idx.add(
+                &format!("r{n}"),
+                &format!("deploy staging before release number {}", n % 7),
+            );
+        }
+        let ids: Vec<&String> = idx.signatures.keys().collect();
+        let mut expected = Vec::new();
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let sim = idx.jaccard(ids[i], ids[j]);
+                if sim >= 0.85 {
+                    expected.push((ids[i].clone(), ids[j].clone(), sim));
+                }
+            }
+        }
+        assert!(!expected.is_empty());
+        assert_eq!(idx.find_similar_pairs(0.85), expected);
     }
 
     #[test]

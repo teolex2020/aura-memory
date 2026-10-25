@@ -5225,8 +5225,10 @@ impl Aura {
             }
             if delete_backing {
                 self.storage.delete(id);
-                self.index.remove(id);
             }
+        }
+        if delete_backing {
+            self.index.remove_many(removed_ids);
         }
     }
 

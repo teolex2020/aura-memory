@@ -730,108 +730,203 @@ pub fn fix_memory_levels(
 /// - supporting neighbors: same namespace, semantically aligned, and connected or strongly tag-overlapping
 /// - conflicting neighbors: explicit contradiction markers, conflict-like relations, or WORKING/IDENTITY tag clashes
 pub fn update_epistemic_state(records: &mut HashMap<String, Record>) -> EpistemicPhaseReport {
-    let live_ids: Vec<String> = records
-        .values()
-        .filter(|r| r.is_alive())
-        .map(|r| r.id.clone())
+    use rayon::prelude::*;
+
+    // Each record gets a dense slot, and tags, namespaces, semantic types and
+    // relation labels become small integers, so the neighbour scan below does
+    // array lookups instead of building string sets per pair. A tag carried by
+    // most records makes every pair of them neighbours, so this scan is
+    // quadratic on real stores and has to be cheap per pair.
+    let keys: Vec<&String> = records.keys().collect();
+    let slots: Vec<&Record> = records.values().collect();
+    let n = slots.len();
+    let slot_of: HashMap<&str, usize> = keys
+        .iter()
+        .enumerate()
+        .map(|(slot, key)| (key.as_str(), slot))
         .collect();
 
-    let mut tag_groups: HashMap<String, Vec<String>> = HashMap::new();
-    for rec in records.values().filter(|r| r.is_alive()) {
+    fn intern<'a>(ids: &mut HashMap<&'a str, u32>, value: &'a str) -> u32 {
+        let next = ids.len() as u32;
+        *ids.entry(value).or_insert(next)
+    }
+    let mut tag_ids: HashMap<&str, u32> = HashMap::new();
+    let mut namespace_ids: HashMap<&str, u32> = HashMap::new();
+    let mut semantic_ids: HashMap<&str, u32> = HashMap::new();
+    let mut relation_ids: HashMap<&str, u32> = HashMap::new();
+    // Per relation label: (conflict-like, reinforcing).
+    let mut relations: Vec<(bool, bool)> = Vec::new();
+
+    let mut alive = Vec::with_capacity(n);
+    let mut namespace = Vec::with_capacity(n);
+    let mut semantic = Vec::with_capacity(n);
+    let mut contradiction = Vec::with_capacity(n);
+    let mut level = Vec::with_capacity(n);
+    // Tag sets (sorted, deduplicated) — shared-tag counts use set semantics.
+    let mut tag_sets: Vec<Vec<u32>> = Vec::with_capacity(n);
+    for rec in &slots {
+        alive.push(rec.is_alive());
+        namespace.push(intern(&mut namespace_ids, &rec.namespace));
+        semantic.push(intern(&mut semantic_ids, &rec.semantic_type));
+        contradiction.push(rec.semantic_type == "contradiction");
+        level.push(rec.level);
+        let mut tags: Vec<u32> = rec.tags.iter().map(|t| intern(&mut tag_ids, t)).collect();
+        tags.sort_unstable();
+        tags.dedup();
+        tag_sets.push(tags);
+    }
+
+    // Live records carrying each tag (by id, as the neighbour lists hold ids).
+    let mut tag_groups: Vec<Vec<usize>> = vec![Vec::new(); tag_ids.len()];
+    for (slot, rec) in slots.iter().enumerate() {
+        if !alive[slot] {
+            continue;
+        }
         for tag in &rec.tags {
-            tag_groups
-                .entry(tag.clone())
-                .or_default()
-                .push(rec.id.clone());
+            let Some(&member) = slot_of.get(rec.id.as_str()) else {
+                continue;
+            };
+            tag_groups[tag_ids[tag.as_str()] as usize].push(member);
         }
     }
 
-    let mut updates: Vec<(String, u32, u32)> = Vec::with_capacity(live_ids.len());
-    let mut report = EpistemicPhaseReport::default();
+    // Linked records per slot, and relation labels per slot both ways (the
+    // pair reads `rec`'s label first, then `other`'s label for `rec`).
+    // Links to ids that are not records are dropped: such a neighbour is
+    // skipped anyway. Link weights are not needed: a pair with no relation
+    // label and no shared tag counts as neither support nor conflict.
+    let mut linked: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut out_relations: Vec<Vec<(usize, u32)>> = vec![Vec::new(); n];
+    let mut in_relations: Vec<Vec<(usize, u32)>> = vec![Vec::new(); n];
+    for (slot, rec) in slots.iter().enumerate() {
+        for target in rec.connections.keys() {
+            if let Some(&target) = slot_of.get(target.as_str()) {
+                linked[slot].push(target);
+            }
+        }
+        for (target, relation) in &rec.connection_types {
+            if let Some(&target) = slot_of.get(target.as_str()) {
+                let id = intern(&mut relation_ids, relation);
+                if id as usize == relations.len() {
+                    relations.push((
+                        relation.contains("conflict") || relation.contains("contradict"),
+                        matches!(relation.as_str(), "causal" | "associative" | "coactivation"),
+                    ));
+                }
+                let relation = id;
+                out_relations[slot].push((target, relation));
+                in_relations[target].push((slot, relation));
+            }
+        }
+    }
 
-    for rid in live_ids {
-        let Some(rec) = records.get(&rid) else {
-            continue;
-        };
+    let live: Vec<(usize, &str)> = slots
+        .iter()
+        .filter(|rec| rec.is_alive())
+        .filter_map(|rec| Some((*slot_of.get(rec.id.as_str())?, rec.id.as_str())))
+        .collect();
 
-        let mut neighbors: HashSet<String> = rec.connections.keys().cloned().collect();
-        for tag in &rec.tags {
-            if let Some(ids) = tag_groups.get(tag) {
-                for nid in ids {
-                    if nid != &rid {
-                        neighbors.insert(nid.clone());
+    struct Scratch {
+        generation: u32,
+        neighbour: Vec<u32>,
+        out_relation: Vec<(u32, u32)>,
+        in_relation: Vec<(u32, u32)>,
+        neighbours: Vec<usize>,
+    }
+    let counts: Vec<(u32, u32)> = live
+        .par_iter()
+        .map_init(
+            || Scratch {
+                generation: 0,
+                neighbour: vec![0; n],
+                out_relation: vec![(0, 0); n],
+                in_relation: vec![(0, 0); n],
+                neighbours: Vec::new(),
+            },
+            |scratch, &(i, _)| {
+                scratch.generation += 1;
+                let g = scratch.generation;
+                scratch.neighbours.clear();
+                for &j in &linked[i] {
+                    if scratch.neighbour[j] != g {
+                        scratch.neighbour[j] = g;
+                        scratch.neighbours.push(j);
                     }
                 }
-            }
-        }
+                for &(j, relation) in &out_relations[i] {
+                    scratch.out_relation[j] = (g, relation);
+                }
+                for &(j, relation) in &in_relations[i] {
+                    scratch.in_relation[j] = (g, relation);
+                }
+                for &tag in &tag_sets[i] {
+                    for &j in &tag_groups[tag as usize] {
+                        if scratch.neighbour[j] != g && j != i {
+                            scratch.neighbour[j] = g;
+                            scratch.neighbours.push(j);
+                        }
+                    }
+                }
 
-        let namespace = rec.namespace.clone();
-        let level = rec.level;
-        let semantic_type = rec.semantic_type.clone();
-        let rec_tags: HashSet<&str> = rec.tags.iter().map(|t| t.as_str()).collect();
+                let mut confirming = 0u32;
+                let mut conflicting = 0u32;
+                for &j in &scratch.neighbours {
+                    if !alive[j] || namespace[j] != namespace[i] {
+                        continue;
+                    }
+                    let shared_tags = sorted_overlap(&tag_sets[i], &tag_sets[j]);
+                    let relation = match scratch.out_relation[j] {
+                        (gen, relation) if gen == g => Some(relation),
+                        _ => match scratch.in_relation[j] {
+                            (gen, relation) if gen == g => Some(relation),
+                            _ => None,
+                        },
+                    };
+                    if relation.is_none() && shared_tags == 0 {
+                        continue;
+                    }
+                    let (conflict_relation, reinforcing_relation) = relation
+                        .map(|relation| relations[relation as usize])
+                        .unwrap_or((false, false));
 
-        let mut confirming = 0u32;
-        let mut conflicting = 0u32;
+                    // Contradiction propagation requires strong evidence:
+                    // at least 2 shared tags. Auto-connections alone are too noisy
+                    // (a record sharing 1 tag like "safety" shouldn't be pulled
+                    // into conflict with an unrelated contradiction).
+                    let contradiction_pair =
+                        (contradiction[i] || contradiction[j]) && shared_tags >= 2;
+                    let level_conflict = shared_tags > 0
+                        && matches!(
+                            (level[i], level[j]),
+                            (Level::Working, Level::Identity) | (Level::Identity, Level::Working)
+                        );
+                    if conflict_relation || contradiction_pair || level_conflict {
+                        conflicting += 1;
+                        continue;
+                    }
 
-        for nid in neighbors {
-            let Some(other) = records.get(&nid) else {
-                continue;
-            };
-            if !other.is_alive() || other.namespace != namespace {
-                continue;
-            }
+                    let shared_semantic = semantic[i] == semantic[j];
+                    if (shared_semantic && shared_tags > 0)
+                        || reinforcing_relation
+                        || shared_tags >= 2
+                    {
+                        confirming += 1;
+                    }
+                }
+                (confirming, conflicting)
+            },
+        )
+        .collect();
 
-            let other_tags: HashSet<&str> = other.tags.iter().map(|t| t.as_str()).collect();
-            let shared_tags = rec_tags.intersection(&other_tags).count();
-            let relation = rec
-                .connection_type(&nid)
-                .or_else(|| other.connection_type(&rid));
-            let connection_weight = rec
-                .connections
-                .get(&nid)
-                .copied()
-                .or_else(|| other.connections.get(&rid).copied())
-                .unwrap_or(0.0);
-            let connected = connection_weight >= 0.10 || relation.is_some();
-
-            if !connected && shared_tags == 0 {
-                continue;
-            }
-
-            let explicit_conflict_relation =
-                relation.is_some_and(|rel| rel.contains("conflict") || rel.contains("contradict"));
-            // Contradiction propagation requires strong evidence:
-            // at least 2 shared tags. Auto-connections alone are too noisy
-            // (a record sharing 1 tag like "safety" shouldn't be pulled
-            // into conflict with an unrelated contradiction).
-            let contradiction_pair = (semantic_type == "contradiction"
-                || other.semantic_type == "contradiction")
-                && shared_tags >= 2;
-            let level_conflict = shared_tags > 0
-                && matches!(
-                    (level, other.level),
-                    (Level::Working, Level::Identity) | (Level::Identity, Level::Working)
-                );
-
-            if explicit_conflict_relation || contradiction_pair || level_conflict {
-                conflicting += 1;
-                continue;
-            }
-
-            let reinforcing_relation =
-                matches!(relation, Some("causal" | "associative" | "coactivation"));
-            let shared_semantic = semantic_type == other.semantic_type;
-            if (shared_semantic && shared_tags > 0)
-                || (reinforcing_relation && connected)
-                || shared_tags >= 2
-            {
-                confirming += 1;
-            }
-        }
-
-        report.total_support_links += confirming as usize;
-        report.total_conflict_links += conflicting as usize;
-        updates.push((rid, confirming, conflicting));
+    let updates: Vec<(String, u32, u32)> = live
+        .iter()
+        .zip(counts)
+        .map(|(&(_, rid), (confirming, conflicting))| (rid.to_string(), confirming, conflicting))
+        .collect();
+    let mut report = EpistemicPhaseReport::default();
+    for (_, confirming, conflicting) in &updates {
+        report.total_support_links += *confirming as usize;
+        report.total_conflict_links += *conflicting as usize;
     }
 
     for (rid, confirming, conflicting) in updates {
@@ -853,6 +948,23 @@ pub fn update_epistemic_state(records: &mut HashMap<String, Record>) -> Epistemi
     }
 
     report
+}
+
+/// Size of the intersection of two sorted, deduplicated id lists.
+fn sorted_overlap(a: &[u32], b: &[u32]) -> usize {
+    let (mut i, mut j, mut shared) = (0, 0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                shared += 1;
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    shared
 }
 
 /// Phase 2: governed reflect — prevents epistemically unsafe promotion.
@@ -1670,6 +1782,214 @@ mod tests {
         assert!(records.get(&id1).unwrap().support_mass >= 1);
         assert!(records.get(&id1).unwrap().conflict_mass >= 1);
         assert!(records.get(&id3).unwrap().conflict_mass >= 1);
+    }
+
+    /// The epistemic phase before it moved to dense slots (string sets per
+    /// pair). Kept to prove the fast version counts exactly the same links.
+    fn update_epistemic_state_reference(
+        records: &mut HashMap<String, Record>,
+    ) -> EpistemicPhaseReport {
+        let live_ids: Vec<String> = records
+            .values()
+            .filter(|r| r.is_alive())
+            .map(|r| r.id.clone())
+            .collect();
+
+        let mut tag_groups: HashMap<String, Vec<String>> = HashMap::new();
+        for rec in records.values().filter(|r| r.is_alive()) {
+            for tag in &rec.tags {
+                tag_groups
+                    .entry(tag.clone())
+                    .or_default()
+                    .push(rec.id.clone());
+            }
+        }
+
+        let mut updates: Vec<(String, u32, u32)> = Vec::with_capacity(live_ids.len());
+        let mut report = EpistemicPhaseReport::default();
+
+        for rid in live_ids {
+            let Some(rec) = records.get(&rid) else {
+                continue;
+            };
+
+            let mut neighbors: HashSet<String> = rec.connections.keys().cloned().collect();
+            for tag in &rec.tags {
+                if let Some(ids) = tag_groups.get(tag) {
+                    for nid in ids {
+                        if nid != &rid {
+                            neighbors.insert(nid.clone());
+                        }
+                    }
+                }
+            }
+
+            let namespace = rec.namespace.clone();
+            let level = rec.level;
+            let semantic_type = rec.semantic_type.clone();
+            let rec_tags: HashSet<&str> = rec.tags.iter().map(|t| t.as_str()).collect();
+
+            let mut confirming = 0u32;
+            let mut conflicting = 0u32;
+
+            for nid in neighbors {
+                let Some(other) = records.get(&nid) else {
+                    continue;
+                };
+                if !other.is_alive() || other.namespace != namespace {
+                    continue;
+                }
+
+                let other_tags: HashSet<&str> = other.tags.iter().map(|t| t.as_str()).collect();
+                let shared_tags = rec_tags.intersection(&other_tags).count();
+                let relation = rec
+                    .connection_type(&nid)
+                    .or_else(|| other.connection_type(&rid));
+                let connection_weight = rec
+                    .connections
+                    .get(&nid)
+                    .copied()
+                    .or_else(|| other.connections.get(&rid).copied())
+                    .unwrap_or(0.0);
+                let connected = connection_weight >= 0.10 || relation.is_some();
+
+                if !connected && shared_tags == 0 {
+                    continue;
+                }
+
+                let explicit_conflict_relation = relation
+                    .is_some_and(|rel| rel.contains("conflict") || rel.contains("contradict"));
+                // Contradiction propagation requires strong evidence:
+                // at least 2 shared tags. Auto-connections alone are too noisy
+                // (a record sharing 1 tag like "safety" shouldn't be pulled
+                // into conflict with an unrelated contradiction).
+                let contradiction_pair = (semantic_type == "contradiction"
+                    || other.semantic_type == "contradiction")
+                    && shared_tags >= 2;
+                let level_conflict = shared_tags > 0
+                    && matches!(
+                        (level, other.level),
+                        (Level::Working, Level::Identity) | (Level::Identity, Level::Working)
+                    );
+
+                if explicit_conflict_relation || contradiction_pair || level_conflict {
+                    conflicting += 1;
+                    continue;
+                }
+
+                let reinforcing_relation =
+                    matches!(relation, Some("causal" | "associative" | "coactivation"));
+                let shared_semantic = semantic_type == other.semantic_type;
+                if (shared_semantic && shared_tags > 0)
+                    || (reinforcing_relation && connected)
+                    || shared_tags >= 2
+                {
+                    confirming += 1;
+                }
+            }
+
+            report.total_support_links += confirming as usize;
+            report.total_conflict_links += conflicting as usize;
+            updates.push((rid, confirming, conflicting));
+        }
+
+        for (rid, confirming, conflicting) in updates {
+            if let Some(rec) = records.get_mut(&rid) {
+                let prev_support = rec.support_mass;
+                let prev_conflict = rec.conflict_mass;
+                let prev_volatility = rec.volatility;
+                rec.update_epistemic_signals(confirming, conflicting);
+                if prev_support != rec.support_mass
+                    || prev_conflict != rec.conflict_mass
+                    || (prev_volatility - rec.volatility).abs() > f32::EPSILON
+                {
+                    report.updated_records += 1;
+                }
+                if rec.volatility >= 0.05 {
+                    report.volatile_records += 1;
+                }
+            }
+        }
+
+        report
+    }
+
+    /// Random records with shared tags, typed and untyped links in both
+    /// directions, links to missing ids and to self, dead records, several
+    /// namespaces and levels: both versions must leave identical records.
+    #[test]
+    fn epistemic_update_matches_reference_on_random_graphs() {
+        use rand::{Rng, SeedableRng};
+        let tags = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        let weights = [0.0, 0.05, 0.099, 0.10, 0.2, 0.7];
+        let namespaces = ["default", "work"];
+        let semantic_types = ["decision", "contradiction", "preference", "fact"];
+        let levels = [
+            Level::Working,
+            Level::Decisions,
+            Level::Domain,
+            Level::Identity,
+        ];
+        let relations = [
+            "coactivation",
+            "causal",
+            "associative",
+            "conflict",
+            "contradicts",
+            "related",
+        ];
+        for seed in 0..40u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            let count = rng.gen_range(2..120);
+            let mut list: Vec<Record> = (0..count)
+                .map(|n| {
+                    let mut rec =
+                        Record::new(format!("record {seed} {n}"), levels[rng.gen_range(0..4)]);
+                    rec.tags = (0..rng.gen_range(0..4))
+                        .map(|_| tags[rng.gen_range(0..tags.len())].to_string())
+                        .collect();
+                    rec.namespace = namespaces[rng.gen_range(0..2)].to_string();
+                    rec.semantic_type = semantic_types[rng.gen_range(0..4)].to_string();
+                    rec.strength = if rng.gen_bool(0.1) {
+                        0.01
+                    } else {
+                        rng.gen_range(0.05..1.0)
+                    };
+                    rec
+                })
+                .collect();
+            let ids: Vec<String> = list.iter().map(|rec| rec.id.clone()).collect();
+            for rec in &mut list {
+                for _ in 0..rng.gen_range(0..6) {
+                    let target = if rng.gen_bool(0.1) {
+                        "missing".to_string()
+                    } else {
+                        ids[rng.gen_range(0..ids.len())].clone()
+                    };
+                    if rng.gen_bool(0.7) {
+                        rec.connections
+                            .insert(target.clone(), weights[rng.gen_range(0..weights.len())]);
+                    }
+                    if rng.gen_bool(0.5) {
+                        rec.connection_types.insert(
+                            target,
+                            relations[rng.gen_range(0..relations.len())].to_string(),
+                        );
+                    }
+                }
+            }
+            let mut fast: HashMap<String, Record> =
+                list.into_iter().map(|rec| (rec.id.clone(), rec)).collect();
+            let mut reference = fast.clone();
+            let fast_report = update_epistemic_state(&mut fast);
+            let reference_report = update_epistemic_state_reference(&mut reference);
+            assert_eq!(fast, reference, "seed {seed}");
+            assert_eq!(
+                format!("{fast_report:?}"),
+                format!("{reference_report:?}"),
+                "seed {seed}"
+            );
+        }
     }
 
     #[test]

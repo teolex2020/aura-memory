@@ -97,6 +97,28 @@ impl InvertedIndex {
         false
     }
 
+    /// Remove many records at once: the same result as calling `remove` for
+    /// each, but every bitmap is visited once instead of once per record
+    /// (maintenance can drop over a thousand records in one pass).
+    pub fn remove_many(&self, external_ids: &[String]) -> usize {
+        let mut id_map = self.id_map.write();
+        let mut reverse_map = self.reverse_map.write();
+        let mut removed = RoaringBitmap::new();
+        for external_id in external_ids {
+            if let Some(doc_id) = id_map.remove(external_id) {
+                reverse_map.remove(&doc_id);
+                removed.insert(doc_id);
+            }
+        }
+        if !removed.is_empty() {
+            let mut bit_index = self.bit_index.write();
+            for bitmap in bit_index.values_mut() {
+                *bitmap -= &removed;
+            }
+        }
+        removed.len() as usize
+    }
+
     pub fn search(
         &self,
         query_indices: &[u16],
@@ -282,5 +304,35 @@ impl InvertedIndex {
         let doc_count = *self.next_doc_id.read();
         let bit_count = self.bit_index.read().len();
         (doc_count, bit_count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove_many_matches_removing_one_by_one() {
+        let one_by_one = InvertedIndex::new("unused");
+        let batched = InvertedIndex::new("unused");
+        for index in [&one_by_one, &batched] {
+            for n in 0..50u16 {
+                let bits: Vec<u16> = (0..20).map(|k| (n * 7 + k * 13) % 97).collect();
+                index.add(&format!("r{n}"), &bits);
+            }
+        }
+        let gone: Vec<String> = (0..50)
+            .filter(|n| n % 3 == 0)
+            .map(|n| format!("r{n}"))
+            .chain(["missing".to_string(), "r3".to_string()])
+            .collect();
+        for id in &gone {
+            one_by_one.remove(id);
+        }
+        assert_eq!(batched.remove_many(&gone), 17);
+        assert_eq!(*batched.bit_index.read(), *one_by_one.bit_index.read());
+        assert_eq!(*batched.id_map.read(), *one_by_one.id_map.read());
+        assert_eq!(*batched.reverse_map.read(), *one_by_one.reverse_map.read());
+        assert_eq!(*batched.next_doc_id.read(), *one_by_one.next_doc_id.read());
     }
 }

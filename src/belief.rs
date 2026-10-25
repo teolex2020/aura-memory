@@ -61,6 +61,10 @@ const UNCERTAINTY_BAND: f32 = 0.10;
 /// A threshold of 0.15 safely separates genuinely different topics
 /// while keeping paraphrases together.
 const CLAIM_SIMILARITY_THRESHOLD: f32 = 0.15;
+/// Records indexed at once by the SDR pair search (u16 offsets, small index).
+const SDR_MATCH_BLOCK: usize = 4096;
+/// Records matched per parallel batch, bounding the pairs held at once.
+const SDR_MATCH_ROWS: usize = 512;
 
 /// Reference cosine threshold for embedding-based claim clustering. Unused
 /// unless the host opts in with `set_embedding_claim_threshold`, because
@@ -866,6 +870,194 @@ impl BeliefEngine {
     ///
     /// Returns a list of clusters, each cluster being a Vec of record refs.
     fn sdr_subcluster<'a>(
+        records: &[&'a Record],
+        sdr_lookup: &SdrLookup,
+        threshold: f32,
+        embeddings: &HashMap<String, Vec<f32>>,
+        embedding_threshold: f32,
+    ) -> Vec<Vec<&'a Record>> {
+        let n = records.len();
+        if n <= 1 {
+            return vec![records.to_vec()];
+        }
+
+        let sdrs: Vec<Option<&Vec<u16>>> = records
+            .iter()
+            .map(|record| sdr_lookup.get(&record.id))
+            .collect();
+        // The fast pair search needs strictly increasing SDRs (what
+        // `text_to_sdr` returns) and a positive threshold (so only pairs that
+        // share a bit can match). Anything else takes the plain all-pairs loop.
+        let fast = threshold > 0.0
+            && sdrs
+                .iter()
+                .flatten()
+                .all(|sdr| sdr.windows(2).all(|pair| pair[0] < pair[1]));
+        if !fast {
+            return Self::sdr_subcluster_all_pairs(
+                records,
+                sdr_lookup,
+                threshold,
+                embeddings,
+                embedding_threshold,
+            );
+        }
+
+        // Union-Find for clustering. Clusters are connected components, so
+        // the order in which matching pairs are joined does not matter.
+        let mut parent: Vec<usize> = (0..n).collect();
+
+        fn find(parent: &mut [usize], mut x: usize) -> usize {
+            while parent[x] != x {
+                parent[x] = parent[parent[x]]; // path compression
+                x = parent[x];
+            }
+            x
+        }
+        fn union(parent: &mut [usize], a: usize, b: usize) {
+            let ra = find(parent, a);
+            let rb = find(parent, b);
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        }
+
+        // Same claim if the SDRs overlap enough...
+        Self::for_each_sdr_match(&sdrs, threshold, SDR_MATCH_BLOCK, SDR_MATCH_ROWS, |i, j| {
+            union(&mut parent, i, j)
+        });
+
+        // ...or if the host embeddings are close (paraphrase or other language).
+        if !embeddings.is_empty() {
+            let vectors: Vec<(usize, &Vec<f32>)> = records
+                .iter()
+                .enumerate()
+                .filter_map(|(i, record)| Some((i, embeddings.get(&record.id)?)))
+                .collect();
+            for (a, &(i, vi)) in vectors.iter().enumerate() {
+                for &(j, vj) in &vectors[a + 1..] {
+                    if Self::cosine(vi, vj) >= embedding_threshold {
+                        union(&mut parent, i, j);
+                    }
+                }
+            }
+        }
+
+        // Collect clusters
+        let mut clusters: HashMap<usize, Vec<&'a Record>> = HashMap::new();
+        for i in 0..n {
+            let root = find(&mut parent, i);
+            clusters.entry(root).or_default().push(records[i]);
+        }
+        clusters.into_values().collect()
+    }
+
+    /// Call `join(i, j)` (i < j) for every pair whose SDR Tanimoto is at
+    /// least `threshold`, exactly as `tanimoto(a, b) >= threshold` decides.
+    ///
+    /// Comparing every pair by merging two sorted lists of ~4,000 bits made
+    /// the belief phase quadratic with a large constant (13 minutes on a
+    /// 10k-record group). Here an inverted index (bit → records) counts the
+    /// shared bits of each record with all later ones, so only bits two
+    /// records actually share are touched. Requires strictly increasing SDRs
+    /// and `threshold > 0`. Records are indexed `block` at a time (at most
+    /// 65,536) and matched `rows` at a time, bounding memory.
+    fn for_each_sdr_match(
+        sdrs: &[Option<&Vec<u16>>],
+        threshold: f32,
+        block_size: usize,
+        rows_per_batch: usize,
+        mut join: impl FnMut(usize, usize),
+    ) {
+        use rayon::prelude::*;
+
+        let present: Vec<(usize, &[u16])> = sdrs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, sdr)| Some((i, sdr.map(Vec::as_slice)?)))
+            .filter(|(_, sdr)| !sdr.is_empty())
+            .collect();
+        let tanimoto_at_least = |shared: usize, a: usize, b: usize| {
+            let union = a + b - shared;
+            union != 0 && shared as f32 / union as f32 >= threshold
+        };
+
+        for block_start in (0..present.len()).step_by(block_size) {
+            let block = &present[block_start..(block_start + block_size).min(present.len())];
+            // Bit → block offsets (ascending), as one flat array.
+            let mut starts = vec![0u32; u16::MAX as usize + 2];
+            for (_, sdr) in block {
+                for &bit in *sdr {
+                    starts[bit as usize + 1] += 1;
+                }
+            }
+            for bit in 1..starts.len() {
+                starts[bit] += starts[bit - 1];
+            }
+            let mut fill = starts.clone();
+            let mut offsets = vec![0u16; *starts.last().unwrap_or(&0) as usize];
+            for (offset, (_, sdr)) in block.iter().enumerate() {
+                for &bit in *sdr {
+                    offsets[fill[bit as usize] as usize] = offset as u16;
+                    fill[bit as usize] += 1;
+                }
+            }
+
+            // Every earlier row and every row of this block is compared with
+            // the block's later records.
+            let rows = block_start + block.len();
+            for batch_start in (0..rows).step_by(rows_per_batch) {
+                let batch_end = (batch_start + rows_per_batch).min(rows);
+                let matches: Vec<Vec<usize>> = (batch_start..batch_end)
+                    .into_par_iter()
+                    .map_init(
+                        || (vec![0u32; block.len()], Vec::new()),
+                        |(shared, touched), row| {
+                            let sdr = present[row].1;
+                            // Only block records after `row` count.
+                            let after = (row + 1).saturating_sub(block_start);
+                            for &bit in sdr {
+                                let list = &offsets[starts[bit as usize] as usize
+                                    ..starts[bit as usize + 1] as usize];
+                                let from =
+                                    list.partition_point(|&offset| (offset as usize) < after);
+                                for &offset in &list[from..] {
+                                    let count = &mut shared[offset as usize];
+                                    if *count == 0 {
+                                        touched.push(offset);
+                                    }
+                                    *count += 1;
+                                }
+                            }
+                            let mut found = Vec::new();
+                            for &offset in touched.iter() {
+                                let other = block[offset as usize].1;
+                                if tanimoto_at_least(
+                                    shared[offset as usize] as usize,
+                                    sdr.len(),
+                                    other.len(),
+                                ) {
+                                    found.push(block[offset as usize].0);
+                                }
+                                shared[offset as usize] = 0;
+                            }
+                            touched.clear();
+                            found
+                        },
+                    )
+                    .collect();
+                for (row, found) in (batch_start..batch_end).zip(matches) {
+                    for j in found {
+                        join(present[row].0, j);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Plain all-pairs SDR subclustering, for inputs the fast pair search
+    /// does not cover (see `sdr_subcluster`).
+    fn sdr_subcluster_all_pairs<'a>(
         records: &[&'a Record],
         sdr_lookup: &SdrLookup,
         threshold: f32,
@@ -2029,6 +2221,86 @@ mod tests {
         rec.semantic_type = semantic_type.to_string();
         rec.confidence = Record::default_confidence_for_source("recorded");
         rec
+    }
+
+    /// Random SDRs around the threshold, records without or with empty SDRs,
+    /// and tiny index blocks (to cross block boundaries): the indexed pair
+    /// search must find exactly the pairs `tanimoto >= threshold` finds, and
+    /// clustering must match the all-pairs loop.
+    #[test]
+    fn indexed_sdr_pairs_match_all_pairs_tanimoto() {
+        use rand::{Rng, SeedableRng};
+        for seed in 0..30u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            let count = rng.gen_range(2..90);
+            let records: Vec<Record> = (0..count)
+                .map(|n| make_record(&format!("record {seed} {n}"), &["t"], "fact"))
+                .collect();
+            let mut lookup = SdrLookup::new();
+            // Bits from a small shared pool, so overlaps land on both sides of
+            // the threshold; some records get no SDR or an empty one.
+            for record in &records {
+                match rng.gen_range(0..10) {
+                    0 => {}
+                    1 => {
+                        lookup.insert(record.id.clone(), Vec::new());
+                    }
+                    _ => {
+                        let mut sdr: Vec<u16> = (0..rng.gen_range(1..40))
+                            .map(|_| rng.gen_range(0..60u16))
+                            .collect();
+                        sdr.sort_unstable();
+                        sdr.dedup();
+                        lookup.insert(record.id.clone(), sdr);
+                    }
+                }
+            }
+            let refs: Vec<&Record> = records.iter().collect();
+            let sdrs: Vec<Option<&Vec<u16>>> =
+                refs.iter().map(|record| lookup.get(&record.id)).collect();
+            for threshold in [0.15f32, 0.3, 0.5, 1.0] {
+                let mut expected = Vec::new();
+                for i in 0..refs.len() {
+                    for j in (i + 1)..refs.len() {
+                        if let (Some(a), Some(b)) = (sdrs[i], sdrs[j]) {
+                            if BeliefEngine::tanimoto(a, b) >= threshold {
+                                expected.push((i, j));
+                            }
+                        }
+                    }
+                }
+                for (block, rows) in [(1, 1), (3, 2), (7, 5), (4096, 512)] {
+                    let mut found = Vec::new();
+                    BeliefEngine::for_each_sdr_match(&sdrs, threshold, block, rows, |i, j| {
+                        found.push((i, j))
+                    });
+                    found.sort_unstable();
+                    assert_eq!(
+                        found, expected,
+                        "seed {seed} threshold {threshold} block {block}"
+                    );
+                }
+
+                let partition = |clusters: Vec<Vec<&Record>>| {
+                    let mut ids: Vec<Vec<String>> = clusters
+                        .into_iter()
+                        .map(|cluster| cluster.into_iter().map(|r| r.id.clone()).collect())
+                        .collect();
+                    ids.sort();
+                    ids
+                };
+                let none = HashMap::new();
+                assert_eq!(
+                    partition(BeliefEngine::sdr_subcluster(
+                        &refs, &lookup, threshold, &none, 0.8
+                    )),
+                    partition(BeliefEngine::sdr_subcluster_all_pairs(
+                        &refs, &lookup, threshold, &none, 0.8
+                    )),
+                    "seed {seed} threshold {threshold}"
+                );
+            }
+        }
     }
 
     #[test]

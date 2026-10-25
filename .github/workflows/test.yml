@@ -38,6 +38,11 @@ jobs:
         run: cargo fmt --check
       - name: Clippy (correctness and suspicious lints)
         run: cargo clippy --all-targets --no-default-features --features "encryption,audit,capsule,server,mcp" -- -A clippy::all -D clippy::correctness -D clippy::suspicious
+      # The default features include `python`: PyO3 0.22 builds against at
+      # most Python 3.13, newer than what Ubuntu 26.04 (ubuntu-latest) ships.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Feature builds
         run: |
           cargo check --all-targets --no-default-features --features "encryption,ffi"
@@ -135,6 +140,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.9", "3.12", "3.13"]
+        # ubuntu-latest (Ubuntu 26.04 since 2026-10-19) has no Python 3.9.
+        exclude:
+          - os: ubuntu-latest
+            python-version: "3.9"
+        include:
+          - os: ubuntu-24.04
+            python-version: "3.9"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

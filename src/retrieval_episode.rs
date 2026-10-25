@@ -613,7 +613,7 @@ impl RetrievalEpisode {
 
 #[cfg(feature = "python")]
 fn evidence_open_result_to_py(py: Python<'_>, result: &EvidenceOpenResult) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("record_id", &result.receipt.record_id)?;
     dict.set_item("claim_id", &result.receipt.claim_id)?;
     dict.set_item("route", result.receipt.route.as_str())?;
@@ -633,7 +633,7 @@ pub(crate) fn citation_lock_report_to_py(
     py: Python<'_>,
     report: &CitationLockReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("episode_id", &report.episode_id)?;
     dict.set_item("decision", report.decision.as_str())?;
     dict.set_item("answer_permitted", report.answer_permitted)?;

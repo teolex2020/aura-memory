@@ -102,7 +102,7 @@ ndarray = "0.15"
 # ============= OPTIONAL FEATURES =============
 
 # Python Bindings
-pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.25", features = ["extension-module"], optional = true }
 
 
 # Server

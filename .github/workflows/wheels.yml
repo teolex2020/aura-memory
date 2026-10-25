@@ -17,21 +17,25 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            interpreters: "3.9 3.10 3.11 3.12 3.13"
+            interpreters: "3.9 3.10 3.11 3.12 3.13 3.14"
           - os: macos-14
             target: x86_64-apple-darwin
-            interpreters: "3.9 3.10 3.11 3.12 3.13"
+            interpreters: "3.9 3.10 3.11 3.12 3.13 3.14"
           - os: macos-latest
             target: aarch64-apple-darwin
-            interpreters: "3.9 3.10 3.11 3.12 3.13"
+            interpreters: "3.9 3.10 3.11 3.12 3.13 3.14"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            interpreters: "3.10 3.11 3.12 3.13"
+            interpreters: "3.10 3.11 3.12 3.13 3.14"
     steps:
       - uses: actions/checkout@v4
+      # 3.14 may be missing from the runner's tool cache; the last one listed
+      # stays the default python.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: |
+            3.14
+            3.12
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:

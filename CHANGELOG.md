@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`aura-memory` installs on Python 3.14.** PyO3 0.22 builds against at most Python 3.13, and no 3.14 wheels were published, so `pip install aura-memory` on 3.14 fell back to a source build that failed. The bindings now use PyO3 0.25, the oldest release that supports 3.14 (it still supports 3.9), and wheels are built for 3.14 on every platform. The only API change was renamed constructors (`PyDict::new_bound` → `PyDict::new`, likewise for `PyList`, `PyBytes`, `PyModule`). The Python tests in CI now also run on 3.14.
+
 ## 1.64.0
 
 ### Added

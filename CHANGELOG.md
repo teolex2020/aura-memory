@@ -1,10 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.64.1
+
+### Added
+
+- **`aura-memory` installs on Python 3.14.** PyO3 0.22 builds against at most Python 3.13, and no 3.14 wheels were published, so `pip install aura-memory` on 3.14 fell back to a source build that failed. The bindings now use PyO3 0.25, the oldest release that supports 3.14 (it still supports 3.9), and wheels are built for 3.14 on every platform. The only API change was renamed constructors (`PyDict::new_bound` → `PyDict::new`, likewise for `PyList`, `PyBytes`, `PyModule`). The Python tests in CI now also run on 3.14.
 
 ### Fixed
 
 - **An encrypted store kept its SDR index in plain form.** `index/sdr.idx` and `index/index_manifest.json` were written without the store's key. They hold bit patterns rather than text, but the patterns come from an unkeyed hash, so anyone could check which words a store contains: on a store whose every other file was encrypted, 600 of 600 guesses were right (E113). Both files now go through the store's codec. An index that cannot be read with the store's key (a plain one left by an earlier version, or a lost one) is rebuilt from the records on open (test `encrypted_store_keeps_its_sdr_index_encrypted_and_rebuilds_a_lost_one`).
+
 - **A store moved with `export_json` → `import_json` recalled differently from its source.** The import did not add records to the SDR index or the retrieval store, and it added them in export order, while the index breaks ties by arrival order. Moving 10,782 public AIDev comments kept every record identical, but the 600-token message context matched in 0 of 271 queries. Imports now fill both, in the order records were first stored; the same move matches in 271 of 271 (test `imported_records_are_as_findable_as_stored_ones`).
 
 ## 1.64.0

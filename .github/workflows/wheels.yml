@@ -17,29 +17,41 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            interpreters: "3.9 3.10 3.11 3.12 3.13"
+            interpreters: "3.9 3.10 3.11 3.12 3.13 3.14"
+            python-versions: |
+              3.14
+              3.12
           - os: macos-14
             target: x86_64-apple-darwin
-            interpreters: "3.9 3.10 3.11 3.12 3.13"
+            interpreters: "3.9 3.10 3.11 3.12 3.13 3.14"
+            python-versions: |
+              3.14
+              3.12
           - os: macos-latest
             target: aarch64-apple-darwin
-            interpreters: "3.9 3.10 3.11 3.12 3.13"
+            interpreters: "3.9 3.10 3.11 3.12 3.13 3.14"
+            python-versions: |
+              3.14
+              3.12
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            interpreters: "3.10 3.11 3.12 3.13"
+            interpreters: "3.10 3.11 3.12 3.13 3.14"
             # The runner image no longer carries every interpreter maturin
             # builds for (2026-10-25: the build stopped in 39 s, before
-            # compiling); install them all, 3.12 last as the default.
+            # compiling); install them all.
             python-versions: |
               3.10
               3.11
               3.13
+              3.14
               3.12
     steps:
       - uses: actions/checkout@v4
+      # Each target lists the interpreters it needs (3.14 may be missing from
+      # the runner's tool cache); the last one listed stays the default.
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-versions || '3.12' }}
+          python-version: ${{ matrix.python-versions }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:

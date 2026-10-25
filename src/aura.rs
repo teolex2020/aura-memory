@@ -12050,7 +12050,7 @@ impl Aura {
 fn audit_value_to_py<T: Serialize>(py: Python<'_>, value: &T) -> PyResult<PyObject> {
     let encoded = serde_json::to_string(value)
         .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
-    let json = pyo3::types::PyModule::import_bound(py, "json")?;
+    let json = pyo3::types::PyModule::import(py, "json")?;
     Ok(json.call_method1("loads", (encoded,))?.unbind())
 }
 
@@ -13042,7 +13042,7 @@ fn preview_text(text: &str, limit: usize) -> String {
 
 #[cfg(feature = "python")]
 fn belief_to_py(py: Python<'_>, belief: &crate::belief::Belief) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("id", &belief.id)?;
     dict.set_item("key", &belief.key)?;
     dict.set_item("state", format!("{:?}", belief.state).to_lowercase())?;
@@ -13065,7 +13065,7 @@ fn belief_to_py(py: Python<'_>, belief: &crate::belief::Belief) -> PyResult<PyOb
 
 #[cfg(feature = "python")]
 fn policy_hint_to_py(py: Python<'_>, hint: &crate::policy::PolicyHint) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("id", &hint.id)?;
     dict.set_item("key", &hint.key)?;
     dict.set_item("namespace", &hint.namespace)?;
@@ -14197,14 +14197,14 @@ pub(crate) fn apply_cross_namespace_dimension_flags(
 #[cfg(feature = "python")]
 fn recall_trace_score_to_py(py: Python<'_>, trace: &RecallTraceScore) -> PyResult<PyObject> {
     let signal_to_py = |signal: &RecallSignalScore| -> PyResult<PyObject> {
-        let signal_dict = pyo3::types::PyDict::new_bound(py);
+        let signal_dict = pyo3::types::PyDict::new(py);
         signal_dict.set_item("raw_score", signal.raw_score)?;
         signal_dict.set_item("rank", signal.rank)?;
         signal_dict.set_item("rrf_share", signal.rrf_share)?;
         Ok(signal_dict.unbind().into_any())
     };
 
-    let trace_dict = pyo3::types::PyDict::new_bound(py);
+    let trace_dict = pyo3::types::PyDict::new(py);
     match &trace.sdr {
         Some(signal) => trace_dict.set_item("sdr", signal_to_py(signal)?)?,
         None => trace_dict.set_item("sdr", py.None())?,
@@ -14241,7 +14241,7 @@ fn recall_explanation_item_to_py(
     py: Python<'_>,
     item: &RecallExplanationItem,
 ) -> PyResult<PyObject> {
-    let item_dict = pyo3::types::PyDict::new_bound(py);
+    let item_dict = pyo3::types::PyDict::new(py);
     item_dict.set_item("rank", item.rank)?;
     item_dict.set_item("record_id", &item.record_id)?;
     item_dict.set_item("score", item.score)?;
@@ -14256,7 +14256,7 @@ fn recall_explanation_item_to_py(
     item_dict.set_item("honesty_note", &item.honesty_note)?;
     item_dict.set_item("contradiction_dependency", item.contradiction_dependency)?;
     item_dict.set_item("reflection_references", &item.reflection_references)?;
-    let answer_support = pyo3::types::PyDict::new_bound(py);
+    let answer_support = pyo3::types::PyDict::new(py);
     answer_support.set_item(
         "significance_phrase",
         &item.answer_support.significance_phrase,
@@ -14277,7 +14277,7 @@ fn recall_explanation_item_to_py(
     item_dict.set_item("answer_support", answer_support)?;
 
     if let Some(belief) = &item.belief {
-        let belief_dict = pyo3::types::PyDict::new_bound(py);
+        let belief_dict = pyo3::types::PyDict::new(py);
         belief_dict.set_item("id", &belief.id)?;
         belief_dict.set_item("state", &belief.state)?;
         belief_dict.set_item("hypothesis_id", &belief.hypothesis_id)?;
@@ -14296,9 +14296,9 @@ fn recall_explanation_item_to_py(
         item_dict.set_item("belief", py.None())?;
     }
 
-    let concepts = pyo3::types::PyList::empty_bound(py);
+    let concepts = pyo3::types::PyList::empty(py);
     for concept in &item.concepts {
-        let concept_dict = pyo3::types::PyDict::new_bound(py);
+        let concept_dict = pyo3::types::PyDict::new(py);
         concept_dict.set_item("id", &concept.id)?;
         concept_dict.set_item("key", &concept.key)?;
         concept_dict.set_item("state", &concept.state)?;
@@ -14307,9 +14307,9 @@ fn recall_explanation_item_to_py(
     }
     item_dict.set_item("concepts", concepts)?;
 
-    let causal_patterns = pyo3::types::PyList::empty_bound(py);
+    let causal_patterns = pyo3::types::PyList::empty(py);
     for pattern in &item.causal_patterns {
-        let pattern_dict = pyo3::types::PyDict::new_bound(py);
+        let pattern_dict = pyo3::types::PyDict::new(py);
         pattern_dict.set_item("id", &pattern.id)?;
         pattern_dict.set_item("key", &pattern.key)?;
         pattern_dict.set_item("state", &pattern.state)?;
@@ -14322,9 +14322,9 @@ fn recall_explanation_item_to_py(
             Some(ts) => pattern_dict.set_item("invalidated_at", ts)?,
             None => pattern_dict.set_item("invalidated_at", py.None())?,
         }
-        let corrections = pyo3::types::PyList::empty_bound(py);
+        let corrections = pyo3::types::PyList::empty(py);
         for correction in &pattern.corrections {
-            let correction_dict = pyo3::types::PyDict::new_bound(py);
+            let correction_dict = pyo3::types::PyDict::new(py);
             correction_dict.set_item("timestamp", correction.timestamp)?;
             correction_dict.set_item("time_iso", &correction.time_iso)?;
             correction_dict.set_item("target_kind", &correction.target_kind)?;
@@ -14339,9 +14339,9 @@ fn recall_explanation_item_to_py(
     }
     item_dict.set_item("causal_patterns", causal_patterns)?;
 
-    let policy_hints = pyo3::types::PyList::empty_bound(py);
+    let policy_hints = pyo3::types::PyList::empty(py);
     for hint in &item.policy_hints {
-        let hint_dict = pyo3::types::PyDict::new_bound(py);
+        let hint_dict = pyo3::types::PyDict::new(py);
         hint_dict.set_item("id", &hint.id)?;
         hint_dict.set_item("key", &hint.key)?;
         hint_dict.set_item("state", &hint.state)?;
@@ -14358,7 +14358,7 @@ fn recall_explanation_item_to_py(
 
 #[cfg(feature = "python")]
 fn recall_explanation_to_py(py: Python<'_>, explanation: &RecallExplanation) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("trace_id", &explanation.trace_id)?;
     dict.set_item("evaluated_at", explanation.evaluated_at)?;
     dict.set_item("query", &explanation.query)?;
@@ -14370,7 +14370,7 @@ fn recall_explanation_to_py(py: Python<'_>, explanation: &RecallExplanation) -> 
     dict.set_item("causal_rerank_mode", &explanation.causal_rerank_mode)?;
     dict.set_item("policy_rerank_mode", &explanation.policy_rerank_mode)?;
 
-    let summary = pyo3::types::PyDict::new_bound(py);
+    let summary = pyo3::types::PyDict::new(py);
     summary.set_item(
         "evaluated_candidate_count",
         explanation.decision_summary.evaluated_candidate_count,
@@ -14397,15 +14397,15 @@ fn recall_explanation_to_py(py: Python<'_>, explanation: &RecallExplanation) -> 
     )?;
     dict.set_item("decision_summary", summary)?;
 
-    let py_items = pyo3::types::PyList::empty_bound(py);
+    let py_items = pyo3::types::PyList::empty(py);
     for item in &explanation.items {
         py_items.append(recall_explanation_item_to_py(py, item)?)?;
     }
     dict.set_item("items", py_items)?;
 
-    let rejected = pyo3::types::PyList::empty_bound(py);
+    let rejected = pyo3::types::PyList::empty(py);
     for candidate in &explanation.rejected_candidates {
-        let candidate_dict = pyo3::types::PyDict::new_bound(py);
+        let candidate_dict = pyo3::types::PyDict::new(py);
         candidate_dict.set_item("record_id", &candidate.record_id)?;
         candidate_dict.set_item("namespace", &candidate.namespace)?;
         candidate_dict.set_item("content_preview", &candidate.content_preview)?;
@@ -14414,7 +14414,7 @@ fn recall_explanation_to_py(py: Python<'_>, explanation: &RecallExplanation) -> 
         candidate_dict.set_item("valid_from", candidate.valid_from)?;
         candidate_dict.set_item("valid_until", candidate.valid_until)?;
         if let Some(belief) = &candidate.belief {
-            let belief_dict = pyo3::types::PyDict::new_bound(py);
+            let belief_dict = pyo3::types::PyDict::new(py);
             belief_dict.set_item("id", &belief.id)?;
             belief_dict.set_item("state", &belief.state)?;
             belief_dict.set_item("hypothesis_id", &belief.hypothesis_id)?;
@@ -14444,15 +14444,15 @@ fn cross_namespace_digest_to_py(
     py: Python<'_>,
     digest: &CrossNamespaceDigest,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("namespace_count", digest.namespace_count)?;
     dict.set_item("latency_ms", digest.latency_ms)?;
     dict.set_item("compact_summary", digest.compact_summary)?;
     dict.set_item("included_dimensions", &digest.included_dimensions)?;
 
-    let py_namespaces = pyo3::types::PyList::empty_bound(py);
+    let py_namespaces = pyo3::types::PyList::empty(py);
     for namespace in &digest.namespaces {
-        let ns_dict = pyo3::types::PyDict::new_bound(py);
+        let ns_dict = pyo3::types::PyDict::new(py);
         ns_dict.set_item("namespace", &namespace.namespace)?;
         ns_dict.set_item("record_count", namespace.record_count)?;
         ns_dict.set_item("concept_count", namespace.concept_count)?;
@@ -14466,7 +14466,7 @@ fn cross_namespace_digest_to_py(
         ns_dict.set_item("causal_signatures", &namespace.causal_signatures)?;
         match &namespace.belief_state_summary {
             Some(summary) => {
-                let summary_dict = pyo3::types::PyDict::new_bound(py);
+                let summary_dict = pyo3::types::PyDict::new(py);
                 summary_dict.set_item("resolved", summary.resolved)?;
                 summary_dict.set_item("unresolved", summary.unresolved)?;
                 summary_dict.set_item("singleton", summary.singleton)?;
@@ -14480,9 +14480,9 @@ fn cross_namespace_digest_to_py(
         ns_dict.set_item("correction_count", namespace.correction_count)?;
         ns_dict.set_item("correction_density", namespace.correction_density)?;
 
-        let top_concepts = pyo3::types::PyList::empty_bound(py);
+        let top_concepts = pyo3::types::PyList::empty(py);
         for concept in &namespace.top_concepts {
-            let concept_dict = pyo3::types::PyDict::new_bound(py);
+            let concept_dict = pyo3::types::PyDict::new(py);
             concept_dict.set_item("concept_id", &concept.concept_id)?;
             concept_dict.set_item("key", &concept.key)?;
             concept_dict.set_item("confidence", concept.confidence)?;
@@ -14496,9 +14496,9 @@ fn cross_namespace_digest_to_py(
     }
     dict.set_item("namespaces", py_namespaces)?;
 
-    let py_pairs = pyo3::types::PyList::empty_bound(py);
+    let py_pairs = pyo3::types::PyList::empty(py);
     for pair in &digest.pairs {
-        let pair_dict = pyo3::types::PyDict::new_bound(py);
+        let pair_dict = pyo3::types::PyDict::new(py);
         pair_dict.set_item("namespace_a", &pair.namespace_a)?;
         pair_dict.set_item("namespace_b", &pair.namespace_b)?;
         pair_dict.set_item("shared_concept_signatures", &pair.shared_concept_signatures)?;
@@ -14526,7 +14526,7 @@ fn cross_namespace_digest_to_py(
 
 #[cfg(feature = "python")]
 fn provenance_chain_to_py(py: Python<'_>, chain: &ProvenanceChain) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("record_id", &chain.record_id)?;
     dict.set_item("namespace", &chain.namespace)?;
     dict.set_item("content_preview", &chain.content_preview)?;
@@ -14535,7 +14535,7 @@ fn provenance_chain_to_py(py: Python<'_>, chain: &ProvenanceChain) -> PyResult<P
     dict.set_item("because_preview", &chain.because_preview)?;
     dict.set_item("narrative", &chain.narrative)?;
 
-    let steps = pyo3::types::PyList::empty_bound(py);
+    let steps = pyo3::types::PyList::empty(py);
     for step in &chain.steps {
         steps.append(step)?;
     }
@@ -14637,9 +14637,9 @@ fn correction_log_entries_to_py(
     py: Python<'_>,
     entries: &[CorrectionLogEntry],
 ) -> PyResult<PyObject> {
-    let results = pyo3::types::PyList::empty_bound(py);
+    let results = pyo3::types::PyList::empty(py);
     for entry in entries {
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("timestamp", entry.timestamp)?;
         dict.set_item("time_iso", &entry.time_iso)?;
         dict.set_item("target_kind", &entry.target_kind)?;
@@ -14657,9 +14657,9 @@ fn correction_review_candidates_to_py(
     py: Python<'_>,
     entries: &[CorrectionReviewCandidate],
 ) -> PyResult<PyObject> {
-    let results = pyo3::types::PyList::empty_bound(py);
+    let results = pyo3::types::PyList::empty(py);
     for entry in entries {
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("timestamp", entry.timestamp)?;
         dict.set_item("time_iso", &entry.time_iso)?;
         dict.set_item("target_kind", &entry.target_kind)?;
@@ -14685,9 +14685,9 @@ fn contradiction_review_candidates_to_py(
     py: Python<'_>,
     entries: &[ContradictionReviewCandidate],
 ) -> PyResult<PyObject> {
-    let results = pyo3::types::PyList::empty_bound(py);
+    let results = pyo3::types::PyList::empty(py);
     for entry in entries {
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("cluster_id", &entry.cluster_id)?;
         dict.set_item("namespace", &entry.namespace)?;
         dict.set_item("title", &entry.title)?;
@@ -14718,9 +14718,9 @@ fn suggested_corrections_to_py(
     py: Python<'_>,
     entries: &[SuggestedCorrection],
 ) -> PyResult<PyObject> {
-    let results = pyo3::types::PyList::empty_bound(py);
+    let results = pyo3::types::PyList::empty(py);
     for entry in entries {
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("target_kind", &entry.target_kind)?;
         dict.set_item("target_id", &entry.target_id)?;
         dict.set_item("namespace", &entry.namespace)?;
@@ -14744,7 +14744,7 @@ fn suggested_corrections_report_to_py(
     py: Python<'_>,
     report: &SuggestedCorrectionsReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("scan_latency_ms", report.scan_latency_ms)?;
     dict.set_item("entries", suggested_corrections_to_py(py, &report.entries)?)?;
     Ok(dict.unbind().into_any())
@@ -14755,9 +14755,9 @@ fn namespace_governance_statuses_to_py(
     py: Python<'_>,
     entries: &[NamespaceGovernanceStatus],
 ) -> PyResult<PyObject> {
-    let results = pyo3::types::PyList::empty_bound(py);
+    let results = pyo3::types::PyList::empty(py);
     for entry in entries {
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("namespace", &entry.namespace)?;
         dict.set_item("record_count", entry.record_count)?;
         dict.set_item("belief_count", entry.belief_count)?;
@@ -14793,7 +14793,7 @@ fn maintenance_trend_summary_to_py(
     py: Python<'_>,
     summary: &background_brain::MaintenanceTrendSummary,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("snapshot_count", summary.snapshot_count)?;
     dict.set_item("avg_belief_churn", summary.avg_belief_churn)?;
     dict.set_item(
@@ -14812,9 +14812,9 @@ fn maintenance_trend_summary_to_py(
     )?;
     dict.set_item("latest_dominant_phase", &summary.latest_dominant_phase)?;
 
-    let recent = pyo3::types::PyList::empty_bound(py);
+    let recent = pyo3::types::PyList::empty(py);
     for snapshot in &summary.recent {
-        let snapshot_dict = pyo3::types::PyDict::new_bound(py);
+        let snapshot_dict = pyo3::types::PyDict::new(py);
         snapshot_dict.set_item("timestamp", &snapshot.timestamp)?;
         snapshot_dict.set_item("total_records", snapshot.total_records)?;
         snapshot_dict.set_item("records_archived", snapshot.records_archived)?;
@@ -14850,9 +14850,9 @@ fn reflection_findings_to_py(
     py: Python<'_>,
     findings: &[background_brain::ReflectionFinding],
 ) -> PyResult<PyObject> {
-    let results = pyo3::types::PyList::empty_bound(py);
+    let results = pyo3::types::PyList::empty(py);
     for finding in findings {
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("kind", &finding.kind)?;
         dict.set_item("namespace", &finding.namespace)?;
         dict.set_item("title", &finding.title)?;
@@ -14870,16 +14870,16 @@ fn reflection_digest_to_py(
     py: Python<'_>,
     digest: &background_brain::ReflectionDigest,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("summary_count", digest.summary_count)?;
     dict.set_item("total_findings", digest.total_findings)?;
     dict.set_item("high_severity_findings", digest.high_severity_findings)?;
     dict.set_item("latest_timestamp", &digest.latest_timestamp)?;
     dict.set_item("latest_dominant_phase", &digest.latest_dominant_phase)?;
 
-    let kinds = pyo3::types::PyList::empty_bound(py);
+    let kinds = pyo3::types::PyList::empty(py);
     for kind in &digest.kinds {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("kind", &kind.kind)?;
         item.set_item("count", kind.count)?;
         item.set_item("high_severity_count", kind.high_severity_count)?;
@@ -14900,7 +14900,7 @@ fn explainability_bundle_to_py(
     py: Python<'_>,
     bundle: &ExplainabilityBundle,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("record_id", &bundle.record_id)?;
     dict.set_item(
         "explanation",
@@ -14935,7 +14935,7 @@ fn explainability_bundle_to_py(
         reflection_findings_to_py(py, &bundle.related_reflection_findings)?,
     )?;
 
-    let instability = pyo3::types::PyDict::new_bound(py);
+    let instability = pyo3::types::PyDict::new(py);
     instability.set_item("total_beliefs", bundle.belief_instability.total_beliefs)?;
     instability.set_item("resolved", bundle.belief_instability.resolved)?;
     instability.set_item("unresolved", bundle.belief_instability.unresolved)?;
@@ -14955,7 +14955,7 @@ fn explainability_bundle_to_py(
     )?;
     instability.set_item("avg_volatility", bundle.belief_instability.avg_volatility)?;
     instability.set_item("avg_stability", bundle.belief_instability.avg_stability)?;
-    let bands = pyo3::types::PyDict::new_bound(py);
+    let bands = pyo3::types::PyDict::new(py);
     bands.set_item("low", bundle.belief_instability.volatility_bands.low)?;
     bands.set_item("medium", bundle.belief_instability.volatility_bands.medium)?;
     bands.set_item("high", bundle.belief_instability.volatility_bands.high)?;
@@ -14971,7 +14971,7 @@ fn explainability_bundle_to_py(
 
 #[cfg(feature = "python")]
 fn consequence_unit_to_py(py: Python<'_>, unit: &ConsequenceUnit) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("record_id", &unit.record_id)?;
     dict.set_item("situation", &unit.situation)?;
     dict.set_item("action", &unit.action)?;
@@ -14989,7 +14989,7 @@ fn consequence_unit_to_py(py: Python<'_>, unit: &ConsequenceUnit) -> PyResult<Py
 
 #[cfg(feature = "python")]
 fn outcome_receipt_to_py(py: Python<'_>, receipt: &OutcomeReceipt) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("schema_version", receipt.schema_version)?;
     dict.set_item("receipt_id", &receipt.receipt_id)?;
     dict.set_item("task_id", &receipt.task_id)?;
@@ -15010,9 +15010,9 @@ fn outcome_receipt_to_py(py: Python<'_>, receipt: &OutcomeReceipt) -> PyResult<P
         "selected_set_probability_bps",
         receipt.selected_set_probability_bps,
     )?;
-    let verdicts = pyo3::types::PyList::empty_bound(py);
+    let verdicts = pyo3::types::PyList::empty(py);
     for verdict in &receipt.candidate_verdicts {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("record_id", &verdict.record_id)?;
         item.set_item("outcome", verdict.outcome.as_str())?;
         verdicts.append(item)?;
@@ -15024,16 +15024,16 @@ fn outcome_receipt_to_py(py: Python<'_>, receipt: &OutcomeReceipt) -> PyResult<P
 }
 #[cfg(all(feature = "python", feature = "capsule"))]
 fn capsule_toc_to_py(py: Python<'_>, toc: &crate::capsule::CapsuleToc) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("format", &toc.format)?;
     dict.set_item("version", toc.version)?;
     dict.set_item("generation", toc.generation)?;
     dict.set_item("created_at", toc.created_at)?;
     dict.set_item("original_size", toc.original_size)?;
     dict.set_item("stored_size", toc.stored_size)?;
-    let holds = pyo3::types::PyList::empty_bound(py);
+    let holds = pyo3::types::PyList::empty(py);
     for hold in &toc.holds {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("generation", hold.generation)?;
         item.set_item("label", &hold.label)?;
         item.set_item("created_at", hold.created_at)?;
@@ -15041,7 +15041,7 @@ fn capsule_toc_to_py(py: Python<'_>, toc: &crate::capsule::CapsuleToc) -> PyResu
     }
     dict.set_item("holds", holds)?;
     if let Some(authenticity) = &toc.authenticity {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("algorithm", &authenticity.algorithm)?;
         item.set_item("public_key", &authenticity.public_key)?;
         item.set_item("manifest_sha256", &authenticity.manifest_sha256)?;
@@ -15054,9 +15054,9 @@ fn capsule_toc_to_py(py: Python<'_>, toc: &crate::capsule::CapsuleToc) -> PyResu
     } else {
         dict.set_item("authenticity", py.None())?;
     }
-    let segments = pyo3::types::PyList::empty_bound(py);
+    let segments = pyo3::types::PyList::empty(py);
     for segment in &toc.segments {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("name", &segment.name)?;
         item.set_item("offset", segment.offset)?;
         item.set_item("stored_size", segment.stored_size)?;
@@ -15080,7 +15080,7 @@ fn capsule_authenticity_report_to_py(
     py: Python<'_>,
     report: &crate::capsule::CapsuleAuthenticityReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("path", report.path.to_string_lossy().as_ref())?;
     dict.set_item("verified", report.verified)?;
     dict.set_item("generation_count", report.generation_count)?;
@@ -15102,7 +15102,7 @@ fn capsule_authenticity_checkpoint_to_py(
     py: Python<'_>,
     checkpoint: &crate::capsule::CapsuleAuthenticityCheckpoint,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("format", &checkpoint.format)?;
     dict.set_item("version", checkpoint.version)?;
     dict.set_item("public_key", &checkpoint.public_key)?;
@@ -15117,7 +15117,7 @@ fn capsule_checkpoint_verification_to_py(
     py: Python<'_>,
     report: &crate::capsule::CapsuleCheckpointVerificationReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item(
         "checkpoint_path",
         report.checkpoint_path.to_string_lossy().as_ref(),
@@ -15133,7 +15133,7 @@ fn capsule_checkpoint_verification_to_py(
 
 #[cfg(feature = "python")]
 fn applicability_report_to_py(py: Python<'_>, report: &ApplicabilityReport) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("record_id", &report.record_id)?;
     dict.set_item("decision", report.decision.as_str())?;
     dict.set_item("requirements_total", report.requirements_total)?;
@@ -15145,18 +15145,18 @@ fn applicability_report_to_py(py: Python<'_>, report: &ApplicabilityReport) -> P
     )?;
     dict.set_item("reasons", &report.reasons)?;
 
-    let conflicts = pyo3::types::PyList::empty_bound(py);
+    let conflicts = pyo3::types::PyList::empty(py);
     for conflict in &report.conflicting_fields {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("field", &conflict.field)?;
         item.set_item("values", &conflict.values)?;
         conflicts.append(item)?;
     }
     dict.set_item("conflicting_fields", conflicts)?;
 
-    let mismatches = pyo3::types::PyList::empty_bound(py);
+    let mismatches = pyo3::types::PyList::empty(py);
     for mismatch in &report.mismatches {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("field", &mismatch.field)?;
         item.set_item("expected", &mismatch.expected)?;
         item.set_item("actual", &mismatch.actual)?;
@@ -15172,7 +15172,7 @@ fn context_capsule_to_py(
     capsule: &ContextCapsule,
     compaction: Option<&crate::context_capsule::ContextCompactionReport>,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("namespace", &capsule.namespace)?;
     dict.set_item("purpose", &capsule.purpose)?;
     dict.set_item("token_budget", capsule.token_budget)?;
@@ -15183,9 +15183,9 @@ fn context_capsule_to_py(
     dict.set_item("evidence_debt_count", capsule.evidence_debt_count)?;
     dict.set_item("contradiction_count", capsule.contradiction_count)?;
     dict.set_item("capsule_hash", &capsule.capsule_hash)?;
-    let entries = pyo3::types::PyList::empty_bound(py);
+    let entries = pyo3::types::PyList::empty(py);
     for entry in &capsule.entries {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("record_id", &entry.record_id)?;
         item.set_item("category", entry.category.as_str())?;
         item.set_item("content", &entry.content)?;
@@ -15201,7 +15201,7 @@ fn context_capsule_to_py(
     }
     dict.set_item("entries", entries)?;
     if let Some(report) = compaction {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("baseline_entry_count", report.baseline_entry_count)?;
         item.set_item("output_entry_count", report.output_entry_count)?;
         item.set_item("additional_entry_count", report.additional_entry_count)?;
@@ -15225,7 +15225,7 @@ fn capsule_compaction_report_to_py(
     py: Python<'_>,
     report: &crate::capsule::CapsuleCompactionReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("path", report.path.to_string_lossy().as_ref())?;
     dict.set_item("kept_generations", &report.kept_generations)?;
     dict.set_item("dropped_generation_count", report.dropped_generation_count)?;
@@ -15243,7 +15243,7 @@ fn capsule_append_report_to_py(
     py: Python<'_>,
     report: &crate::capsule::CapsuleAppendReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("output_path", report.output_path.to_string_lossy().as_ref())?;
     dict.set_item("generation", report.generation)?;
     dict.set_item("segment_count", report.segment_count)?;
@@ -15260,7 +15260,7 @@ fn capsule_retention_plan_to_py(
     py: Python<'_>,
     plan: &crate::capsule::CapsuleRetentionPlan,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("evaluated_generations", &plan.evaluated_generations)?;
     dict.set_item("keep_generations", &plan.keep_generations)?;
     dict.set_item("drop_generations", &plan.drop_generations)?;
@@ -15280,7 +15280,7 @@ fn capsule_retention_report_to_py(
     py: Python<'_>,
     report: &crate::capsule::CapsuleRetentionReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item(
         "evaluated_generation_count",
         report.evaluated_generation_count,
@@ -15303,7 +15303,7 @@ fn capsule_scheduler_status_to_py(
     py: Python<'_>,
     status: &crate::capsule::CapsuleRetentionSchedulerStatus,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("path", status.path.to_string_lossy().as_ref())?;
     dict.set_item("running", status.running)?;
     dict.set_item("interval_seconds", status.interval_seconds)?;
@@ -15319,12 +15319,12 @@ fn capsule_hold_report_to_py(
     py: Python<'_>,
     report: &crate::capsule::CapsuleHoldReport,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("control_generation", report.control_generation)?;
     dict.set_item("held_generation", report.held_generation)?;
-    let holds = pyo3::types::PyList::empty_bound(py);
+    let holds = pyo3::types::PyList::empty(py);
     for hold in &report.active_holds {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("generation", hold.generation)?;
         item.set_item("label", &hold.label)?;
         item.set_item("created_at", hold.created_at)?;
@@ -15339,16 +15339,16 @@ fn capsule_generation_diff_to_py(
     py: Python<'_>,
     diff: &crate::capsule::CapsuleGenerationDiff,
 ) -> PyResult<PyObject> {
-    let dict = pyo3::types::PyDict::new_bound(py);
+    let dict = pyo3::types::PyDict::new(py);
     dict.set_item("from_generation", diff.from_generation)?;
     dict.set_item("to_generation", diff.to_generation)?;
     dict.set_item("added", &diff.added)?;
     dict.set_item("removed", &diff.removed)?;
     dict.set_item("unchanged", &diff.unchanged)?;
     dict.set_item("original_size_delta", diff.original_size_delta)?;
-    let changed = pyo3::types::PyList::empty_bound(py);
+    let changed = pyo3::types::PyList::empty(py);
     for delta in &diff.changed {
-        let item = pyo3::types::PyDict::new_bound(py);
+        let item = pyo3::types::PyDict::new(py);
         item.set_item("name", &delta.name)?;
         item.set_item("previous_sha256", &delta.previous_sha256)?;
         item.set_item("current_sha256", &delta.current_sha256)?;
@@ -15685,7 +15685,7 @@ impl Aura {
     ) -> PyResult<PyObject> {
         let (verdict, supports, refutes, inconclusive) =
             py.allow_threads(|| self.consequence_verdict(situation, action, namespace));
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("verdict", verdict.as_str())?;
         dict.set_item("supports", supports)?;
         dict.set_item("refutes", refutes)?;
@@ -15724,7 +15724,7 @@ impl Aura {
         namespace: Option<&str>,
     ) -> PyResult<PyObject> {
         let hint = py.allow_threads(|| self.consequence_policy_hint(situation, action, namespace));
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("situation", &hint.situation)?;
         dict.set_item("action", &hint.action)?;
         dict.set_item("hint", &hint.hint)?;
@@ -15844,7 +15844,7 @@ impl Aura {
         results
             .iter()
             .map(|result| {
-                let dict = pyo3::types::PyDict::new_bound(py);
+                let dict = pyo3::types::PyDict::new(py);
                 dict.set_item("id", &result.record.id)?;
                 dict.set_item("content", &result.record.content)?;
                 dict.set_item("score", result.score)?;
@@ -15896,7 +15896,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -15922,9 +15922,9 @@ impl Aura {
             ) {
                 let concepts = self.get_surfaced_concepts_for_record(&rec.id, Some(3));
                 if !concepts.is_empty() {
-                    let py_concepts = pyo3::types::PyList::empty_bound(py);
+                    let py_concepts = pyo3::types::PyList::empty(py);
                     for concept in concepts {
-                        let cdict = pyo3::types::PyDict::new_bound(py);
+                        let cdict = pyo3::types::PyDict::new(py);
                         cdict.set_item("id", concept.id)?;
                         cdict.set_item("key", concept.key)?;
                         cdict.set_item("state", concept.state)?;
@@ -15992,7 +15992,7 @@ impl Aura {
         let Some(decision) = self.check_record_access(record_id, &context) else {
             return Ok(None);
         };
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("allowed", decision.allowed)?;
         dict.set_item("reason", decision.reason)?;
         dict.set_item("policy_version", decision.policy_version)?;
@@ -16047,7 +16047,7 @@ impl Aura {
             })
             .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
 
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item(
             "enforcement_mode",
             match report.enforcement_mode {
@@ -16057,9 +16057,9 @@ impl Aura {
         )?;
         dict.set_item("evaluated_count", report.evaluated_count)?;
         dict.set_item("denied_count", report.denied_count)?;
-        let results = pyo3::types::PyList::empty_bound(py);
+        let results = pyo3::types::PyList::empty(py);
         for (score, record) in report.results {
-            let item = pyo3::types::PyDict::new_bound(py);
+            let item = pyo3::types::PyDict::new(py);
             item.set_item("id", record.id)?;
             item.set_item("content", record.content)?;
             item.set_item("score", score)?;
@@ -16068,9 +16068,9 @@ impl Aura {
             results.append(item)?;
         }
         dict.set_item("results", results)?;
-        let decisions = pyo3::types::PyList::empty_bound(py);
+        let decisions = pyo3::types::PyList::empty(py);
         for entry in report.audit_decisions {
-            let item = pyo3::types::PyDict::new_bound(py);
+            let item = pyo3::types::PyDict::new(py);
             item.set_item("record_id", entry.record_id)?;
             item.set_item("namespace", entry.namespace)?;
             item.set_item("allowed", entry.decision.allowed)?;
@@ -16118,7 +16118,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (eff, base, kind, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", eff)?;
@@ -16168,7 +16168,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -16189,9 +16189,9 @@ impl Aura {
             ) {
                 let concepts = self.get_surfaced_concepts_for_record(&rec.id, Some(3));
                 if !concepts.is_empty() {
-                    let py_concepts = pyo3::types::PyList::empty_bound(py);
+                    let py_concepts = pyo3::types::PyList::empty(py);
                     for concept in concepts {
-                        let cdict = pyo3::types::PyDict::new_bound(py);
+                        let cdict = pyo3::types::PyDict::new(py);
                         cdict.set_item("id", concept.id)?;
                         cdict.set_item("key", concept.key)?;
                         cdict.set_item("state", concept.state)?;
@@ -16244,7 +16244,7 @@ impl Aura {
         results
             .into_iter()
             .map(|(score, rec)| {
-                let dict = pyo3::types::PyDict::new_bound(py);
+                let dict = pyo3::types::PyDict::new(py);
                 dict.set_item("id", &rec.id)?;
                 dict.set_item("content", &rec.content)?;
                 dict.set_item("score", score)?;
@@ -16268,7 +16268,7 @@ impl Aura {
             .allow_threads(|| self.history(record_id))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         for (k, v) in &info {
             dict.set_item(k, v)?;
         }
@@ -16308,7 +16308,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -16329,9 +16329,9 @@ impl Aura {
             ) {
                 let concepts = self.get_surfaced_concepts_for_record(&rec.id, Some(3));
                 if !concepts.is_empty() {
-                    let py_concepts = pyo3::types::PyList::empty_bound(py);
+                    let py_concepts = pyo3::types::PyList::empty(py);
                     for concept in concepts {
-                        let cdict = pyo3::types::PyDict::new_bound(py);
+                        let cdict = pyo3::types::PyDict::new(py);
                         cdict.set_item("id", concept.id)?;
                         cdict.set_item("key", concept.key)?;
                         cdict.set_item("state", concept.state)?;
@@ -16414,7 +16414,7 @@ impl Aura {
         let receipt = self
             .purge_record(record_id, scope)
             .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("record_digest", receipt.record_digest)?;
         dict.set_item("scope", receipt.scope.as_str())?;
         dict.set_item("active_record_removed", receipt.active_record_removed)?;
@@ -16458,7 +16458,7 @@ impl Aura {
         let report = self
             .replay_recall(trace_id)
             .map_err(|error| pyo3::exceptions::PyKeyError::new_err(error.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("original_trace_id", report.original_trace_id)?;
         dict.set_item("replay_trace_id", report.replay_trace_id)?;
         dict.set_item("ranking_stable", report.ranking_stable)?;
@@ -16669,7 +16669,7 @@ impl Aura {
         let results: Vec<PyObject> = raw
             .into_iter()
             .map(|insight| {
-                let dict = pyo3::types::PyDict::new_bound(py);
+                let dict = pyo3::types::PyDict::new(py);
                 let _ = dict.set_item("insight_type", &insight.insight_type);
                 let _ = dict.set_item("severity", format!("{:?}", insight.severity));
                 let _ = dict.set_item(
@@ -16682,7 +16682,7 @@ impl Aura {
                 );
                 let _ = dict.set_item("record_ids", &insight.record_ids);
                 let _ = dict.set_item("description", &insight.description);
-                let evidence_dict = pyo3::types::PyDict::new_bound(py);
+                let evidence_dict = pyo3::types::PyDict::new(py);
                 for (k, v) in &insight.evidence {
                     let _ = evidence_dict.set_item(k, v);
                 }
@@ -16845,7 +16845,7 @@ impl Aura {
         let entries = self.get_correction_log();
         let mut results = Vec::with_capacity(entries.len());
         for entry in entries {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("timestamp", entry.timestamp)?;
             dict.set_item("time_iso", entry.time_iso)?;
             dict.set_item("target_kind", entry.target_kind)?;
@@ -16868,7 +16868,7 @@ impl Aura {
         let entries = self.get_correction_log_for_target(target_kind, target_id);
         let mut results = Vec::with_capacity(entries.len());
         for entry in entries {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("timestamp", entry.timestamp)?;
             dict.set_item("time_iso", entry.time_iso)?;
             dict.set_item("target_kind", entry.target_kind)?;
@@ -17242,7 +17242,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -17283,7 +17283,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -17326,7 +17326,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -17367,7 +17367,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -17408,7 +17408,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -17451,7 +17451,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -17492,7 +17492,7 @@ impl Aura {
 
         let mut py_results = Vec::new();
         for (score, rec) in results {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", &rec.id)?;
             dict.set_item("content", &rec.content)?;
             dict.set_item("score", score)?;
@@ -17725,7 +17725,7 @@ impl Aura {
     #[pyo3(name = "suggest_memory_intent")]
     fn py_suggest_memory_intent(&self, py: Python<'_>, query: &str) -> PyResult<PyObject> {
         let intent = self.suggest_memory_intent(query);
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("needs_memory", intent.needs_memory)?;
         dict.set_item(
             "suggested_routes",
@@ -17772,7 +17772,7 @@ impl Aura {
         depth: Option<&str>,
     ) -> PyResult<PyObject> {
         let project = self.start_research(topic, depth);
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("id", &project.id)?;
         dict.set_item("topic", &project.topic)?;
         dict.set_item("depth", &project.depth)?;
@@ -17848,7 +17848,7 @@ impl Aura {
             .expect("evidence finding has document");
         let span = finding.source_span.expect("evidence finding has span");
         let integrity = finding.integrity.expect("evidence finding has integrity");
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("admission", finding.admission.unwrap().as_str())?;
         dict.set_item("integrity_valid", integrity.is_valid())?;
         dict.set_item("document_id", document.document_id)?;
@@ -17961,7 +17961,7 @@ impl Aura {
     #[pyo3(name = "get_user_profile")]
     fn py_get_user_profile(&self, py: Python<'_>) -> Option<PyObject> {
         self.get_user_profile().map(|fields| {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             for (k, v) in &fields {
                 let _ = dict.set_item(k, v);
             }
@@ -18171,7 +18171,7 @@ impl Aura {
     #[pyo3(name = "generate_container_signing_key")]
     fn py_generate_container_signing_key(py: Python<'_>) -> PyResult<PyObject> {
         let key = Self::generate_container_signing_key();
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("private_key", key.private_key)?;
         dict.set_item("public_key", key.public_key)?;
         Ok(dict.unbind().into_any())
@@ -18183,7 +18183,7 @@ impl Aura {
         let report = self
             .export_container(output_path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("output_path", report.output_path.to_string_lossy().as_ref())?;
         dict.set_item("segment_count", report.segment_count)?;
         dict.set_item("original_size", report.original_size)?;
@@ -18204,7 +18204,7 @@ impl Aura {
         let report = self
             .export_signed_container(output_path, signing_key)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("output_path", report.output_path.to_string_lossy().as_ref())?;
         dict.set_item("segment_count", report.segment_count)?;
         dict.set_item("original_size", report.original_size)?;
@@ -18259,7 +18259,7 @@ impl Aura {
                 },
             )
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("append", capsule_append_report_to_py(py, &report.append)?)?;
         dict.set_item(
             "retention",
@@ -18292,7 +18292,7 @@ impl Aura {
                 },
             )
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("append", capsule_append_report_to_py(py, &report.append)?)?;
         dict.set_item(
             "retention",
@@ -18366,9 +18366,9 @@ impl Aura {
     fn py_list_container_generations(py: Python<'_>, container_path: &str) -> PyResult<PyObject> {
         let generations = Self::list_container_generations(container_path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let items = pyo3::types::PyList::empty_bound(py);
+        let items = pyo3::types::PyList::empty(py);
         for generation in generations {
-            let dict = pyo3::types::PyDict::new_bound(py);
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("generation", generation.generation)?;
             dict.set_item("created_at", generation.created_at)?;
             dict.set_item("segment_count", generation.segment_count)?;
@@ -18601,7 +18601,7 @@ impl Aura {
     ) -> PyResult<PyObject> {
         let report = Self::verify_container_segments(container_path, &names)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("segment_count", report.segment_count)?;
         dict.set_item("total_size", report.total_size)?;
         dict.set_item("segments", report.segments)?;
@@ -18618,9 +18618,7 @@ impl Aura {
     ) -> PyResult<PyObject> {
         let bytes = Self::read_container_segment(container_path, name)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        Ok(pyo3::types::PyBytes::new_bound(py, &bytes)
-            .unbind()
-            .into_any())
+        Ok(pyo3::types::PyBytes::new(py, &bytes).unbind().into_any())
     }
 
     #[cfg(feature = "capsule")]
@@ -18634,9 +18632,7 @@ impl Aura {
     ) -> PyResult<PyObject> {
         let bytes = Self::read_container_segment_at_generation(container_path, generation, name)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        Ok(pyo3::types::PyBytes::new_bound(py, &bytes)
-            .unbind()
-            .into_any())
+        Ok(pyo3::types::PyBytes::new(py, &bytes).unbind().into_any())
     }
 
     #[cfg(feature = "capsule")]
@@ -18649,7 +18645,7 @@ impl Aura {
     ) -> PyResult<PyObject> {
         let report = Self::import_container(container_path, target_path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
         dict.set_item("segment_count", report.segment_count)?;
         dict.set_item("restored_size", report.restored_size)?;
@@ -18673,7 +18669,7 @@ impl Aura {
             require_all_signed,
         )
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
         dict.set_item("segment_count", report.segment_count)?;
         dict.set_item("restored_size", report.restored_size)?;
@@ -18691,7 +18687,7 @@ impl Aura {
     ) -> PyResult<PyObject> {
         let report = Self::import_container_generation(container_path, target_path, generation)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
         dict.set_item("segment_count", report.segment_count)?;
         dict.set_item("restored_size", report.restored_size)?;
@@ -18709,7 +18705,7 @@ impl Aura {
     ) -> PyResult<PyObject> {
         let report = Self::extract_container_segments(container_path, target_path, &names)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        let dict = pyo3::types::PyDict::new_bound(py);
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("target_path", report.target_path.to_string_lossy().as_ref())?;
         dict.set_item("segment_count", report.segment_count)?;
         dict.set_item("restored_size", report.restored_size)?;
@@ -18898,11 +18894,11 @@ impl Aura {
     #[pyo3(name = "security_report")]
     fn py_security_report(&self, py: Python<'_>) -> PyResult<PyObject> {
         let report = py.allow_threads(|| self.security_report());
-        let out = pyo3::types::PyDict::new_bound(py);
+        let out = pyo3::types::PyDict::new(py);
         out.set_item("profile", report.profile.as_str())?;
-        let protections = pyo3::types::PyList::empty_bound(py);
+        let protections = pyo3::types::PyList::empty(py);
         for protection in &report.protections {
-            let item = pyo3::types::PyDict::new_bound(py);
+            let item = pyo3::types::PyDict::new(py);
             item.set_item("name", protection.name)?;
             item.set_item("state", protection.state)?;
             item.set_item("evidence", protection.evidence)?;
@@ -18910,7 +18906,7 @@ impl Aura {
             protections.append(item)?;
         }
         out.set_item("protections", protections)?;
-        let stats = pyo3::types::PyDict::new_bound(py);
+        let stats = pyo3::types::PyDict::new(py);
         let s = &report.stats;
         stats.set_item("records", s.records)?;
         stats.set_item("by_effective_source", s.by_effective_source.clone())?;

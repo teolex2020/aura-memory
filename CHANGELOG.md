@@ -6,6 +6,12 @@
 
 - **Hide a record from every app.** `recall::META_HIDDEN` (`"hidden": "true"` in a record's metadata) takes a record out of what any scoped recall hands to apps, local models included, while it stays in memory, in the store and in search. A scope sees it only with `RecallScope::include_hidden` (set by `RecallScope::all()`). Meant for "don't bring this up again" on a memory the user saw given to an agent (test `hidden_records_reach_no_app`).
 
+- **Hooks for Qwen Code, Kimi Code and Antigravity.** `aura-bridge hook` now reads their payloads and gives each the memory in the form it takes:
+  - **Qwen Code:** `additionalContext`, taken only from `submitted_prompt`, since its `UserPromptSubmit` also runs before continuations.
+  - **Kimi Code:** plain text; it ignores the JSON form.
+  - **Antigravity:** a system step from `PreInvocation`. That hook carries no text and runs before every model call, so the request is read from its transcript and memory goes with the turn's first call only.
+  - **Journal:** tool calls and replies reach the journal as for the other agents (tests `qwen_and_kimi_prompts`, `antigravity_takes_the_request_from_its_transcript_once_per_turn`).
+
 ### Fixed
 
 - **A tag most records carry no longer links them.** `auto_connect` linked each new record to ~20 records sharing any of its tags. The desktop app tags ~99% of its records `conversation`, so every record got ~20 random neighbours (on 10,782 AIDev comments, 537,000 links that changed no recall result, E114). Tags carried by more than half of the records (in stores of at least 20) are now skipped; rarer tags link as before. Links made earlier stay until their weights decay (test `a_tag_most_records_carry_does_not_link`).

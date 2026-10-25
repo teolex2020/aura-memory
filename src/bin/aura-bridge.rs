@@ -7,13 +7,14 @@
 //! it.
 //!
 //! As `aura-bridge hook --client NAME [--event NAME]` it is an agent hook
-//! command for Claude Code, Cursor, Codex, Gemini CLI, Copilot and Windsurf:
-//! it reads the hook event from stdin, normalizes it to one shape and posts it
-//! to the app's journal. It never blocks the agent: exit 0, and the event is
-//! dropped when Aura is not running. It prints nothing except Cursor's
-//! required `{"continue": true}` and, on a prompt event of Claude Code, Codex
-//! or Gemini CLI, the memory the app gives with the message (as the hook's
-//! `additionalContext`; the app decides per agent whether to give any).
+//! command for Claude Code, Cursor, Codex, Gemini CLI, Copilot, Windsurf,
+//! Qwen Code, Kimi Code and Antigravity: it reads the hook event from stdin,
+//! normalizes it to one shape and posts it to the app's journal. It never
+//! blocks the agent: exit 0, and the event is dropped when Aura is not
+//! running. It prints nothing except what an agent requires (Cursor's
+//! `{"continue": true}`, Antigravity's JSON object) and, on a prompt event of
+//! an agent that takes context, the memory the app gives with the message
+//! (the app decides per agent whether to give any).
 //!
 //! # Usage
 //!     aura-bridge [--client NAME]
@@ -219,20 +220,36 @@ mod hook {
         let _ = tokio::io::stdin().read_to_string(&mut input).await;
         let raw = serde_json::from_str::<Value>(&input).unwrap_or(Value::Null);
         let source = source_event(&raw, event_arg);
+        let client = agent_of(&raw).or(client);
         // Answer first: the agent may be waiting on this before it goes on.
         if source.as_deref() == Some("beforeSubmitPrompt") {
             println!("{}", json!({"continue": true}));
         }
-        let Some(mut event) = normalize(&raw, source.as_deref()) else {
-            return;
+        let answered = report(raw, source.as_deref(), client).await;
+        // Antigravity reads a JSON object from every hook; an empty one
+        // changes nothing.
+        if !answered && client == Some("antigravity") {
+            println!("{{}}");
+        }
+    }
+
+    /// Posts the event to the journal; true when memory was printed.
+    async fn report(mut raw: Value, source: Option<&str>, client: Option<&str>) -> bool {
+        if !adapt(&mut raw, source, client) {
+            return false;
+        }
+        let Some(mut event) = normalize(&raw, source) else {
+            return false;
         };
         prepare(&mut event);
-        let client = agent_of(&raw).or(client);
-        let Some(link) = link::read() else { return };
+        let Some(link) = link::read() else {
+            return false;
+        };
+        let mut answered = false;
         // Memory with the message: asked for before the event is posted, since
         // posting keeps the prompt itself as a memory.
-        if let (Some(name), Some(prompt)) = (
-            inject_event(source.as_deref(), client),
+        if let (Some(how), Some(prompt)) = (
+            inject_event(source, client),
             event.get("prompt").and_then(Value::as_str),
         ) {
             let request = json!({"prompt": prompt, "session_id": event.get("session_id"), "cwd": event.get("cwd")});
@@ -242,33 +259,115 @@ mod hook {
             )
             .await
             {
-                println!("{}", inject_output(name, &context));
+                println!("{}", inject_output(how, &context));
+                answered = true;
             }
         }
         let body = event.to_string();
         let _ = tokio::time::timeout(Duration::from_secs(2), post(&link, client, &body)).await;
+        answered
     }
 
-    /// The prompt event whose hook may add context for the model, and the
-    /// name its answer must carry: Claude Code and Codex (`UserPromptSubmit`)
-    /// and Gemini CLI (`BeforeAgent`). Cursor, Copilot and Windsurf cannot add
-    /// context from a prompt hook; Cursor also runs Claude Code's hooks, so its
-    /// copy is left out by client.
-    pub fn inject_event(source: Option<&str>, client: Option<&str>) -> Option<&'static str> {
+    /// Fills in the user's message where an agent's payload does not carry
+    /// it plainly; false when the event is not a new user message after all.
+    ///
+    /// Antigravity's `PreInvocation` runs before every model call and carries
+    /// no text: the request comes from its transcript, once per turn. Qwen
+    /// Code runs `UserPromptSubmit` before continuations too; only
+    /// `submitted_prompt` is what the user sent.
+    pub fn adapt(raw: &mut Value, source: Option<&str>, client: Option<&str>) -> bool {
+        let prompt = match (source, client) {
+            (Some("PreInvocation"), _) => raw
+                .get("transcriptPath")
+                .and_then(Value::as_str)
+                .and_then(antigravity_new_request),
+            (Some("UserPromptSubmit"), Some("qwen-code")) => raw
+                .get("submitted_prompt")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            _ => return true,
+        };
+        match (prompt, raw.as_object_mut()) {
+            (Some(prompt), Some(map)) => {
+                map.insert("prompt".into(), prompt.into());
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// How an agent takes memory from a prompt hook.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum Inject {
+        /// `hookSpecificOutput.additionalContext` under this event name:
+        /// Claude Code, Codex, Qwen Code (`UserPromptSubmit`), Gemini CLI
+        /// (`BeforeAgent`).
+        Hook(&'static str),
+        /// Plain text on stdout (Kimi Code, which ignores the JSON form).
+        Plain,
+        /// A system step (Antigravity's `PreInvocation`).
+        Steps,
+    }
+
+    /// Whether this prompt event may add memory for the model, and how.
+    /// Cursor, Copilot and Windsurf cannot add context from a prompt hook;
+    /// Cursor also runs Claude Code's hooks, so its copy is left out by client.
+    pub fn inject_event(source: Option<&str>, client: Option<&str>) -> Option<Inject> {
         if client == Some("cursor") {
             return None;
         }
         match source? {
-            "UserPromptSubmit" => Some("UserPromptSubmit"),
-            "BeforeAgent" => Some("BeforeAgent"),
+            "UserPromptSubmit" if client == Some("kimi-code") => Some(Inject::Plain),
+            "UserPromptSubmit" => Some(Inject::Hook("UserPromptSubmit")),
+            "BeforeAgent" => Some(Inject::Hook("BeforeAgent")),
+            "PreInvocation" => Some(Inject::Steps),
             _ => None,
         }
     }
 
     /// The hook's answer that hands `context` to the model.
-    pub fn inject_output(event_name: &str, context: &str) -> String {
-        json!({"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context}})
-            .to_string()
+    pub fn inject_output(how: Inject, context: &str) -> String {
+        match how {
+            Inject::Hook(event_name) => json!({"hookSpecificOutput": {
+                "hookEventName": event_name, "additionalContext": context
+            }})
+            .to_string(),
+            Inject::Plain => context.to_owned(),
+            Inject::Steps => {
+                json!({"injectSteps": [{"systemMessage": {"systemMessage": context}}]}).to_string()
+            }
+        }
+    }
+
+    /// The request of the turn that is starting in an Antigravity transcript
+    /// (JSON lines): the last user input, while no model step follows it yet,
+    /// so memory goes with the turn's first model call only.
+    pub fn antigravity_new_request(path: &str) -> Option<String> {
+        let content = std::fs::read_to_string(path).ok()?;
+        let mut request = None;
+        for line in content.lines() {
+            let Ok(entry) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            match (entry["source"].as_str(), entry["type"].as_str()) {
+                (_, Some("USER_INPUT")) => {
+                    request = entry["content"].as_str().map(antigravity_request)
+                }
+                (Some("MODEL"), _) => request = None,
+                _ => {}
+            }
+        }
+        request.filter(|r| !r.trim().is_empty())
+    }
+
+    /// The user's words inside Antigravity's `<USER_REQUEST>` wrapper.
+    fn antigravity_request(content: &str) -> String {
+        content
+            .split_once("<USER_REQUEST>")
+            .and_then(|(_, rest)| rest.split_once("</USER_REQUEST>"))
+            .map_or(content, |(request, _)| request)
+            .trim()
+            .to_owned()
     }
 
     /// The app's memory for this message (`/context`), if it gives any.
@@ -325,6 +424,7 @@ mod hook {
             | "userPromptSubmitted"
             | "beforeSubmitPrompt"
             | "BeforeAgent"
+            | "PreInvocation"
             | "pre_user_prompt" => ("UserPromptSubmit", false),
             "PreToolUse" | "preToolUse" | "BeforeTool" => ("PreToolUse", false),
             "PostToolUse"
@@ -387,13 +487,23 @@ mod hook {
                     "sessionId",
                     "conversation_id",
                     "trajectory_id",
+                    "conversationId",
                 ],
             )
             .cloned(),
         );
         put(
             "cwd",
-            first(raw, &["cwd", "workspace_roots.0", "tool_info.cwd"]).cloned(),
+            first(
+                raw,
+                &[
+                    "cwd",
+                    "workspace_roots.0",
+                    "tool_info.cwd",
+                    "workspacePaths.0",
+                ],
+            )
+            .cloned(),
         );
         put(
             "transcript_path",
@@ -409,22 +519,44 @@ mod hook {
         );
         match name {
             "UserPromptSubmit" => {
-                put(
-                    "prompt",
-                    text(raw, &["prompt", "tool_info.user_prompt"]).map(Value::from),
-                );
+                // Kimi Code may send the message as a list of parts.
+                let prompt = match first(raw, &["prompt", "tool_info.user_prompt"]) {
+                    Some(Value::Array(parts)) => Some(
+                        parts
+                            .iter()
+                            .filter_map(|p| p.as_str().or_else(|| p.get("text")?.as_str()))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    ),
+                    Some(value) => value.as_str().map(str::to_owned),
+                    None => None,
+                };
+                put("prompt", prompt.map(Value::from));
             }
             "PreToolUse" | "PostToolUse" => {
-                let tool = text(raw, &["tool_name", "toolName", "tool_info.mcp_tool_name"])
-                    .or_else(|| match source {
-                        "afterShellExecution" | "post_run_command" => Some("Shell".into()),
-                        "post_write_code" | "afterFileEdit" => Some("Edit".into()),
-                        _ => None,
-                    });
+                let tool = text(
+                    raw,
+                    &[
+                        "tool_name",
+                        "toolName",
+                        "tool_info.mcp_tool_name",
+                        "toolCall.name",
+                    ],
+                )
+                .or_else(|| match source {
+                    "afterShellExecution" | "post_run_command" => Some("Shell".into()),
+                    "post_write_code" | "afterFileEdit" => Some("Edit".into()),
+                    _ => None,
+                });
                 put("tool_name", tool.map(Value::from));
                 let input = first(
                     raw,
-                    &["tool_input", "toolArgs", "tool_info.mcp_tool_arguments"],
+                    &[
+                        "tool_input",
+                        "toolArgs",
+                        "tool_info.mcp_tool_arguments",
+                        "toolCall.args",
+                    ],
                 )
                 .cloned()
                 .or_else(|| {
@@ -454,10 +586,12 @@ mod hook {
                 );
                 put(
                     "tool_use_id",
-                    first(raw, &["tool_use_id", "toolUseId"]).cloned(),
+                    first(raw, &["tool_use_id", "toolUseId", "tool_call_id"]).cloned(),
                 );
                 let result_type = text(raw, &["toolResult.resultType", "tool_result.result_type"]);
-                if failed || result_type.is_some_and(|t| t != "success") {
+                // Antigravity reports a failed tool only by its `error`.
+                let error = first(raw, &["error"]).is_some_and(|e| e.as_str() != Some(""));
+                if failed || error || result_type.is_some_and(|t| t != "success") {
                     put("failed", Some(Value::Bool(true)));
                 }
             }
@@ -544,6 +678,20 @@ mod hook {
             let Ok(entry) = serde_json::from_str::<Value>(line) else {
                 continue;
             };
+            // Antigravity's transcript: one step per line.
+            match entry.get("type").and_then(Value::as_str) {
+                Some("USER_INPUT") => {
+                    texts.clear();
+                    continue;
+                }
+                Some("PLANNER_RESPONSE") => {
+                    if let Some(text) = entry.get("content").and_then(Value::as_str) {
+                        texts.push(text.to_string());
+                    }
+                    continue;
+                }
+                _ => {}
+            }
             let message = entry.get("message").cloned().unwrap_or(Value::Null);
             let role = message
                 .get("role")
@@ -720,17 +868,27 @@ mod hook {
 
         #[test]
         fn memory_goes_with_prompts_of_agents_that_take_context() {
+            let hook = Some(Inject::Hook("UserPromptSubmit"));
             assert_eq!(
                 inject_event(Some("UserPromptSubmit"), Some("claude-code")),
-                Some("UserPromptSubmit")
+                hook
             );
+            assert_eq!(inject_event(Some("UserPromptSubmit"), Some("codex")), hook);
             assert_eq!(
-                inject_event(Some("UserPromptSubmit"), Some("codex")),
-                Some("UserPromptSubmit")
+                inject_event(Some("UserPromptSubmit"), Some("qwen-code")),
+                hook
             );
             assert_eq!(
                 inject_event(Some("BeforeAgent"), Some("gemini-cli")),
-                Some("BeforeAgent")
+                Some(Inject::Hook("BeforeAgent"))
+            );
+            assert_eq!(
+                inject_event(Some("UserPromptSubmit"), Some("kimi-code")),
+                Some(Inject::Plain)
+            );
+            assert_eq!(
+                inject_event(Some("PreInvocation"), Some("antigravity")),
+                Some(Inject::Steps)
             );
             // Cursor runs Claude Code's hooks too, but cannot take context from them.
             assert_eq!(inject_event(Some("UserPromptSubmit"), Some("cursor")), None);
@@ -740,9 +898,128 @@ mod hook {
             );
             assert_eq!(inject_event(Some("PreToolUse"), Some("claude-code")), None);
             let out: Value =
-                serde_json::from_str(&inject_output("BeforeAgent", "port 7311")).unwrap();
+                serde_json::from_str(&inject_output(Inject::Hook("BeforeAgent"), "port 7311"))
+                    .unwrap();
             assert_eq!(out["hookSpecificOutput"]["hookEventName"], "BeforeAgent");
             assert_eq!(out["hookSpecificOutput"]["additionalContext"], "port 7311");
+            assert_eq!(inject_output(Inject::Plain, "port 7311"), "port 7311");
+            let out: Value =
+                serde_json::from_str(&inject_output(Inject::Steps, "port 7311")).unwrap();
+            assert_eq!(
+                out["injectSteps"][0]["systemMessage"]["systemMessage"],
+                "port 7311"
+            );
+        }
+
+        #[test]
+        fn antigravity_takes_the_request_from_its_transcript_once_per_turn() {
+            let dir = std::env::temp_dir().join(format!("aura-ag-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("transcript.jsonl");
+            let user = |text: &str| {
+                json!({"source": "USER_EXPLICIT", "type": "USER_INPUT", "content":
+                    format!("<USER_REQUEST>\n{text}\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nnow\n</ADDITIONAL_METADATA>")})
+                .to_string()
+            };
+            let model = |text: &str| {
+                json!({"source": "MODEL", "type": "PLANNER_RESPONSE", "content": text}).to_string()
+            };
+            let tool = json!({"source": "MODEL", "type": "VIEW_FILE"}).to_string();
+            let mut lines = vec![
+                user("old question"),
+                model("old answer"),
+                user("new question"),
+            ];
+            std::fs::write(&path, lines.join("\n")).unwrap();
+            let payload = json!({"conversationId": "c", "workspacePaths": ["D:/proj"],
+                "transcriptPath": path.to_string_lossy(), "invocationNum": 1});
+
+            let mut raw = payload.clone();
+            assert!(adapt(&mut raw, Some("PreInvocation"), Some("antigravity")));
+            let p = normalize(&raw, Some("PreInvocation")).unwrap();
+            assert_eq!(
+                (
+                    p["hook_event_name"].as_str(),
+                    p["prompt"].as_str(),
+                    p["session_id"].as_str(),
+                    p["cwd"].as_str()
+                ),
+                (
+                    Some("UserPromptSubmit"),
+                    Some("new question"),
+                    Some("c"),
+                    Some("D:/proj")
+                )
+            );
+            // Later model calls of the same turn are not new messages.
+            lines.extend([model("thinking"), tool]);
+            std::fs::write(&path, lines.join("\n")).unwrap();
+            let mut raw = payload.clone();
+            assert!(!adapt(&mut raw, Some("PreInvocation"), Some("antigravity")));
+
+            let t = n(
+                json!({"toolCall": {"name": "run_command", "args": {"CommandLine": "npm test"}},
+                    "error": "exit status 1", "conversationId": "c"}),
+                Some("PostToolUse"),
+            );
+            assert_eq!(
+                (
+                    t["tool_name"].as_str(),
+                    t["tool_input"]["CommandLine"].as_str(),
+                    t["failed"].as_bool()
+                ),
+                (Some("run_command"), Some("npm test"), Some(true))
+            );
+            let mut stop = json!({"hook_event_name": "Stop",
+                "transcript_path": path.to_string_lossy()});
+            lines.push(model("new answer"));
+            std::fs::write(&path, lines.join("\n")).unwrap();
+            prepare(&mut stop);
+            assert_eq!(stop["last_assistant_message"], "thinking\nnew answer");
+            let _ = std::fs::remove_dir_all(dir);
+        }
+
+        #[test]
+        fn qwen_and_kimi_prompts() {
+            // Qwen Code: only what the user submitted is a message.
+            let mut raw = json!({"hook_event_name": "UserPromptSubmit", "session_id": "q",
+                "prompt": "tool result text", "submitted_prompt": "fix the build"});
+            assert!(adapt(&mut raw, Some("UserPromptSubmit"), Some("qwen-code")));
+            assert_eq!(n(raw, None)["prompt"].as_str(), Some("fix the build"));
+            let mut cont =
+                json!({"hook_event_name": "UserPromptSubmit", "prompt": "tool result text"});
+            assert!(!adapt(
+                &mut cont,
+                Some("UserPromptSubmit"),
+                Some("qwen-code")
+            ));
+            // Other agents' prompts pass as they are.
+            let mut claude = json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"});
+            assert!(adapt(
+                &mut claude,
+                Some("UserPromptSubmit"),
+                Some("claude-code")
+            ));
+
+            let k = n(
+                json!({"hook_event_name": "UserPromptSubmit", "session_id": "k",
+                    "prompt": [{"type": "text", "text": "first"}, {"type": "text", "text": "second"}]}),
+                None,
+            );
+            assert_eq!(k["prompt"].as_str(), Some("first\nsecond"));
+            let kt = n(
+                json!({"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_call_id": "t1",
+                    "tool_input": {"command": "ls"}, "tool_output": "a"}),
+                None,
+            );
+            assert_eq!(
+                (
+                    kt["tool_use_id"].as_str(),
+                    kt["tool_response"].as_str(),
+                    kt.get("failed")
+                ),
+                (Some("t1"), Some("a"), None)
+            );
         }
 
         #[test]

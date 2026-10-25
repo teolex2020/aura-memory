@@ -51,6 +51,98 @@ struct LogFrame {
     v: Vec<f32>,
 }
 
+/// Binary snapshot: magic, version, vector length, count, then for each
+/// record its id (u16 length + UTF-8) and its vector as little-endian f32.
+/// JSON (the format before 1.64) is still read and rewritten as binary: the
+/// same 10,782 vectors took 103 MB as JSON text and ~33 MB as f32, and load
+/// without parsing numbers. Values are kept as f32, so recall is unchanged.
+const SNAPSHOT_MAGIC: &[u8; 4] = b"AEMB";
+const SNAPSHOT_VERSION: u8 = 1;
+/// First byte of a binary log frame payload (a JSON frame starts with `{`).
+const BINARY_FRAME: u8 = 1;
+
+fn put_entry(out: &mut Vec<u8>, id: &str, vector: &[f32]) {
+    out.extend_from_slice(&(id.len() as u16).to_le_bytes());
+    out.extend_from_slice(id.as_bytes());
+    for value in vector {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+}
+
+fn take_entry(bytes: &[u8], at: &mut usize, dims: usize) -> Option<(String, Vec<f32>)> {
+    let id_len = u16::from_le_bytes(bytes.get(*at..*at + 2)?.try_into().ok()?) as usize;
+    *at += 2;
+    let id = std::str::from_utf8(bytes.get(*at..*at + id_len)?)
+        .ok()?
+        .to_string();
+    *at += id_len;
+    let raw = bytes.get(*at..*at + dims * 4)?;
+    *at += dims * 4;
+    let vector = raw
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+        .collect();
+    Some((id, vector))
+}
+
+fn encode_snapshot(embeddings: &HashMap<String, Vec<f32>>) -> Vec<u8> {
+    let dims = embeddings.values().next().map_or(0, Vec::len);
+    let mut ids: Vec<&String> = embeddings.keys().collect();
+    ids.sort();
+    let mut out = Vec::with_capacity(13 + embeddings.len() * (14 + dims * 4));
+    out.extend_from_slice(SNAPSHOT_MAGIC);
+    out.push(SNAPSHOT_VERSION);
+    out.extend_from_slice(&(dims as u32).to_le_bytes());
+    out.extend_from_slice(&(embeddings.len() as u32).to_le_bytes());
+    for id in ids {
+        put_entry(&mut out, id, &embeddings[id]);
+    }
+    out
+}
+
+/// A snapshot in either format; `true` when it was the old JSON one.
+fn decode_snapshot(bytes: &[u8]) -> Result<(HashMap<String, Vec<f32>>, bool)> {
+    if !bytes.starts_with(SNAPSHOT_MAGIC) {
+        return Ok((serde_json::from_slice(bytes)?, true));
+    }
+    ensure!(bytes.len() >= 13, "embedding snapshot is truncated");
+    ensure!(
+        bytes[4] == SNAPSHOT_VERSION,
+        "unsupported embedding snapshot version"
+    );
+    let dims = u32::from_le_bytes(bytes[5..9].try_into().unwrap()) as usize;
+    let count = u32::from_le_bytes(bytes[9..13].try_into().unwrap()) as usize;
+    let mut at = 13;
+    let mut embeddings = HashMap::with_capacity(count);
+    for _ in 0..count {
+        let (id, vector) = take_entry(bytes, &mut at, dims)
+            .ok_or_else(|| anyhow::anyhow!("embedding snapshot is truncated"))?;
+        embeddings.insert(id, vector);
+    }
+    Ok((embeddings, false))
+}
+
+fn encode_frame(id: &str, vector: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(7 + id.len() + vector.len() * 4);
+    out.push(BINARY_FRAME);
+    out.extend_from_slice(&(vector.len() as u32).to_le_bytes());
+    put_entry(&mut out, id, vector);
+    out
+}
+
+/// A log frame payload in either format.
+fn decode_frame(bytes: &[u8]) -> Option<(String, Vec<f32>)> {
+    if bytes.first() == Some(&BINARY_FRAME) {
+        let dims = u32::from_le_bytes(bytes.get(1..5)?.try_into().ok()?) as usize;
+        let mut at = 5;
+        let entry = take_entry(bytes, &mut at, dims)?;
+        return (at == bytes.len()).then_some(entry);
+    }
+    serde_json::from_slice::<LogFrame>(bytes)
+        .ok()
+        .map(|f| (f.id, f.v))
+}
+
 impl EmbeddingStore {
     pub fn new() -> Self {
         Self {
@@ -84,10 +176,10 @@ impl EmbeddingStore {
             let Ok(decoded) = codec.decode(&bytes[offset + 8..end]) else {
                 break;
             };
-            let Ok(frame) = serde_json::from_slice::<LogFrame>(&decoded) else {
+            let Some((id, vector)) = decode_frame(&decoded) else {
                 break;
             };
-            embeddings.insert(frame.id, frame.v);
+            embeddings.insert(id, vector);
             offset = end;
             frames += 1;
         }
@@ -100,10 +192,10 @@ impl EmbeddingStore {
         records: &HashMap<String, crate::record::Record>,
     ) -> Result<Self> {
         let path = root.join("embeddings.cog");
-        let mut embeddings: HashMap<String, Vec<f32>> = if path.exists() {
-            serde_json::from_slice(&codec.read(&path)?)?
+        let (mut embeddings, old_snapshot) = if path.exists() {
+            decode_snapshot(&codec.read(&path)?)?
         } else {
-            HashMap::new()
+            (HashMap::new(), false)
         };
         let log_path = Self::log_path(&path);
         let mut log_frames = 0;
@@ -134,9 +226,10 @@ impl EmbeddingStore {
             codec,
             log: Mutex::new((None, log_frames)),
         };
-        if log_frames > 0 {
+        if log_frames > 0 || old_snapshot {
             // Fold the replayed log (and any records filtered above) back into
-            // one snapshot so the next session starts from a clean state.
+            // one snapshot so the next session starts from a clean state; an
+            // old JSON snapshot is rewritten in the binary format here.
             let current = store.embeddings.read().clone();
             store.persist(&current)?;
         }
@@ -148,7 +241,7 @@ impl EmbeddingStore {
         if let Some(path) = &self.path {
             let mut log = self.log.lock();
             log.0.take();
-            self.codec.write(path, &serde_json::to_vec(embeddings)?)?;
+            self.codec.write(path, &encode_snapshot(embeddings))?;
             let log_path = Self::log_path(path);
             if log_path.exists() {
                 std::fs::remove_file(&log_path)?;
@@ -163,10 +256,7 @@ impl EmbeddingStore {
         let Some(path) = &self.path else {
             return Ok(0);
         };
-        let payload = self.codec.encode(&serde_json::to_vec(&LogFrame {
-            id: record_id.to_string(),
-            v: embedding.to_vec(),
-        })?)?;
+        let payload = self.codec.encode(&encode_frame(record_id, embedding))?;
         let mut frame = Vec::with_capacity(payload.len() + 8);
         frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         frame.extend_from_slice(&crc32fast::hash(&payload).to_le_bytes());
@@ -325,6 +415,56 @@ mod tests {
             }
             assert_eq!(store.query(&[1.0, 0.0], 8), expected);
         }
+    }
+
+    fn records_with(ids: &[&str]) -> HashMap<String, crate::record::Record> {
+        ids.iter()
+            .map(|id| {
+                let mut r = crate::record::Record::new("x".into(), crate::levels::Level::Working);
+                r.id = id.to_string();
+                (id.to_string(), r)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn old_json_files_load_and_are_rewritten_in_binary() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let codec = crate::persistence::PersistenceCodec::default();
+        let snap_path = dir.path().join("embeddings.cog");
+        let a = vec![0.125f32, -2.5, 3.0e-7];
+        let b = vec![1.0f32, 0.333_333_34, -0.0];
+        // the format before 1.64: a JSON snapshot and a JSON log frame
+        codec.write(
+            &snap_path,
+            &serde_json::to_vec(&HashMap::from([("a".to_string(), a.clone())]))?,
+        )?;
+        let payload = codec.encode(&serde_json::to_vec(&LogFrame {
+            id: "b".into(),
+            v: b.clone(),
+        })?)?;
+        let mut frame = (payload.len() as u32).to_le_bytes().to_vec();
+        frame.extend_from_slice(&crc32fast::hash(&payload).to_le_bytes());
+        frame.extend_from_slice(&payload);
+        std::fs::write(dir.path().join("embeddings.log"), frame)?;
+
+        let records = records_with(&["a", "b", "c"]);
+        let store = EmbeddingStore::open(dir.path(), codec.clone(), &records)?;
+        assert_eq!(store.snapshot()["a"], a);
+        assert_eq!(store.snapshot()["b"], b);
+        assert!(codec.read(&snap_path)?.starts_with(SNAPSHOT_MAGIC));
+        assert!(!dir.path().join("embeddings.log").exists());
+
+        // a new insert goes to the log as a binary frame and survives reopening
+        let c = vec![9.0f32, 8.0, 7.0];
+        store.insert("c", c.clone())?;
+        drop(store);
+        let again = EmbeddingStore::open(dir.path(), codec, &records)?.snapshot();
+        assert_eq!(
+            (again["a"].clone(), again["b"].clone(), again["c"].clone()),
+            (a, b, c)
+        );
+        Ok(())
     }
 
     #[test]

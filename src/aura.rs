@@ -966,10 +966,18 @@ impl Aura {
 
         // Records the SDR index lacks (it was lost, unreadable with this
         // store's key, or the records were imported) are indexed again.
-        let unindexed: Vec<&Record> = loaded_records
+        let mut unindexed: Vec<&Record> = loaded_records
             .values()
             .filter(|rec| !index.contains(&rec.id))
             .collect();
+        // In the order they were first stored, as `store` and `import_json`
+        // add them: the index breaks ties by arrival, so a random order
+        // (the map's) made recall differ from one open to the next.
+        unindexed.sort_by(|a, b| {
+            a.created_at
+                .total_cmp(&b.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         if !unindexed.is_empty() {
             for rec in &unindexed {
                 index.add(
@@ -985,6 +993,48 @@ impl Aura {
                 index_path.display().to_string(),
                 "rebuilt",
                 Some(format!("indexed {} records", unindexed.len())),
+                false,
+            ));
+        }
+        // Records the retrieval store has no entry for cannot be scored by
+        // SDR recall at all (38 of 1,333 in one desktop store, E113); they
+        // get the entry `store` would have made.
+        let mut unstored: Vec<&Record> = loaded_records
+            .values()
+            .filter(|rec| storage.get_header(&rec.id).is_none())
+            .collect();
+        unstored.sort_by(|a, b| {
+            a.created_at
+                .total_cmp(&b.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        let mut restored = 0usize;
+        for rec in &unstored {
+            let entry = crate::storage::StoredRecord {
+                id: rec.id.clone(),
+                dna: rec.level.to_dna().to_string(),
+                timestamp: rec.created_at,
+                intensity: rec.strength,
+                stability: if rec.pinned { 100.0 } else { 1.0 },
+                decay_velocity: 0.0,
+                entropy: 0.0,
+                sdr_indices: sdr.text_to_sdr(&rec.content, rec.level.is_identity_sdr()),
+                text: rec.content.clone(),
+                offset: 0,
+            };
+            match storage.append(&entry) {
+                Ok(_) => restored += 1,
+                Err(error) => {
+                    tracing::warn!(record_id = %rec.id, %error, "retrieval entry not restored");
+                }
+            }
+        }
+        if restored > 0 {
+            startup_events.push(startup_event(
+                "retrieval_store",
+                path_buf.display().to_string(),
+                "restored",
+                Some(format!("restored {restored} missing entries")),
                 false,
             ));
         }
@@ -19231,6 +19281,61 @@ mod tests {
         assert!(aura.index.contains(&id));
         assert!(std::fs::read(dir.path().join("index").join("sdr.idx"))?.starts_with(b"AEF1"));
         aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_store_without_its_retrieval_files_recalls_the_same_on_every_open() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().to_str().unwrap();
+        let mut ids = Vec::new();
+        {
+            let aura = Aura::open(path)?;
+            for i in 0..30 {
+                // many equally close records, so ties decide the order
+                let rec = aura.store(
+                    &format!("deploy note {i} about the release queue"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )?;
+                ids.push(rec.id);
+            }
+            aura.close()?;
+        }
+        // Lost index and retrieval store: both come back from the records,
+        // in the order the records were stored, on every open alike.
+        let recall_once = || -> Result<String> {
+            let copy = tempfile::tempdir()?;
+            for f in std::fs::read_dir(dir.path())?.flatten() {
+                if f.path().is_file() && f.file_name() != "brain.aura" {
+                    std::fs::copy(f.path(), copy.path().join(f.file_name()))?;
+                }
+            }
+            let aura = Aura::open(copy.path().to_str().unwrap())?;
+            for id in &ids {
+                assert!(
+                    aura.storage.get_header(id).is_some(),
+                    "retrieval entry restored"
+                );
+                assert!(aura.index.contains(id));
+            }
+            let found = aura.recall_provenance_scoped(
+                "release queue deploy note",
+                Some(600),
+                &crate::recall::RecallScope::all(),
+            )?;
+            aura.close()?;
+            Ok(found)
+        };
+        assert_eq!(recall_once()?, recall_once()?);
         Ok(())
     }
 

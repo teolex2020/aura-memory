@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A store that had lost its retrieval files recalled differently on every open.** Since 1.64.1 a missing or unreadable SDR index is rebuilt from the records, but in the order of an in-memory map, which changes with every process. The index breaks ties by that order, so the same store gave a different message context on each open: 9 of 271 queries differed on one desktop store, whose index had never been saved. It is now rebuilt in the order the records were first stored, as `store` and `import_json` add them.
+
+- **Records with no retrieval entry were never scored by SDR recall.** 38 of 1,333 records in one desktop store had no entry in the retrieval store (`brain.aura`), so SDR recall skipped them. Every record without one gets it on open. The same desktop store moved into an encrypted one now gives an identical message context in 271 of 271 queries, up from 215 (test `a_store_without_its_retrieval_files_recalls_the_same_on_every_open`).
+
 ## 1.64.1
 
 ### Added

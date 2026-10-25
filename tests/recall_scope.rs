@@ -357,3 +357,41 @@ fn project_records_get_a_share_without_hiding_other_projects() {
         global
     );
 }
+
+/// A record the user hid ("don't bring this up") reaches no app, not even a
+/// local model allowed private records; it stays in memory.
+#[test]
+fn hidden_records_reach_no_app() {
+    let (_d, a) = open();
+    put(
+        &a,
+        "The staging server is at port 8080",
+        Level::Domain,
+        "recorded",
+        &[],
+        None,
+    );
+    let id = put(
+        &a,
+        "The staging server used to be at port 9090",
+        Level::Domain,
+        "recorded",
+        &[(aura::recall::META_HIDDEN, "true")],
+        None,
+    );
+    let q = "staging server port";
+    let local = RecallScope {
+        include_private: true,
+        ..cloud()
+    };
+    for scope in [cloud(), local] {
+        let text = a.recall_provenance_scoped(q, None, &scope).unwrap();
+        assert!(text.contains("8080"), "{text}");
+        assert!(!text.contains("9090"), "{text}");
+    }
+    let all = a
+        .recall_provenance_scoped(q, None, &RecallScope::all())
+        .unwrap();
+    assert!(all.contains("9090"), "{all}");
+    assert!(a.get(&id).is_some());
+}

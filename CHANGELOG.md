@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Hide a record from every app.** `recall::META_HIDDEN` (`"hidden": "true"` in a record's metadata) takes a record out of what any scoped recall hands to apps, local models included, while it stays in memory, in the store and in search. A scope sees it only with `RecallScope::include_hidden` (set by `RecallScope::all()`). Meant for "don't bring this up again" on a memory the user saw given to an agent (test `hidden_records_reach_no_app`).
+
 ### Fixed
 
 - **A tag most records carry no longer links them.** `auto_connect` linked each new record to ~20 records sharing any of its tags. The desktop app tags ~99% of its records `conversation`, so every record got ~20 random neighbours (on 10,782 AIDev comments, 537,000 links that changed no recall result, E114). Tags carried by more than half of the records (in stores of at least 20) are now skipped; rarer tags link as before. Links made earlier stay until their weights decay (test `a_tag_most_records_carry_does_not_link`).
@@ -10,6 +14,8 @@
   - **Measured on copies:** the desktop store went from 75 MB to 4.2 MB on the next maintenance pass and opens in 0.22 s instead of 2.7 s; on 10,782 public AIDev comments one maintenance pass left 51 MB instead of 293 MB (reopen 1.4 s instead of 4.7 s). Every record read back after reopening was identical (test `journal_is_compacted_when_superseded_entries_dominate`).
 
 ### Changed
+
+- **Embeddings are stored as binary f32 instead of JSON text.** `embeddings.cog` and `embeddings.log` now hold the record id and the vector's raw little-endian f32 values. On 10,782 EmbeddingGemma vectors the file shrank from 103 MB to 33 MB and reopening took 3.9 s instead of 6.5 s; recall over 50 query vectors returned the same records with the same scores (to 9 digits) as before. Old JSON files are read as before and rewritten in the new format on the first open (test `old_json_files_load_and_are_rewritten_in_binary`).
 
 - **Memory given with each message is built 4–8 times faster.** `recall_provenance_scoped` used to copy every record the scope allows before formatting, although the context only reads identity facts and the causal reasons of the records it shows. It now copies only those. On 10,782 real AIDev review comments the call takes 34 ms instead of 273 (with `RecallScope::project`, 76 ms instead of 312), and all 542 hooks of E112's 271 queries are byte-identical to 1.63.0's.
 

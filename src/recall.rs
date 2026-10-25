@@ -1035,6 +1035,11 @@ pub const IDENTITY_BLOCK_SHARE: usize = 4; // one quarter
 /// with `include_private` (local models) may receive it.
 pub const META_PRIVATE: &str = "private";
 
+/// Metadata key marking a record the user has taken out of what agents are
+/// given ("don't bring this up"): it stays in memory and in search, but no
+/// scoped recall hands it to any app unless the scope sets `include_hidden`.
+pub const META_HIDDEN: &str = "hidden";
+
 /// What one app may receive from recall. Records are filtered before the
 /// context is built, so an excluded record cannot reach the app as a
 /// result, as an identity fact, or as the causal reason of another record.
@@ -1042,6 +1047,8 @@ pub const META_PRIVATE: &str = "private";
 pub struct RecallScope {
     /// Records marked private (local models only).
     pub include_private: bool,
+    /// Records the user hid from every app (`META_HIDDEN`).
+    pub include_hidden: bool,
     /// Identity-level facts about the user, including the identity block.
     pub include_identity: bool,
     /// When set, records written by other apps (`metadata.client`) are left
@@ -1065,6 +1072,7 @@ impl Default for RecallScope {
     fn default() -> Self {
         Self {
             include_private: false,
+            include_hidden: false,
             include_identity: true,
             only_client: None,
             include_imported: true,
@@ -1080,6 +1088,7 @@ impl RecallScope {
     pub fn all() -> Self {
         Self {
             include_private: true,
+            include_hidden: true,
             ..Self::default()
         }
     }
@@ -1087,6 +1096,9 @@ impl RecallScope {
     pub fn allows(&self, record: &Record) -> bool {
         let meta = |key: &str| record.metadata.get(key).map(String::as_str);
         if !self.include_private && meta(META_PRIVATE) == Some("true") {
+            return false;
+        }
+        if !self.include_hidden && meta(META_HIDDEN) == Some("true") {
             return false;
         }
         if !self.include_identity && record.level == Level::Identity {
@@ -1117,8 +1129,9 @@ impl RecallScope {
     /// Stable text for the recall cache key.
     pub fn key(&self) -> String {
         format!(
-            "p{}i{}c{}m{}o{}s{}j{}",
+            "p{}h{}i{}c{}m{}o{}s{}j{}",
             u8::from(self.include_private),
+            u8::from(self.include_hidden),
             u8::from(self.include_identity),
             self.only_client.as_deref().unwrap_or("*"),
             u8::from(self.include_imported),

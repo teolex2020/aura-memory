@@ -27,11 +27,19 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             interpreters: "3.10 3.11 3.12 3.13"
+            # The runner image no longer carries every interpreter maturin
+            # builds for (2026-10-25: the build stopped in 39 s, before
+            # compiling); install them all, 3.12 last as the default.
+            python-versions: |
+              3.10
+              3.11
+              3.13
+              3.12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-versions || '3.12' }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:

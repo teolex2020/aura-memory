@@ -662,16 +662,23 @@ impl AuraStorage {
         writer.flush()?;
         *self.needs_flush.lock() = false;
 
-        let mut dirty = self.dirty_header.lock();
-        if *dirty {
-            let count = *self.record_count.read();
-            writer.seek(SeekFrom::Start(8))?;
-            writer.write_u64::<LittleEndian>(count)?;
-            writer.flush()?;
+        // Same order as `delete` and `append` (record count, then the dirty
+        // flag), and both released before the temporal chain takes the header
+        // cache: holding the flag across it deadlocked with a concurrent
+        // `delete`, which holds the header cache and the count while it sets
+        // the flag (concurrency_stress, ~1 run in 30).
+        {
+            let count = self.record_count.read();
+            let mut dirty = self.dirty_header.lock();
+            if *dirty {
+                writer.seek(SeekFrom::Start(8))?;
+                writer.write_u64::<LittleEndian>(*count)?;
+                writer.flush()?;
 
-            // Seeking back to end ensures next append is safe
-            writer.seek(SeekFrom::End(0))?;
-            *dirty = false;
+                // Seeking back to end ensures next append is safe
+                writer.seek(SeekFrom::End(0))?;
+                *dirty = false;
+            }
         }
 
         // fsync: force OS to write buffers to physical disk.

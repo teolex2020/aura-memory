@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **A delete during maintenance could hang both for good.** The retrieval store's `flush` held its dirty flag while it saved the temporal chain, which reads the header cache; a concurrent `delete` held the header cache and the record count while it set that flag. The two waited on each other forever. The stress test `concurrency_stress` hung in about 1 run in 30 (thread stacks showed `AuraStorage::delete` and `AuraStorage::flush` → `save_temporal_chain`). `flush` now takes the count before the flag, as `delete` and `append` do, and releases both before the temporal chain: 0 hangs in 150 runs. The code dates from March; the desktop app could hit it when a memory was deleted during a maintenance pass.
+
 - **A store that had lost its retrieval files recalled differently on every open.** Since 1.64.1 a missing or unreadable SDR index is rebuilt from the records, but in the order of an in-memory map, which changes with every process. The index breaks ties by that order, so the same store gave a different message context on each open: 9 of 271 queries differed on one desktop store, whose index had never been saved. It is now rebuilt in the order the records were first stored, as `store` and `import_json` add them.
 
 - **Records with no retrieval entry were never scored by SDR recall.** 38 of 1,333 records in one desktop store had no entry in the retrieval store (`brain.aura`), so SDR recall skipped them. Every record without one gets it on open. The same desktop store moved into an encrypted one now gives an identical message context in 271 of 271 queries, up from 215 (test `a_store_without_its_retrieval_files_recalls_the_same_on_every_open`).

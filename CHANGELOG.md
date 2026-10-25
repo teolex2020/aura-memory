@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **An encrypted store kept its SDR index in plain form.** `index/sdr.idx` and `index/index_manifest.json` were written without the store's key. They hold bit patterns rather than text, but the patterns come from an unkeyed hash, so anyone could check which words a store contains: on a store whose every other file was encrypted, 600 of 600 guesses were right (E113). Both files now go through the store's codec. An index that cannot be read with the store's key (a plain one left by an earlier version, or a lost one) is rebuilt from the records on open (test `encrypted_store_keeps_its_sdr_index_encrypted_and_rebuilds_a_lost_one`).
+- **A store moved with `export_json` → `import_json` recalled differently from its source.** The import did not add records to the SDR index or the retrieval store, and it added them in export order, while the index breaks ties by arrival order. Moving 10,782 public AIDev comments kept every record identical, but the 600-token message context matched in 0 of 271 queries. Imports now fill both, in the order records were first stored; the same move matches in 271 of 271 (test `imported_records_are_as_findable_as_stored_ones`).
+
 ## 1.64.0
 
 ### Added

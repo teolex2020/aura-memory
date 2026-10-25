@@ -21,6 +21,10 @@ pub struct InvertedIndex {
     id_map: RwLock<HashMap<String, u32>>,
     reverse_map: RwLock<HashMap<u32, String>>,
     next_doc_id: RwLock<u32>,
+    /// Both files go through the store's codec: the bit patterns come from an
+    /// unkeyed hash, so in plain form they tell which words a store holds
+    /// (E113: 600 of 600 guesses right on an otherwise encrypted store).
+    codec: crate::persistence::PersistenceCodec,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -37,7 +41,18 @@ impl InvertedIndex {
             id_map: RwLock::new(HashMap::new()),
             reverse_map: RwLock::new(HashMap::new()),
             next_doc_id: RwLock::new(0),
+            codec: Default::default(),
         }
+    }
+
+    pub(crate) fn with_codec(mut self, codec: crate::persistence::PersistenceCodec) -> Self {
+        self.codec = codec;
+        self
+    }
+
+    /// Whether a record is in the index.
+    pub fn contains(&self, external_id: &str) -> bool {
+        self.id_map.read().contains_key(external_id)
     }
 
     pub fn add(&self, external_id: &str, sdr_indices: &[u16]) {
@@ -241,8 +256,9 @@ impl InvertedIndex {
         let manifest_path = self.path.join("index_manifest.json");
         let manifest_tmp = manifest_path.with_extension("json.tmp");
         {
+            let bytes = self.codec.encode(&serde_json::to_vec(&manifest)?)?;
             let mut writer = BufWriter::new(File::create(&manifest_tmp)?);
-            serde_json::to_writer(&mut writer, &manifest)?;
+            writer.write_all(&bytes)?;
             writer.flush()?;
             writer.get_ref().sync_all()?;
         }
@@ -250,14 +266,17 @@ impl InvertedIndex {
         let index_path = self.path.join("sdr.idx");
         let index_tmp = index_path.with_extension("idx.tmp");
         {
-            let mut writer = BufWriter::new(File::create(&index_tmp)?);
+            let mut plain = Vec::new();
             for (bit, bitmap) in bit_index.iter() {
-                writer.write_u16::<LittleEndian>(*bit)?;
+                plain.write_u16::<LittleEndian>(*bit)?;
                 let mut buf = Vec::new();
                 bitmap.serialize_into(&mut buf)?;
-                writer.write_u64::<LittleEndian>(buf.len() as u64)?;
-                writer.write_all(&buf)?;
+                plain.write_u64::<LittleEndian>(buf.len() as u64)?;
+                plain.write_all(&buf)?;
             }
+            let bytes = self.codec.encode(&plain)?;
+            let mut writer = BufWriter::new(File::create(&index_tmp)?);
+            writer.write_all(&bytes)?;
             writer.flush()?;
             writer.get_ref().sync_all()?;
         }
@@ -276,7 +295,11 @@ impl InvertedIndex {
         if !manifest_path.exists() || !index_path.exists() {
             return Ok(());
         }
-        let manifest: IndexManifest = serde_json::from_reader(File::open(manifest_path)?)?;
+        // Both files are decoded before anything is replaced: an index the
+        // codec cannot read (a plain one in an encrypted store) leaves this
+        // one empty, and the store rebuilds it from its records.
+        let manifest: IndexManifest = serde_json::from_slice(&self.codec.read(&manifest_path)?)?;
+        let index_bytes = self.codec.read(&index_path)?;
         *self.next_doc_id.write() = manifest.next_doc_id;
         *self.id_map.write() = manifest.id_map.clone();
 
@@ -286,7 +309,7 @@ impl InvertedIndex {
             reverse.insert(*v, k.clone());
         }
 
-        let mut reader = BufReader::new(File::open(index_path)?);
+        let mut reader = BufReader::new(&index_bytes[..]);
         let mut bit_index = self.bit_index.write();
         bit_index.clear();
         use byteorder::{LittleEndian, ReadBytesExt};

@@ -794,7 +794,7 @@ impl Aura {
         });
 
         let index_path = path_buf.join("index");
-        let index = Arc::new(InvertedIndex::new(&index_path));
+        let index = Arc::new(InvertedIndex::new(&index_path).with_codec(persistence.clone()));
         let _ = index.load();
 
         let cortex = Arc::new(ActiveCortex::new());
@@ -960,6 +960,31 @@ impl Aura {
                 Some(format!(
                     "kept {cold_record_count} demoted records in the durable journal"
                 )),
+                false,
+            ));
+        }
+
+        // Records the SDR index lacks (it was lost, unreadable with this
+        // store's key, or the records were imported) are indexed again.
+        let unindexed: Vec<&Record> = loaded_records
+            .values()
+            .filter(|rec| !index.contains(&rec.id))
+            .collect();
+        if !unindexed.is_empty() {
+            for rec in &unindexed {
+                index.add(
+                    &rec.id,
+                    &sdr.text_to_sdr(&rec.content, rec.level.is_identity_sdr()),
+                );
+            }
+            if let Err(error) = index.save() {
+                tracing::warn!(%error, "SDR index rebuilt in memory but not saved");
+            }
+            startup_events.push(startup_event(
+                "sdr_index",
+                index_path.display().to_string(),
+                "rebuilt",
+                Some(format!("indexed {} records", unindexed.len())),
                 false,
             ));
         }
@@ -11634,8 +11659,15 @@ impl Aura {
 
     /// Import records from JSON.
     pub fn import_json(&self, json_str: &str) -> Result<usize> {
-        let imported: Vec<Record> = serde_json::from_str(json_str)?;
+        let mut imported: Vec<Record> = serde_json::from_str(json_str)?;
         let count = imported.len();
+        // In the order they were first stored: the SDR index numbers records
+        // as they arrive and breaks ties by that number.
+        imported.sort_by(|a, b| {
+            a.created_at
+                .total_cmp(&b.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
 
         let mut records = self.records.write();
         let mut ngram = self.ngram_index.write();
@@ -11650,8 +11682,32 @@ impl Aura {
                     .insert(rec.id.clone());
             }
             self.cognitive_store.append_store(&rec)?;
+            // The same retrieval entries `store` makes: without them an
+            // imported store recalled differently from its source (E113:
+            // 0 of 271 hooks identical after moving a store).
+            let sdr_indices = self
+                .sdr
+                .text_to_sdr(&rec.content, rec.level.is_identity_sdr());
+            self.storage.append(&crate::storage::StoredRecord {
+                id: rec.id.clone(),
+                dna: rec.level.to_dna().to_string(),
+                timestamp: rec.created_at,
+                intensity: rec.strength,
+                stability: if rec.pinned { 100.0 } else { 1.0 },
+                decay_velocity: 0.0,
+                entropy: 0.0,
+                sdr_indices: sdr_indices.clone(),
+                text: rec.content.clone(),
+                offset: 0,
+            })?;
+            self.index.add(&rec.id, &sdr_indices);
+            self.lexical_index
+                .write()
+                .add(&rec.id, &rec.content, &rec.namespace);
             records.insert(rec.id.clone(), rec);
         }
+        drop((records, ngram, tag_idx));
+        self.index.save()?;
 
         // Invalidate recall cache
         self.runtime.clear_recall_caches();
@@ -19139,6 +19195,76 @@ mod tests {
         .expect("password opening must fail without encryption support");
         let message = error.to_string();
         assert!(message.contains("requires the 'encryption' feature"));
+        Ok(())
+    }
+
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn encrypted_store_keeps_its_sdr_index_encrypted_and_rebuilds_a_lost_one() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().to_str().unwrap();
+        let id = {
+            let aura = Aura::open_with_password(path, Some("index-secret"))?;
+            let rec = aura.store(
+                "The deploy queue runs on the zqindexword host",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )?;
+            aura.close()?;
+            rec.id
+        };
+        for file in ["sdr.idx", "index_manifest.json"] {
+            let bytes = std::fs::read(dir.path().join("index").join(file))?;
+            assert!(bytes.starts_with(b"AEF1"), "{file} is not encrypted");
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains(&id),
+                "{file} shows a record id"
+            );
+        }
+        // A lost (or plain, unreadable) index is rebuilt from the records.
+        std::fs::remove_dir_all(dir.path().join("index"))?;
+        let aura = Aura::open_with_password(path, Some("index-secret"))?;
+        assert!(aura.index.contains(&id));
+        assert!(std::fs::read(dir.path().join("index").join("sdr.idx"))?.starts_with(b"AEF1"));
+        aura.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn imported_records_are_as_findable_as_stored_ones() -> Result<()> {
+        let src_dir = tempfile::tempdir()?;
+        let src = Aura::open(src_dir.path().to_str().unwrap())?;
+        let rec = src.store(
+            "Builds publish to the zqimportword bucket",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )?;
+        let export = src.export_json()?;
+        src.close()?;
+
+        let dst_dir = tempfile::tempdir()?;
+        let dst = Aura::open(dst_dir.path().to_str().unwrap())?;
+        assert_eq!(dst.import_json(&export)?, 1);
+        // Indexed at once, not only after a reopen.
+        assert!(dst.index.contains(&rec.id));
+        assert!(dst.storage.get_header(&rec.id).is_some());
+        dst.close()?;
         Ok(())
     }
 

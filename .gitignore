@@ -219,3 +219,6 @@ experiments/reply_regeneration/*.log
 # gate CI runs stays in the repository
 experiments/*
 !experiments/memory_quality_eval/
+
+# Internal notes (architecture, audits, plans) stay on this disk
+/*.uk.md
